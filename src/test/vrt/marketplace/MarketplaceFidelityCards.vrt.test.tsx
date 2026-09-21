@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID, waitForHoverScale } from '@/test-utils/vrt';
+import { hoverAndWaitForScale, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { DropCard } from '@/organisms/Marketplace/DropCard';
 import { buildMarketplaceCatalogItems } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
@@ -74,8 +74,7 @@ describe('Marketplace fidelity cards — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-rest`);
     vi.spyOn(Math, 'random').mockReturnValue(0.75);
     const listing = screen.getByRole('link', { name: `View ${listings[2].title}` });
-    await listing.hover();
-    await waitForHoverScale(listing.element());
+    await hoverAndWaitForScale(listing);
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-listing-hover`);
   });
 
@@ -86,8 +85,7 @@ describe('Marketplace fidelity cards — visual regression', () => {
     const screen = await renderForVRT(<FidelityCards />, { viewport });
     vi.spyOn(Math, 'random').mockReturnValue(0.75);
     const dropCard = screen.getByRole('link', { name: 'View After Hours — limited vinyl' });
-    await dropCard.hover();
-    await waitForHoverScale(dropCard.element());
+    await hoverAndWaitForScale(dropCard);
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-drop-hover`);
   });
 });

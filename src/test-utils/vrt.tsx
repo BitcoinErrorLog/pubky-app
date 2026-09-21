@@ -143,47 +143,68 @@ export async function parkVrtHover() {
 /** Marketplace cards use `hover:scale-105`. Live proof treats ≥ 1.04 as settled. */
 export const VRT_HOVER_SCALE_SETTLED = 1.04;
 
-/** Cards also run `transition-transform duration-300`; 1s covers load jitter. */
-export const VRT_HOVER_SCALE_TIMEOUT_MS = 1_000;
+/** `duration-300` plus Firefox full-suite pointer lag. */
+export const VRT_HOVER_SCALE_TIMEOUT_MS = 2_000;
 
-function readHoverScale(element: Element): number {
-  const style = getComputedStyle(element);
-  const named = Number.parseFloat(style.scale);
-  if (Number.isFinite(named) && named > 0) return named;
-  const transform = style.transform;
-  if (!transform || transform === 'none') return 1;
-  const matrix = new DOMMatrix(transform);
-  return Math.hypot(matrix.a, matrix.b);
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+interface VrtHoverLocator {
+  hover(): Promise<void>;
+  element(): Element;
+}
+
+function paintedScale(element: HTMLElement): number {
+  // offsetWidth is the layout box (ignores transform). getBoundingClientRect
+  // includes the interpolated hover scale/rotate. getComputedStyle().scale is
+  // the transition *target* and is not safe to wait on.
+  return element.getBoundingClientRect().width / Math.max(element.offsetWidth, 1);
 }
 
 /**
- * Wait until a hovered card's computed scale is at least
- * `VRT_HOVER_SCALE_SETTLED`. A fixed 150ms wait (shop-v0.6.12 after PR #47)
- * captured rest vs hover on the full marketplace suite under load because
- * cards use `transition-transform duration-300` + `hover:scale-105`. Two
- * animation frames after the threshold so paint matches the settled
- * transform. Throws rather than screenshotting an in-flight transition.
+ * Hover a marketplace card and wait until the *painted* scale is settled.
+ *
+ * `getComputedStyle().scale` jumps to the `hover:scale-105` target as soon as
+ * `:hover` matches, while `transition-transform duration-300` is still at
+ * rest. shop-v0.6.12 after PR #47 used that property (and before that a
+ * 150ms timeout) and captured rest vs hover on Firefox mobile under the
+ * full marketplace suite. Bounding-box width vs `offsetWidth` tracks the
+ * interpolated transform; `:hover` is re-asserted if suite load drops the
+ * pointer. Throws rather than screenshotting an in-flight transition.
  */
-export async function waitForHoverScale(
-  element: Element,
+export async function hoverAndWaitForScale(
+  locator: VrtHoverLocator,
   minScale = VRT_HOVER_SCALE_SETTLED,
   timeoutMs = VRT_HOVER_SCALE_TIMEOUT_MS,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  let last = readHoverScale(element);
-  while (Date.now() < deadline) {
-    last = readHoverScale(element);
-    if (last >= minScale) {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve());
-    });
+  const element = locator.element();
+  if (!(element instanceof HTMLElement)) {
+    throw new Error('VRT hover scale requires an HTMLElement');
   }
-  throw new Error(`VRT hover scale stayed below ${minScale} (last=${last}) after ${timeoutMs}ms`);
+  await locator.hover();
+  const deadline = Date.now() + timeoutMs;
+  let last = paintedScale(element);
+  while (Date.now() < deadline) {
+    if (!element.matches(':hover')) {
+      await locator.hover();
+    }
+    last = paintedScale(element);
+    if (element.matches(':hover') && last >= minScale) {
+      await nextFrame();
+      last = paintedScale(element);
+      if (element.matches(':hover') && last >= minScale) {
+        await nextFrame();
+        return;
+      }
+    }
+    await nextFrame();
+  }
+  throw new Error(
+    `VRT hover visual scale stayed below ${minScale} (last=${last.toFixed(4)}, offsetWidth=${element.offsetWidth}, :hover=${element.matches(':hover')}) after ${timeoutMs}ms`,
+  );
 }
 
 async function waitForImagesReady(root: Element) {
