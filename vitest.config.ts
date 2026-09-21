@@ -53,6 +53,8 @@ function vrtProject(opts: {
   include: string[];
   exclude?: string[];
   comparatorOptions: PixelmatchComparatorOptions;
+  setupFiles?: string[];
+  fileParallelism?: boolean;
 }) {
   return {
     plugins: [fontUrlImportPlugin(), react(), tsconfigPaths()],
@@ -76,7 +78,8 @@ function vrtProject(opts: {
       testTimeout: 30_000,
       include: opts.include,
       exclude: ['**/node_modules/**', '**/.claude/**', '**/._*', ...(opts.exclude ?? [])],
-      setupFiles: ['./src/test-utils/vrt.setup.ts'],
+      setupFiles: ['./src/test-utils/vrt.setup.ts', ...(opts.setupFiles ?? [])],
+      ...(opts.fileParallelism === false ? { fileParallelism: false } : {}),
       server: { deps: { inline: ['react-tweet'] } },
       browser: {
         enabled: true,
@@ -225,6 +228,13 @@ export default defineConfig({
           allowedMismatchedPixelRatio: 0.02,
           threshold: 0.2,
         },
+        // Zero-duration transitions so hover scale paints on the first
+        // frame. Serialize marketplace files: instrumented full-suite
+        // Firefox mobile had matches(':hover') true and a scaled
+        // getBoundingClientRect while the PNG was still rest — parallel
+        // files share the Firefox compositor/pointer.
+        setupFiles: ['./src/test-utils/vrt.marketplace.setup.ts'],
+        fileParallelism: false,
       }),
     ],
   },

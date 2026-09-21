@@ -4,6 +4,7 @@ import { page, userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-react';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
+import { injectMarketplaceZeroMotion } from './vrt.marketplace-zero-motion';
 import type { VrtViewport } from './vrt.viewports';
 
 export interface RenderForVRTOptions {
@@ -143,7 +144,7 @@ export async function parkVrtHover() {
 /** Marketplace cards use `hover:scale-105`. Live proof treats ≥ 1.04 as settled. */
 export const VRT_HOVER_SCALE_SETTLED = 1.04;
 
-/** `duration-300` plus Firefox full-suite pointer lag. */
+/** Zero-duration hover still needs a compositor frame under Firefox load. */
 export const VRT_HOVER_SCALE_TIMEOUT_MS = 2_000;
 
 function nextFrame(): Promise<void> {
@@ -157,23 +158,15 @@ interface VrtHoverLocator {
   element(): Element;
 }
 
-function paintedScale(element: HTMLElement): number {
-  // offsetWidth is the layout box (ignores transform). getBoundingClientRect
-  // includes the interpolated hover scale/rotate. getComputedStyle().scale is
-  // the transition *target* and is not safe to wait on.
-  return element.getBoundingClientRect().width / Math.max(element.offsetWidth, 1);
-}
-
 /**
- * Hover a marketplace card and wait until the *painted* scale is settled.
+ * Hover a marketplace card and wait until the transformed box is settled.
  *
- * `getComputedStyle().scale` jumps to the `hover:scale-105` target as soon as
- * `:hover` matches, while `transition-transform duration-300` is still at
- * rest. shop-v0.6.12 after PR #47 used that property (and before that a
- * 150ms timeout) and captured rest vs hover on Firefox mobile under the
- * full marketplace suite. Bounding-box width vs `offsetWidth` tracks the
- * interpolated transform; `:hover` is re-asserted if suite load drops the
- * pointer. Throws rather than screenshotting an in-flight transition.
+ * `offsetWidth` is layout and ignores `transform: scale()`.
+ * `getComputedStyle().transform` / `scale` report the hover *target* as soon
+ * as `:hover` matches, including during `duration-300`. Measure rest
+ * `getBoundingClientRect().width` before hover, inject 0s transition duration
+ * so the end-state can paint on the first frame, re-assert `:hover` if suite
+ * load drops the pointer, then wait until bbox width is ≥ rest × 1.04.
  */
 export async function hoverAndWaitForScale(
   locator: VrtHoverLocator,
@@ -184,18 +177,21 @@ export async function hoverAndWaitForScale(
   if (!(element instanceof HTMLElement)) {
     throw new Error('VRT hover scale requires an HTMLElement');
   }
+  injectMarketplaceZeroMotion();
+  const restWidth = element.getBoundingClientRect().width;
+  const minWidth = restWidth * minScale;
   await locator.hover();
   const deadline = Date.now() + timeoutMs;
-  let last = paintedScale(element);
+  let lastWidth = element.getBoundingClientRect().width;
   while (Date.now() < deadline) {
     if (!element.matches(':hover')) {
       await locator.hover();
     }
-    last = paintedScale(element);
-    if (element.matches(':hover') && last >= minScale) {
+    lastWidth = element.getBoundingClientRect().width;
+    if (element.matches(':hover') && lastWidth >= minWidth) {
       await nextFrame();
-      last = paintedScale(element);
-      if (element.matches(':hover') && last >= minScale) {
+      lastWidth = element.getBoundingClientRect().width;
+      if (element.matches(':hover') && lastWidth >= minWidth) {
         await nextFrame();
         return;
       }
@@ -203,7 +199,7 @@ export async function hoverAndWaitForScale(
     await nextFrame();
   }
   throw new Error(
-    `VRT hover visual scale stayed below ${minScale} (last=${last.toFixed(4)}, offsetWidth=${element.offsetWidth}, :hover=${element.matches(':hover')}) after ${timeoutMs}ms`,
+    `VRT hover transformed box stayed below rest×${minScale} (lastWidth=${lastWidth.toFixed(2)}, restWidth=${restWidth.toFixed(2)}, minWidth=${minWidth.toFixed(2)}, :hover=${element.matches(':hover')}) after ${timeoutMs}ms`,
   );
 }
 
