@@ -66,7 +66,6 @@ jobs:
     # BitcoinErrorLog Shop previews are built and deployed by Vercel.
     if: github.repository == 'pubky/pubky-app'
     needs: [set-vars]
-    timeout-minutes: 30
     uses: ./.github/workflows/build-docker-image.yml
     with:
       platforms: ${{ needs.set-vars.outputs.platforms }}
