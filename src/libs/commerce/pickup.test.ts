@@ -9,8 +9,10 @@ import {
   marketplaceSellerPickupDetailsSchema,
   MaskedPickupDetails,
   PICKUP_DETAILS_REDACTED,
+  pickupCommandToastDescription,
   pickupDetailsSchema,
   pickupRefusalFailureMessage,
+  pickupRefusalFromUnknown,
   pickupRefusalToastDescription,
   resolveCheckoutFulfillment,
 } from './pickup';
@@ -309,6 +311,32 @@ describe('classifyMarketplacePickupRefusal (the service INVALID_STATE vocabulary
     expect(pickupRefusalToastDescription('The listing does not publish pickup.')).toBe(
       pickupRefusalFailureMessage('pickup_not_published'),
     );
+  });
+});
+
+describe('pickup command toast classification (issue 51)', () => {
+  it('reads context.refusal from a thrown command error', () => {
+    expect(
+      pickupRefusalFromUnknown({
+        message: 'The listing does not publish pickup.',
+        context: { refusal: 'pickup_not_published' },
+      }),
+    ).toBe('pickup_not_published');
+  });
+
+  it('falls back to the service message when context is absent', () => {
+    expect(pickupRefusalFromUnknown({ message: 'Pickup is unavailable on this deployment.' })).toBe(
+      'pickup_unavailable',
+    );
+    expect(pickupRefusalFromUnknown({ message: 'Meet at 14 Oak Lane.' })).toBeNull();
+  });
+
+  it('names the listing-save step for pickup_not_published instead of a generic save failure', () => {
+    expect(pickupCommandToastDescription('pickup_not_published')).toBe(
+      'Save the listing as pickup first (Save changes), then save the meeting point.',
+    );
+    expect(pickupCommandToastDescription(null)).toBe('The pickup details could not be saved.');
+    expect(pickupCommandToastDescription('pickup_unavailable')).toBe('Pickup is unavailable on this deployment.');
   });
 });
 

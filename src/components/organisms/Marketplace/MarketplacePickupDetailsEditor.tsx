@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { forwardRef, useImperativeHandle, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Controller, useFieldArray } from 'react-hook-form';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -12,7 +12,11 @@ import { RadioGroup, RadioGroupItem } from '@/atoms/RadioGroup/RadioGroup';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Typography } from '@/atoms/Typography/Typography';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
-import { usePickupDetailsForm } from '@/hooks/usePickupDetailsForm/usePickupDetailsForm';
+import {
+  type PickupDetailsCapability,
+  type PickupDetailsReadState,
+  usePickupDetailsForm,
+} from '@/hooks/usePickupDetailsForm/usePickupDetailsForm';
 import { PICKUP_DETAILS_FORM_FIELDS } from '@/hooks/usePickupDetailsForm/usePickupDetailsForm.types';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
@@ -43,14 +47,44 @@ const WEEKDAY_OPTIONS = [
  * `data-sentry-mask`, complementing Sentry Replay's global maskAllText /
  * maskAllInputs.
  */
-export function MarketplacePickupDetailsEditor({
-  listingId,
-  disabled = false,
-}: {
-  listingId: string;
-  disabled?: boolean;
-}) {
-  const editor = usePickupDetailsForm(listingId);
+export type MarketplacePickupDetailsEditorHandle = {
+  save: () => Promise<boolean>;
+  validate: () => Promise<boolean>;
+  readonly isDirty: boolean;
+  readonly hasSavedDetails: boolean;
+  readonly capability: PickupDetailsCapability;
+  readonly readState: PickupDetailsReadState;
+};
+
+export const MarketplacePickupDetailsEditor = forwardRef<
+  MarketplacePickupDetailsEditorHandle,
+  {
+    listingId: string;
+    disabled?: boolean;
+    persistListing?: () => Promise<boolean>;
+  }
+>(function MarketplacePickupDetailsEditor({ listingId, disabled = false, persistListing }, ref) {
+  const editor = usePickupDetailsForm(listingId, { persistListing });
+  useImperativeHandle(
+    ref,
+    () => ({
+      save: () => editor.save(),
+      validate: () => editor.form.trigger(),
+      get isDirty() {
+        return editor.form.formState.isDirty;
+      },
+      get hasSavedDetails() {
+        return editor.currentVersion !== null;
+      },
+      get capability() {
+        return editor.capability;
+      },
+      get readState() {
+        return editor.readState;
+      },
+    }),
+    [editor],
+  );
   const [clearOpen, setClearOpen] = useState(false);
 
   if (editor.capability === 'loading') {
@@ -274,7 +308,9 @@ export function MarketplacePickupDetailsEditor({
       </Dialog>
     </div>
   );
-}
+});
+
+MarketplacePickupDetailsEditor.displayName = 'MarketplacePickupDetailsEditor';
 
 /**
  * Availability windows (§A1): authored with the details and pinned at

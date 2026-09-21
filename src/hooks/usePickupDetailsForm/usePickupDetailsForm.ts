@@ -4,7 +4,11 @@ import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { pickupRefusalToastDescription } from '@/libs/commerce/pickup';
+import {
+  pickupCommandToastDescription,
+  pickupRefusalFromUnknown,
+  pickupRefusalToastDescription,
+} from '@/libs/commerce/pickup';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -18,6 +22,15 @@ import {
 
 export type PickupDetailsCapability = 'loading' | 'available' | 'unavailable';
 export type PickupDetailsReadState = 'loading' | 'ready' | 'failed';
+
+export type UsePickupDetailsFormOptions = {
+  /**
+   * When `pickup_details.set` is refused because the listing does not yet
+   * publish pickup, persist the listing form first and retry the set once.
+   * Must be listing-only (no nested pickup save) to avoid a loop.
+   */
+  persistListing?: () => Promise<boolean>;
+};
 
 export interface UsePickupDetailsFormResult {
   /** The deployment capability (`pickup_available`, §A7): off without the sealing key or on sandbox payments. */
@@ -51,7 +64,10 @@ export interface UsePickupDetailsFormResult {
  * the service, and telemetry masking is structural (the editor surface
  * carries `data-sentry-mask`; the owner read arrives `MaskedPickupDetails`-wrapped).
  */
-export function usePickupDetailsForm(listingId: string): UsePickupDetailsFormResult {
+export function usePickupDetailsForm(
+  listingId: string,
+  options: UsePickupDetailsFormOptions = {},
+): UsePickupDetailsFormResult {
   const [capability, setCapability] = useState<PickupDetailsCapability>('loading');
   const [readState, setReadState] = useState<PickupDetailsReadState>('loading');
   const [currentVersion, setCurrentVersion] = useState<number | null>(null);
@@ -125,14 +141,14 @@ export function usePickupDetailsForm(listingId: string): UsePickupDetailsFormRes
     setIsSaving(true);
     try {
       await form.handleSubmit(async (data) => {
-        try {
-          // CAS base: the current version, or the surviving counter after a
-          // clear — never a hidden second read (§A3).
-          const expectedVersion = currentVersion ?? lastVersion;
-          const response = await CommerceController.commitSetPickupDetails(listingId, {
+        const expectedVersion = currentVersion ?? lastVersion;
+        const details = toPickupDetails(data);
+        const commit = () =>
+          CommerceController.commitSetPickupDetails(listingId, {
             expectedVersion,
-            details: toPickupDetails(data),
+            details,
           });
+        const applyResponse = async (response: Awaited<ReturnType<typeof commit>>): Promise<boolean> => {
           if (!response.ok) {
             if (isMarketplaceRevisionConflict(response)) {
               setReloadNonce((nonce) => nonce + 1);
@@ -141,20 +157,53 @@ export function usePickupDetailsForm(listingId: string): UsePickupDetailsFormRes
                 description:
                   'The pickup details changed since you loaded them (another device, perhaps). The latest version was reloaded — review and save again.',
               });
-              return;
+              return false;
             }
             toast({ variant: 'error', description: pickupRefusalToastDescription(response.error.message) });
-            return;
+            return false;
           }
           toast({ title: 'Pickup details saved', description: 'Buyers see them only after their payment confirms.' });
           setReloadNonce((nonce) => nonce + 1);
-          succeeded = true;
+          return true;
+        };
+        const toastSaveError = (saveError: unknown) => {
+          if (isMarketplaceSessionRequiredError(saveError)) {
+            toast({ variant: 'error', description: saveError.message });
+            return;
+          }
+          toast({
+            variant: 'error',
+            description: pickupCommandToastDescription(pickupRefusalFromUnknown(saveError)),
+          });
+        };
+        try {
+          // CAS base: the current version, or the surviving counter after a
+          // clear — never a hidden second read (§A3).
+          succeeded = await applyResponse(await commit());
         } catch (saveError) {
           if (isMarketplaceSessionRequiredError(saveError)) {
             toast({ variant: 'error', description: saveError.message });
             return;
           }
-          toast({ variant: 'error', description: 'The pickup details could not be saved.' });
+          const refusal = pickupRefusalFromUnknown(saveError);
+          if (refusal === 'pickup_not_published' && options.persistListing) {
+            let persisted = false;
+            try {
+              persisted = await options.persistListing();
+            } catch {
+              persisted = false;
+            }
+            if (persisted) {
+              try {
+                succeeded = await applyResponse(await commit());
+                return;
+              } catch (retryError) {
+                toastSaveError(retryError);
+                return;
+              }
+            }
+          }
+          toastSaveError(saveError);
         }
       })();
     } finally {

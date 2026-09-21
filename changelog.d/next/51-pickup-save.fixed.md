@@ -1,0 +1,1 @@
+Saving pickup details after switching a listing to local pickup now persists the listing as pickup first, then the meeting point, instead of a generic save-failed toast that left buyers with nowhere to meet.

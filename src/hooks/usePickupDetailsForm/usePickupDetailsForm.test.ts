@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { MaskedPickupDetails } from '@/libs/commerce/pickup';
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { usePickupDetailsForm } from './usePickupDetailsForm';
@@ -68,8 +68,18 @@ const sessionRequiredError = () =>
     operation: 'commitSetPickupDetails',
   });
 
-async function renderReadyForm() {
-  const rendered = renderHook(() => usePickupDetailsForm(LISTING_ID));
+const pickupNotPublishedError = () =>
+  new AppError({
+    category: ErrorCategory.Client,
+    code: ClientErrorCode.CONFLICT,
+    message: 'The listing does not publish pickup.',
+    service: ErrorService.Marketplace,
+    operation: 'commitSetPickupDetails',
+    context: { refusal: 'pickup_not_published' },
+  });
+
+async function renderReadyForm(persistListing?: () => Promise<boolean>) {
+  const rendered = renderHook(() => usePickupDetailsForm(LISTING_ID, persistListing ? { persistListing } : {}));
   await waitFor(() => {
     expect(rendered.result.current.readState).toBe('ready');
     expect(rendered.result.current.capability).toBe('available');
@@ -227,6 +237,68 @@ describe('usePickupDetailsForm', () => {
           'The marketplace session expired. Approve the marketplace connection on your signer and try again.',
       }),
     );
+  });
+
+  it('toasts the classified pickup_not_published next step instead of a generic save failure', async () => {
+    mockedController.commitSetPickupDetails.mockRejectedValueOnce(pickupNotPublishedError());
+    const { result } = await renderReadyForm();
+
+    act(() => {
+      result.current.form.setValue('instructions', 'Weekdays after 18:00.', { shouldDirty: true });
+    });
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.save();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'Save the listing as pickup first (Save changes), then save the meeting point.',
+    });
+  });
+
+  it('persists the listing once then retries set when pickup is not yet published', async () => {
+    const persistListing = vi.fn(async () => true);
+    mockedController.commitSetPickupDetails
+      .mockRejectedValueOnce(pickupNotPublishedError())
+      .mockResolvedValueOnce({ ok: true } as never);
+    const { result } = await renderReadyForm(persistListing);
+
+    act(() => {
+      result.current.form.setValue('spot', 'Harbor Market, stall 12', { shouldDirty: true });
+    });
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.save();
+    });
+
+    expect(succeeded).toBe(true);
+    expect(persistListing).toHaveBeenCalledOnce();
+    expect(mockedController.commitSetPickupDetails).toHaveBeenCalledTimes(2);
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Pickup details saved' }));
+  });
+
+  it('toasts the generic save failure for unclassified thrown errors', async () => {
+    mockedController.commitSetPickupDetails.mockRejectedValueOnce(new Error('network down'));
+    const { result } = await renderReadyForm();
+
+    act(() => {
+      result.current.form.setValue('instructions', 'Weekdays after 18:00.', { shouldDirty: true });
+    });
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.save();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'The pickup details could not be saved.',
+    });
   });
 
   it('clears through pickup_details.clear and refuses when nothing is saved', async () => {
