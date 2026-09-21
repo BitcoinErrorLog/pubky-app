@@ -34,9 +34,7 @@ const vrtBrowserNames = (process.env.VRT_BROWSERS ?? 'chromium,firefox,webkit')
 const allowedVrtBrowsers = new Set(['chromium', 'firefox', 'webkit']);
 for (const name of vrtBrowserNames) {
   if (!allowedVrtBrowsers.has(name)) {
-    throw new Error(
-      `VRT_BROWSERS contains unknown browser "${name}". Use chromium, firefox, and/or webkit.`,
-    );
+    throw new Error(`VRT_BROWSERS contains unknown browser "${name}". Use chromium, firefox, and/or webkit.`);
   }
 }
 
