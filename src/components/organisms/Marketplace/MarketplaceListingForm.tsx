@@ -22,6 +22,7 @@ import { Container } from '@/atoms/Container/Container';
 import { Input } from '@/atoms/Input/Input';
 import { Label } from '@/atoms/Label/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
+import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
 import { commerceAttributeFieldsFor, resolveCommerceCategory } from '@/config/taxonomy/taxonomy';
@@ -280,7 +281,7 @@ export function MarketplaceListingForm({
   const submitListing = async () => {
     const editor = pickupEditorRef.current;
     const offersPickup = fulfillment !== 'shipping';
-    if (isEdit && listingId && offersPickup && pickupAvailable !== false && editor) {
+    if (isEdit && listingId && offersPickup && pickupAvailable === true && editor) {
       if (editor.capability === 'loading' || editor.readState === 'loading') {
         toast({
           variant: 'error',
@@ -622,15 +623,25 @@ export function MarketplaceListingForm({
               form={form}
               name={CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT}
               label="Fulfillment"
-              disabled={isPublishing || saleFormat === 'auction' || pickupAvailable === false}
+              disabled={isPublishing || saleFormat === 'auction' || pickupAvailable !== true}
               options={
-                pickupAvailable === false
-                  ? [{ value: 'shipping', label: 'Ship item' }]
-                  : [
+                pickupAvailable === true
+                  ? [
                       { value: 'shipping', label: 'Ship item' },
                       { value: 'pickup', label: 'Local pickup' },
                       { value: 'shipping_and_pickup', label: 'Pickup or shipping' },
                     ]
+                  : pickupAvailable === false
+                    ? [{ value: 'shipping', label: 'Ship item' }]
+                    : fulfillment === 'shipping'
+                      ? [{ value: 'shipping', label: 'Ship item' }]
+                      : [
+                          { value: 'shipping', label: 'Ship item' },
+                          {
+                            value: fulfillment,
+                            label: fulfillment === 'pickup' ? 'Local pickup' : 'Pickup or shipping',
+                          },
+                        ]
               }
             />
             <FormSelect
@@ -645,6 +656,13 @@ export function MarketplaceListingForm({
               ]}
             />
           </div>
+          {pickupAvailable === null && (
+            <Skeleton
+              className="h-11 w-full"
+              data-testid="pickup-capability-skeleton"
+              aria-label="Checking pickup availability"
+            />
+          )}
           {saleFormat === 'auction' && (
             <Typography as="p" className="text-sm text-muted-foreground">
               Auctions ship only — local pickup is available on Buy now listings.

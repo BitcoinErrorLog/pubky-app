@@ -23,6 +23,7 @@ import { MarketplaceListingForm } from './MarketplaceListingForm';
 // not touch the network.
 const pickupCapability = vi.hoisted(() => ({
   available: true,
+  pending: false,
   commitSetPickupDetails: vi.fn(async () => ({ ok: true })),
 }));
 
@@ -58,7 +59,8 @@ vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
     ...actual,
     CommerceController: {
       ...actual.CommerceController,
-      fetchPickupAvailable: () => Promise.resolve(pickupCapability.available),
+      fetchPickupAvailable: () =>
+        pickupCapability.pending ? new Promise<boolean>(() => {}) : Promise.resolve(pickupCapability.available),
       fetchSellerPickupDetails: () =>
         Promise.resolve({ listingAggregateId: 'listing:agg', current: null, lastVersion: 0 }),
       commitSetPickupDetails: pickupCapability.commitSetPickupDetails,
@@ -82,6 +84,7 @@ beforeEach(() => {
   // shared mock empty unless a test opts in (the snapshot stays picker-free).
   shippingPresetsMock.presets = [];
   pickupCapability.available = true;
+  pickupCapability.pending = false;
   pickupCapability.commitSetPickupDetails.mockReset();
   pickupCapability.commitSetPickupDetails.mockResolvedValue({ ok: true });
   vi.mocked(toast).mockReset();
@@ -205,17 +208,28 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     const user = userEvent.setup();
     render(<FormHarness />);
 
-    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
+    await user.click(await screen.findByRole('combobox', { name: 'Fulfillment' }));
     expect(await screen.findByRole('option', { name: 'Ship item' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Local pickup' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Pickup or shipping' })).toBeInTheDocument();
+  });
+
+  it('shows a skeleton and no pickup options while pickup capability is unknown', () => {
+    pickupCapability.pending = true;
+    render(<FormHarness />);
+
+    expect(screen.getByTestId('pickup-capability-skeleton')).toHaveAttribute(
+      'aria-label',
+      'Checking pickup availability',
+    );
+    expect(screen.getByRole('combobox', { name: 'Fulfillment' })).toBeDisabled();
+    expect(screen.queryByRole('option', { name: 'Local pickup' })).not.toBeInTheDocument();
   });
 
   it('offers shipping only, coerces a pickup value, and says why when the deployment has no pickup', async () => {
     pickupCapability.available = false;
     render(<FormHarness fulfillment="pickup" />);
 
-    // The note renders once the capability read resolves…
     expect(await screen.findByText('Local pickup is not available on this deployment.')).toBeInTheDocument();
     // …and the stale pickup value is coerced to shipping the way the auction
     // path does, so the shipping/package fields come back.
@@ -348,7 +362,7 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
       />,
     );
 
-    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
+    await user.click(await screen.findByRole('combobox', { name: 'Fulfillment' }));
     await user.click(await screen.findByRole('option', { name: 'Local pickup' }));
     await user.type(await screen.findByLabelText('Meeting point'), 'Harbor Market, stall 12');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
@@ -908,8 +922,9 @@ describe('MarketplaceListingForm publish gate vs schema', () => {
 });
 
 describe('MarketplaceListingForm - Snapshots', () => {
-  it('matches the physical listing form snapshot', () => {
+  it('matches the physical listing form snapshot', async () => {
     const { container } = render(<FormHarness />);
+    await screen.findByRole('combobox', { name: 'Fulfillment' });
     expect(container.firstChild).toMatchSnapshot();
   });
 });
