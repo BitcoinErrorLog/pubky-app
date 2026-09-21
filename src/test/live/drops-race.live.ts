@@ -45,7 +45,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *   npm run test:marketplace:drops
  */
 
-const SERVICE_URL = process.env.MARKETPLACE_SERVICE_URL ?? 'https://marketplace-service-production.up.railway.app';
+const SERVICE_URL = process.env.MARKETPLACE_SERVICE_URL ?? 'https://staging-api.pubky.app';
 const NEXUS_URL = process.env.MARKETPLACE_NEXUS_URL ?? 'https://nexusd-production-7108.up.railway.app';
 const PUBLIC_PKARR_RELAY = 'https://pkarr.pubky.app';
 const STAGING_HOMESERVER_PUBKY = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
