@@ -5,7 +5,8 @@ screenshots it, and pixel-compares against a committed baseline. It catches
 layout/style/responsive/cross-OS regressions — not functional bugs (use unit /
 interaction tests for those).
 
-- Test files: `*.vrt.test.tsx` (the `vrt` Vitest project in `vitest.config.ts`).
+- Test files: `*.vrt.test.tsx`. Feed/onboarding/messages use the `vrt` Vitest
+  project; marketplace files use `vrt-marketplace` (same `vitest.config.ts`).
 - Run: `npm run test:vrt`. Update baselines: `npm run test:vrt:regenerate-baseline`.
 - Baselines: `__screenshots__/<file>/<name>-<browser>-<platform>.png`, one per
   browser (chromium/firefox/webkit) × platform (darwin/linux).
@@ -45,20 +46,23 @@ data dependency (store/hook/fetch/router) so the pixels are deterministic.
 ## Determinism
 
 Renders should be as close to identical as possible every run, on every OS.
-`vitest.config.ts` sets a tight `toMatchScreenshot` tolerance
+`vitest.config.ts` sets two screenshot tolerances. The `vrt` project
 (`allowedMismatchedPixels: 80` and `allowedMismatchedPixelRatio: 0.00005`;
-the matcher uses the more restrictive of the two). That is enough for residual
-sub-pixel anti-aliasing between runs, and small enough that a one-word label
-change fails. A looser 0.1% ratio previously hid a marketplace badge rewrite
-on desktop captures. This tolerance is shared by comparison (`npm run test:vrt`)
-and regeneration (`--update`): `--update` only rewrites a baseline when a
-capture differs by more than the allowance. Prefer a per-scene
-`comparatorOptions` override over raising the global values. Feed and
-onboarding desktop shells that include dense tab chrome use
-`VRT_DENSE_CHROME_SCREENSHOT` from `src/test-utils/vrt.tsx` (cap 1600 px /
-0.3%) because Inter Tight AA and leftover `:hover` on those glyphs is hundreds
-of pixels on 1440×900 — still well below rewriting a marketplace badge under
-the global 80 px cap.
+the matcher uses the more restrictive of the two) is small enough that a
+one-word label change fails. A looser 0.1% ratio previously hid a marketplace
+badge rewrite on desktop captures. The `vrt-marketplace` project uses
+`allowedMismatchedPixelRatio: 0.02` and pixelmatch `threshold: 0.2` (no pixel
+cap) so 0.01–0.02 run-to-run badge-disc AA and hover raster — the class that
+halted shop-v0.6.10, shop-v0.6.11, and shop-v0.6.12 — does not fail the
+release train, while a real layout rewrite still exceeds 2%. Both are shared
+by comparison (`npm run test:vrt`) and regeneration (`--update`): `--update`
+only rewrites a baseline when a capture differs by more than the allowance.
+Prefer a per-scene `comparatorOptions` override over raising the
+non-marketplace values. Feed and onboarding desktop shells that include dense
+tab chrome use `VRT_DENSE_CHROME_SCREENSHOT` from `src/test-utils/vrt.tsx`
+(cap 1600 px / 0.3%) because Inter Tight AA and leftover `:hover` on those
+glyphs is hundreds of pixels on 1440×900 — still well below rewriting a
+marketplace badge under the global 80 px cap.
 Pin every deterministic source below so real diffs stand out:
 
 - **Async data** — mock the hook/controller to a fixed value. An unmocked fetch
@@ -136,7 +140,7 @@ ignoring a path argument — so it silently rewrites unrelated baselines with yo
 machine's render. To update only your files:
 
 ```bash
-npx vitest run --project vrt <path-to-your-dir-or-file> --update
+npx vitest run --project vrt --project vrt-marketplace <path-to-your-dir-or-file> --update
 ```
 
 After any `--update`, run `git status` and revert baselines you didn't intend to
