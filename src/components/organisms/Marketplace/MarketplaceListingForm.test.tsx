@@ -214,7 +214,7 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     expect(screen.getByRole('option', { name: 'Pickup or shipping' })).toBeInTheDocument();
   });
 
-  it('shows a skeleton and no pickup options while pickup capability is unknown', () => {
+  it('shows a skeleton and disables fulfillment while pickup capability is unknown', () => {
     pickupCapability.pending = true;
     render(<FormHarness />);
 
@@ -223,7 +223,17 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
       'Checking pickup availability',
     );
     expect(screen.getByRole('combobox', { name: 'Fulfillment' })).toBeDisabled();
-    expect(screen.queryByRole('option', { name: 'Local pickup' })).not.toBeInTheDocument();
+  });
+
+  it('keeps a restored pickup value while pickup capability is still unknown', () => {
+    pickupCapability.pending = true;
+    render(<FormHarness fulfillment="pickup" />);
+
+    const select = screen.getByRole('combobox', { name: 'Fulfillment' });
+    expect(select).toBeDisabled();
+    expect(select).toHaveTextContent('Local pickup');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pickup-capability-skeleton')).toBeInTheDocument();
   });
 
   it('offers shipping only, coerces a pickup value, and says why when the deployment has no pickup', async () => {

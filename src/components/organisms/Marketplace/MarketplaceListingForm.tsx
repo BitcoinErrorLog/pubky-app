@@ -625,23 +625,13 @@ export function MarketplaceListingForm({
               label="Fulfillment"
               disabled={isPublishing || saleFormat === 'auction' || pickupAvailable !== true}
               options={
-                pickupAvailable === true
-                  ? [
+                pickupAvailable === false
+                  ? [{ value: 'shipping', label: 'Ship item' }]
+                  : [
                       { value: 'shipping', label: 'Ship item' },
                       { value: 'pickup', label: 'Local pickup' },
                       { value: 'shipping_and_pickup', label: 'Pickup or shipping' },
                     ]
-                  : pickupAvailable === false
-                    ? [{ value: 'shipping', label: 'Ship item' }]
-                    : fulfillment === 'shipping'
-                      ? [{ value: 'shipping', label: 'Ship item' }]
-                      : [
-                          { value: 'shipping', label: 'Ship item' },
-                          {
-                            value: fulfillment,
-                            label: fulfillment === 'pickup' ? 'Local pickup' : 'Pickup or shipping',
-                          },
-                        ]
               }
             />
             <FormSelect

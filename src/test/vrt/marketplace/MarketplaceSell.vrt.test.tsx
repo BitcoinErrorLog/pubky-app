@@ -491,6 +491,16 @@ describe('Marketplace sell studio — visual regression', () => {
       if (!screen.container.textContent?.includes('Publish first, then add your meeting point')) {
         throw new Error('The pickup-enabled studio copy has not rendered yet.');
       }
+      const fulfillment = screen.container.querySelector('#fulfillment');
+      if (!fulfillment?.textContent?.includes('Local pickup')) {
+        throw new Error('The pickup fulfillment value has not restored yet.');
+      }
+      if (screen.container.querySelector('[data-testid="pickup-capability-skeleton"]')) {
+        throw new Error('Pickup capability is still loading.');
+      }
+      if (screen.container.textContent?.includes('Invalid option')) {
+        throw new Error('Fulfillment still has a schema error.');
+      }
     });
     await expect(expectVrtSurface('listing-section-shipping')).toMatchScreenshot('sell-pickup-enabled-desktop');
     view.pickupAvailable = false;
