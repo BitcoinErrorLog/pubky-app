@@ -12,6 +12,7 @@ jobs:
   vrt:
     name: VRT (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 30 || 17 }}
     concurrency:
       group: vrt-${{ github.workflow }}-${{ github.ref }}-${{ matrix.os }}
       cancel-in-progress: true

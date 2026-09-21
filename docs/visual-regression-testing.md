@@ -199,3 +199,22 @@ VRT Update Baselines run (or the failure artifact of a `vrt.yml` run, whose
 actual image is byte-identical to the last Update Baselines output). A local
 webkit failure on those scenes is not a regression signal; the `macos-latest`
 job is.
+
+## 3× local full-suite before a flaky-gate PR
+
+A VRT gate that failed once is not a flake until the same command has been
+green three times in a row on one machine, against the same HEAD, with the
+same Playwright version as `package-lock.json`.
+
+```bash
+npx playwright --version   # must match packages["node_modules/playwright"].version
+npm run test:vrt           # full suite: both `vrt` and `vrt-marketplace`
+npm run test:vrt
+npm run test:vrt
+```
+
+One green run after a retry, a path-filtered rerun, or a `--update` is not
+the three. If the third run fails, the gate is still red: fix the scene or
+the harness, do not widen tolerance or regenerate an untouched baseline to
+make CI merge. After any `--update`, `git status -- '**/__screenshots__/**'`
+and revert every PNG the PR did not intend to change.

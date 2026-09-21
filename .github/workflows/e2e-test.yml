@@ -15,6 +15,7 @@ jobs:
   rebuild_images:
     name: Getting images to rebuild
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     outputs:
       homeserver-testnet_tag: ${{ steps.set_tag.outputs.homeserver-testnet_tag }}
       pubky-nexus_tag: ${{ steps.set_tag.outputs.pubky-nexus_tag }}
@@ -79,6 +80,7 @@ jobs:
   set_vars_pubky_app:
     name: Set vars for Pubky App
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     outputs:
       env: ${{ steps.set_vars.outputs.env }}
       platforms: ${{ steps.set_vars.outputs.platforms }}
@@ -98,6 +100,7 @@ jobs:
   e2e-test:
     name: End-to-End Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     needs: [rebuild_images, rebuild_pubky_app]
     env:
       HOMESERVER_TAG: ${{ needs.rebuild_images.outputs.homeserver-testnet_tag }}
