@@ -1,7 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { renderForVRT, VRT_ROOT_TESTID, waitForHoverScale } from '@/test-utils/vrt';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { DropCard } from '@/organisms/Marketplace/DropCard';
 import { buildMarketplaceCatalogItems } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
@@ -73,8 +73,9 @@ describe('Marketplace fidelity cards — visual regression', () => {
     await screen.getByTestId(VRT_ROOT_TESTID).hover({ position: { x: 1, y: 1 } });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-rest`);
     vi.spyOn(Math, 'random').mockReturnValue(0.75);
-    await screen.getByRole('link', { name: `View ${listings[2].title}` }).hover();
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    const listing = screen.getByRole('link', { name: `View ${listings[2].title}` });
+    await listing.hover();
+    await waitForHoverScale(listing.element());
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-listing-hover`);
   });
 
@@ -84,8 +85,9 @@ describe('Marketplace fidelity cards — visual regression', () => {
   ] as const)('captures the drop card mid-hover on %s', async (name, viewport) => {
     const screen = await renderForVRT(<FidelityCards />, { viewport });
     vi.spyOn(Math, 'random').mockReturnValue(0.75);
-    await screen.getByRole('link', { name: 'View After Hours — limited vinyl' }).hover();
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    const dropCard = screen.getByRole('link', { name: 'View After Hours — limited vinyl' });
+    await dropCard.hover();
+    await waitForHoverScale(dropCard.element());
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(`fidelity-${name}-drop-hover`);
   });
 });

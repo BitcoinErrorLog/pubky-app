@@ -140,6 +140,52 @@ export async function parkVrtHover() {
   if (root instanceof HTMLElement) root.style.pointerEvents = 'none';
 }
 
+/** Marketplace cards use `hover:scale-105`. Live proof treats ≥ 1.04 as settled. */
+export const VRT_HOVER_SCALE_SETTLED = 1.04;
+
+/** Cards also run `transition-transform duration-300`; 1s covers load jitter. */
+export const VRT_HOVER_SCALE_TIMEOUT_MS = 1_000;
+
+function readHoverScale(element: Element): number {
+  const style = getComputedStyle(element);
+  const named = Number.parseFloat(style.scale);
+  if (Number.isFinite(named) && named > 0) return named;
+  const transform = style.transform;
+  if (!transform || transform === 'none') return 1;
+  const matrix = new DOMMatrix(transform);
+  return Math.hypot(matrix.a, matrix.b);
+}
+
+/**
+ * Wait until a hovered card's computed scale is at least
+ * `VRT_HOVER_SCALE_SETTLED`. A fixed 150ms wait (shop-v0.6.12 after PR #47)
+ * captured rest vs hover on the full marketplace suite under load because
+ * cards use `transition-transform duration-300` + `hover:scale-105`. Two
+ * animation frames after the threshold so paint matches the settled
+ * transform. Throws rather than screenshotting an in-flight transition.
+ */
+export async function waitForHoverScale(
+  element: Element,
+  minScale = VRT_HOVER_SCALE_SETTLED,
+  timeoutMs = VRT_HOVER_SCALE_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let last = readHoverScale(element);
+  while (Date.now() < deadline) {
+    last = readHoverScale(element);
+    if (last >= minScale) {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  }
+  throw new Error(`VRT hover scale stayed below ${minScale} (last=${last}) after ${timeoutMs}ms`);
+}
+
 async function waitForImagesReady(root: Element) {
   const images = Array.from(root.querySelectorAll('img'));
   await Promise.all(images.map((img) => waitForHtmlImage(img)));

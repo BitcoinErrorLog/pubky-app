@@ -90,6 +90,12 @@ Pin every deterministic source below so real diffs stand out:
   covered by the wait, but a cold fetch can still race the initial paint —
   `preloadImages(...)` them too when a surface has flaked on a specific asset
   (see the Landing VRT's header/brand logos).
+- **Hover transforms** — marketplace listing/drop cards use
+  `transition-transform duration-300` plus `hover:scale-105`. Capture those
+  scenes with `waitForHoverScale` from `src/test-utils/vrt.tsx` (computed
+  scale ≥ 1.04, matching the live-proof gate). A fixed 150ms wait captured
+  rest vs hover on the full marketplace suite under load after shop-v0.6.12
+  PR #47.
 - **Avatars** — VRT profile fixtures use `image: null` so every avatar renders
   `FacehashAvatar`. `vrt.setup.ts` sets `globalThis.__VRT__` and stabiliser CSS;
   `FacehashAvatar` disables blink, 3D tilt, and hover when that flag is set.
