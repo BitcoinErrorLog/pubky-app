@@ -2,11 +2,11 @@ BEGIN;
 
 ALTER TABLE shop_grant_bff.schema_version
   DROP CONSTRAINT IF EXISTS schema_version_version_check;
-ALTER TABLE shop_grant_bff.schema_version
-  ADD CONSTRAINT schema_version_version_check CHECK (version = 2);
 UPDATE shop_grant_bff.schema_version
   SET version = 2, applied_at = now()
   WHERE singleton;
+ALTER TABLE shop_grant_bff.schema_version
+  ADD CONSTRAINT schema_version_version_check CHECK (version = 2);
 
 CREATE TABLE shop_grant_bff.cli_challenges (
   challenge_id UUID PRIMARY KEY,
