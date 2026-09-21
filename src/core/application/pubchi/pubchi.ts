@@ -31,6 +31,17 @@ import {
   wipeDeviceKeysNotOwnedBy,
 } from '@/libs/pubchi/device-key';
 import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/errors';
+import {
+  buildExportBundle,
+  hashDocumentBody,
+  importWriteOrder,
+  isHistoryPath,
+  parseExportBundle,
+  pathFromOwnedUrl,
+  planImport,
+  publicListDirectories,
+  reconstructFeedsFromBundle,
+} from '@/libs/pubchi/portability';
 import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
 import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
 import {
@@ -48,6 +59,7 @@ import {
   DEFAULT_SEND_PUBLIC_WEB_CONTEXT,
   delegationUri,
   type DeviceDelegationV1,
+  isAllowlistedPath,
   isPubkyId,
   ownerBindingsUri,
   ownerBindingUri,
@@ -95,6 +107,9 @@ import type {
   PubchiAskBody,
   PubchiBindingRecordResult,
   PubchiBindingWriteParams,
+  PubchiExportParams,
+  PubchiImportPreview,
+  PubchiImportResult,
   PubchiQueryApplicationParams,
   PubchiQuerySuccess,
 } from './pubchi.types';
@@ -287,6 +302,76 @@ export class PubchiApplication {
       throw pubchiValidationError('SCHEMA_INVALID', 'savePubchiConfig');
     }
     return readBack;
+  }
+
+  static async exportPubchiState(
+    owner: string,
+    params: PubchiExportParams = {},
+  ): Promise<PubchiImportPreview['bundle']> {
+    const includeHistory = Boolean(params.includeHistory);
+    const pointer = await readBotIfPresent(owner);
+    if (!pointer) throw pubchiValidationError('BOT_MISMATCH', 'exportPubchiState');
+    const documents = await listPublicPubchiDocuments(owner, includeHistory);
+    const built = await buildExportBundle(documents, {
+      bot: pointer.bot,
+      owner,
+      exportedAt: Math.floor(Date.now() / 1000),
+      includeHistory,
+    });
+    if (!built.ok) throw pubchiValidationError(built.code, 'exportPubchiState');
+    return built.value;
+  }
+
+  static async planImportPubchiState(owner: string, input: unknown): Promise<PubchiImportPreview> {
+    const parsed = await parseExportBundle(input);
+    if (!parsed.ok) throw pubchiValidationError(parsed.code, 'planImportPubchiState');
+    const pointer = await readBotIfPresent(owner);
+    const binding = pointer ? await readOwnerBindingIfPresent(owner, parsed.value.bot) : undefined;
+    const destinationBodies = Object.fromEntries(
+      (await listPublicPubchiDocuments(owner, parsed.value.include_history)).map((document) => [
+        document.path,
+        document.body,
+      ]),
+    );
+    const planned = await planImport({
+      bundle: parsed.value,
+      destinationOwner: owner,
+      destinationBot: pointer?.bot ?? null,
+      destinationBindingBot: binding?.bot ?? null,
+      destinationBodies,
+    });
+    if (!planned.ok) throw pubchiValidationError(planned.code, 'planImportPubchiState');
+    const feeds = reconstructFeedsFromBundle(parsed.value);
+    if (!feeds.ok) throw pubchiValidationError(feeds.code, 'planImportPubchiState');
+    return { bundle: parsed.value, plan: planned.value, feeds: feeds.value };
+  }
+
+  static async importPubchiState(owner: string, input: unknown): Promise<PubchiImportResult> {
+    assertPubchiCapability(owner);
+    const preview = await this.planImportPubchiState(owner, input);
+    const encoder = new TextEncoder();
+    for (const path of importWriteOrder(preview.bundle)) {
+      const body = preview.bundle.objects[path];
+      if (body === undefined) continue;
+      await HomeserverService.putBlob({ url: `pubky://${owner}${path}`, blob: encoder.encode(body) });
+    }
+    const written = Object.fromEntries(
+      (await listPublicPubchiDocuments(owner, preview.bundle.include_history)).map((document) => [
+        document.path,
+        document.body,
+      ]),
+    );
+    const hashes: Record<string, string> = {};
+    for (const [path, expectedHash] of Object.entries(preview.plan.hashes)) {
+      const body = written[path];
+      if (body === undefined || body !== preview.bundle.objects[path]) {
+        throw pubchiValidationError('BODY_HASH_MISMATCH', 'importPubchiState');
+      }
+      const actual = await hashDocumentBody(body);
+      if (actual !== expectedHash) throw pubchiValidationError('BODY_HASH_MISMATCH', 'importPubchiState');
+      hashes[path] = actual;
+    }
+    return { ...preview, hashes };
   }
 
   static async loadPubchiContext(owner: string): Promise<PubchiOwnerContextV1 | null> {
@@ -2042,6 +2127,25 @@ async function loadTrustedDeviceKey(owner: string, now: number) {
 
 function assertPubchiCapability(owner: string): void {
   if (!sessionCanWritePubchi(owner)) throw pubchiValidationError('PATH_FORBIDDEN', 'pubchi');
+}
+
+async function listPublicPubchiDocuments(
+  owner: string,
+  includeHistory: boolean,
+): Promise<Array<{ path: string; body: string }>> {
+  const urls = new Set<string>();
+  for (const directory of publicListDirectories(includeHistory)) {
+    const files = await HomeserverService.listAll({ baseDirectory: `pubky://${owner}${directory}` });
+    for (const file of files) urls.add(file);
+  }
+  const documents: Array<{ path: string; body: string }> = [];
+  for (const url of [...urls].sort()) {
+    const path = pathFromOwnedUrl(url, owner);
+    if (!path || !isAllowlistedPath(path)) continue;
+    if (!includeHistory && isHistoryPath(path)) continue;
+    documents.push({ path, body: await HomeserverService.requestRawText(url) });
+  }
+  return documents;
 }
 
 function pubchiConfigUri(owner: string): string {
