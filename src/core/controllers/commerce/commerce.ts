@@ -1,4 +1,8 @@
 import { CommerceApplication, type CommerceCheckoutFulfillmentInput } from '@/application/commerce/commerce';
+import {
+  CommerceInventoryApplication,
+  type InventoryBoardRow,
+} from '@/application/commerce/inventory';
 import { TagKind } from '@/application/tag/tag.types';
 import {
   COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS,
@@ -29,22 +33,32 @@ export class CommerceController {
   private constructor() {}
 
   private static sessionEndedUnbind: (() => void) | null = null;
+  private static inventorySessionEndedUnbind: (() => void) | null = null;
 
   /**
    * Subscribe once at app coordinator start. Every `clearSession` then nulls
    * the store — including gateway paths that never return through command
-   * wrappers. Idempotent.
+   * wrappers. Idempotent. Inventory uses a second bearer; identity 401 must
+   * not wipe it.
    */
   static bindMarketplaceSessionStore(): void {
-    if (this.sessionEndedUnbind) return;
-    this.sessionEndedUnbind = CommerceApplication.onMarketplaceSessionEnded((event) => {
-      this.onMarketplaceSessionEnded(event);
-    });
+    if (!this.sessionEndedUnbind) {
+      this.sessionEndedUnbind = CommerceApplication.onMarketplaceSessionEnded((event) => {
+        this.onMarketplaceSessionEnded(event);
+      });
+    }
+    if (!this.inventorySessionEndedUnbind) {
+      this.inventorySessionEndedUnbind = CommerceApplication.onInventorySessionEnded((event) => {
+        this.onInventorySessionEnded(event);
+      });
+    }
   }
 
   static unbindMarketplaceSessionStore(): void {
     this.sessionEndedUnbind?.();
     this.sessionEndedUnbind = null;
+    this.inventorySessionEndedUnbind?.();
+    this.inventorySessionEndedUnbind = null;
   }
 
   static async getShop(ownerPubky: unknown) {
@@ -233,11 +247,49 @@ export class CommerceController {
   }
 
   /**
-   * Drops the service bearer and the store's public session facts together.
+   * Drops the purchase bearer, the inventory bearer, and both store mirrors.
+   * Sign-out and failed sign-in go through here. Identity 401 uses
+   * `onMarketplaceSessionEnded` and must not reach this.
    */
   static clearMarketplaceSession(): void {
     CommerceApplication.clearMarketplaceSession();
     this.clearMarketplaceSessionStore();
+    this.clearInventorySession();
+  }
+
+  static clearInventorySession(): void {
+    CommerceApplication.clearInventorySession();
+    this.clearInventorySessionStore();
+  }
+
+  static beginInventorySessionConnect(expectedPubky: string) {
+    const flow = CommerceApplication.beginInventorySessionFlow(expectedPubky);
+    return {
+      authorizationUrl: flow.authorizationUrl,
+      awaitSession: async () => {
+        const session = await flow.awaitSession();
+        this.writeInventorySessionStore(session);
+        return session;
+      },
+      cancel: flow.cancel,
+    };
+  }
+
+  static async loadInventoryBoard(sellerPubky: string) {
+    return await CommerceInventoryApplication.loadBoard(sellerPubky);
+  }
+
+  static async setInventoryAvailable(input: {
+    sellerPubky: string;
+    row: InventoryBoardRow;
+    targetAvailable: number;
+    idempotencyKey: string;
+  }) {
+    return await CommerceInventoryApplication.setAvailable(input);
+  }
+
+  static async retryInventorySync(sellerPubky: string, listingId: string) {
+    return await CommerceInventoryApplication.retrySync(sellerPubky, listingId);
   }
 
   /** True while getActiveSession still considers the bearer inside its margin. */
@@ -1344,8 +1396,25 @@ export class CommerceController {
     useCommerceStore.getState().setMarketplaceSession(session);
   }
 
+  static writeInventorySessionStore(session: MarketplaceSessionInfo): void {
+    const current = useCommerceStore.getState().inventorySession;
+    if (current && Date.parse(current.issuedAt) > Date.parse(session.issuedAt)) return;
+    useCommerceStore.getState().setInventorySession(session);
+  }
+
+  private static onInventorySessionEnded(event: MarketplaceSessionEndedEvent): void {
+    const current = useCommerceStore.getState().inventorySession;
+    if (!current) return;
+    if (Date.parse(current.issuedAt) > Date.parse(event.issuedAt)) return;
+    this.clearInventorySessionStore();
+  }
+
   private static clearMarketplaceSessionStore(): void {
     useCommerceStore.getState().setMarketplaceSession(null);
+  }
+
+  private static clearInventorySessionStore(): void {
+    useCommerceStore.getState().setInventorySession(null);
   }
 
   private static getCurrentUserPubky(): string {

@@ -458,4 +458,29 @@ describe('CommerceController', () => {
       expect(cancel).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('beginInventorySessionConnect', () => {
+    const session = {
+      pubky: COMMERCE_FIXTURE_SELLER,
+      capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
+      expiresAt: '2026-08-22T00:00:00.000Z',
+      issuedAt: '2026-08-21T00:00:00.000Z',
+    };
+
+    it('mirrors the inventory session without touching the purchase session', async () => {
+      vi.spyOn(CommerceApplication, 'beginInventorySessionFlow').mockReturnValue({
+        authorizationUrl: 'pubkyauth:///?caps=inventory',
+        awaitSession: vi.fn().mockResolvedValue(session),
+        cancel: vi.fn(),
+      });
+
+      const flow = CommerceController.beginInventorySessionConnect(COMMERCE_FIXTURE_SELLER);
+      expect(flow.authorizationUrl).toBe('pubkyauth:///?caps=inventory');
+      expect(useCommerceStore.getState().inventorySession).toBeNull();
+
+      await expect(flow.awaitSession()).resolves.toEqual(session);
+      expect(useCommerceStore.getState().inventorySession).toEqual(session);
+      expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+    });
+  });
 });

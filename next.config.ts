@@ -26,6 +26,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION ?? packageJson.version,
   },
   reactCompiler: true,
+  transpilePackages: ['@bitcoinerrorlog/pubky-shop'],
   // Source maps are generated for every build (browser + server), but the Sentry plugin upload
   // is disabled below. Docker builds inject Debug IDs and optionally upload maps when Sentry
   // build credentials are provided; public builds without those credentials skip upload.
@@ -53,6 +54,14 @@ const nextConfig: NextConfig = {
       config.externals.push('@synonymdev/pubky');
     }
 
+    // Local 0.1.3 checkout until npm publish. Last W1 commit removes this alias
+    // and pins "@bitcoinerrorlog/pubky-shop": "0.1.3".
+    config.resolve ??= {};
+    config.resolve.alias ??= {};
+    if (!Array.isArray(config.resolve.alias)) {
+      config.resolve.alias['@bitcoinerrorlog/pubky-shop'] = '/Volumes/t7/vibes-dev/pubky-shop/dist/index.js';
+    }
+
     config.experiments = {
       ...config.experiments,
       asyncWebAssembly: true,
@@ -65,6 +74,7 @@ const nextConfig: NextConfig = {
     resolveAlias: {
       '@synonymdev/pubky': '@synonymdev/pubky/index.js',
       'pubky-app-specs': 'pubky-app-specs/index.js',
+      '@bitcoinerrorlog/pubky-shop': '/Volumes/t7/vibes-dev/pubky-shop/dist/index.js',
     },
   },
 };

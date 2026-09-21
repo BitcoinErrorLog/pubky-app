@@ -1,0 +1,244 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
+import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { MarketplaceShopClientService, PubkyShopError } from '@/services/marketplace/marketplace-shop-client';
+import { CommerceInventoryApplication, type InventoryBoardRow, planInventoryAdjust } from './inventory';
+
+const PUBKY = 'y'.repeat(52);
+const TOKEN = 'A'.repeat(43);
+
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return {
+    ...actual,
+    getCommerceAdapterMode: () => 'transaction-service',
+    getMarketplaceUrl: () => 'https://staging-api.pubky.app',
+    isDurableCommerceMode: () => true,
+  };
+});
+
+vi.mock('@/services/marketplace/marketplace-shop-client', () => {
+  class MockPubkyShopError extends Error {
+    readonly code: string;
+    readonly details: { status?: number; serviceCode?: string };
+    constructor(code: string, details: { status?: number; serviceCode?: string } = {}) {
+      super(code);
+      this.code = code;
+      this.details = details;
+    }
+  }
+  return {
+    PubkyShopError: MockPubkyShopError,
+    MarketplaceShopClientService: {
+      createInventoryClient: vi.fn(() => ({ token: 'inventory' })),
+      listSellerListings: vi.fn(),
+      getInventoryProjection: vi.fn(),
+      adjustInventory: vi.fn(),
+      syncMany: vi.fn(),
+      isCapabilityRequired: (error: InstanceType<typeof MockPubkyShopError>) =>
+        error.code === 'service_error' && error.details.serviceCode === 'capability_required',
+      isRevisionConflict: (error: InstanceType<typeof MockPubkyShopError>) =>
+        error.code === 'service_error' && error.details.serviceCode === 'revision_conflict',
+      isSessionRejected: (error: InstanceType<typeof MockPubkyShopError>) => error.code === 'session_rejected',
+    },
+  };
+});
+
+function row(overrides: Partial<InventoryBoardRow> = {}): InventoryBoardRow {
+  return {
+    listingId: 'boots',
+    sellerPubky: PUBKY,
+    aggregateId: `listing:${PUBKY}_boots`,
+    title: 'Boots',
+    thumbUrl: null,
+    state: 'active',
+    format: 'fixed_price',
+    dropId: null,
+    available: 4,
+    reserved: 1,
+    sold: 2,
+    total: 7,
+    serverRevision: 3,
+    sync: 'synced',
+    ...overrides,
+  };
+}
+
+describe('planInventoryAdjust', () => {
+  it('builds delta, expected_revision, and a UUID idempotency key', () => {
+    const plan = planInventoryAdjust({
+      listingId: 'boots',
+      aggregateId: `listing:${PUBKY}_boots`,
+      currentAvailable: 4,
+      targetAvailable: 6,
+      expectedRevision: 3,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+    });
+    expect(plan).toEqual({
+      ok: true,
+      request: {
+        schema_version: 1,
+        kind: 'inventory.adjust',
+        aggregate_id: `listing:${PUBKY}_boots`,
+        listing_id: 'boots',
+        expected_revision: BigInt(3),
+        delta: BigInt(2),
+        idempotency_key: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+  });
+
+  it('rejects a zero delta and a negative target', () => {
+    expect(
+      planInventoryAdjust({
+        listingId: 'boots',
+        aggregateId: 'listing:x',
+        currentAvailable: 4,
+        targetAvailable: 4,
+        expectedRevision: 1,
+        idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      }).ok,
+    ).toBe(false);
+    expect(
+      planInventoryAdjust({
+        listingId: 'boots',
+        aggregateId: 'listing:x',
+        currentAvailable: 4,
+        targetAvailable: -1,
+        expectedRevision: 1,
+        idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      }),
+    ).toEqual({ ok: false, reason: 'negative_available' });
+  });
+});
+
+describe('CommerceInventoryApplication', () => {
+  beforeEach(() => {
+    vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue({
+      token: TOKEN,
+      pubky: PUBKY,
+      capabilities: '',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      expiresAtMs: Date.parse('2099-01-01T00:00:00.000Z'),
+      issuedAt: '2026-09-21T00:00:00.000Z',
+    });
+    vi.spyOn(MarketplaceInventorySessionService, 'getActiveSession').mockReturnValue({
+      token: 'I'.repeat(43),
+      pubky: PUBKY,
+      capabilities: INVENTORY_GRANT,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      expiresAtMs: Date.parse('2099-01-01T00:00:00.000Z'),
+      issuedAt: '2026-09-21T00:00:00.000Z',
+    });
+    vi.mocked(MarketplaceShopClientService.listSellerListings).mockReset();
+    vi.mocked(MarketplaceShopClientService.getInventoryProjection).mockReset();
+    vi.mocked(MarketplaceShopClientService.adjustInventory).mockReset();
+  });
+
+  it('returns grant-needed when inventory coverage is missing', async () => {
+    vi.spyOn(MarketplaceInventorySessionService, 'getActiveSession').mockReturnValue(null);
+    await expect(CommerceInventoryApplication.loadBoard(PUBKY)).resolves.toEqual({ status: 'grant-needed' });
+    expect(MarketplaceShopClientService.listSellerListings).not.toHaveBeenCalled();
+  });
+
+  it('returns grant-needed on 403 capability_required', async () => {
+    vi.mocked(MarketplaceShopClientService.listSellerListings).mockResolvedValue({
+      ok: false,
+      error: new PubkyShopError('service_error', { status: 403, serviceCode: 'capability_required' }),
+    });
+    await expect(CommerceInventoryApplication.loadBoard(PUBKY)).resolves.toEqual({ status: 'grant-needed' });
+  });
+
+  it('does not send a second adjust after 409 revision_conflict', async () => {
+    vi.mocked(MarketplaceShopClientService.adjustInventory).mockResolvedValue({
+      ok: false,
+      error: new PubkyShopError('service_error', { status: 409, serviceCode: 'revision_conflict' }),
+    });
+    const result = await CommerceInventoryApplication.setAvailable({
+      sellerPubky: PUBKY,
+      row: row(),
+      targetAvailable: 5,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+    });
+    expect(result).toEqual({ status: 'revision_conflict' });
+    expect(MarketplaceShopClientService.adjustInventory).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads listing-total stock from the seller export then the inventory projection', async () => {
+    vi.mocked(MarketplaceShopClientService.listSellerListings).mockResolvedValue({
+      ok: true,
+      value: {
+        kind: 'seller_listing_export',
+        listings: [
+          {
+            projection: {
+              listing_id: 'boots',
+              title: 'Vintage work boots',
+              state: 'active',
+              sale_format: 'fixed_price',
+            },
+            record: { listingId: 'boots', title: 'Vintage work boots' },
+          },
+        ],
+      },
+    });
+    vi.mocked(MarketplaceShopClientService.getInventoryProjection).mockResolvedValue({
+      ok: true,
+      value: {
+        schema_version: BigInt(1),
+        kind: 'inventory_projection',
+        aggregate_id: `listing:${PUBKY}_boots`,
+        seller_pubky: PUBKY,
+        listing_id: 'boots',
+        server_revision: BigInt(3),
+        stock: {
+          authority: 'listing_total',
+          available: BigInt(4),
+          reserved: BigInt(2),
+          sold: BigInt(1),
+          total: BigInt(7),
+        },
+      },
+    } as Awaited<ReturnType<typeof MarketplaceShopClientService.getInventoryProjection>>);
+    await expect(CommerceInventoryApplication.loadBoard(PUBKY)).resolves.toEqual({
+      status: 'ready',
+      rows: [
+        {
+          listingId: 'boots',
+          sellerPubky: PUBKY,
+          aggregateId: `listing:${PUBKY}_boots`,
+          title: 'Vintage work boots',
+          thumbUrl: null,
+          state: 'active',
+          format: 'fixed_price',
+          dropId: null,
+          available: 4,
+          reserved: 2,
+          sold: 1,
+          total: 7,
+          serverRevision: 3,
+          sync: 'synced',
+        },
+      ],
+    });
+    expect(MarketplaceShopClientService.getInventoryProjection).toHaveBeenCalledWith(
+      expect.anything(),
+      `listing:${PUBKY}_boots`,
+    );
+  });
+
+  it('does not treat 409 as a grant miss', async () => {
+    vi.mocked(MarketplaceShopClientService.adjustInventory).mockResolvedValue({
+      ok: false,
+      error: new PubkyShopError('service_error', { status: 409, serviceCode: 'revision_conflict' }),
+    });
+    const result = await CommerceInventoryApplication.setAvailable({
+      sellerPubky: PUBKY,
+      row: row(),
+      targetAvailable: 5,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+    });
+    expect(result.status).not.toBe('grant-needed');
+  });
+});
