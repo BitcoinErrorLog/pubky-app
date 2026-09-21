@@ -112,7 +112,10 @@
   "overrides": {
     "intersection-observer": "npm:empty-module@*",
     "source-map@0.8.0-beta.0": "0.7.4",
-    "glob": "13.0.1"
+    "glob": "13.0.1",
+    "@bitcoinerrorlog/pubky-shop": {
+      "@synonymdev/pubky": "0.8.0"
+    }
   },
   "devDependencies": {
     "@eslint/compat": "2.1.0",
