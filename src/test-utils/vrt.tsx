@@ -192,11 +192,6 @@ interface VrtHoverLocator {
   element(): Element;
 }
 
-async function hoverCard(locator: VrtHoverLocator): Promise<void> {
-  const hover = locator.hover as (options?: { force?: boolean }) => Promise<void>;
-  await hover({ force: true });
-}
-
 function requireHoverElement(locator: VrtHoverLocator): HTMLElement {
   const element = locator.element();
   if (!(element instanceof HTMLElement)) {
@@ -254,14 +249,14 @@ export async function hoverAndWaitForScale(
 
   const restWidth = requireHoverElement(locator).getBoundingClientRect().width;
   const minWidth = restWidth * minScale;
-  await hoverCard(locator);
+  await locator.hover();
   const deadline = Date.now() + timeoutMs;
   let lastWidth = requireHoverElement(locator).getBoundingClientRect().width;
   while (Date.now() < deadline) {
     let element = requireHoverElement(locator);
     finishCssAnimations(vrtHoverRoot(element));
     if (!element.matches(':hover')) {
-      await hoverCard(locator);
+      await locator.hover();
       element = requireHoverElement(locator);
     }
     lastWidth = element.getBoundingClientRect().width;
