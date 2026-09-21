@@ -107,6 +107,10 @@ Pin every deterministic source below so real diffs stand out:
   and no CSS animations are running. Do not wait on `offsetWidth` (layout
   ignores transforms) or `getComputedStyle().transform` / `scale` (they
   report the target immediately).
+  Never rewrite `animation: none` to `animation-duration: 0s`: hover is a
+  transition, card-enter is an animation; duration-only re-enables delayed
+  fill-mode `from` and composes with hover.
+
 - **Avatars** — VRT profile fixtures use `image: null` so every avatar renders
   `FacehashAvatar`. `vrt.setup.ts` sets `globalThis.__VRT__` and stabiliser CSS;
   `FacehashAvatar` disables blink, 3D tilt, and hover when that flag is set.
