@@ -27,6 +27,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getLocksUrl } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceSellerPaymentConfig } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
+import { stripeProcessingMode } from '@/libs/commerce/payment-methods';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
@@ -258,6 +259,10 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
 
   const paypalStatus = derivePaypalStatus(payments.config);
   const stripeStatus = deriveStripeStatus(payments.config);
+  const stripeMode = stripeProcessingMode({
+    paymentLink: stripePaymentLink,
+    restrictedKey: stripeRestrictedKey,
+  });
   const bitcoinStatus = deriveBitcoinStatus({
     connectedCreator: locksConnect.connectedCreator,
     accountClaimed: payments.accountClaimed,
@@ -390,6 +395,21 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
                       Remove key
                     </Button>
                   </>
+                )}
+                {stripeMode === 'test' && (
+                  <Badge variant="outline" data-testid="stripe-processing-mode">
+                    Stripe test mode
+                  </Badge>
+                )}
+                {stripeMode === 'live' && (
+                  <Badge variant="secondary" data-testid="stripe-processing-mode">
+                    Stripe live mode
+                  </Badge>
+                )}
+                {stripeMode === 'mixed' && (
+                  <Badge variant="destructive" data-testid="stripe-processing-mode">
+                    Test and live mixed
+                  </Badge>
                 )}
               </div>
             </div>
