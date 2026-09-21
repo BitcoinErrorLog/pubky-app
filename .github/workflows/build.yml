@@ -16,6 +16,10 @@ jobs:
   build:
     name: Check NextJS Build
     runs-on: ubuntu-latest
+    # Last-10 median was 47 min because paykit-wasm-smoke held the event loop
+    # after "passed". Post-fix remainder is install (~40s) + next build (~3 min)
+    # + server smoke (~2s) ≈ 5 min; 10 min is 2× that, not 2× the hang.
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code

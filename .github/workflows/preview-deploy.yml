@@ -36,6 +36,7 @@ jobs:
       (github.event_name == 'pull_request' && github.event.action != 'closed' &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     outputs:
       pr_number: ${{ steps.vars.outputs.pr_number }}
       service_name: ${{ steps.vars.outputs.service_name }}
@@ -78,6 +79,7 @@ jobs:
     if: github.repository == 'pubky/pubky-app'
     needs: [set-vars, build-preview]
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     permissions:
       contents: read
       pull-requests: write
@@ -137,6 +139,7 @@ jobs:
       ((github.event_name == 'pull_request_target' && github.event.action == 'closed') ||
        (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'cleanup'))
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - name: Set variables
         id: vars
