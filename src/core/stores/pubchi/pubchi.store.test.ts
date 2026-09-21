@@ -92,6 +92,69 @@ describe('PubchiStore', () => {
     expect(usePubchiStore.getState().conversation.turns).toHaveLength(7);
   });
 
+  it('clears the conversation when opening a post-menu summarize', () => {
+    const first = {
+      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      source: 'post-menu' as const,
+      target: { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-1' },
+    };
+    const second = {
+      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-2',
+      source: 'post-menu' as const,
+      target: { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-2' },
+    };
+    usePubchiStore.getState().setConfig(null, OWNER);
+    usePubchiStore.getState().openFlyout(first, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: first.question }, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'First summary' }, OWNER);
+
+    usePubchiStore.getState().openFlyout(second, OWNER);
+
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+    expect(usePubchiStore.getState().conversationGeneration).toBeGreaterThan(0);
+    expect(usePubchiStore.getState().flyout.prefill).toEqual({ ...second, ownerPubky: OWNER });
+  });
+
+  it('starts a fresh conversation when summarizing the same post from the menu again', () => {
+    const prefill = {
+      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      source: 'post-menu' as const,
+      target: { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-1' },
+    };
+    usePubchiStore.getState().setConfig(null, OWNER);
+    usePubchiStore.getState().openFlyout(prefill, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: prefill.question }, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'First summary' }, OWNER);
+    const generation = usePubchiStore.getState().conversationGeneration;
+
+    usePubchiStore.getState().openFlyout(prefill, OWNER);
+
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+    expect(usePubchiStore.getState().conversationGeneration).toBeGreaterThan(generation);
+  });
+
+  it('does not clear the conversation for chip or empty flyout opens', () => {
+    usePubchiStore.getState().setConfig(null, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'prior' }, OWNER);
+    usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'answer' }, OWNER);
+    const generation = usePubchiStore.getState().conversationGeneration;
+
+    usePubchiStore.getState().openFlyout(
+      {
+        question: 'Suggest tags for this user',
+        source: 'chip',
+        target: { kind: 'user', uri: 'pubky://owner/pub/pubky.app/profile.json' },
+      },
+      OWNER,
+    );
+    expect(usePubchiStore.getState().conversation.turns).toHaveLength(2);
+    expect(usePubchiStore.getState().conversationGeneration).toBe(generation);
+
+    usePubchiStore.getState().openFlyout();
+    expect(usePubchiStore.getState().conversation.turns).toHaveLength(2);
+    expect(usePubchiStore.getState().conversationGeneration).toBe(generation);
+  });
+
   it('isolates owners and clears on owner change', () => {
     usePubchiStore.getState().setConfig(null, OWNER);
     usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'private' }, OWNER);

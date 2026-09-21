@@ -40,6 +40,7 @@ export interface PubchiStore {
   feedBuilder: PubchiFeedBuilderState;
   quickQuestionsOpen: boolean;
   conversation: Conversation;
+  conversationGeneration: number;
   setPubchi: (pubchi: NoPhrase<StoredPubchi> | undefined, ownerPubky: Pubky | null) => void;
   setConfig: (config: PubchiConfigV1 | null, ownerPubky: Pubky | null) => void;
   setContext: (context: PubchiOwnerContextV1 | null, ownerPubky: Pubky | null) => void;
@@ -68,6 +69,7 @@ const initialState = {
   feedBuilder: { open: false },
   quickQuestionsOpen: false,
   conversation: { turns: [] },
+  conversationGeneration: 0,
 };
 
 export const usePubchiStore = create<PubchiStore>((set, get) => ({
@@ -97,13 +99,17 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
       lastUpdatedAt: Date.now(),
       ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] } } : {}),
     }),
-  openFlyout: (prefill, ownerPubky) =>
+  openFlyout: (prefill, ownerPubky) => {
+    if (prefill?.source === 'post-menu') {
+      get().clearConversation();
+    }
     set({
       flyout: {
         open: true,
         ...(prefill && ownerPubky ? { prefill: { ...prefill, ownerPubky } } : {}),
       },
-    }),
+    });
+  },
   closeFlyout: () => set({ flyout: { open: false } }),
   openFeedBuilder: (proposal) =>
     set({
@@ -125,7 +131,11 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
     }
     set({ conversation: { turns: trimmed } });
   },
-  clearConversation: () => set({ conversation: { turns: [] } }),
+  clearConversation: () =>
+    set((state) => ({
+      conversation: { turns: [] },
+      conversationGeneration: state.conversationGeneration + 1,
+    })),
   recordSyncReload: () => set((state) => ({ syncReloadCount: state.syncReloadCount + 1 })),
   setDatabaseBlocked: (databaseBlocked) => set({ databaseBlocked }),
   consumePrefill: (ownerPubky): PubchiFlyoutPrefill | undefined => {

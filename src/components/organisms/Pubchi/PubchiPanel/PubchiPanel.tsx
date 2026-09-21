@@ -120,7 +120,11 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
     }
     form.setValue(QUERY_FORM_FIELDS.QUESTION, nextPrefill.question, { shouldValidate: true });
     document.getElementById(QUERY_FORM_FIELDS.QUESTION)?.focus();
-  }, [currentUserPubky, form, open, prefill]);
+    if (nextPrefill.source === 'post-menu') {
+      const target = nextPrefill.target?.kind === 'post' ? nextPrefill.target : undefined;
+      void submit('ask', { target });
+    }
+  }, [currentUserPubky, form, open, prefill, submit]);
 
   useEffect(() => {
     if (
@@ -432,7 +436,9 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               <>
                 <PubchiAnswerCard
                   answer={result.result}
-                  replyText={conversation.turns.at(-1)?.role === 'assistant' ? conversation.turns.at(-1)?.text : undefined}
+                  replyText={
+                    conversation.turns.at(-1)?.role === 'assistant' ? conversation.turns.at(-1)?.text : undefined
+                  }
                   binding={result.binding}
                   currentUserPubky={currentUserPubky}
                   cursorSource={cursorSource}

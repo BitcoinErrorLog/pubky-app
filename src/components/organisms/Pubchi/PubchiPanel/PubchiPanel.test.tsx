@@ -185,33 +185,73 @@ describe('PubchiPanel', () => {
     usePubchiStore.getState().clear();
   });
 
-  it('consumes flyout prefill without submitting a query', () => {
+  it('submits immediately when opened from the post menu', () => {
+    const target = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-1' };
     const prefill = {
-      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      question: `Summarize this thread ${target.uri}`,
       source: 'post-menu' as const,
+      target,
     };
     PubchiController.openFlyout(prefill);
 
     render(<PubchiPanel open onOpenChange={() => {}} />);
 
-    expect(hookState.form.setValue).toHaveBeenCalledWith(
-      'question',
-      'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
-      { shouldValidate: true },
-    );
+    expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });
+    expect(submit).toHaveBeenCalledWith('ask', { target });
+  });
+
+  it('consumes chip and empty flyout opens without submitting a query', () => {
+    PubchiController.openFlyout({
+      question: 'Suggest tags for this user',
+      source: 'chip',
+      target: { kind: 'user', uri: 'pubky://owner/pub/pubky.app/profile.json' },
+    });
+    const chipView = render(<PubchiPanel open onOpenChange={() => {}} />);
     expect(submit).not.toHaveBeenCalled();
+
+    submit.mockClear();
+    chipView.unmount();
+    usePubchiStore.getState().clear();
+    PubchiController.openFlyout();
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('starts a fresh conversation for a second post-menu summarize', () => {
+    const owner = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
+    const firstTarget = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-1' };
+    const secondTarget = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-2' };
+    usePubchiStore.getState().setConfig(null, owner);
+    usePubchiStore
+      .getState()
+      .addConversationTurn({ role: 'user', text: `Summarize this thread ${firstTarget.uri}` }, owner);
+    usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'First summary' }, owner);
+
+    const question = `Summarize this thread ${secondTarget.uri}`;
+    PubchiController.openFlyout({ question, source: 'post-menu', target: secondTarget });
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+
+    render(<PubchiPanel open onOpenChange={() => {}} />);
+
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+    expect(submit).toHaveBeenCalledWith('ask', { target: secondTarget });
+    expect(submit).toHaveBeenCalledTimes(1);
   });
 
   it('consumes a prefill that arrives while the flyout is already open', () => {
     const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+    const target = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-1' };
     const prefill = {
-      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      question: `Summarize this thread ${target.uri}`,
       source: 'post-menu' as const,
+      target,
     };
     PubchiController.openFlyout(prefill);
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledWith('ask', { target });
   });
 
   it('keeps the consumed post target through canonical button edits', () => {
