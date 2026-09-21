@@ -8,8 +8,11 @@ import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schem
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { createOrderFixture, ORDER_FIXTURE_BUYER, ORDER_FIXTURE_SELLER } from '@/test/fixtures/commerce/orders';
 import { CommerceApplication } from './commerce';
+
+const FOREIGN_PUBKY = 'z'.repeat(52);
 
 const Z_ALPHABET = 'ybndrfg8ejkmcpqxot1uwisza345h769';
 function zbase32(bytes: Uint8Array): string {
@@ -211,7 +214,14 @@ describe('CommerceApplication own-review publication', () => {
 });
 
 describe('CommerceApplication own-review hydrate after local miss', () => {
+  beforeEach(() => {
+    useAuthStore.getState().setCurrentUserPubky(ORDER_FIXTURE_BUYER);
+    CommerceApplication.resetOwnReviewHydrateMemo();
+  });
+
   afterEach(() => {
+    CommerceApplication.resetOwnReviewHydrateMemo();
+    useAuthStore.getState().setCurrentUserPubky(null);
     vi.restoreAllMocks();
   });
 
@@ -276,6 +286,56 @@ describe('CommerceApplication own-review hydrate after local miss', () => {
         context: { statusCode: 404 },
       }),
     );
+    const upsert = vi.spyOn(LocalCommerceService, 'upsertOwnReview');
+    upsert.mockClear();
+
+    await expect(CommerceApplication.getOwnMarketplaceReview(ORDER_FIXTURE_BUYER, order)).resolves.toBeNull();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not re-GET a 404 on remount in the same session', async () => {
+    const { order } = await publishedOwnReview();
+    vi.spyOn(LocalCommerceService, 'getOwnReviewByOrder').mockResolvedValue(undefined);
+    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(
+      new AppError({
+        category: ErrorCategory.Client,
+        code: ClientErrorCode.NOT_FOUND,
+        message: 'HTTP 404',
+        service: ErrorService.Homeserver,
+        operation: 'fetchJson',
+        context: { statusCode: 404 },
+      }),
+    );
+
+    await expect(CommerceApplication.getOwnMarketplaceReview(ORDER_FIXTURE_BUYER, order)).resolves.toBeNull();
+    await expect(CommerceApplication.getOwnMarketplaceReview(ORDER_FIXTURE_BUYER, order)).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not upsert when the live identity differs from the hydrate actor', async () => {
+    const { order, published } = await publishedOwnReview();
+    vi.spyOn(LocalCommerceService, 'getOwnReviewByOrder').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async () => {
+      useAuthStore.getState().setCurrentUserPubky(FOREIGN_PUBKY);
+      return published.record;
+    });
+    const upsert = vi.spyOn(LocalCommerceService, 'upsertOwnReview');
+    upsert.mockClear();
+
+    await expect(CommerceApplication.getOwnMarketplaceReview(ORDER_FIXTURE_BUYER, order)).resolves.toBeNull();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['owner', { ownerPubky: FOREIGN_PUBKY }],
+    ['listing', { listingId: 'hats' }],
+    ['role', { role: 'seller_reviewing_buyer' as const }],
+    ['subject', { subjectPubky: FOREIGN_PUBKY }],
+    ['reviewId', { reviewId: 'not-the-path-id' }],
+  ])('stays waiting when the homeserver record %s does not match', async (_field, patch) => {
+    const { order, published } = await publishedOwnReview();
+    vi.spyOn(LocalCommerceService, 'getOwnReviewByOrder').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ ...published.record, ...patch });
     const upsert = vi.spyOn(LocalCommerceService, 'upsertOwnReview');
     upsert.mockClear();
 

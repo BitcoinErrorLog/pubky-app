@@ -130,6 +130,7 @@ import type {
   NexusListingSaleFormat,
 } from '@/services/nexus/marketplace/marketplace.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
+import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
  * The `review` view inside a successful review command result (camelCased
@@ -820,6 +821,7 @@ export class CommerceApplication {
   static clearMarketplaceSession(): void {
     MarketplaceSessionService.clearSession('cleared');
     this.publishedReceiptUrls.clear();
+    this.ownReviewHomeserverMisses.clear();
   }
 
   /**
@@ -2168,6 +2170,31 @@ export class CommerceApplication {
   }
 
   /**
+   * Session-scoped 404 memo so a remount of the same order card does not
+   * re-GET a homeserver miss. Keyed by actor + order. Cleared with the
+   * marketplace session so a later sign-in can hydrate a record published
+   * after this session's miss.
+   */
+  private static ownReviewHomeserverMisses = new Set<string>();
+
+  /** Test support: clears the session-scoped own-review 404 memo. */
+  static resetOwnReviewHydrateMemo(): void {
+    this.ownReviewHomeserverMisses.clear();
+  }
+
+  private static ownReviewMissKey(actorPubky: string, orderId: string): string {
+    return `${actorPubky}:${orderId}`;
+  }
+
+  /**
+   * Live session pubky vs the identity captured when hydrate started.
+   * Null (signed out) or a different account must not write `commerce_reviews`.
+   */
+  private static liveIdentityMatches(hydrateIdentity: string): boolean {
+    return useAuthStore.getState().currentUserPubky === hydrateIdentity;
+  }
+
+  /**
    * The current user's own published review row for one order.
    * Local-first: a Dexie hit returns immediately. After a fresh sign-in the
    * local row is gone (wiped with identity) even when the homeserver record
@@ -2181,6 +2208,7 @@ export class CommerceApplication {
   ): Promise<CommerceReviewModelSchema | null> {
     const local = (await LocalCommerceService.getOwnReviewByOrder(actorPubky, order.id)) ?? null;
     if (local !== null) return local;
+    if (this.ownReviewHomeserverMisses.has(this.ownReviewMissKey(actorPubky, order.id))) return null;
     return await this.hydrateOwnReviewFromHomeserver(actorPubky, order);
   }
 
@@ -2235,6 +2263,8 @@ export class CommerceApplication {
     actorPubky: string,
     order: MarketplaceOrder,
   ): Promise<CommerceReviewModelSchema | null> {
+    const hydrateIdentity = actorPubky;
+    if (!this.liveIdentityMatches(hydrateIdentity)) return null;
     const listingId = this.listingIdFromOrder(order);
     if (listingId === null) return null;
     const isBuyer = actorPubky === order.buyerPubky;
@@ -2280,10 +2310,16 @@ export class CommerceApplication {
         sync_status: 'synced',
         updated_at: Date.now(),
       };
+      // Auth-cleanup may wipe `commerce_reviews` while this GET is in flight.
+      // Do not re-seed another identity's private table; skip if the live
+      // session pubky is no longer the one captured at hydrate start.
+      if (!this.liveIdentityMatches(hydrateIdentity)) return null;
       await LocalCommerceService.upsertOwnReview(model);
       return model;
     } catch (error) {
-      if (!(isAppError(error) && isNotFound(error))) {
+      if (isAppError(error) && isNotFound(error)) {
+        this.ownReviewHomeserverMisses.add(this.ownReviewMissKey(actorPubky, order.id));
+      } else {
         Logger.warn('Own review homeserver hydrate failed; leaving publication status unresolved', {
           orderId: order.id,
           reviewId,
