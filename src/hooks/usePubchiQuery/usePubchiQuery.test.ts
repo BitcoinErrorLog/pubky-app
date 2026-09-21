@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
 import type { FeedProposalV1 } from '@/libs/pubchi/schemas';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
+import { usePubchiStore } from '@/stores/pubchi/pubchi.store';
 import { usePubchiQuery } from './usePubchiQuery';
 import { QUERY_FORM_FIELDS } from './usePubchiQuery.types';
 
@@ -110,6 +111,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 
 describe('usePubchiQuery', () => {
   beforeEach(() => {
+    usePubchiStore.getState().clear();
     mocks.fetchPubchiQuery.mockReset();
     mocks.toast.mockReset();
     mocks.fetchPubchiQuery.mockResolvedValue(FEED_SUCCESS);
@@ -309,5 +311,64 @@ describe('usePubchiQuery', () => {
       title: "Answer shown; couldn't save your catch-up position",
       dismissButton: true,
     });
+  });
+
+  it('discards an in-flight summarize when a later post-menu summarize starts', async () => {
+    const owner = 'a'.repeat(52);
+    usePubchiStore.getState().setConfig(null, owner);
+    const targetA = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-A' };
+    const targetB = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-B' };
+    const questionA = `Summarize this thread ${targetA.uri}`;
+    const questionB = `Summarize this thread ${targetB.uri}`;
+    const summarizeAnswer = (question: string, summary: string): PubchiQuerySuccess => {
+      const base = answer({ owner, continuation: false });
+      if (base.kind !== 'answer') throw new Error('expected answer');
+      return { ...base, result: { ...base.result, question, summary } };
+    };
+    const answerA = summarizeAnswer(questionA, 'Summary A');
+    const answerB = summarizeAnswer(questionB, 'Summary B');
+    let resolveA!: (value: PubchiQuerySuccess) => void;
+    let resolveB!: (value: PubchiQuerySuccess) => void;
+    mocks.fetchPubchiQuery
+      .mockImplementationOnce(
+        () =>
+          new Promise<PubchiQuerySuccess>((resolve) => {
+            resolveA = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<PubchiQuerySuccess>((resolve) => {
+            resolveB = resolve;
+          }),
+      );
+
+    const { result } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    await act(async () => {
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, questionA);
+      void result.current.submit('ask', { target: targetA });
+    });
+    await waitFor(() => expect(result.current.loading).toBe(true));
+
+    await act(async () => {
+      usePubchiStore.getState().openFlyout({ question: questionB, source: 'post-menu', target: targetB }, owner);
+      result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, questionB);
+      void result.current.submit('ask', { target: targetB });
+    });
+
+    await act(async () => {
+      resolveA(answerA);
+    });
+    expect(result.current.result).toBeUndefined();
+    expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+    expect(mocks.toast).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveB(answerB);
+    });
+    await waitFor(() => expect(result.current.result).toEqual(answerB));
+    expect(usePubchiStore.getState().conversation.turns.map((turn) => turn.text)).toEqual([questionB, 'Summary B']);
   });
 });

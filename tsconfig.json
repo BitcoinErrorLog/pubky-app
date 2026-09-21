@@ -87,5 +87,5 @@
     "src/__tests__/page.test.jsx",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "scripts/pubchi-portability-proof.ts"]
 }

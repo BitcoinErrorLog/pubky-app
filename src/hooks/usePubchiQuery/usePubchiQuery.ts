@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import type { PubchiQuerySuccess } from '@/application/pubchi/pubchi.types';
@@ -24,10 +24,16 @@ import {
 
 const SIGNING_UNAVAILABLE = "This browser isn't set up for Pubchi yet. Set it up to start asking.";
 
+function isAbortError(error: unknown): boolean {
+  return (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
+}
+
 export function usePubchiQuery() {
   const owner = useAuthStore((state) => state.currentUserPubky);
-  const conversation = usePubchiStore((state) => state.conversation);
   const addConversationTurn = usePubchiStore((state) => state.addConversationTurn);
+  const abortRef = useRef<AbortController | null>(null);
+  const inFlightRequestIdRef = useRef(0);
+  const requestIdRef = useRef(0);
   const [signingAvailable, setSigningAvailable] = useState(false);
   const [pubchiAvailable, setPubchiAvailable] = useState<boolean | undefined>(undefined);
   const [setupLoading, setSetupLoading] = useState(false);
@@ -78,6 +84,18 @@ export function usePubchiQuery() {
     return () => window.clearInterval(timer);
   }, [loading]);
 
+  useEffect(() => {
+    const unsubscribe = usePubchiStore.subscribe((state, previous) => {
+      if (state.conversationGeneration !== previous.conversationGeneration) {
+        abortRef.current?.abort();
+      }
+    });
+    return () => {
+      unsubscribe();
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const submit = async (
     purpose: Phase0Purpose,
     requestOptions: { proposalVersion?: 2; targetFeedId?: string; currentFeed?: unknown; target?: PubchiTarget } = {},
@@ -94,6 +112,16 @@ export function usePubchiQuery() {
     let ok = false;
     await form.handleSubmit(
       async (values) => {
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+        const requestId = ++requestIdRef.current;
+        inFlightRequestIdRef.current = requestId;
+        const requestGeneration = usePubchiStore.getState().conversationGeneration;
+        const isCurrent = () =>
+          !controller.signal.aborted &&
+          inFlightRequestIdRef.current === requestId &&
+          usePubchiStore.getState().conversationGeneration === requestGeneration;
         setLoading(true);
         setErrorCode(undefined);
         try {
@@ -105,8 +133,10 @@ export function usePubchiQuery() {
           );
           const requestOwner = owner;
           const remoteCursor = remoteCursorAvailable ? await PubchiController.loadPubchiCursor() : null;
+          if (!isCurrent()) return;
           const cursor = remoteCursor ?? (owner && rawQuestion === 'What did I miss?' ? readLocalCursor(owner) : null);
           setCursorSource(remoteCursorAvailable && remoteCursor ? 'remote' : cursor ? 'device' : 'none');
+          const conversation = usePubchiStore.getState().conversation;
           const next = await PubchiController.fetchPubchiQuery({
             question: cursor ? `What did I miss since ${cursor}` : rawQuestion,
             purpose,
@@ -114,6 +144,7 @@ export function usePubchiQuery() {
             ...(purpose === 'build-feed' ? { proposalVersion: 2 as const } : {}),
             ...requestOptions,
           });
+          if (!isCurrent()) return;
           const nextUntil = next.kind === 'answer' ? next.result.continuation?.until : undefined;
           const cursorTime = cursor ? Date.parse(cursor) : Number.NaN;
           const nextUntilTime = nextUntil ? Date.parse(nextUntil) : Number.NaN;
@@ -156,13 +187,17 @@ export function usePubchiQuery() {
           }
           ok = true;
         } catch (error) {
+          if (!isCurrent() || isAbortError(error)) return;
           const code = error instanceof AppError ? error.message : 'SCHEMA_INVALID';
           const { message } = pubchiErrorCopy(code);
           setErrorCode(code);
           setResult(undefined);
           toast({ variant: 'error', title: message, dismissButton: true });
         } finally {
-          setLoading(false);
+          if (inFlightRequestIdRef.current === requestId) {
+            inFlightRequestIdRef.current = 0;
+            setLoading(false);
+          }
         }
       },
       () => {

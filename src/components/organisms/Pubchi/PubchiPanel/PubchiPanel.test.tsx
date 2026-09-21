@@ -240,14 +240,18 @@ describe('PubchiPanel', () => {
 
   it('consumes a prefill that arrives while the flyout is already open', () => {
     const view = render(<PubchiPanel open onOpenChange={() => {}} />);
+    const target = { kind: 'post' as const, uri: 'pubky://owner/pub/pubky.app/posts/post-1' };
     const prefill = {
-      question: 'Summarize this thread pubky://owner/pub/pubky.app/posts/post-1',
+      question: `Summarize this thread ${target.uri}`,
       source: 'post-menu' as const,
+      target,
     };
     PubchiController.openFlyout(prefill);
     view.rerender(<PubchiPanel open onOpenChange={() => {}} />);
 
     expect(hookState.form.setValue).toHaveBeenCalledWith('question', prefill.question, { shouldValidate: true });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledWith('ask', { target });
   });
 
   it('keeps the consumed post target through canonical button edits', () => {
