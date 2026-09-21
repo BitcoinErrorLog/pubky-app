@@ -278,6 +278,8 @@ export async function clearSession(request: Request, sessionCookie: string | und
 export function mapBffError(error: unknown): { status: number; code: string } {
   if (error instanceof BffError) return { status: error.status, code: error.code };
   if (error instanceof GrantServiceError) {
+    if (error.status === 401) return { status: 401, code: 'grant_revoked' };
+    if (error.status === 403) return { status: 401, code: 'grant_unauthorized' };
     if (error.status === 409 && error.code === 'identity_mismatch') return { status: 409, code: 'identity_mismatch' };
     if (error.status === 429) return { status: 429, code: 'retry_later' };
     if (error.status === 410) return { status: 410, code: error.code };
