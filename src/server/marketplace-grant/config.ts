@@ -81,6 +81,7 @@ const cliExtrasSchema = z.object({
   statusPerTokenPerMinute: z.coerce.number().int().min(1).default(60),
   resultPerTokenPerMinute: z.coerce.number().int().min(1).default(30),
   homeserverFetchTimeoutMs: z.coerce.number().int().min(2000).max(10000).default(5000),
+  trustedProxyCount: z.coerce.number().int().min(0).max(8).default(0),
 });
 
 export type CliGrantConfig = MarketplaceGrantConfig & z.infer<typeof cliExtrasSchema>;
@@ -148,6 +149,7 @@ export function getCliGrantConfig(): CliGrantConfig | null {
       statusPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_STATUS_PER_TOKEN_PER_MINUTE,
       resultPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_RESULT_PER_TOKEN_PER_MINUTE,
       homeserverFetchTimeoutMs: process.env.SHOP_BFF_CLI_HOMESERVER_FETCH_TIMEOUT_MILLISECONDS,
+      trustedProxyCount: process.env.SHOP_BFF_CLI_TRUSTED_PROXY_COUNT,
     }),
   };
   return cachedCli;

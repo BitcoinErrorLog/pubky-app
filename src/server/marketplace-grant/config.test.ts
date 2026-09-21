@@ -96,6 +96,7 @@ describe('marketplace grant BFF config', () => {
       statusPerTokenPerMinute: 60,
       resultPerTokenPerMinute: 30,
       homeserverFetchTimeoutMs: 5000,
+      trustedProxyCount: 0,
     });
   });
 

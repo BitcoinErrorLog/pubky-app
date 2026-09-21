@@ -1,6 +1,8 @@
 import postgres, { type Sql } from 'postgres';
 import type { MarketplaceGrantConfig } from './config';
 
+export const CLI_RATE_BUCKET_TTL_SECONDS = 120;
+
 export type BridgeRow = {
   bridge_id: string;
   cookie_hash: Uint8Array;
@@ -214,6 +216,7 @@ export async function cleanupGrantState(config: MarketplaceGrantConfig): Promise
   abandonedClaims: number;
   deletedFlows: number;
   deletedBridges: number;
+  deletedRateBuckets: number;
 }> {
   const db = grantSql(config);
   return await db.begin(async (tx) => {
@@ -239,6 +242,7 @@ export async function cleanupGrantState(config: MarketplaceGrantConfig): Promise
     const versionRows = await tx<{ version: number }[]>`
       SELECT version FROM shop_grant_bff.schema_version WHERE singleton = TRUE
     `;
+    let deletedRateBuckets = 0;
     if (versionRows[0]?.version === 2) {
       await tx`
         UPDATE shop_grant_bff.cli_flow_state
@@ -260,14 +264,24 @@ export async function cleanupGrantState(config: MarketplaceGrantConfig): Promise
             SELECT 1 FROM shop_grant_bff.cli_flow_state s WHERE s.challenge_id = cli_challenges.challenge_id
           )
       `;
+      const prunedBuckets = await tx`
+        DELETE FROM shop_grant_bff.cli_rate_buckets
+        WHERE updated_at < now() - (${CLI_RATE_BUCKET_TTL_SECONDS} * interval '1 second')
+      `;
+      deletedRateBuckets = prunedBuckets.count;
     }
     return {
       expiredFlows: expired.count,
       abandonedClaims: abandoned.count,
       deletedFlows: deletedFlows.count,
       deletedBridges: deletedBridges.count,
+      deletedRateBuckets,
     };
   });
+}
+
+export function setGrantSqlForTests(client: Sql | undefined): void {
+  sql = client;
 }
 
 export async function resetGrantSqlForTests(): Promise<void> {

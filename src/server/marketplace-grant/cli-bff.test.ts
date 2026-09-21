@@ -1,5 +1,7 @@
+/** @vitest-environment node */
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { BffError } from './bff';
 import { resetMarketplaceGrantConfigForTests } from './config';
 import { encodeBase64Url, hashCliDeliveryId, sha256Bytes } from './crypto';
@@ -94,6 +96,33 @@ function enableCliEnv(): void {
     SHOP_BFF_GRANT_STATE_ENCRYPTION_KEY_B64: Buffer.alloc(32, 3).toString('base64'),
     SHOP_BFF_GRANT_STATE_KEY_EPOCH: '1',
   };
+  delete process.env.VERCEL;
+}
+
+function challengeIpKeys(): string[] {
+  return consumeCliRateLimit.mock.calls
+    .map((call) => String(call[1]))
+    .filter((key) => key.startsWith('cli_challenge_ip:'));
+}
+
+function fakeGrantSql(): {
+  calls: { text: string; values: unknown[] }[];
+  sql: import('postgres').Sql;
+} {
+  const calls: { text: string; values: unknown[] }[] = [];
+  const run = (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join('?');
+    calls.push({ text, values });
+    const rows = Object.assign([] as Record<string, unknown>[], { count: 0 });
+    if (text.includes('schema_version')) rows.push({ version: 2 });
+    if (text.includes('cli_rate_buckets')) rows.count = 3;
+    return Promise.resolve(rows);
+  };
+  Object.assign(run, {
+    begin: async (fn: (tx: typeof run) => Promise<unknown>) => fn(run),
+    end: async () => undefined,
+  });
+  return { calls, sql: asOpaque<import('postgres').Sql>(run) };
 }
 
 function jsonRequest(body: unknown, headers: Record<string, string> = {}): Request {
@@ -286,5 +315,123 @@ describe('CLI grant BFF', () => {
       code: 'retry_later',
       retryAfterSeconds: 60,
     });
+  });
+
+  it('collapses spoofed forwarded headers onto one IP bucket and prunes stale buckets', async () => {
+    const { createCliChallenge } = await import('./cli-bff');
+    const { CLI_RATE_BUCKET_TTL_SECONDS, cleanupGrantState, resetGrantSqlForTests, setGrantSqlForTests } =
+      await import('./db');
+    const { getCliGrantConfig } = await import('./config');
+    const body = { pubky, result_cpk: pubky, result_delivery_id: deliveryId };
+    await createCliChallenge(jsonRequest(body, { 'x-forwarded-for': '203.0.113.1', 'x-real-ip': '192.0.2.1' }));
+    await createCliChallenge(jsonRequest(body, { 'x-forwarded-for': '198.51.100.9', 'x-real-ip': '192.0.2.88' }));
+    expect(challengeIpKeys()).toEqual(['cli_challenge_ip:0.0.0.0', 'cli_challenge_ip:0.0.0.0']);
+
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    consumeCliRateLimit.mockClear();
+    await createCliChallenge(
+      jsonRequest(body, {
+        'x-forwarded-for': '203.0.113.1, 198.51.100.1',
+        'x-real-ip': '192.0.2.1',
+        'x-vercel-forwarded-for': '198.51.100.10',
+      }),
+    );
+    const vercelRequest = jsonRequest(body, {
+      'x-forwarded-for': '8.8.8.8',
+      'x-real-ip': '9.9.9.9',
+    });
+    Object.defineProperty(vercelRequest, 'ip', { value: '198.51.100.10' });
+    await createCliChallenge(vercelRequest);
+    expect(challengeIpKeys()).toEqual(['cli_challenge_ip:198.51.100.10', 'cli_challenge_ip:198.51.100.10']);
+
+    const fake = fakeGrantSql();
+    setGrantSqlForTests(fake.sql);
+    try {
+      const cleaned = await cleanupGrantState(getCliGrantConfig()!);
+      expect(cleaned.deletedRateBuckets).toBe(3);
+      const prune = fake.calls.find((call) => call.text.includes('cli_rate_buckets'));
+      expect(prune?.text).toContain('updated_at');
+      expect(prune?.values).toContain(CLI_RATE_BUCKET_TTL_SECONDS);
+    } finally {
+      await resetGrantSqlForTests();
+    }
+  });
+
+  it('uses the last XFF hop behind the trusted proxy count off Vercel', async () => {
+    process.env.SHOP_BFF_CLI_TRUSTED_PROXY_COUNT = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createCliChallenge } = await import('./cli-bff');
+    const body = { pubky, result_cpk: pubky, result_delivery_id: deliveryId };
+    await createCliChallenge(jsonRequest(body, { 'x-forwarded-for': '203.0.113.1, 198.51.100.4' }));
+    await createCliChallenge(jsonRequest(body, { 'x-forwarded-for': '8.8.8.8, 198.51.100.4' }));
+    expect(challengeIpKeys()).toEqual(['cli_challenge_ip:198.51.100.4', 'cli_challenge_ip:198.51.100.4']);
+  });
+
+  it('terminalizes a gone service flow and never tickets or claims', async () => {
+    const { getCliGrantConfig } = await import('./config');
+    const { hashCliToken, makeBoundCookie } = await import('./crypto');
+    const { cliFlowStatus, ticketCliResult } = await import('./cli-bff');
+    const config = getCliGrantConfig()!;
+    const stateId = randomUUID();
+    const flowId = randomUUID();
+    const bound = makeBoundCookie(stateId);
+    const liveFlow = {
+      state_id: stateId,
+      challenge_id: challengeId,
+      flow_id: flowId,
+      pubky,
+      result_cpk: pubky,
+      token_hash: hashCliToken(config, 1, bound.secret),
+      context_sealed: new Uint8Array(80).fill(1),
+      result_token_sealed: null,
+      key_epoch: 1,
+      status: 'awaiting',
+      lease_owner: null,
+      lease_until: null,
+      version: '1',
+      created_at: new Date(),
+      expires_at: new Date(Date.now() + 60_000),
+      terminal_at: null,
+    };
+    getCliFlow.mockResolvedValue(liveFlow);
+    getGrantStatus.mockResolvedValue({
+      expires_at: '2026-09-21T10:05:00.000Z',
+      flow_id: flowId,
+      status: 'invalid',
+      terminal_code: null,
+    });
+    const auth = { authorization: `PubkyShopCli ${bound.value}` };
+    await expect(cliFlowStatus(jsonRequest({}, auth), stateId)).resolves.toMatchObject({
+      flow_id: flowId,
+      state_id: stateId,
+      status: 'invalid',
+    });
+    expect(terminalizeCliFlow).toHaveBeenCalledWith(expect.anything(), stateId, 'failed');
+    expect(ticketGrantResult).not.toHaveBeenCalled();
+
+    getCliFlow.mockResolvedValue({
+      ...liveFlow,
+      status: 'failed',
+      context_sealed: null,
+      terminal_at: new Date(),
+    });
+    await expect(
+      ticketCliResult(
+        jsonRequest(
+          {
+            proof: {
+              issued_at: 1,
+              nonce: 'n',
+              nonce_id: randomUUID(),
+              signature: 's',
+            },
+          },
+          auth,
+        ),
+        stateId,
+      ),
+    ).rejects.toEqual(new BffError(403, 'result_denied'));
+    expect(ticketGrantResult).not.toHaveBeenCalled();
   });
 });

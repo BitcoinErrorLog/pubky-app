@@ -99,13 +99,34 @@ function requireUuid(value: string): string {
   return value;
 }
 
-function clientIp(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  if (forwarded) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first) return first;
+function firstHop(value: string | null): string {
+  const hop = value?.split(',')[0]?.trim();
+  return hop || '';
+}
+
+function platformRequestIp(request: Request): string {
+  if ('ip' in request && typeof (request as { ip?: unknown }).ip === 'string') {
+    return (request as { ip: string }).ip.trim();
   }
-  return request.headers.get('x-real-ip')?.trim() || '0.0.0.0';
+  return '';
+}
+
+function xffHopBehindTrustedProxies(forwarded: string | null, trustedProxyCount: number): string {
+  if (trustedProxyCount < 1 || !forwarded) return '';
+  const hops = forwarded
+    .split(',')
+    .map((hop) => hop.trim())
+    .filter(Boolean);
+  const index = hops.length - trustedProxyCount;
+  if (index < 0) return '';
+  return hops[index] ?? '';
+}
+
+function clientIp(request: Request, trustedProxyCount: number): string {
+  if (process.env.VERCEL === '1') {
+    return firstHop(request.headers.get('x-vercel-forwarded-for')) || platformRequestIp(request) || '0.0.0.0';
+  }
+  return xffHopBehindTrustedProxies(request.headers.get('x-forwarded-for'), trustedProxyCount) || '0.0.0.0';
 }
 
 function tokenBucketKey(prefix: string, digest: Uint8Array): string {
@@ -149,7 +170,11 @@ export async function createCliChallenge(request: Request): Promise<{
   } catch {
     throw new BffError(400, 'invalid_request');
   }
-  await rateLimit(config, `cli_challenge_ip:${clientIp(request)}`, config.createPerIpPerMinute);
+  await rateLimit(
+    config,
+    `cli_challenge_ip:${clientIp(request, config.trustedProxyCount)}`,
+    config.createPerIpPerMinute,
+  );
   await rateLimit(config, `cli_challenge_pubky:${pubky}`, config.createPerPubkyPerMinute);
   const challengeId = randomUUID();
   const nonce = Uint8Array.from(randomBytes(32));
@@ -191,7 +216,7 @@ export async function verifyCliChallenge(
   } catch {
     throw new BffError(400, 'invalid_request');
   }
-  await rateLimit(config, `cli_verify_ip:${clientIp(request)}`, config.verifyPerIpPerMinute);
+  await rateLimit(config, `cli_verify_ip:${clientIp(request, config.trustedProxyCount)}`, config.verifyPerIpPerMinute);
   await rateLimit(config, `cli_verify_challenge:${challengeId}`, VERIFY_PER_CHALLENGE_PER_MINUTE);
   const challenge = await getCliChallenge(config, challengeId);
   if (!challenge) throw new BffError(404, 'challenge_not_found');
