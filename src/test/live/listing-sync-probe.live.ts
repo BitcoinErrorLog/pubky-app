@@ -20,7 +20,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *   npx vitest run src/test/live/listing-sync-probe.live.ts --config vitest.live.config.ts
  */
 
-const SERVICE_URL = process.env.MARKETPLACE_SERVICE_URL ?? 'https://marketplace-service-production.up.railway.app';
+const SERVICE_URL = process.env.MARKETPLACE_SERVICE_URL ?? 'https://staging-api.pubky.app';
 const NEXUS_URL = process.env.MARKETPLACE_NEXUS_URL ?? 'https://nexusd-production-7108.up.railway.app';
 
 process.env.PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE = 'transaction-service';
