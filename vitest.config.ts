@@ -90,6 +90,13 @@ function vrtProject(opts: {
           toMatchScreenshot: {
             comparatorName: 'pixelmatch' as const,
             comparatorOptions: opts.comparatorOptions,
+            // Element border box, not a viewport page crop. `caret`/`animations`
+            // match Playwright locator.screenshot defaults so linux and darwin
+            // capture the same region.
+            screenshotOptions: {
+              animations: 'disabled',
+              caret: 'hide',
+            },
             // Image-heavy suites (Home, Collections) on WebKit/Linux need
             // extra headroom for layout to settle after fonts/images decode.
             timeout: 15_000,

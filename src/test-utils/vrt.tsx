@@ -36,6 +36,33 @@ export const VRT_DENSE_CHROME_SCREENSHOT = {
 } as const;
 
 /**
+ * Playwright `locator.screenshot` options shared by marketplace VRT.
+ *
+ * Capture the element's border box (not a 720px viewport crop, not `fullPage`).
+ * Linux GitHub runners and darwin must use this same region: clipping to the
+ * viewport would shrink sell/drops/orders/cart scenes and fail darwin 957/957.
+ * Fonts are the app's vendored Inter Tight / JetBrains Mono (`vrt.setup.ts`);
+ * do not let system-font substitution drive the diff.
+ */
+export const VRT_CAPTURE_SCREENSHOT = {
+  screenshotOptions: {
+    animations: 'disabled' as const,
+    caret: 'hide' as const,
+  },
+};
+
+function resetVrtScroll(target?: HTMLElement | null) {
+  window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  if (target) {
+    target.scrollTop = 0;
+    target.style.scrollMargin = '0';
+    target.scrollIntoView({ block: 'start', inline: 'nearest' });
+  }
+}
+
+/**
  * Surface guard: a VRT scene must capture a PRODUCTION surface, marked with
  * `data-surface="<name>"` on the surface root inside the component under
  * test — never a test-only stand-in. Returns a locator over the marker so
@@ -55,10 +82,11 @@ export function expectVrtSurface(surface: string) {
   // Playwright's element screenshot scrolls tall elements into view before
   // capturing them. Firefox can choose a middle scroll position for a surface
   // taller than the viewport, which changes sticky layout and clips the
-  // capture. Establish the top position and let that layout settle first.
+  // capture. Reset window + element scroll, then pin the top of the surface.
+  // The screenshot is the element's border box on both linux and darwin —
+  // never a viewport-sized page crop.
   if (marker instanceof HTMLElement) {
-    marker.style.scrollMargin = '0';
-    marker.scrollIntoView({ block: 'start', inline: 'nearest' });
+    resetVrtScroll(marker);
   }
   return page.elementLocator(marker as HTMLElement);
 }
@@ -126,6 +154,12 @@ export async function renderForVRT(ui: ReactNode, options: RenderForVRTOptions) 
   const root = document.querySelector(`[data-testid="${VRT_ROOT_TESTID}"]`);
   if (root) {
     await waitForImagesReady(root);
+    if (root instanceof HTMLElement) {
+      resetVrtScroll(root);
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+    }
   }
   return screen;
 }
