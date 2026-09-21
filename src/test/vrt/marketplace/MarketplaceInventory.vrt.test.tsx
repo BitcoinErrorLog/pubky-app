@@ -7,24 +7,26 @@ import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.view
 import { MarketplaceInventory } from '@/templates/Marketplace/MarketplaceInventory';
 import type { InventoryBoardLoad, InventoryBoardRow } from '@/application/commerce/inventory';
 
-const SELLER = 'y'.repeat(52);
-
-const row = (overrides: Partial<InventoryBoardRow> = {}): InventoryBoardRow => ({
-  listingId: 'boots',
-  sellerPubky: SELLER,
-  aggregateId: `listing:${SELLER}_boots`,
-  title: 'Vintage work boots',
-  thumbUrl: null,
-  state: 'active',
-  format: 'fixed_price',
-  dropId: null,
-  available: 4,
-  reserved: 2,
-  sold: 1,
-  total: 7,
-  serverRevision: 3,
-  sync: 'synced',
-  ...overrides,
+const { SELLER, row } = vi.hoisted(() => {
+  const seller = 'y'.repeat(52);
+  const row = (overrides: Partial<InventoryBoardRow> = {}): InventoryBoardRow => ({
+    listingId: 'boots',
+    sellerPubky: seller,
+    aggregateId: `listing:${seller}_boots`,
+    title: 'Vintage work boots',
+    thumbUrl: null,
+    state: 'active',
+    format: 'fixed_price',
+    dropId: null,
+    available: 4,
+    reserved: 2,
+    sold: 1,
+    total: 7,
+    serverRevision: 3,
+    sync: 'synced',
+    ...overrides,
+  });
+  return { SELLER: seller, row };
 });
 
 const view = vi.hoisted(() => ({
@@ -75,6 +77,10 @@ vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
 
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
   useMarketplaceActivityUnread: () => 0,
+}));
+
+vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
+  ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
 
 describe('MarketplaceInventory VRT', () => {
