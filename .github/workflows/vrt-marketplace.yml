@@ -9,9 +9,12 @@ jobs:
   vrt-marketplace:
     name: vrt-marketplace
     runs-on: ubuntu-latest
-    # Ubuntu full-suite VRT median is 8.4 min; marketplace-only chromium+firefox
-    # should sit under that. 20 min is ~2× plus Playwright install headroom.
-    timeout-minutes: 20
+    # Same image as local Linux proof (`package-lock.json` playwright 1.60.0).
+    container:
+      image: mcr.microsoft.com/playwright:v1.60.0-noble
+      options: --user 1001
+    # HEAD median 4m0s (run 35590590935); 8 min is 2×.
+    timeout-minutes: 8
 
     steps:
       - name: Checkout code
@@ -26,46 +29,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set Playwright browsers path
-        run: echo "PLAYWRIGHT_BROWSERS_PATH=${HOME}/.cache/ms-playwright" >> "$GITHUB_ENV"
-
-      - name: Restore Playwright browsers cache
-        uses: actions/cache/restore@v4
-        id: playwright-browsers-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: vrt-marketplace-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            vrt-marketplace-playwright-${{ runner.os }}-
-            vrt-playwright-${{ runner.os }}-
-
-      - name: Install Playwright browsers
-        if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium firefox
-
-      - name: Install Playwright system dependencies
-        if: steps.playwright-browsers-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium firefox
-
       - name: Run marketplace visual regression tests
         env:
           VRT_BROWSERS: chromium,firefox
-          VRT_REPORT_DIR: ${{ runner.temp }}/vrt-marketplace-ci
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+          VRT_REPORT_DIR: ${{ github.workspace }}/.vrt-marketplace-ci
         run: bash scripts/ci-vrt-marketplace.sh
-
-      - name: Save Playwright browsers cache
-        if: always() && steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ steps.playwright-browsers-cache.outputs.cache-primary-key }}
 
       - name: Upload newly recorded Linux baselines
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: vrt-marketplace-linux-baselines
-          path: ${{ runner.temp }}/vrt-marketplace-ci/new-linux-baselines/
+          path: ${{ github.workspace }}/.vrt-marketplace-ci/new-linux-baselines/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -75,7 +51,7 @@ jobs:
         with:
           name: vrt-marketplace-report
           path: |
-            ${{ runner.temp }}/vrt-marketplace-ci/report.json
+            ${{ github.workspace }}/.vrt-marketplace-ci/report.json
             .vitest-attachments/
           include-hidden-files: true
           if-no-files-found: ignore

@@ -2,9 +2,9 @@
 # Marketplace VRT for GitHub Actions (Linux).
 #
 # Compares against committed *-linux.png baselines. Missing linux baselines
-# are recorded and uploaded as an artifact; they do not fail the job.
-# Pixel mismatch against an existing linux baseline fails the job.
-# *-darwin.png files are never written or updated.
+# are recorded and uploaded as an artifact, then the job FAILS — commit the
+# recorded *-linux.png from the artifact. Pixel mismatch against an existing
+# linux baseline also fails. *-darwin.png files are never written or updated.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -175,8 +175,8 @@ fi
 
 if [ "$CLASS_EXIT" -eq 10 ]; then
   record_missing_linux
-  echo "Missing Linux baselines only. Job passes; commit the artifact in a follow-up."
-  exit 0
+  echo "Missing Linux baselines. Job failed. Commit the recorded *-linux.png from the vrt-marketplace-linux-baselines artifact."
+  exit 1
 fi
 
 if [ "$CLASS_EXIT" -eq 11 ]; then
