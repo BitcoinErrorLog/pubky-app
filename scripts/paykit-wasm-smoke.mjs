@@ -143,12 +143,21 @@ assert.throws(
 );
 
 // The production session path constructs a pubkyauth URL for the paykit scope.
+// `startAuthFlow` starts the HTTP-relay poller before `awaitApproval()`. Node
+// will not exit while those sockets are open: locally ~9s after "passed",
+// GitHub-hosted Ubuntu ~43 min (run 35573196241: passed 07:30:22, process
+// exit 08:13:41). Drop the flow and client, then exit so CI is not gated on
+// the poller.
 const client = new sdk.PubkyClient();
-const url = client.startAuthFlow('/pub/paykit/:rw').authorizationUrl();
+const flow = client.startAuthFlow('/pub/paykit/:rw');
+const url = flow.authorizationUrl();
 assert.match(url, /^pubkyauth:\/\/signin\?/);
 assert.ok(url.includes('caps=/pub/paykit/:rw'));
+flow.free();
+client.free();
 
 alice.close();
 bob.close();
 
 console.log('vendored paykit-wasm messaging binding smoke check passed');
+process.exit(0);
