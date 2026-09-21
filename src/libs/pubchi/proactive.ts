@@ -40,6 +40,8 @@ export const PROACTIVE_BUDGET_SHARE = {
 
 export const PROACTIVE_DISMISS_PREFIX = 'pubchi-proactive-dismiss:';
 export const PROACTIVE_ATTEMPT_PREFIX = 'pubchi-proactive-attempt:';
+export const PROACTIVE_CLAIM_PREFIX = 'pubchi-proactive-claim:';
+export const PROACTIVE_LOCK_PREFIX = 'pubchi-proactive-';
 
 export type QuietHoursUtc = { start: number; end: number };
 
@@ -61,7 +63,8 @@ export type ProactiveSkipReason =
   | 'quiet-hours'
   | 'frequency-cap'
   | 'deduped'
-  | 'zero-cap';
+  | 'zero-cap'
+  | 'cross-tab';
 
 export function utcHour(nowMs: number): number {
   return new Date(nowMs).getUTCHours();
@@ -73,6 +76,89 @@ export function utcDayKey(nowMs: number): string {
 
 export function proactiveSuggestionId(nowMs: number): string {
   return `what-i-missed-${utcDayKey(nowMs)}`;
+}
+
+/** Same-origin Web Lock name: `pubchi-proactive-YYYYMMDD`. */
+export function proactiveLockName(nowMs: number): string {
+  return `${PROACTIVE_LOCK_PREFIX}${utcDayKey(nowMs)}`;
+}
+
+export function proactiveClaimKey(owner: string, nowMs: number): string {
+  return `${PROACTIVE_CLAIM_PREFIX}${owner}:${utcDayKey(nowMs)}`;
+}
+
+export function proactiveFallbackLockKey(nowMs: number): string {
+  return `${PROACTIVE_CLAIM_PREFIX}lock:${utcDayKey(nowMs)}`;
+}
+
+type ProactiveLock = { name: string } | null;
+
+export type ProactiveLockManager = {
+  request: <T>(
+    name: string,
+    options: { ifAvailable: true },
+    callback: (lock: ProactiveLock) => Promise<T>,
+  ) => Promise<T>;
+};
+
+let locksForTests: ProactiveLockManager | null | undefined;
+
+export function setProactiveLocksForTests(locks: ProactiveLockManager | null | undefined): void {
+  locksForTests = locks;
+}
+
+function resolveLockManager(): ProactiveLockManager | null {
+  if (locksForTests !== undefined) return locksForTests;
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (!locks?.request) return null;
+  return {
+    request: (name, options, callback) =>
+      locks.request(name, options, (lock) => callback(lock)) as Promise<Awaited<ReturnType<typeof callback>>>,
+  };
+}
+
+export function hasProactiveDayClaim(owner: string, nowMs: number): boolean {
+  return Boolean(storage()?.getItem(proactiveClaimKey(owner, nowMs)));
+}
+
+/** Persist that this origin already spent today's ask. Survives Web Lock release. */
+export function claimProactiveDay(owner: string, nowMs: number): boolean {
+  const store = storage();
+  if (!store) return true;
+  const key = proactiveClaimKey(owner, nowMs);
+  if (store.getItem(key)) return false;
+  const token = `${nowMs}:${Math.random().toString(36).slice(2)}`;
+  store.setItem(key, token);
+  return store.getItem(key) === token;
+}
+
+function claimFallbackLock(nowMs: number): boolean {
+  const store = storage();
+  if (!store) return true;
+  const key = proactiveFallbackLockKey(nowMs);
+  if (store.getItem(key)) return false;
+  store.setItem(key, '1');
+  return store.getItem(key) === '1';
+}
+
+/**
+ * Exclusive same-origin right to GET/ask for this UTC day.
+ * Web Locks `ifAvailable: true` when present; otherwise a localStorage claim.
+ */
+export async function withProactiveDayLock<T>(
+  nowMs: number,
+  work: () => Promise<T>,
+): Promise<{ acquired: false } | { acquired: true; value: T }> {
+  const name = proactiveLockName(nowMs);
+  const locks = resolveLockManager();
+  if (locks) {
+    return locks.request(name, { ifAvailable: true }, async (lock) => {
+      if (!lock) return { acquired: false } as const;
+      return { acquired: true as const, value: await work() };
+    });
+  }
+  if (!claimFallbackLock(nowMs)) return { acquired: false };
+  return { acquired: true, value: await work() };
 }
 
 /** Inclusive of `start`, exclusive of `end`. Wrap-around (22→7) is quiet. */
@@ -153,7 +239,11 @@ export function clearProactiveLocalState(): void {
   if (!store) return;
   for (let index = store.length - 1; index >= 0; index -= 1) {
     const key = store.key(index);
-    if (key?.startsWith(PROACTIVE_DISMISS_PREFIX) || key?.startsWith(PROACTIVE_ATTEMPT_PREFIX)) {
+    if (
+      key?.startsWith(PROACTIVE_DISMISS_PREFIX) ||
+      key?.startsWith(PROACTIVE_ATTEMPT_PREFIX) ||
+      key?.startsWith(PROACTIVE_CLAIM_PREFIX)
+    ) {
       store.removeItem(key);
     }
   }

@@ -1,9 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PHASE0_BUDGETS } from './schemas/tenant';
 import {
+  claimProactiveDay,
   clearProactiveLocalState,
   decideProactiveAsk,
   DEFAULT_PROACTIVE,
+  hasProactiveDayClaim,
   isQuietHour,
   isSuggestionDismissed,
   nextCapResetMs,
@@ -11,13 +13,17 @@ import {
   persistDismissedId,
   PROACTIVE_ATTEMPT_PREFIX,
   PROACTIVE_BUDGET_SHARE,
+  PROACTIVE_CLAIM_PREFIX,
   PROACTIVE_DISMISS_PREFIX,
   PROACTIVE_PURPOSE,
+  proactiveLockName,
   proactiveSuggestionId,
   readAttemptState,
   recordProactiveAttempt,
+  setProactiveLocksForTests,
   utcDayKey,
   visibleProactiveSuggestions,
+  withProactiveDayLock,
 } from './proactive';
 
 const OWNER = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
@@ -41,6 +47,7 @@ describe('pubchi app-open proactive coordinator helpers', () => {
 
   afterEach(() => {
     localStorage.clear();
+    setProactiveLocksForTests(undefined);
   });
 
   it('treats wrap-around quiet hours 22–7 UTC as quiet and 12:00 as eligible', () => {
@@ -104,6 +111,50 @@ describe('pubchi app-open proactive coordinator helpers', () => {
     expect(localStorage.getItem(`${PROACTIVE_DISMISS_PREFIX}${OWNER}`)).toBeNull();
     expect(localStorage.getItem(`${PROACTIVE_ATTEMPT_PREFIX}${OWNER}`)).toBeNull();
     expect(isSuggestionDismissed(OWNER, 'what-i-missed-20260921')).toBe(false);
+  });
+
+  it('names the Web Lock pubchi-proactive-YYYYMMDD and skips a second ifAvailable waiter', async () => {
+    expect(proactiveLockName(noon)).toBe(`pubchi-proactive-${utcDayKey(noon)}`);
+    expect(claimProactiveDay(OWNER, noon)).toBe(true);
+    expect(claimProactiveDay(OWNER, noon)).toBe(false);
+    expect(hasProactiveDayClaim(OWNER, noon)).toBe(true);
+
+    const held = new Set<string>();
+    setProactiveLocksForTests({
+      request: async (name, _options, callback) => {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          return await callback({ name });
+        } finally {
+          held.delete(name);
+        }
+      },
+    });
+
+    let releaseHolder: () => void = () => undefined;
+    const hold = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const first = withProactiveDayLock(noon, async () => {
+      await hold;
+      return 'one';
+    });
+    await vi.waitFor(() => expect(held.size).toBe(1));
+    const second = await withProactiveDayLock(noon, async () => 'two');
+    expect(second).toEqual({ acquired: false });
+    releaseHolder();
+    await expect(first).resolves.toEqual({ acquired: true, value: 'one' });
+
+    setProactiveLocksForTests(null);
+    localStorage.clear();
+    const fallbackFirst = await withProactiveDayLock(noon, async () => 'claimed');
+    const fallbackSecond = await withProactiveDayLock(noon, async () => 'lost');
+    expect(fallbackFirst).toEqual({ acquired: true, value: 'claimed' });
+    expect(fallbackSecond).toEqual({ acquired: false });
+    expect(localStorage.getItem(`${PROACTIVE_CLAIM_PREFIX}lock:${utcDayKey(noon)}`)).toBe('1');
+    clearProactiveLocalState();
+    expect(localStorage.getItem(`${PROACTIVE_CLAIM_PREFIX}lock:${utcDayKey(noon)}`)).toBeNull();
   });
 });
 

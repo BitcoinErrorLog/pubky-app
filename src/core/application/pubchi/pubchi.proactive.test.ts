@@ -4,7 +4,16 @@ import { ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
-import { clearProactiveLocalState, persistDismissedId, PROACTIVE_QUESTION, proactiveSuggestionId } from '@/libs/pubchi/proactive';
+import {
+  clearProactiveLocalState,
+  persistDismissedId,
+  PROACTIVE_QUESTION,
+  proactiveLockName,
+  proactiveSuggestionId,
+  setProactiveLocksForTests,
+  utcDayKey,
+  type ProactiveLockManager,
+} from '@/libs/pubchi/proactive';
 import type { PubchiAnswerV1, PubchiConfigV1, PubchiSuggestionV1 } from '@/libs/pubchi/schemas';
 import { suggestionFromAnswer, suggestionPath } from '@/libs/pubchi/schemas';
 import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config';
@@ -160,6 +169,7 @@ describe('PubchiApplication app-open proactive', () => {
     delete process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiEnabled];
     delete process.env[PUBKY_RUNTIME_ENV_NAMES.pubchiApiUrl];
     resetRuntimeConfigForTests();
+    setProactiveLocksForTests(undefined);
     clearProactiveLocalState();
     localStorage.clear();
     vi.restoreAllMocks();
@@ -206,6 +216,44 @@ describe('PubchiApplication app-open proactive', () => {
       context: { statusCode: 500 },
     });
     expect(vi.mocked(HomeserverService.request)).not.toHaveBeenCalled();
+  });
+
+  it('lets only one of two first-open tabs query and PUT', async () => {
+    documents.set(`pubky://${OWNER}/pub/app.pubchi/v1/config.json`, JSON.stringify(config(true)));
+    const held = new Set<string>();
+    const locks: ProactiveLockManager = {
+      request: async (name, _options, callback) => {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          return await callback({ name });
+        } finally {
+          held.delete(name);
+        }
+      },
+    };
+    setProactiveLocksForTests(locks);
+    expect(proactiveLockName(noon)).toBe(`pubchi-proactive-${utcDayKey(noon)}`);
+
+    let releaseQuery: () => void = () => undefined;
+    const queryHold = new Promise<void>((resolve) => {
+      releaseQuery = resolve;
+    });
+    const query = vi.spyOn(PubchiApplication, 'query').mockImplementation(async () => {
+      await queryHold;
+      return { kind: 'answer', result: answer() };
+    });
+
+    const tab1 = PubchiApplication.runAppOpenProactive(OWNER, noon, true);
+    const tab2 = PubchiApplication.runAppOpenProactive(OWNER, noon, true);
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+    releaseQuery();
+    await Promise.all([tab1, tab2]);
+
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(HomeserverService.request).mock.calls.filter((call) => call[0].method === HttpMethod.PUT)).toHaveLength(
+      1,
+    );
   });
 
   it('hides a dismissed suggestion without deleting the homeserver object', async () => {

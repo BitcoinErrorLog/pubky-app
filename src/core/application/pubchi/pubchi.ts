@@ -60,7 +60,9 @@ import {
   reconstructFeedsFromBundle,
 } from '@/libs/pubchi/portability';
 import {
+  claimProactiveDay,
   decideProactiveAsk,
+  hasProactiveDayClaim,
   isAppForeground,
   PROACTIVE_PURPOSE,
   PROACTIVE_QUESTION,
@@ -69,6 +71,7 @@ import {
   readAttemptState,
   recordProactiveAttempt,
   visibleProactiveSuggestions,
+  withProactiveDayLock,
 } from '@/libs/pubchi/proactive';
 import {
   bodySha256,
@@ -480,9 +483,6 @@ export class PubchiApplication {
     const config = await this.loadPubchiConfig(owner, false);
     const proactive = proactiveFromConfig(config);
     const suggestionId = proactiveSuggestionId(nowMs);
-    const existingToday =
-      listed.find((item) => item.suggestion_id === suggestionId) ??
-      (await this.loadPubchiSuggestion(owner, suggestionId));
     const session = useAuthStore.getState().selectSession();
     const gate = decideProactiveAsk({
       enabled: proactive.enabled,
@@ -492,28 +492,39 @@ export class PubchiApplication {
       visible,
       hasSession: Boolean(session),
       asksToday: readAttemptState(owner, nowMs).count,
-      existingSuggestionId: existingToday?.suggestion_id ?? null,
+      existingSuggestionId: listed.find((item) => item.suggestion_id === suggestionId)?.suggestion_id ?? null,
     });
     if (!gate.ok) return listed;
 
-    recordProactiveAttempt(owner, nowMs);
-    let result: PubchiQuerySuccess;
-    try {
-      result = await this.query({
-        owner,
-        question: PROACTIVE_QUESTION,
-        purpose: PROACTIVE_PURPOSE,
-        nowSeconds,
-      });
-    } catch (error) {
-      Logger.warn('Pubchi app-open proactive query failed', { error, owner });
-      return listed;
-    }
-    if (result.kind !== 'answer') return listed;
-    const built = suggestionFromAnswer(result.result, { suggestionId, nowSeconds });
-    if (!built) return listed;
-    await this.savePubchiSuggestion(owner, built);
-    return this.listProactiveSuggestions(owner, nowSeconds);
+    const locked = await withProactiveDayLock(nowMs, async () => {
+      if (hasProactiveDayClaim(owner, nowMs)) return this.listProactiveSuggestions(owner, nowSeconds);
+      const existing = await this.loadPubchiSuggestion(owner, suggestionId);
+      if (existing) return this.listProactiveSuggestions(owner, nowSeconds);
+      if (readAttemptState(owner, nowMs).count >= proactive.max_suggestions_per_day) {
+        return this.listProactiveSuggestions(owner, nowSeconds);
+      }
+      if (!claimProactiveDay(owner, nowMs)) return this.listProactiveSuggestions(owner, nowSeconds);
+      recordProactiveAttempt(owner, nowMs);
+      let result: PubchiQuerySuccess;
+      try {
+        result = await this.query({
+          owner,
+          question: PROACTIVE_QUESTION,
+          purpose: PROACTIVE_PURPOSE,
+          nowSeconds,
+        });
+      } catch (error) {
+        Logger.warn('Pubchi app-open proactive query failed', { error, owner });
+        return this.listProactiveSuggestions(owner, nowSeconds);
+      }
+      if (result.kind !== 'answer') return this.listProactiveSuggestions(owner, nowSeconds);
+      const built = suggestionFromAnswer(result.result, { suggestionId, nowSeconds });
+      if (!built) return this.listProactiveSuggestions(owner, nowSeconds);
+      await this.savePubchiSuggestion(owner, built);
+      return this.listProactiveSuggestions(owner, nowSeconds);
+    });
+    if (!locked.acquired) return listed;
+    return locked.value;
   }
 
   static async exportPubchiState(
