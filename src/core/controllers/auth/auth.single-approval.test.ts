@@ -11,6 +11,7 @@ import { useMigrationStore } from '@/stores/migration/migration.store';
 import { mockMigrationStore } from '@/test-utils/stores';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { AuthController } from './auth';
+import { resetAuthFinalizationLockForTests } from './auth-finalization-lock';
 
 vi.mock('@/database/franky/franky.helpers', () => ({
   clearDatabase: vi.fn(),
@@ -48,6 +49,7 @@ function mockDirectSignInFlow(overrides: {
 describe('AuthController single-approval ceremony', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    resetAuthFinalizationLockForTests();
     mockClearDatabase.mockReset();
     mockClearDatabase.mockResolvedValue(undefined);
     AuthController.resetSignInCeremonyGuard();
@@ -102,6 +104,7 @@ describe('AuthController single-approval ceremony', () => {
     });
 
     const firstPromise = AuthController.getAuthUrl();
+    await vi.waitFor(() => expect(releaseClear).toEqual(expect.any(Function)));
     const secondPromise = AuthController.getAuthUrl();
     releaseClear();
 

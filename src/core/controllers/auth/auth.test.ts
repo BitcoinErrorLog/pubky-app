@@ -6,6 +6,7 @@ import { CommerceApplication } from '@/application/commerce/commerce';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { MUTE_SYNC_CURSOR_STORAGE_PREFIX } from '@/config/mute-sync';
+import { resetAuthFinalizationLockForTests } from '@/controllers/auth/auth-finalization-lock';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
@@ -345,6 +346,7 @@ describe('AuthController', () => {
     mockClearDatabase.mockReset();
     AuthController.resetCleanupLocalStateGuard();
     AuthController.resetSignInCeremonyGuard();
+    resetAuthFinalizationLockForTests();
     // Default: homeserver environment check passes (non-staging test config / allowed key)
     vi.spyOn(AuthApplication, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
     // Re-apply factory implementations: vi.restoreAllMocks() in afterEach can

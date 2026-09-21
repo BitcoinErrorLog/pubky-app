@@ -19,6 +19,13 @@ import type {
   TSignUpParams,
 } from '@/controllers/auth/auth.types';
 import { withAuthFinalizationLock } from '@/controllers/auth/auth-finalization-lock';
+import {
+  captureAuthIdentityFromStore,
+  type CapturedAuthIdentity,
+  nonEmptyPubky,
+  shouldAbortIdentityPersist,
+  shouldSkipDestructiveCleanup,
+} from '@/controllers/auth/auth-identity-guard';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
@@ -43,7 +50,11 @@ import { clearRouteGuardReturnTo } from '@/providers/RouteGuardProvider/RouteGua
 import { createCanceledError } from '@/services/homeserver/error.utils';
 import type { TGenerateAuthUrlResult, THomeserverSessionResult } from '@/services/homeserver/homeserver.types';
 import type { MarketplaceSessionFlow } from '@/services/marketplace/marketplace-session';
-import { hasPersistedAuthIdentity } from '@/stores/auth/auth.persisted';
+import {
+  clearPersistedAuthIdentity,
+  hasPersistedAuthIdentity,
+  readPersistedAuthIdentity,
+} from '@/stores/auth/auth.persisted';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useHomeStore } from '@/stores/home/home.store';
@@ -107,9 +118,21 @@ export class AuthController {
     completed: false,
   };
 
+  /**
+   * Identity snapshot for the in-flight sign-in/sign-up/QR ceremony that
+   * already took (or skipped) origin-scoped Dexie. Subsequent persist must
+   * abort if a different account now owns that database.
+   */
+  private static pendingLocalStateCapture: CapturedAuthIdentity | null = null;
+
   /** Test-only: reset the cleanupLocalState single-run guard. */
   static resetCleanupLocalStateGuard(): void {
     this.cleanupState = { promise: null, completed: false };
+    this.pendingLocalStateCapture = null;
+  }
+
+  private static captureAuthIdentity(): CapturedAuthIdentity {
+    return captureAuthIdentityFromStore(useAuthStore.getState(), hasPersistedAuthIdentity());
   }
 
   /** Test-only: reset the single-approval ceremony join token (both ceremony kinds). */
@@ -169,7 +192,9 @@ export class AuthController {
    */
   static async restorePersistedSession(): Promise<TRestorePersistedSessionResult> {
     const authStore = useAuthStore.getState();
-    const hadPersistedIdentity = Boolean(authStore.sessionExport || authStore.currentUserPubky);
+    // Captured before any await: a concurrent different-account sign-in must
+    // be compared again inside the finalization lock (not as a stale boolean).
+    const captured = this.captureAuthIdentity();
     // Captured before any await so a logout that starts while the shared
     // Application restore is in flight invalidates this invocation's
     // restored-branch finalization (compared again right before `init`).
@@ -195,7 +220,7 @@ export class AuthController {
         // auth-store reset inside cleanup, so useAuthStatus keeps loading.
         if (!sameIdentity) {
           await this.finalizeSignedOutUnderLock({
-            identityAtCapture: hadPersistedIdentity,
+            captured,
             preservePublicCache: false,
           });
           cleanedUp = true;
@@ -214,14 +239,16 @@ export class AuthController {
         // visitor tab's no-identity cleanup re-reads identity INSIDE the
         // lock, so it either observes this persist (and skips its wipe) or
         // wiped before it (nothing of this identity existed yet).
-        await withAuthFinalizationLock(async () => {
+        const persisted = await this.persistIdentityUnderLock(pubky, captured, () => {
           useAuthStore.getState().init({
             session,
             currentUserPubky: pubky,
             hasProfile,
           });
-          this.markLocalStateDirty();
         });
+        if (!persisted) {
+          return { status: 'signed-out' };
+        }
         // The marketplace bearer session survives reloads in localStorage,
         // scoped to the account whose app session was just restored; anything
         // persisted for another account is dropped inside the restore.
@@ -239,21 +266,19 @@ export class AuthController {
         authStore.setSessionRestoreDeferred(true);
         return { status: 'deferred' };
       }
-      if (hadPersistedIdentity) {
-        await this.finalizeSignedOutUnderLock({ identityAtCapture: true, preservePublicCache: false });
-        cleanedUp = true;
-      } else {
-        await this.finalizeSignedOutUnderLock({ identityAtCapture: false, preservePublicCache: true });
-      }
+      await this.finalizeSignedOutUnderLock({
+        captured,
+        preservePublicCache: !captured.hadIdentity,
+      });
+      cleanedUp = true;
       return { status: 'signed-out' };
     } catch (error) {
       const appError = toAppError(error, ErrorService.Local, 'restorePersistedSession');
       if (!cleanedUp) {
-        if (hadPersistedIdentity) {
-          await this.finalizeSignedOutUnderLock({ identityAtCapture: true, preservePublicCache: false });
-        } else {
-          await this.finalizeSignedOutUnderLock({ identityAtCapture: false, preservePublicCache: true });
-        }
+        await this.finalizeSignedOutUnderLock({
+          captured,
+          preservePublicCache: !captured.hadIdentity,
+        });
       }
       if (isWrongEnvironmentHomeserverError(appError)) {
         throw appError;
@@ -274,10 +299,10 @@ export class AuthController {
     BootstrapApplication.cancelModerationFollow();
     // Clear query clients to ensure no stale cache from previous session
     clearAllQueryClients();
-    // Clear database before sign in to ensure clean state
-    await clearDatabase();
-    // Skip post-migration resync — bootstrap runs if user has profile, otherwise no data to resync
-    useMigrationStore.getState().reset();
+    const captured = this.captureAuthIdentity();
+    if (!(await this.takeLocalStateForCapturedIdentity(captured))) {
+      return false;
+    }
     const session = await AuthApplication.signIn({ keypair });
     if (!session) {
       // Never log the keypair (it carries the identity secret) — the public key only.
@@ -415,6 +440,7 @@ export class AuthController {
     signInStore.setAuthUrlResolved(true); // Step 1 complete (20%)
 
     const authStore = useAuthStore.getState();
+    let persistAborted = false;
 
     try {
       this.cancelActiveAuthFlow();
@@ -425,11 +451,19 @@ export class AuthController {
       // observes this persist and skips its wipe, or wiped before it. The
       // network bootstrap below stays OUTSIDE the lock; the residual window
       // is closed by that same re-read — any later no-identity cleanup sees
-      // the persisted identity and skips.
-      await withAuthFinalizationLock(async () => {
+      // the persisted identity and skips. A different account that signed in
+      // after this ceremony captured local state aborts persist rather than
+      // overwriting that account's Dexie rows.
+      const persisted = await this.persistIdentityUnderLock(pubky, this.pendingLocalStateCapture, () => {
         authStore.init({ session, currentUserPubky: pubky, hasProfile: null });
-        this.markLocalStateDirty();
       });
+      if (!persisted) {
+        persistAborted = true;
+        await AuthApplication.logout({ session }).catch((logoutError) => {
+          Logger.warn('Failed to sign out a session that lost the local-state race', { logoutError });
+        });
+        throw createCanceledError();
+      }
 
       const isSignedUp = await AuthApplication.userIsSignedUp({ pubky });
       signInStore.setProfileChecked(true); // Step 2 complete (40%)
@@ -441,8 +475,10 @@ export class AuthController {
       // Update hasProfile after bootstrap completes - triggers redirect via useAuthStatus
       authStore.setHasProfile(isSignedUp);
     } catch (error) {
-      authStore.reset();
-      signInStore.reset();
+      if (!persistAborted) {
+        authStore.reset();
+        signInStore.reset();
+      }
       throw error;
     }
   }
@@ -457,19 +493,23 @@ export class AuthController {
     BootstrapApplication.cancelModerationFollow();
     // Clear query clients to ensure no stale cache from previous session
     clearAllQueryClients();
-    // Clear database before sign up to ensure clean state
-    await clearDatabase();
-    // Skip post-migration resync — new user has no homeserver data to resync
-    useMigrationStore.getState().reset();
+    const captured = this.captureAuthIdentity();
+    if (!(await this.takeLocalStateForCapturedIdentity(captured))) {
+      throw createCanceledError();
+    }
     const keypair = Identity.keypairFromSecretKey(secretKey);
     const { session } = await AuthApplication.signUp({ keypair, signupToken });
     const authStore = useAuthStore.getState();
-    const initialState = { session, currentUserPubky: Identity.z32FromSession({ session }), hasProfile: false };
-    // Same identity-persist lock as the sign-in path (see completeAuthenticatedSession).
-    await withAuthFinalizationLock(async () => {
-      authStore.init(initialState);
-      this.markLocalStateDirty();
+    const pubky = Identity.z32FromSession({ session });
+    const persisted = await this.persistIdentityUnderLock(pubky, captured, () => {
+      authStore.init({ session, currentUserPubky: pubky, hasProfile: false });
     });
+    if (!persisted) {
+      await AuthApplication.logout({ session }).catch((logoutError) => {
+        Logger.warn('Failed to sign out a signup session that lost the local-state race', { logoutError });
+      });
+      throw createCanceledError();
+    }
   }
 
   /**
@@ -510,9 +550,10 @@ export class AuthController {
   ): Promise<TGenerateAuthUrlResult> {
     BootstrapApplication.cancelModerationFollow();
     if (!preserveLocalState) {
-      await clearDatabase();
-      // Skip post-migration resync — full bootstrap below covers all data
-      useMigrationStore.getState().reset();
+      const captured = this.captureAuthIdentity();
+      if (!(await this.takeLocalStateForCapturedIdentity(captured))) {
+        throw createCanceledError();
+      }
     }
     const token = Symbol('auth-flow');
     this.cancelActiveAuthFlow();
@@ -538,35 +579,86 @@ export class AuthController {
 
   /**
    * Destructive restore finalization, serialized across tabs (and against
-   * same-tab sign-in completion) by the auth finalization lock.
+   * same-tab sign-in completion) by the auth finalization lock
+   * (`navigator.locks` name `pubky-auth-finalization-v1` is origin-scoped and
+   * cross-tab; the in-process tail is only the no-Web-Locks fallback).
    *
-   * The identity snapshot is re-read INSIDE the lock — the live store first
-   * (a QR sign-in completing on THIS tab during the bridge window), then the
-   * persisted blob (another tab's sign-in). An identity that was absent at
-   * capture time means a sign-in now owns the private data: skip cleanup
-   * entirely and let the caller return signed-out. Wiping here would erase
-   * that sign-in's private rows and the messaging wrapping key, making its
-   * wrapped messaging state unrecoverable.
+   * The identity snapshot is re-read INSIDE the lock from `AUTH_PERSIST_KEY`
+   * (cross-tab source of truth; Zustand is per-tab and is not storage-event
+   * synced) and from the live store (same-tab QR). Cleanup is keyed to the
+   * identity captured at restore start: a different persist-blob or live pubky
+   * means that sign-in now owns origin-scoped Dexie, so this wipe no-ops. An
+   * identity that was absent at capture time means a sign-in now owns the
+   * private data: skip cleanup entirely and let the caller return signed-out.
+   * Wiping here would erase that sign-in's private rows and the messaging
+   * wrapping key, making its wrapped messaging state unrecoverable.
    *
    * `preservePublicCache` keeps the shared public browsing cache (catalog,
    * counts, TTLs): the no-identity path exists to drop orphaned PRIVATE
    * data, not public browsing residue.
    */
   private static async finalizeSignedOutUnderLock({
-    identityAtCapture,
+    captured,
     preservePublicCache,
   }: {
-    identityAtCapture: boolean;
+    captured: CapturedAuthIdentity;
     preservePublicCache: boolean;
   }): Promise<void> {
     await withAuthFinalizationLock(async () => {
-      if (!identityAtCapture) {
-        const live = useAuthStore.getState();
-        if (live.session || live.sessionExport || live.currentUserPubky || hasPersistedAuthIdentity()) {
-          return;
-        }
+      if (shouldSkipDestructiveCleanup(captured, useAuthStore.getState(), readPersistedAuthIdentity())) {
+        // A skipped logout must not pin the winning identity in the
+        // logging-out state: `init` preserves `isLoggingOut`, and skip
+        // does not run `reset`. This `set()` is not persisted when
+        // `AUTH_PERSIST_KEY` already holds a different pubky (owner fence).
+        useAuthStore.getState().setIsLoggingOut(false);
+        return;
       }
       await this.cleanupLocalState({ preservePublicCache });
+    });
+  }
+
+  /**
+   * Capture is outside the lock; clear + owner check run inside it. Returns
+   * false (and does not clear) when a different identity now owns Dexie.
+   */
+  private static async takeLocalStateForCapturedIdentity(captured: CapturedAuthIdentity): Promise<boolean> {
+    return await withAuthFinalizationLock(async () => {
+      if (shouldSkipDestructiveCleanup(captured, useAuthStore.getState(), readPersistedAuthIdentity())) {
+        return false;
+      }
+      await clearDatabase();
+      useMigrationStore.getState().reset();
+      this.pendingLocalStateCapture = captured;
+      return true;
+    });
+  }
+
+  /**
+   * Persist `newPubky` under the same lock that serializes cleanup. No-ops
+   * (returns false) when `AUTH_PERSIST_KEY` or the live store already holds a
+   * third identity.
+   */
+  private static async persistIdentityUnderLock(
+    newPubky: string,
+    captured: CapturedAuthIdentity | null,
+    persist: () => void,
+  ): Promise<boolean> {
+    return await withAuthFinalizationLock(async () => {
+      const currentPubky = nonEmptyPubky(useAuthStore.getState().currentUserPubky);
+      const persistedPubky = readPersistedAuthIdentity().pubky;
+      if (shouldAbortIdentityPersist(captured, newPubky, currentPubky, persistedPubky)) {
+        this.pendingLocalStateCapture = null;
+        return false;
+      }
+      // Owner-guarded persist storage refuses A→B clobbers. A captured-identity
+      // replace (same-tab switch) must drop the blob first so `init` can write.
+      if (persistedPubky && persistedPubky !== newPubky) {
+        clearPersistedAuthIdentity();
+      }
+      persist();
+      this.markLocalStateDirty();
+      this.pendingLocalStateCapture = null;
+      return true;
     });
   }
 
@@ -836,8 +928,10 @@ export class AuthController {
       // freshly-cleared local state.
       this.releasePriorAuthFlow();
       if (!preserveLocalState) {
-        await clearDatabase();
-        useMigrationStore.getState().reset();
+        const captured = this.captureAuthIdentity();
+        if (!(await this.takeLocalStateForCapturedIdentity(captured))) {
+          throw createCanceledError();
+        }
       }
       if (!this.signInCeremony || this.signInCeremony.token !== token) {
         throw createCanceledError();
@@ -1000,6 +1094,10 @@ export class AuthController {
     suppressVibeSessionAutoRestore();
     AuthApplication.abortInFlightBridgeRequest();
     BootstrapApplication.cancelModerationFollow();
+    // Captured before any await: a concurrent different-account sign-in must
+    // be compared again inside the finalization lock so this logout cannot
+    // wipe that account's origin-scoped Dexie.
+    const captured = this.captureAuthIdentity();
     let authStore = useAuthStore.getState();
 
     // Set logging out flag immediately to prevent flash of weird states in UI
@@ -1021,7 +1119,7 @@ export class AuthController {
             Logger.warn('Homeserver logout failed, clearing local state anyway', {
               error: 'Session restore deferred; homeserver sign-out could not run',
             });
-            await withAuthFinalizationLock(() => this.cleanupLocalState());
+            await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
             return;
           }
         } catch (error) {
@@ -1042,9 +1140,10 @@ export class AuthController {
         }
       }
 
-      // Serialized with restore finalization and sign-in identity persists:
-      // the destructive wipe never interleaves with another tab's finalization.
-      await withAuthFinalizationLock(() => this.cleanupLocalState());
+      // Serialized with restore finalization and sign-in identity persists.
+      // Cleanup is keyed to the identity captured at logout start: a
+      // different live pubky means that sign-in now owns origin-scoped Dexie.
+      await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
     } finally {
       // The internal restore's init() clears the auto-restore suppression
       // set above. If the homeserver sign-out then failed, the marker must
