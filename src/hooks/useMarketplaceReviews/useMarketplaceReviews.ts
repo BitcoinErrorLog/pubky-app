@@ -60,8 +60,6 @@ export interface MarketplaceReviewsState {
   /** True when the last page came back full, so another page may exist. */
   hasMore: boolean;
   loadMore: () => void;
-  /** Re-reads the list from the first page (after publishing a response). */
-  refresh: () => void;
 }
 
 /**
@@ -75,8 +73,6 @@ export function useMarketplaceReviews(target: MarketplaceReviewsTarget): Marketp
   const [status, setStatus] = useState<'loading' | 'ok' | 'unavailable'>('loading');
   const [isFetching, setIsFetching] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  // Bumping the epoch restarts the pagination from a clean slate.
-  const [epoch, setEpoch] = useState(0);
 
   const fetchPage = useCallback(
     async (skip: number): Promise<CommerceIndexedReviewsResult> => {
@@ -110,7 +106,7 @@ export function useMarketplaceReviews(target: MarketplaceReviewsTarget): Marketp
     return () => {
       active = false;
     };
-  }, [fetchPage, epoch]);
+  }, [fetchPage]);
 
   const loadMore = useCallback(() => {
     if (isFetching || status !== 'ok') return;
@@ -128,7 +124,5 @@ export function useMarketplaceReviews(target: MarketplaceReviewsTarget): Marketp
       .finally(() => setIsFetching(false));
   }, [fetchPage, isFetching, status, reviews.length]);
 
-  const refresh = useCallback(() => setEpoch((current) => current + 1), []);
-
-  return { status, reviews, isFetching, hasMore, loadMore, refresh };
+  return { status, reviews, isFetching, hasMore, loadMore };
 }

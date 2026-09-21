@@ -20,6 +20,8 @@ const ownerCache = new Map<string, CacheEntry>();
 const ownerRequests = new Map<string, Promise<string | null>>();
 const mediaCache = new Map<string, CacheEntry>();
 const mediaRequests = new Map<string, Promise<string | null>>();
+/** Live `<img>` / hook holders of a blob URL. Revoke only when this hits 0 and the cache dropped the URL. */
+const blobUrlRefs = new Map<string, number>();
 
 function useLatest<T>(value: T): MutableRefObject<T> {
   const ref = useRef(value);
@@ -29,32 +31,77 @@ function useLatest<T>(value: T): MutableRefObject<T> {
   return ref;
 }
 
-function getCached(
-  cache: Map<string, CacheEntry>,
-  key: string,
-  onExpire?: (value: string | null) => void,
-): string | null | undefined {
+function isBlobUrl(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.startsWith('blob:');
+}
+
+function retainBlobUrl(url: string | null | undefined): void {
+  if (!isBlobUrl(url)) return;
+  blobUrlRefs.set(url, (blobUrlRefs.get(url) ?? 0) + 1);
+}
+
+function mediaCacheHolds(url: string): boolean {
+  const now = Date.now();
+  for (const entry of mediaCache.values()) {
+    if (entry.value === url && entry.expiresAt > now) return true;
+  }
+  return false;
+}
+
+function maybeRevokeOrphanBlobUrl(url: string | null | undefined): void {
+  if (!isBlobUrl(url)) return;
+  if ((blobUrlRefs.get(url) ?? 0) > 0) return;
+  if (mediaCacheHolds(url)) return;
+  URL.revokeObjectURL(url);
+}
+
+function releaseBlobUrl(url: string | null | undefined): void {
+  if (!isBlobUrl(url)) return;
+  const next = (blobUrlRefs.get(url) ?? 0) - 1;
+  if (next > 0) {
+    blobUrlRefs.set(url, next);
+    return;
+  }
+  blobUrlRefs.delete(url);
+  maybeRevokeOrphanBlobUrl(url);
+}
+
+function useRetainedBlobUrls(urls: readonly (string | null)[]): void {
+  const key = urls.map((url) => url ?? '').join('\u0000');
+  useEffect(() => {
+    for (const url of urls) retainBlobUrl(url);
+    return () => {
+      for (const url of urls) releaseBlobUrl(url);
+    };
+    // `urls` is rebuilt each render; `key` is the identity of the blob set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+}
+
+function getCached(cache: Map<string, CacheEntry>, key: string): string | null | undefined {
   const entry = cache.get(key);
   if (!entry) return undefined;
   if (entry.expiresAt <= Date.now()) {
-    onExpire?.(entry.value);
     cache.delete(key);
+    maybeRevokeOrphanBlobUrl(entry.value);
     return undefined;
   }
   return entry.value;
 }
 
 function cacheMedia(uri: string, value: string | null): void {
+  const previous = mediaCache.get(uri)?.value;
   mediaCache.set(uri, {
     value,
     expiresAt: Date.now() + (value === null ? NEGATIVE_MEDIA_CACHE_TTL_MS : OWNER_CACHE_TTL_MS),
   });
+  if (previous && previous !== value) maybeRevokeOrphanBlobUrl(previous);
   while (mediaCache.size > MEDIA_CACHE_LIMIT) {
     const oldestUri = mediaCache.keys().next().value;
     if (!oldestUri) return;
     const oldest = mediaCache.get(oldestUri)?.value;
-    if (oldest?.startsWith('blob:')) URL.revokeObjectURL(oldest);
     mediaCache.delete(oldestUri);
+    maybeRevokeOrphanBlobUrl(oldest);
   }
 }
 
@@ -89,9 +136,7 @@ export async function resolveMarketplaceMediaUrlAsync(uri: string): Promise<stri
   if (!owner) return null;
   if (!isValidMarketplaceMediaUri(uri)) return null;
 
-  const cached = getCached(mediaCache, uri, (value) => {
-    if (value?.startsWith('blob:')) URL.revokeObjectURL(value);
-  });
+  const cached = getCached(mediaCache, uri);
   if (cached !== undefined) return cached;
   const existing = mediaRequests.get(uri);
   if (existing) return await existing;
@@ -126,6 +171,7 @@ export async function resolveMarketplaceMediaUrlAsync(uri: string): Promise<stri
 export function useMarketplaceMediaUrl(uri: string | null | undefined): string | null {
   const uriKey = uri ?? '';
   const [url, setUrl] = useState(() => (uri ? getSynchronousMediaUrl(uri) : null));
+  useRetainedBlobUrls([url]);
 
   useEffect(() => {
     const currentUri = uriKey || null;
@@ -157,6 +203,7 @@ export function useMarketplaceFirstMediaUrl(uris: readonly string[]): string | n
   const [url, setUrl] = useState(
     () => uris.map(getSynchronousMediaUrl).find((url): url is string => url !== null) ?? null,
   );
+  useRetainedBlobUrls([url]);
 
   useEffect(() => {
     const urisSnapshot = urisRef.current;
@@ -186,6 +233,7 @@ export function useMarketplaceMediaUrls(uris: readonly string[]): readonly (stri
   const urisKey = uris.join('\u0000');
   const urisRef = useLatest(uris);
   const [urls, setUrls] = useState<readonly (string | null)[]>(() => uris.map(getSynchronousMediaUrl));
+  useRetainedBlobUrls(urls);
 
   useEffect(() => {
     const urisSnapshot = urisRef.current;
@@ -237,6 +285,10 @@ export function clearMarketplaceMediaCache(): void {
   for (const entry of mediaCache.values()) {
     if (entry.value?.startsWith('blob:')) URL.revokeObjectURL(entry.value);
   }
+  for (const url of blobUrlRefs.keys()) {
+    if (!mediaCacheHolds(url)) URL.revokeObjectURL(url);
+  }
+  blobUrlRefs.clear();
   ownerCache.clear();
   ownerRequests.clear();
   mediaRequests.clear();

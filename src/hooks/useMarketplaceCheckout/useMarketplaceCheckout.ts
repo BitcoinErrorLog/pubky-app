@@ -111,6 +111,8 @@ export function useMarketplaceCheckout(
   requiresDeliveryAddress: boolean;
   /** True when a group's lines force incompatible single fulfillments. */
   hasFulfillmentConflict: boolean;
+  /** True while the deployment's pickup capability is still unknown. */
+  isPickupCapabilityLoading: boolean;
   /** The number of orders this checkout places — one per (seller, fulfillment) group. */
   orderCount: number;
 } {
@@ -208,7 +210,7 @@ export function useMarketplaceCheckout(
   for (const item of items) {
     const sellerPubky = item.listing.record.ownerPubky;
     const published = commerceListingFulfillmentMethods(item.listing.record.fulfillmentMethods);
-    const allowed = pickupAvailable === false ? published.filter((method) => method !== 'pickup') : published;
+    const allowed = pickupAvailable === true ? published : published.filter((method) => method !== 'pickup');
     const existing = optionsBySeller.get(sellerPubky);
     optionsBySeller.set(sellerPubky, existing ? existing.filter((method) => allowed.includes(method)) : [...allowed]);
   }
@@ -432,6 +434,7 @@ export function useMarketplaceCheckout(
     setFulfillmentChoice,
     requiresDeliveryAddress,
     hasFulfillmentConflict,
+    isPickupCapabilityLoading: pickupAvailable === null,
     orderCount,
   };
 }
