@@ -239,8 +239,8 @@ describe('CLI grant BFF', () => {
     const { getCliGrantConfig } = await import('./config');
     const { expectedProofDocument } = await import('./homeserver-proof');
     const config = getCliGrantConfig()!;
-    const createdAt = new Date('2026-09-21T10:00:00.000Z');
-    const expiresAt = new Date('2026-09-21T10:01:00.000Z');
+    const createdAt = new Date();
+    const expiresAt = new Date(createdAt.getTime() + 60_000);
     const document = expectedProofDocument({
       aud: 'https://shop.example',
       challengeId,

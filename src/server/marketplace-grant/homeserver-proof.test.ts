@@ -1,3 +1,4 @@
+/** @vitest-environment node */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type { CliGrantConfig } from './config';
