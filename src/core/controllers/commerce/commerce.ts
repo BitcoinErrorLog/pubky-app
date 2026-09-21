@@ -272,14 +272,14 @@ export class CommerceController {
   }
 
   /** The current user's own published review row for one order, or null. */
-  static async getOwnMarketplaceReview(orderId: unknown) {
-    if (typeof orderId !== 'string' || orderId.length === 0) {
+  static async getOwnMarketplaceReview(order: MarketplaceOrder) {
+    if (typeof order?.id !== 'string' || order.id.length === 0) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'An order id is required.', {
         service: ErrorService.Marketplace,
         operation: 'getOwnMarketplaceReview',
       });
     }
-    return await CommerceApplication.getOwnMarketplaceReview(this.getCurrentUserPubky(), orderId);
+    return await CommerceApplication.getOwnMarketplaceReview(this.getCurrentUserPubky(), order);
   }
 
   /**

@@ -87,7 +87,7 @@ export function MarketplaceOrderActions({
   useEffect(() => {
     if (!hasOwnReview) return;
     let active = true;
-    CommerceController.getOwnMarketplaceReview(order.id)
+    CommerceController.getOwnMarketplaceReview(order)
       .then((record) => {
         if (active) setOwnReviewRecord(record);
       })
@@ -97,6 +97,10 @@ export function MarketplaceOrderActions({
     return () => {
       active = false;
     };
+    // Full `order` is the hydrate input (listing identity, parties). The
+    // living row is keyed by id + revision; a new object of the same order
+    // must not re-fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- order identity is id+revision
   }, [hasOwnReview, order.id, order.revision]);
 
   const begin = (next: MarketplaceOrderActionData['action'], overrides?: Partial<MarketplaceOrderActionData>) => {
