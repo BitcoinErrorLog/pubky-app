@@ -13,6 +13,23 @@ import {
 import { createNotificationFixture } from '@/test/fixtures/commerce/notifications';
 import { CommerceController } from './commerce';
 
+vi.mock('@/services/marketplace/marketplace-shop-client', () => ({
+  PubkyShopError: class extends Error {
+    code = 'service_error';
+    details = {};
+  },
+  MarketplaceShopClientService: {
+    createInventoryClient: vi.fn(),
+    listSellerListings: vi.fn(),
+    getInventoryProjection: vi.fn(),
+    adjustInventory: vi.fn(),
+    syncMany: vi.fn(),
+    isCapabilityRequired: vi.fn(() => false),
+    isRevisionConflict: vi.fn(() => false),
+    isSessionRejected: vi.fn(() => false),
+  },
+}));
+
 const commerceConfig = vi.hoisted(() => ({ mode: 'sandbox' as string }));
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
@@ -456,6 +473,59 @@ describe('CommerceController', () => {
 
       flow.cancel();
       expect(cancel).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('beginInventorySessionConnect', () => {
+    const session = {
+      pubky: COMMERCE_FIXTURE_SELLER,
+      capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
+      expiresAt: '2026-08-22T00:00:00.000Z',
+      issuedAt: '2026-08-21T00:00:00.000Z',
+    };
+
+    it('mirrors the inventory session without touching the purchase session', async () => {
+      vi.spyOn(CommerceApplication, 'beginInventorySessionFlow').mockReturnValue({
+        authorizationUrl: 'pubkyauth:///?caps=inventory',
+        awaitSession: vi.fn().mockResolvedValue(session),
+        cancel: vi.fn(),
+      });
+
+      const flow = CommerceController.beginInventorySessionConnect(COMMERCE_FIXTURE_SELLER);
+      expect(flow.authorizationUrl).toBe('pubkyauth:///?caps=inventory');
+      expect(useCommerceStore.getState().inventorySession).toBeNull();
+
+      await expect(flow.awaitSession()).resolves.toEqual(session);
+      expect(useCommerceStore.getState().inventorySession).toEqual(session);
+      expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+    });
+  });
+
+  describe('identity vs inventory session teardown', () => {
+    it('checkout TTL identity clear leaves the inventory store and service intact', () => {
+      const identity = {
+        pubky: COMMERCE_FIXTURE_SELLER,
+        capabilities: '',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        issuedAt: '2026-08-21T00:00:00.000Z',
+      };
+      const inventory = {
+        pubky: COMMERCE_FIXTURE_SELLER,
+        capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        issuedAt: '2026-08-21T00:00:00.000Z',
+      };
+      useCommerceStore.getState().setMarketplaceSession(identity);
+      useCommerceStore.getState().setInventorySession(inventory);
+      const clearIdentity = vi.spyOn(CommerceApplication, 'clearMarketplaceSession').mockImplementation(() => {});
+      const clearInventory = vi.spyOn(CommerceApplication, 'clearInventorySession').mockImplementation(() => {});
+
+      CommerceController.clearIdentitySession();
+
+      expect(clearIdentity).toHaveBeenCalledOnce();
+      expect(clearInventory).not.toHaveBeenCalled();
+      expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+      expect(useCommerceStore.getState().inventorySession).toEqual(inventory);
     });
   });
 });

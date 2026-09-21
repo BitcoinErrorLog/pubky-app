@@ -256,6 +256,10 @@ export class AuthController {
         if (marketplaceSession) {
           CommerceController.writeMarketplaceSessionStore(marketplaceSession);
         }
+        const inventorySession = CommerceApplication.restoreInventorySession(pubky);
+        if (inventorySession) {
+          CommerceController.writeInventorySessionStore(inventorySession);
+        }
         return { status: 'restored' };
       }
       if (result.status === 'deferred') {

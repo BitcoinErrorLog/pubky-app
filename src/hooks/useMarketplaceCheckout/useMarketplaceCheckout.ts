@@ -142,11 +142,13 @@ export function useMarketplaceCheckout(
     [] as CommerceDeliveryAddressModelSchema[],
   );
 
-  // If getActiveSession dropped the bearer (TTL margin), null the store copy
-  // so step 1 cannot stay "approved" after the service would reject.
+  // If getActiveSession dropped the purchase bearer (TTL margin), null the
+  // identity store copy so step 1 cannot stay "approved" after the service
+  // would reject. Do not wipe the inventory session — checkout hold expiry
+  // is not a Studio sign-out.
   useEffect(() => {
     if (marketplaceSession !== null && !CommerceController.hasActiveMarketplaceSession()) {
-      CommerceController.clearMarketplaceSession();
+      CommerceController.clearIdentitySession();
     }
   }, [marketplaceSession]);
 

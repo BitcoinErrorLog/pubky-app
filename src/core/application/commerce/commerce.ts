@@ -1,6 +1,7 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
+import { CommerceInventoryApplication } from '@/application/commerce/inventory';
 import { TagKind } from '@/application/tag/tag.types';
 import {
   COMMERCE_SAVED_SEARCH_MAX_PER_OWNER,
@@ -815,6 +816,10 @@ export class CommerceApplication {
     return MarketplaceSessionService.restorePersistedSession(pubky);
   }
 
+  static restoreInventorySession(pubky: string) {
+    return CommerceInventoryApplication.restoreInventorySession(pubky);
+  }
+
   /**
    * Drops the Marketplace Transaction Service session from memory and from
    * `localStorage`. Part of the sign-out teardown: the bearer token must not
@@ -829,12 +834,24 @@ export class CommerceApplication {
     this.ownReviewHomeserverMisses.clear();
   }
 
+  static clearInventorySession(): void {
+    CommerceInventoryApplication.clearInventorySession();
+  }
+
   /**
    * Controllers subscribe here so a transport-side `clearSession` (TTL, 401,
    * sign-out) can null the zustand copy without the service touching stores.
    */
   static onMarketplaceSessionEnded(listener: (event: MarketplaceSessionEndedEvent) => void): () => void {
     return MarketplaceSessionService.onSessionEnded(listener);
+  }
+
+  static onInventorySessionEnded(listener: (event: MarketplaceSessionEndedEvent) => void): () => void {
+    return CommerceInventoryApplication.onInventorySessionEnded(listener);
+  }
+
+  static beginInventorySessionFlow(expectedPubky: string) {
+    return CommerceInventoryApplication.beginInventorySessionFlow(expectedPubky);
   }
 
   /**

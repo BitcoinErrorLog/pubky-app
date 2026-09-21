@@ -85,4 +85,30 @@ describe('useCommerceStore', () => {
     store.reset();
     expect(useCommerceStore.getState().receiptsPublicationStatus).toBe('idle');
   });
+
+  it('tracks the inventory session separately from the purchase session', () => {
+    const store = useCommerceStore.getState();
+    const identity = {
+      pubky: 'y'.repeat(52),
+      capabilities: '',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      issuedAt: '2026-09-21T00:00:00.000Z',
+    };
+    const inventory = {
+      ...identity,
+      capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
+      issuedAt: '2026-09-21T00:00:01.000Z',
+    };
+
+    store.setMarketplaceSession(identity);
+    store.setInventorySession(inventory);
+    expect(useCommerceStore.getState().marketplaceSession).toEqual(identity);
+    expect(useCommerceStore.getState().inventorySession).toEqual(inventory);
+
+    store.setMarketplaceSession(null);
+    expect(useCommerceStore.getState().inventorySession).toEqual(inventory);
+
+    store.reset();
+    expect(useCommerceStore.getState().inventorySession).toBeNull();
+  });
 });
