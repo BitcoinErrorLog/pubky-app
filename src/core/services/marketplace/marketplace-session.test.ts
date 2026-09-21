@@ -497,4 +497,26 @@ describe('MarketplaceSessionService', () => {
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
     expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
   });
+
+  it('establishes a claimed grant session for the signed-in account', () => {
+    const expiresAt = inOneDay();
+    const info = MarketplaceSessionService.establishClaimedGrantSession(
+      { token: TOKEN, pubky: PUBKY, capabilities: '', expiresAt },
+      PUBKY,
+    );
+    expect(info).toMatchObject({ pubky: PUBKY, expiresAt });
+    expect(info).not.toHaveProperty('token');
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
+  });
+
+  it('rejects a claimed grant session for a different account without storing it', () => {
+    expect(() =>
+      MarketplaceSessionService.establishClaimedGrantSession(
+        { token: TOKEN, pubky: PUBKY, capabilities: '', expiresAt: inOneDay() },
+        'z'.repeat(52),
+      ),
+    ).toThrow(expect.objectContaining({ code: 'FORBIDDEN' }));
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+  });
 });

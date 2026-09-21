@@ -32,7 +32,7 @@ const config: MarketplaceGrantConfig = {
   stateKey: Buffer.alloc(32, 3).toString('base64'),
   stateKeyEpoch: 1,
   stateTtlSeconds: 300,
-  claimLeaseSeconds: 15,
+  claimLeaseSeconds: 25,
   databaseTimeoutMs: 2000,
   serviceTimeoutMs: 5000,
 };

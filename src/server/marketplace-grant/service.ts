@@ -201,9 +201,14 @@ export async function claimGrantResult(
   flowId: string,
   deliveryId: string,
   resultPopSeed: Uint8Array,
+  onHeartbeat?: () => Promise<void>,
 ): Promise<z.infer<typeof claimedSessionSchema>> {
+  const heartbeat = async () => {
+    if (onHeartbeat) await onHeartbeat();
+  };
   const ticketPath = `/v1/auth/grant-flows/${flowId}/result-ticket`;
   const ticketNonce = await issueNonce(config, flowId, 'ticket');
+  await heartbeat();
   const ticket = ticketSchema.parse(
     await signedPost(config, ticketPath, {
       method: 'POST',
@@ -213,9 +218,11 @@ export async function claimGrantResult(
       result_delivery_id: deliveryId,
     }),
   );
+  await heartbeat();
   const claimPath = `/v1/auth/grant-flows/${flowId}/claim`;
   const claimNonce = await issueNonce(config, flowId, 'claim');
-  return claimedSessionSchema.parse(
+  await heartbeat();
+  const claimed = claimedSessionSchema.parse(
     await signedPost(config, claimPath, {
       method: 'POST',
       path: claimPath,
@@ -225,6 +232,8 @@ export async function claimGrantResult(
       result_token: ticket.result_token,
     }),
   );
+  await heartbeat();
+  return claimed;
 }
 
 export async function cancelGrant(config: MarketplaceGrantConfig, flowId: string, deliveryId: string): Promise<void> {

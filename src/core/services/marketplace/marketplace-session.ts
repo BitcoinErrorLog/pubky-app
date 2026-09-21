@@ -363,13 +363,22 @@ export class MarketplaceSessionService {
     };
   }
 
-  static establishClaimedGrantSession(input: {
-    token: string;
-    pubky: string;
-    capabilities: string;
-    expiresAt: string;
-  }): MarketplaceSessionInfo {
+  static establishClaimedGrantSession(
+    input: {
+      token: string;
+      pubky: string;
+      capabilities: string;
+      expiresAt: string;
+    },
+    expectedPubky: string,
+  ): MarketplaceSessionInfo {
     const parsed = sessionResponseSchema.parse(input);
+    if (parsed.pubky !== expectedPubky) {
+      throw Err.auth(AuthErrorCode.FORBIDDEN, 'Marketplace returned a session for a different account.', {
+        service: ErrorService.Marketplace,
+        operation: 'establishClaimedGrantSession',
+      });
+    }
     const issuedAt = new Date().toISOString();
     this.session = {
       ...parsed,

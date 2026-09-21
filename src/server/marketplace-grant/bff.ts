@@ -24,6 +24,7 @@ import {
   getBridge,
   getFlow,
   insertCreatingFlow,
+  renewClaim,
   replaceBridge,
   terminalizeFlow,
   touchBridge,
@@ -238,6 +239,11 @@ export async function pollFlow(
       claimedFlow.flow_id,
       context.resultDeliveryId,
       decodeBase64Url32(context.resultPopSeed),
+      async () => {
+        if (!(await renewClaim(initial.config, stateId, owner))) {
+          throw new BffError(409, 'fresh_approval_required');
+        }
+      },
     );
     if (claimed.pubky !== initial.bridge.pubky) throw new BffError(409, 'identity_mismatch');
     if (!(await completeClaim(initial.config, stateId, owner))) {
@@ -278,8 +284,9 @@ export async function clearSession(request: Request, sessionCookie: string | und
 export function mapBffError(error: unknown): { status: number; code: string } {
   if (error instanceof BffError) return { status: error.status, code: error.code };
   if (error instanceof GrantServiceError) {
-    if (error.status === 401) return { status: 401, code: 'grant_revoked' };
-    if (error.status === 403) return { status: 401, code: 'grant_unauthorized' };
+    if (error.status === 401 || error.status === 403) {
+      return { status: 401, code: 'shop_session_expired' };
+    }
     if (error.status === 409 && error.code === 'identity_mismatch') return { status: 409, code: 'identity_mismatch' };
     if (error.status === 429) return { status: 429, code: 'retry_later' };
     if (error.status === 410) return { status: 410, code: error.code };

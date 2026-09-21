@@ -15,6 +15,8 @@ const canonicalBase64Key = z.string().refine((value) => {
 }, 'Expected canonical padded Base64 for 32 bytes');
 const signingSeed = z.string().regex(/^[0-9a-f]{64}$/);
 const keyId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+export const CLAIM_LEASE_MARGIN_SECONDS = 5;
+export const CLAIM_SERVICE_CALLS = 4;
 
 const configSchema = z
   .object({
@@ -42,7 +44,7 @@ const configSchema = z
     previousStateKey: canonicalBase64Key.optional(),
     previousStateKeyEpoch: positiveSmallInt.optional(),
     stateTtlSeconds: z.coerce.number().int().min(60).max(600).default(300),
-    claimLeaseSeconds: z.coerce.number().int().min(10).max(30).default(15),
+    claimLeaseSeconds: z.coerce.number().int().min(10).max(90).default(25),
     databaseTimeoutMs: z.coerce.number().int().min(1000).max(5000).default(2000),
     serviceTimeoutMs: z.coerce.number().int().min(2000).max(10000).default(5000),
   })
@@ -57,6 +59,15 @@ const configSchema = z
     }
     if (value.previousStateKeyEpoch !== undefined && value.previousStateKeyEpoch !== value.stateKeyEpoch - 1) {
       ctx.addIssue({ code: 'custom', message: 'Previous BFF state epoch must be active minus one' });
+    }
+    const minimumLeaseSeconds =
+      Math.ceil((CLAIM_SERVICE_CALLS * value.serviceTimeoutMs) / 1000) + CLAIM_LEASE_MARGIN_SECONDS;
+    if (value.claimLeaseSeconds < minimumLeaseSeconds) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['claimLeaseSeconds'],
+        message: `Claim lease must be at least ${CLAIM_SERVICE_CALLS}× service timeout plus ${CLAIM_LEASE_MARGIN_SECONDS}s (${minimumLeaseSeconds}s)`,
+      });
     }
   });
 

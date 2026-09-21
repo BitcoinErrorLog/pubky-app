@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MarketplaceGrantConfig } from './config';
-import { GrantServiceError, verifyMarketplaceSession } from './service';
+import { GrantServiceError, claimGrantResult, verifyMarketplaceSession } from './service';
 
 const config: MarketplaceGrantConfig = {
   allowedOrigins: ['https://shop.example'],
@@ -18,7 +18,7 @@ const config: MarketplaceGrantConfig = {
   stateKey: Buffer.alloc(32, 3).toString('base64'),
   stateKeyEpoch: 1,
   stateTtlSeconds: 300,
-  claimLeaseSeconds: 15,
+  claimLeaseSeconds: 25,
   databaseTimeoutMs: 2000,
   serviceTimeoutMs: 5000,
 };
@@ -78,5 +78,61 @@ describe('marketplace service session pairing', () => {
     await expect(verifyMarketplaceSession(config, bearer, pubky, sessionId)).rejects.toEqual(
       new GrantServiceError(401, 'invalid_session_pair'),
     );
+  });
+});
+
+describe('marketplace grant claim heartbeats', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('heartbeats after each slowed service call and still claims', async () => {
+    const flowId = '018f4f36-7a61-7d4e-8f22-3e31ed45d2af';
+    const order: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      order.push(`fetch:${url.slice(url.lastIndexOf('/') + 1)}`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      if (url.endsWith('/result-nonces')) {
+        return Response.json({
+          expires_at: '2099-01-01T00:00:00Z',
+          nonce: 'nonce',
+          nonce_id: sessionId,
+        });
+      }
+      if (url.endsWith('/result-ticket')) {
+        return Response.json({ expires_at: '2099-01-01T00:00:00Z', result_token: 'ticket' });
+      }
+      if (url.endsWith('/claim')) {
+        return Response.json({
+          capabilities: '',
+          expires_at: '2099-01-01T00:00:00Z',
+          pubky,
+          token: bearer,
+        });
+      }
+      return new Response('{}', { status: 500 });
+    });
+    const heartbeat = vi.fn(async () => {
+      order.push('heartbeat');
+    });
+    await expect(
+      claimGrantResult(
+        config,
+        flowId,
+        'd'.repeat(43),
+        Uint8Array.from({ length: 32 }, () => 7),
+        heartbeat,
+      ),
+    ).resolves.toMatchObject({ pubky, token: bearer });
+    expect(heartbeat).toHaveBeenCalledTimes(4);
+    expect(order).toEqual([
+      'fetch:result-nonces',
+      'heartbeat',
+      'fetch:result-ticket',
+      'heartbeat',
+      'fetch:result-nonces',
+      'heartbeat',
+      'fetch:claim',
+      'heartbeat',
+    ]);
   });
 });

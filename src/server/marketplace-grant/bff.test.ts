@@ -10,17 +10,17 @@ describe('mapBffError', () => {
     });
   });
 
-  it('maps a GrantServiceError 401 to HTTP 401 grant_revoked', () => {
+  it('maps a GrantServiceError 401 to HTTP 401 shop_session_expired', () => {
     expect(mapBffError(new GrantServiceError(401, 'invalid_session_pair'))).toEqual({
       status: 401,
-      code: 'grant_revoked',
+      code: 'shop_session_expired',
     });
   });
 
-  it('maps a GrantServiceError 403 to HTTP 401 grant_unauthorized', () => {
+  it('maps a GrantServiceError 403 to HTTP 401 shop_session_expired', () => {
     expect(mapBffError(new GrantServiceError(403, 'invalid_session_pair'))).toEqual({
       status: 401,
-      code: 'grant_unauthorized',
+      code: 'shop_session_expired',
     });
   });
 

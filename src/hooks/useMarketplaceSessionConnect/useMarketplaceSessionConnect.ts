@@ -15,6 +15,7 @@ import { copyToClipboard } from '@/libs/utils/utils';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import { beginMarketplaceGrantFlow, type MarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import type {
   MarketplaceSessionConnectStatus,
   UseMarketplaceSessionConnectOptions,
@@ -112,12 +113,19 @@ export function useMarketplaceSessionConnect(
             if (!result.token || !result.pubky || result.capabilities === undefined || !result.expires_at) {
               throw new Error('grant_invalid_response');
             }
-            const session = MarketplaceSessionService.establishClaimedGrantSession({
-              token: result.token,
-              pubky: result.pubky,
-              capabilities: result.capabilities,
-              expiresAt: result.expires_at,
-            });
+            const expectedPubky = useAuthStore.getState().currentUserPubky;
+            if (!expectedPubky) {
+              throw new Error('grant_invalid_response');
+            }
+            const session = MarketplaceSessionService.establishClaimedGrantSession(
+              {
+                token: result.token,
+                pubky: result.pubky,
+                capabilities: result.capabilities,
+                expiresAt: result.expires_at,
+              },
+              expectedPubky,
+            );
             setStatus('connected');
             onConnectedRef.current?.(session);
             return;

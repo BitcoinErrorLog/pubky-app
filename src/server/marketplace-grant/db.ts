@@ -168,6 +168,17 @@ export async function acquireClaim(
   return rows[0] ?? null;
 }
 
+export async function renewClaim(config: MarketplaceGrantConfig, stateId: string, owner: string): Promise<boolean> {
+  const rows = await grantSql(config)<FlowRow[]>`
+    UPDATE shop_grant_bff.flow_state
+    SET lease_until = now() + (${config.claimLeaseSeconds} * interval '1 second'),
+        version = version + 1
+    WHERE state_id = ${stateId} AND status = 'claiming' AND lease_owner = ${owner}
+    RETURNING *
+  `;
+  return rows.length === 1;
+}
+
 export async function completeClaim(config: MarketplaceGrantConfig, stateId: string, owner: string): Promise<boolean> {
   const result = await grantSql(config)`
     UPDATE shop_grant_bff.flow_state

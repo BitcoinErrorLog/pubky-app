@@ -40,7 +40,7 @@ describe('marketplace grant BFF config', () => {
     expect(getMarketplaceGrantConfig()).toMatchObject({
       allowedOrigins: ['https://shop.example'],
       stateTtlSeconds: 300,
-      claimLeaseSeconds: 15,
+      claimLeaseSeconds: 25,
     });
   });
 
@@ -55,5 +55,26 @@ describe('marketplace grant BFF config', () => {
       SHOP_BFF_GRANT_STATE_PREVIOUS_ENCRYPTION_KEY_B64: Buffer.alloc(32, 4).toString('base64'),
     };
     expect(() => getMarketplaceGrantConfig()).toThrow();
+  });
+
+  it('rejects a claim lease shorter than four service timeouts plus margin', () => {
+    process.env = {
+      ...validEnv(),
+      SHOP_BFF_GRANT_CLAIM_LEASE_SECONDS: '15',
+      SHOP_BFF_GRANT_SERVICE_TIMEOUT_MILLISECONDS: '5000',
+    };
+    expect(() => getMarketplaceGrantConfig()).toThrow(/Claim lease must be at least/);
+  });
+
+  it('loads when the claim lease equals four service timeouts plus margin', () => {
+    process.env = {
+      ...validEnv(),
+      SHOP_BFF_GRANT_CLAIM_LEASE_SECONDS: '45',
+      SHOP_BFF_GRANT_SERVICE_TIMEOUT_MILLISECONDS: '10000',
+    };
+    expect(getMarketplaceGrantConfig()).toMatchObject({
+      claimLeaseSeconds: 45,
+      serviceTimeoutMs: 10000,
+    });
   });
 });
