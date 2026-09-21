@@ -40,4 +40,9 @@ describe('PubchiFlyoutHeader', () => {
     expect(usePubchiStore.getState().flyout.open).toBe(false);
     expect(push).toHaveBeenCalledWith('/pubchi/brain');
   });
+
+  it('shows a missed badge for undismissed proactive suggestions', () => {
+    render(<PubchiFlyoutHeader pubchi={pubchi} missedCount={2} />);
+    expect(screen.getByTestId('pubchi-missed-badge')).toHaveTextContent('2 missed');
+  });
 });

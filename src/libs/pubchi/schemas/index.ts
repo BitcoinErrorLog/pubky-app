@@ -104,6 +104,18 @@ export { type ManifestV1, ManifestV1Schema, parseManifestV1 } from './manifest';
 export { MemoryNonceStore, type NonceStore } from './nonce';
 export { parseBySchema } from './parse';
 export {
+  isPubkyAppResourceUri,
+  parsePubchiSuggestionV1,
+  PUBCHI_SUGGESTION_KIND,
+  PUBCHI_SUGGESTION_SOURCE_MAX,
+  PUBCHI_SUGGESTION_SUMMARY_MAX,
+  PUBCHI_SUGGESTION_TITLE_MAX,
+  PUBCHI_SUGGESTION_TTL_SECONDS,
+  type PubchiSuggestionV1,
+  PubchiSuggestionV1Schema,
+  suggestionFromAnswer,
+} from './suggestion';
+export {
   ALLOWLISTED_PATH_PATTERNS,
   botObjectUri,
   botProfileUri,

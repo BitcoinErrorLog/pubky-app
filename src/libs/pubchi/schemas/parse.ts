@@ -12,6 +12,7 @@ import { parseFeedProposal } from './feed';
 import { parseManifestV1 } from './manifest';
 import { parseQueryResultV1 } from './query';
 import { parseRequestBindingV1, parseRequestObjectV1 } from './request';
+import { parsePubchiSuggestionV1 } from './suggestion';
 import { parseOwnerBindingV1, parseTenantV1 } from './tenant';
 
 export function parseBySchema(input: unknown): ParseResult<unknown> {
@@ -38,6 +39,8 @@ export function parseBySchema(input: unknown): ParseResult<unknown> {
       return parseManifestV1(input);
     case 'pubchi-config':
       return parsePubchiConfigV1(input);
+    case 'pubchi-suggestion':
+      return parsePubchiSuggestionV1(input);
     case 'pubchi-envelope':
       return parseCommonEnvelopeV1(input);
     default:

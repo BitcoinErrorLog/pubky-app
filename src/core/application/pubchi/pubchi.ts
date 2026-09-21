@@ -60,6 +60,17 @@ import {
   reconstructFeedsFromBundle,
 } from '@/libs/pubchi/portability';
 import {
+  decideProactiveAsk,
+  isAppForeground,
+  PROACTIVE_PURPOSE,
+  PROACTIVE_QUESTION,
+  proactiveFromConfig,
+  proactiveSuggestionId,
+  readAttemptState,
+  recordProactiveAttempt,
+  visibleProactiveSuggestions,
+} from '@/libs/pubchi/proactive';
+import {
   bodySha256,
   botUri,
   contextForRequest,
@@ -81,6 +92,7 @@ import {
   parsePubchiDocumentText,
   parsePubchiDraftPostReceipt,
   parsePubchiOwnerContextV1,
+  parsePubchiSuggestionV1,
   parsePubchiTagApplication,
   parseQueryResultV1,
   projectTargetSnapshot,
@@ -88,11 +100,14 @@ import {
   type PubchiBotV1,
   type PubchiConfigV1,
   type PubchiOwnerContextV1,
+  type PubchiSuggestionV1,
   type PubchiTagApplication,
   REQUEST_TTL_SECONDS,
   scanForbiddenPublicState,
   signDeviceDelegationV1,
   signRequestObjectV2,
+  suggestionFromAnswer,
+  suggestionPath,
   type UnsignedDeviceDelegationV1,
   type UnsignedRequestObjectV2,
   validatePubchiDocumentSize,
@@ -383,6 +398,122 @@ export class PubchiApplication {
       throw pubchiValidationError('SCHEMA_INVALID', 'savePubchiConfig');
     }
     return readBack;
+  }
+
+  static async loadPubchiSuggestion(owner: string, suggestionId: string): Promise<PubchiSuggestionV1 | null> {
+    const url = pubchiSuggestionUri(owner, suggestionId);
+    try {
+      const parsed = parsePubchiDocumentText(await HomeserverService.requestRawText(url), parsePubchiSuggestionV1);
+      if (!parsed.ok) throw pubchiValidationError(parsed.code, 'loadPubchiSuggestion');
+      if (parsed.value.owner !== owner || parsed.value.suggestion_id !== suggestionId) {
+        throw pubchiValidationError('SCHEMA_INVALID', 'loadPubchiSuggestion');
+      }
+      return parsed.value;
+    } catch (error) {
+      if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return null;
+      throw error;
+    }
+  }
+
+  static async listProactiveSuggestions(
+    owner: string,
+    nowSeconds = Math.floor(Date.now() / 1000),
+  ): Promise<PubchiSuggestionV1[]> {
+    let files: string[] = [];
+    try {
+      files = await HomeserverService.listAll({ baseDirectory: pubchiSuggestionsDirectory(owner) });
+    } catch (error) {
+      if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) return [];
+      throw error;
+    }
+    const loaded: PubchiSuggestionV1[] = [];
+    for (const file of files.sort()) {
+      const suggestionId = file.match(/\/suggestions\/([^/]+)\.json$/)?.[1];
+      if (!suggestionId) continue;
+      try {
+        const parsed = parsePubchiDocumentText(await HomeserverService.requestRawText(file), parsePubchiSuggestionV1);
+        if (!parsed.ok || parsed.value.owner !== owner || parsed.value.suggestion_id !== suggestionId) continue;
+        loaded.push(parsed.value);
+      } catch (error) {
+        if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) continue;
+        throw error;
+      }
+    }
+    return visibleProactiveSuggestions(loaded, owner, nowSeconds);
+  }
+
+  static async savePubchiSuggestion(owner: string, candidate: PubchiSuggestionV1): Promise<PubchiSuggestionV1> {
+    assertPubchiCapability(owner);
+    if (candidate.owner !== owner) throw pubchiValidationError('SCHEMA_INVALID', 'savePubchiSuggestion');
+    const parsed = parsePubchiSuggestionV1(candidate);
+    if (!parsed.ok) throw pubchiValidationError(parsed.code, 'savePubchiSuggestion');
+    const forbidden = scanForbiddenPublicState(candidate);
+    if (!forbidden.ok) throw pubchiValidationError(forbidden.code, 'savePubchiSuggestion');
+    const root = validatePublicRootReferences(candidate);
+    if (!root.ok) throw pubchiValidationError(root.code, 'savePubchiSuggestion');
+    const size = validatePubchiDocumentSize(candidate);
+    if (!size.ok) throw pubchiValidationError(size.code, 'savePubchiSuggestion');
+    const url = pubchiSuggestionUri(owner, parsed.value.suggestion_id);
+    let existing: PubchiSuggestionV1 | null;
+    try {
+      existing = await this.loadPubchiSuggestion(owner, parsed.value.suggestion_id);
+    } catch (error) {
+      if (!hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) throw error;
+      existing = null;
+    }
+    if (existing) return existing;
+    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: parsed.value });
+    const readBack = await this.loadPubchiSuggestion(owner, parsed.value.suggestion_id);
+    if (!readBack || !deepEqual(readBack, parsed.value)) {
+      throw pubchiValidationError('SCHEMA_INVALID', 'savePubchiSuggestion');
+    }
+    return readBack;
+  }
+
+  static async runAppOpenProactive(
+    owner: string,
+    nowMs = Date.now(),
+    visible = isAppForeground(),
+  ): Promise<PubchiSuggestionV1[]> {
+    const nowSeconds = Math.floor(nowMs / 1000);
+    const listed = await this.listProactiveSuggestions(owner, nowSeconds);
+    const config = await this.loadPubchiConfig(owner, false);
+    const proactive = proactiveFromConfig(config);
+    const suggestionId = proactiveSuggestionId(nowMs);
+    const existingToday =
+      listed.find((item) => item.suggestion_id === suggestionId) ??
+      (await this.loadPubchiSuggestion(owner, suggestionId));
+    const session = useAuthStore.getState().selectSession();
+    const gate = decideProactiveAsk({
+      enabled: proactive.enabled,
+      maxSuggestionsPerDay: proactive.max_suggestions_per_day,
+      quietHoursUtc: proactive.quiet_hours_utc,
+      nowMs,
+      visible,
+      hasSession: Boolean(session),
+      asksToday: readAttemptState(owner, nowMs).count,
+      existingSuggestionId: existingToday?.suggestion_id ?? null,
+    });
+    if (!gate.ok) return listed;
+
+    recordProactiveAttempt(owner, nowMs);
+    let result: PubchiQuerySuccess;
+    try {
+      result = await this.query({
+        owner,
+        question: PROACTIVE_QUESTION,
+        purpose: PROACTIVE_PURPOSE,
+        nowSeconds,
+      });
+    } catch (error) {
+      Logger.warn('Pubchi app-open proactive query failed', { error, owner });
+      return listed;
+    }
+    if (result.kind !== 'answer') return listed;
+    const built = suggestionFromAnswer(result.result, { suggestionId, nowSeconds });
+    if (!built) return listed;
+    await this.savePubchiSuggestion(owner, built);
+    return this.listProactiveSuggestions(owner, nowSeconds);
   }
 
   static async exportPubchiState(
@@ -2628,6 +2759,14 @@ async function listPublicPubchiDocuments(
 
 function pubchiConfigUri(owner: string): string {
   return `pubky://${owner}/pub/app.pubchi/v1/config.json`;
+}
+
+function pubchiSuggestionsDirectory(owner: string): string {
+  return `pubky://${owner}/pub/app.pubchi/v1/suggestions/`;
+}
+
+function pubchiSuggestionUri(owner: string, suggestionId: string): string {
+  return `pubky://${owner}${suggestionPath(suggestionId)}`;
 }
 
 function pubchiContextUri(owner: string): string {
