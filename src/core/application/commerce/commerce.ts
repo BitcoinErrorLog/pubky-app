@@ -2167,8 +2167,131 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getBandConsent(actorPubky, sellerPubky);
   }
 
-  static async getOwnMarketplaceReview(actorPubky: string, orderId: string): Promise<CommerceReviewModelSchema | null> {
-    return (await LocalCommerceService.getOwnReviewByOrder(actorPubky, orderId)) ?? null;
+  /**
+   * The current user's own published review row for one order.
+   * Local-first: a Dexie hit returns immediately. After a fresh sign-in the
+   * local row is gone (wiped with identity) even when the homeserver record
+   * is live — hydrate from the deterministic review URI (listing + subject
+   * + role) so the order card can resolve publication/attestation state
+   * instead of waiting forever.
+   */
+  static async getOwnMarketplaceReview(
+    actorPubky: string,
+    order: MarketplaceOrder,
+  ): Promise<CommerceReviewModelSchema | null> {
+    const local = (await LocalCommerceService.getOwnReviewByOrder(actorPubky, order.id)) ?? null;
+    if (local !== null) return local;
+    return await this.hydrateOwnReviewFromHomeserver(actorPubky, order);
+  }
+
+  /** `listing:<sellerPubky>_<listingId>` on the first order line, or null. */
+  private static listingIdFromOrder(order: MarketplaceOrder): string | null {
+    const listingPrefix = `listing:${order.sellerPubky}_`;
+    const listingAggregateId = order.lines[0]?.listingAggregateId ?? '';
+    if (!listingAggregateId.startsWith(listingPrefix)) return null;
+    const listingId = listingAggregateId.slice(listingPrefix.length);
+    return listingId.length > 0 ? listingId : null;
+  }
+
+  /**
+   * Specs hash ID for the living review of this (listing, subject, role).
+   * Dummy text/attestation are ignored by the hash — only listing URI,
+   * subject, and role feed the id.
+   */
+  private static async ownReviewPathId(input: {
+    actorPubky: string;
+    listingOwnerPubky: string;
+    listingId: string;
+    subjectPubky: string;
+    role: 'buyer_reviewing_seller' | 'seller_reviewing_buyer';
+  }): Promise<string> {
+    const { PubkySpecsBuilder } = await import('pubky-app-specs');
+    const built = new PubkySpecsBuilder(input.actorPubky).createMarketplaceReview({
+      schemaVersion: 1,
+      recordType: 'review',
+      ownerPubky: input.actorPubky,
+      revision: 1,
+      createdAt: '1970-01-01T00:00:00.000Z',
+      updatedAt: '1970-01-01T00:00:00.000Z',
+      reviewId: '',
+      subjectPubky: input.subjectPubky,
+      listingOwnerPubky: input.listingOwnerPubky,
+      listingId: input.listingId,
+      role: input.role,
+      ratings: { overall: 1 },
+      text: 'path-id-probe',
+      eligibilityAttestation: 'A'.repeat(32),
+    });
+    return built.meta.id;
+  }
+
+  /**
+   * Rebuilds the local own-review row from the reviewer's homeserver after
+   * a cache miss. GET only — never PUT. A 404 or identity mismatch stays
+   * unresolved (the order card's waiting copy), never a false published
+   * or unpublished claim.
+   */
+  private static async hydrateOwnReviewFromHomeserver(
+    actorPubky: string,
+    order: MarketplaceOrder,
+  ): Promise<CommerceReviewModelSchema | null> {
+    const listingId = this.listingIdFromOrder(order);
+    if (listingId === null) return null;
+    const isBuyer = actorPubky === order.buyerPubky;
+    const isSeller = actorPubky === order.sellerPubky;
+    if (!isBuyer && !isSeller) return null;
+    const role = isBuyer ? 'buyer_reviewing_seller' : 'seller_reviewing_buyer';
+    const subjectPubky = isBuyer ? order.sellerPubky : order.buyerPubky;
+    let reviewId = '';
+    try {
+      reviewId = await this.ownReviewPathId({
+        actorPubky,
+        listingOwnerPubky: order.sellerPubky,
+        listingId,
+        subjectPubky,
+        role,
+      });
+      const url = CommerceRecordNormalizer.reviewUri(actorPubky, reviewId);
+      const record = CommerceRecordNormalizer.review(await CommerceHomeserverService.fetchJson(url));
+      if (
+        record.ownerPubky !== actorPubky ||
+        record.listingId !== listingId ||
+        record.listingOwnerPubky !== order.sellerPubky ||
+        record.role !== role ||
+        record.subjectPubky !== subjectPubky ||
+        record.reviewId !== reviewId
+      ) {
+        Logger.warn('Own review homeserver record identity did not match this order; leaving status unresolved', {
+          orderId: order.id,
+          reviewId,
+        });
+        return null;
+      }
+      const verifiedIss = verifyOwnReviewAttestation(record);
+      const model: CommerceReviewModelSchema = {
+        id: `${actorPubky}:${reviewId}`,
+        owner_id: actorPubky,
+        review_id: reviewId,
+        order_id: order.id,
+        subject_id: record.subjectPubky,
+        record,
+        attestation_verified: verifiedIss !== null,
+        attestation_iss: verifiedIss,
+        sync_status: 'synced',
+        updated_at: Date.now(),
+      };
+      await LocalCommerceService.upsertOwnReview(model);
+      return model;
+    } catch (error) {
+      if (!(isAppError(error) && isNotFound(error))) {
+        Logger.warn('Own review homeserver hydrate failed; leaving publication status unresolved', {
+          orderId: order.id,
+          reviewId,
+          error,
+        });
+      }
+      return null;
+    }
   }
 
   /**
@@ -2196,16 +2319,14 @@ export class CommerceApplication {
     if (attestation === null) return null;
     const review = reviewResultSchema.parse(result.review);
 
-    const listingPrefix = `listing:${order.sellerPubky}_`;
-    const listingAggregateId = order.lines[0]?.listingAggregateId ?? '';
-    if (!listingAggregateId.startsWith(listingPrefix)) {
+    const listingId = this.listingIdFromOrder(order);
+    if (listingId === null) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Order lines carry no parseable listing identity.', {
         service: ErrorService.Marketplace,
         operation: 'commitPublishOwnReview',
         context: { orderId: order.id },
       });
     }
-    const listingId = listingAggregateId.slice(listingPrefix.length);
     const role = review.reviewerRole === 'buyer' ? 'buyer_reviewing_seller' : 'seller_reviewing_buyer';
 
     const build = async (revision: number, createdAt: string) => {

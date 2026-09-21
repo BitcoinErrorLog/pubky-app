@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 import { listingUriBuilder } from 'pubky-app-specs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AppError } from '@/libs/error/error';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schema';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
@@ -204,5 +207,79 @@ describe('CommerceApplication own-review publication', () => {
       CommerceApplication.getMarketplaceBandConsent(ORDER_FIXTURE_BUYER, ORDER_FIXTURE_SELLER),
     ).resolves.toBe(true);
     expect(gateway).toHaveBeenCalledWith(ORDER_FIXTURE_BUYER, ORDER_FIXTURE_SELLER);
+  });
+});
+
+describe('CommerceApplication own-review hydrate after local miss', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function publishedOwnReview() {
+    const { iss, wire } = issuedAttestation('boots');
+    const order = createOrderFixture('completed');
+    vi.spyOn(LocalCommerceService, 'getOwnReviewById').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'stageOwnReviewSync').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'upsertOwnReview').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+    const published = await CommerceApplication.commitPublishOwnReview({
+      actorPubky: ORDER_FIXTURE_BUYER,
+      order,
+      result: reviewResult(wire),
+    });
+    return { iss, order, published: published! };
+  }
+
+  it('hydrates the homeserver record when the local row is gone', async () => {
+    const { iss, order, published } = await publishedOwnReview();
+    vi.spyOn(LocalCommerceService, 'getOwnReviewByOrder').mockResolvedValue(undefined);
+    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue(published.record);
+    const upsert = vi.spyOn(LocalCommerceService, 'upsertOwnReview').mockResolvedValue(undefined);
+    upsert.mockClear();
+
+    const hydrated = await CommerceApplication.getOwnMarketplaceReview(ORDER_FIXTURE_BUYER, order);
+
+    expect(hydrated).not.toBeNull();
+    expect(hydrated!.review_id).toBe(published.review_id);
+    expect(hydrated!.order_id).toBe(order.id);
+    expect(hydrated!.sync_status).toBe('synced');
+    expect(hydrated!.attestation_verified).toBe(true);
+    expect(hydrated!.attestation_iss).toBe(iss);
+    expect(fetch).toHaveBeenCalledWith(
+      `pubky://${ORDER_FIXTURE_BUYER}/pub/pubky.app/marketplace/v1/reviews/${published.review_id}`,
+    );
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ review_id: published.review_id, sync_status: 'synced' }),
+    );
+  });
+
+  it('does not fetch the homeserver when the local row is present', async () => {
+    const { order, published } = await publishedOwnReview();
+    vi.spyOn(LocalCommerceService, 'getOwnReviewByOrder').mockResolvedValue(published);
+    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson');
+
+    await expect(CommerceApplication.getOwnMarketplaceReview(ORDER_FIXTURE_BUYER, order)).resolves.toBe(published);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('stays unresolved on a homeserver 404 instead of claiming unpublished', async () => {
+    const { order } = await publishedOwnReview();
+    vi.spyOn(LocalCommerceService, 'getOwnReviewByOrder').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(
+      new AppError({
+        category: ErrorCategory.Client,
+        code: ClientErrorCode.NOT_FOUND,
+        message: 'HTTP 404',
+        service: ErrorService.Homeserver,
+        operation: 'fetchJson',
+        context: { statusCode: 404 },
+      }),
+    );
+    const upsert = vi.spyOn(LocalCommerceService, 'upsertOwnReview');
+    upsert.mockClear();
+
+    await expect(CommerceApplication.getOwnMarketplaceReview(ORDER_FIXTURE_BUYER, order)).resolves.toBeNull();
+    expect(upsert).not.toHaveBeenCalled();
   });
 });
