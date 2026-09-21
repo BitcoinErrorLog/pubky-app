@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import graphBasisFixture from './__fixtures__/answer.basis.graph.json';
+import knowledgeBasisFixture from './__fixtures__/answer.basis.knowledge.json';
+import mixedBasisFixture from './__fixtures__/answer.basis.mixed.json';
+import modelBasisFixture from './__fixtures__/answer.basis.model.json';
+import unknownBasisFixture from './__fixtures__/answer.basis.unknown.json';
+import webBasisFixture from './__fixtures__/answer.basis.web.json';
 import invalidScopeFixture from './__fixtures__/answer.scope.invalid-extra-key.json';
 import scopedFixture from './__fixtures__/answer.scope.valid.json';
 import invalidSectionFixture from './__fixtures__/answer.section.invalid.json';
@@ -35,6 +41,18 @@ describe('pubchi answer schema', () => {
     ).toBe(true);
   });
 
+  it.each([
+    ['web', webBasisFixture, 'web'],
+    ['knowledge', knowledgeBasisFixture, 'knowledge'],
+    ['graph', graphBasisFixture, 'graph'],
+    ['mixed', mixedBasisFixture, 'mixed'],
+    ['model', modelBasisFixture, 'model'],
+    ['unknown', unknownBasisFixture, 'corpus-v2'],
+  ] as const)('parses a %s basis fixture without SCHEMA_INVALID', (_, input, basis) => {
+    const result = parsePubchiAnswerV1(input);
+    expect(result).toMatchObject({ ok: true, value: { basis } });
+  });
+
   it('parses knowledge citations and rejects model citations', () => {
     const citation = {
       kind: 'knowledge' as const,
@@ -63,7 +81,12 @@ describe('pubchi answer schema', () => {
 
   it('accepts graph and mixed answers whose executed scope names a graph, and rejects non-graph bases with one', () => {
     const graphScope = {
-      time: { since_ms: 1788441249000, until_ms: 1789046049000, label: 'last 7 days (Sep 3–10 UTC)', source: 'explicit' },
+      time: {
+        since_ms: 1788441249000,
+        until_ms: 1789046049000,
+        label: 'last 7 days (Sep 3–10 UTC)',
+        source: 'explicit',
+      },
       graph: { kind: 'owner_network' },
       filters: [],
       complete: true,
@@ -72,6 +95,7 @@ describe('pubchi answer schema', () => {
     expect(parsePubchiAnswerV1({ ...fixture, basis: 'mixed', scope: graphScope }).ok).toBe(true);
     expect(parsePubchiAnswerV1({ ...fixture, basis: 'knowledge', scope: graphScope }).ok).toBe(false);
     expect(parsePubchiAnswerV1({ ...fixture, basis: 'model', scope: graphScope }).ok).toBe(false);
+    expect(parsePubchiAnswerV1({ ...fixture, basis: 'web', scope: graphScope }).ok).toBe(false);
   });
 
   it('allows an omitted evidence section and parses C3 sections', () => {
@@ -123,6 +147,9 @@ describe('pubchi answer schema', () => {
     ],
     ['scope extra key', invalidScopeFixture],
     ['unknown evidence section', invalidSectionFixture],
+    ['empty basis', { ...fixture, basis: '' }],
+    ['basis longer than 40', { ...fixture, basis: 'x'.repeat(41) }],
+    ['non-string basis', { ...fixture, basis: 1 }],
   ])('rejects %s', (_, input) => {
     expect(parsePubchiAnswerV1(input).ok).toBe(false);
   });

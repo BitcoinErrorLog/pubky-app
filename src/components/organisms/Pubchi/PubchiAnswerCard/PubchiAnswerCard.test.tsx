@@ -392,7 +392,7 @@ describe('PubchiAnswerCard', () => {
         }}
       />,
     );
-    expect(screen.getByText('From what I know')).toBeInTheDocument();
+    expect(screen.getByText('From Pubky docs')).toBeInTheDocument();
     expect(screen.queryByTestId('pubchi-answer-scope')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Pubky documentation' })).toHaveAttribute('rel', 'noopener noreferrer');
     expect(screen.getByText('Corpus version: 2026-09')).toBeInTheDocument();
@@ -409,7 +409,7 @@ describe('PubchiAnswerCard', () => {
         }}
       />,
     );
-    expect(screen.getByText('From what I know')).toBeInTheDocument();
+    expect(screen.getByText('From more than one source')).toBeInTheDocument();
     expect(screen.getByTestId('pubchi-answer-scope')).toHaveTextContent('whole graph');
     expect(screen.getByRole('link', { name: 'Current source' })).toBeInTheDocument();
   });
@@ -436,6 +436,29 @@ describe('PubchiAnswerCard', () => {
       />,
     );
     expect(screen.getByText(/name, icon, tags, domain_tags, reach, sort, layout, and content/)).toBeInTheDocument();
-    expect(screen.getByText('From what I know')).toBeInTheDocument();
+    expect(screen.getByText('From Pubky docs')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['web', 'From the web'],
+    ['knowledge', 'From Pubky docs'],
+    ['graph', 'What the graph shows'],
+    ['mixed', 'From more than one source'],
+    ['model', 'From what I know'],
+    ['corpus-v2', 'From what I know'],
+  ] as const)('renders the %s heading', (basis, heading) => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...answer,
+          basis,
+          scope:
+            basis === 'graph' || basis === 'mixed'
+              ? { time: null, graph: { kind: 'whole_graph' }, filters: [], complete: true }
+              : { time: null, graph: { kind: 'none' }, filters: [], complete: true },
+        }}
+      />,
+    );
+    expect(screen.getByText(heading)).toBeInTheDocument();
   });
 });

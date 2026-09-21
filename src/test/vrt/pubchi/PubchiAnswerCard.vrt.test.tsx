@@ -182,6 +182,50 @@ describe('PubchiAnswerCard — visual regression', () => {
     await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-model-desktop');
   });
 
+  it('captures a web answer heading', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          basis: 'web',
+          summary: 'Recent coverage describes Pubky as a public-key social protocol.',
+          evidence: [],
+          sources: [],
+          tool_trace_summary: { tools: [], call_count: 0, truncated: false },
+          scope: { time: null, graph: { kind: 'none' }, filters: [], complete: true },
+          citations: [{ kind: 'web', title: 'Pubky coverage', url: 'https://example.com/pubky' }],
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-web-desktop');
+  });
+
+  it('captures an explicit graph answer heading', async () => {
+    const screen = await renderForVRT(
+      <PubchiAnswerCard
+        answer={answer({
+          basis: 'graph',
+          summary: 'The graph contains no matching evidence.',
+          scope: {
+            time: {
+              since_ms: Date.parse('2026-09-03T00:00:00Z'),
+              until_ms: Date.parse('2026-09-10T00:00:00Z'),
+              label: 'last 7 days',
+              source: 'default',
+            },
+            graph: { kind: 'owner_network', hops: 2 },
+            filters: [],
+            complete: true,
+          },
+        })}
+        currentUserPubky={owner}
+      />,
+      { viewport: VRT_VIEWPORT_DESKTOP, freezeMotion: true },
+    );
+    await expect(screen.getByTestId('pubchi-answer')).toMatchScreenshot('pubchi-answer-graph-heading-desktop');
+  });
+
   it('captures a mixed graph and knowledge answer', async () => {
     const screen = await renderForVRT(
       <PubchiAnswerCard

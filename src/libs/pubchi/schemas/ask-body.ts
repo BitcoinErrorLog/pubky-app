@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { type PubchiAnswerBasis, PubchiCitationSchema } from './answer';
+import { type PubchiAnswerBasis, PubchiAnswerBasisSchema, PubchiCitationSchema } from './answer';
 import type { ParseResult } from './codes';
 import { fromZod } from './zod';
 
@@ -31,7 +31,7 @@ export const ConversationTurnSchema = z
   .object({
     role: z.enum(['user', 'assistant']),
     text: z.string().refine((value) => codePointLength(value) <= MAX_CONVERSATION_TURN_CODE_POINTS),
-    basis: z.enum(['graph', 'knowledge', 'model', 'mixed']).optional(),
+    basis: PubchiAnswerBasisSchema.optional(),
     citations: z.array(PubchiCitationSchema).max(8).optional(),
   })
   .strict();

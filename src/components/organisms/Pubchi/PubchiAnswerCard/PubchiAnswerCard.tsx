@@ -11,6 +11,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { UserController } from '@/controllers/user/user';
 import { useTagSuggestionApplication } from '@/hooks/useTagSuggestionApplication/useTagSuggestionApplication';
+import { PUBCHI_BASIS_HEADING_EVIDENCE, PUBCHI_BASIS_HEADINGS, pubchiBasisHeading } from '@/libs/pubchi/basis-copy';
 import { linkifyPubkys } from '@/libs/pubchi/capabilities-v1';
 import type { ExecutionScope, PubchiAnswerV1, PubchiEvidenceV1 } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
@@ -183,44 +184,44 @@ export function PubchiAnswerCard({
       ) : null}
 
       {hasInterpretationDetails(answer) ? (
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {answer.basis && answer.basis !== 'graph'
-              ? 'From what I know'
-              : hasDeterministicRoute(answer.tool_trace_summary.tools)
-                ? 'What the graph shows'
-                : "Pubchi's reading of the evidence"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {answer.scope && (answer.basis === undefined || answer.basis === 'graph' || answer.basis === 'mixed') ? (
-            <Typography data-testid="pubchi-answer-scope" size="xs" className="mb-2 text-muted-foreground">
-              {formatScopeLine(answer.scope)}
-            </Typography>
-          ) : null}
-          {answer.summary.trim() !== replyText?.trim() ? (
-            <Typography size="sm">
-            {answer.summary && (answer.basis === undefined || answer.basis === 'graph' || answer.basis === 'mixed')
-              ? linkifyPubkys(answer.summary).map((part, index) =>
-                  typeof part === 'string' ? (
-                    part
-                  ) : (
-                    <Link
-                      key={`${part.pubky}-${index}`}
-                      href={getUserProfileUrl(part.pubky, currentUserPubky)}
-                      className="underline"
-                    >
-                      pubky:{part.pubky}
-                    </Link>
-                  ),
-                )
-              : answer.summary || 'No evidence was found for this question.'}
-            </Typography>
-          ) : null}
-          <ToolTrace answer={answer} currentUserPubky={currentUserPubky} />
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {answer.basis
+                ? pubchiBasisHeading(answer.basis)
+                : hasDeterministicRoute(answer.tool_trace_summary.tools)
+                  ? PUBCHI_BASIS_HEADINGS.graph
+                  : PUBCHI_BASIS_HEADING_EVIDENCE}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {answer.scope && (answer.basis === undefined || answer.basis === 'graph' || answer.basis === 'mixed') ? (
+              <Typography data-testid="pubchi-answer-scope" size="xs" className="mb-2 text-muted-foreground">
+                {formatScopeLine(answer.scope)}
+              </Typography>
+            ) : null}
+            {answer.summary.trim() !== replyText?.trim() ? (
+              <Typography size="sm">
+                {answer.summary && (answer.basis === undefined || answer.basis === 'graph' || answer.basis === 'mixed')
+                  ? linkifyPubkys(answer.summary).map((part, index) =>
+                      typeof part === 'string' ? (
+                        part
+                      ) : (
+                        <Link
+                          key={`${part.pubky}-${index}`}
+                          href={getUserProfileUrl(part.pubky, currentUserPubky)}
+                          className="underline"
+                        >
+                          pubky:{part.pubky}
+                        </Link>
+                      ),
+                    )
+                  : answer.summary || 'No evidence was found for this question.'}
+              </Typography>
+            ) : null}
+            <ToolTrace answer={answer} currentUserPubky={currentUserPubky} />
+          </CardContent>
+        </Card>
       ) : null}
       {answer.citations?.length ? (
         <Card data-testid="pubchi-answer-citations">
@@ -251,7 +252,6 @@ export function PubchiAnswerCard({
           {cursorSource === 'device' ? ' · cursor kept on this device' : ''}
         </Typography>
       ) : null}
-
     </div>
   );
 }
@@ -271,7 +271,8 @@ function hasInterpretationDetails(answer: PubchiAnswerV1): boolean {
 function ToolTrace({ answer, currentUserPubky }: { answer: PubchiAnswerV1; currentUserPubky?: string | null }) {
   const { tools, call_count: callCount, truncated } = answer.tool_trace_summary;
   const callLabel = `${callCount} ${callCount === 1 ? 'call' : 'calls'}`;
-  const sourceLabel = tools.length > 0 ? `Sources: ${tools.join(', ')} · ${callLabel}` : 'Sources: none — answered from the model';
+  const sourceLabel =
+    tools.length > 0 ? `Sources: ${tools.join(', ')} · ${callLabel}` : 'Sources: none — answered from the model';
   return (
     <div data-testid="pubchi-tool-trace" className="mt-3 flex flex-col gap-2 border-t pt-3">
       <Collapsible>

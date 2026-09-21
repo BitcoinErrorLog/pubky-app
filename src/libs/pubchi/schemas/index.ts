@@ -8,11 +8,16 @@
 export {
   type ExecutionScope,
   ExecutionScopeSchema,
+  isPubchiKnownAnswerBasis,
   parsePubchiAnswerV1,
+  PUBCHI_ANSWER_BASIS,
+  type PubchiAnswerBasis,
+  PubchiAnswerBasisSchema,
   type PubchiAnswerV1,
   PubchiAnswerV1Schema,
   type PubchiEvidenceV1,
   PubchiEvidenceV1Schema,
+  type PubchiKnownAnswerBasis,
   type PubchiTagSuggestion,
 } from './answer';
 export {
@@ -143,7 +148,7 @@ export {
   type VerifySignedRequestInput,
   verifySignedRequestObjectV1,
 } from './request';
-export { type AppSnapshotSource, type AppSnapshotTarget,projectTargetSnapshot } from './snapshot';
+export { type AppSnapshotSource, type AppSnapshotTarget, projectTargetSnapshot } from './snapshot';
 export { parsePubchiTagApplication, type PubchiTagApplication, PubchiTagApplicationSchema } from './tag-application';
 export {
   type OwnerBindingV1,

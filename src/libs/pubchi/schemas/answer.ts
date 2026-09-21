@@ -144,6 +144,16 @@ export const ExecutionScopeSchema = z
   })
   .strict();
 
+export const PUBCHI_ANSWER_BASIS = ['graph', 'knowledge', 'model', 'mixed', 'web'] as const;
+export type PubchiKnownAnswerBasis = (typeof PUBCHI_ANSWER_BASIS)[number];
+
+/** Known `basis` values plus a forward-compatible string. Unknown strings must not fail parse. */
+export const PubchiAnswerBasisSchema = z.string().min(1).max(40);
+
+export function isPubchiKnownAnswerBasis(value: string): value is PubchiKnownAnswerBasis {
+  return (PUBCHI_ANSWER_BASIS as readonly string[]).includes(value);
+}
+
 export const PubchiAnswerV1Schema = z
   .object({
     schema: z.literal('pubchi-answer'),
@@ -164,7 +174,7 @@ export const PubchiAnswerV1Schema = z
     tag_suggestions: z.array(C5SuggestionSchema).max(10).optional(),
     continuation: ContinuationSchema.optional(),
     scope: ExecutionScopeSchema.optional(),
-    basis: z.enum(['graph', 'knowledge', 'model', 'mixed']).optional(),
+    basis: PubchiAnswerBasisSchema.optional(),
     citations: z.array(PubchiCitationSchema).max(8).optional(),
   })
   .strict();
@@ -195,9 +205,12 @@ export function parsePubchiAnswerV1(input: unknown): ParseResult<PubchiAnswerV1>
     if (parsed.value.target.snapshot_sha256 === null && parsed.value.tag_suggestions.length > 0)
       return err('SCHEMA_INVALID');
   }
-  if (parsed.value.basis !== undefined) {
+  if (parsed.value.basis !== undefined && isPubchiKnownAnswerBasis(parsed.value.basis)) {
     const graphKind = parsed.value.scope?.graph.kind;
-    if ((parsed.value.basis === 'model' || parsed.value.basis === 'knowledge') && graphKind !== 'none')
+    if (
+      (parsed.value.basis === 'model' || parsed.value.basis === 'knowledge' || parsed.value.basis === 'web') &&
+      graphKind !== 'none'
+    )
       return err('SCHEMA_INVALID');
     if (parsed.value.basis === 'graph' && graphKind === 'none') return err('SCHEMA_INVALID');
     if (parsed.value.basis === 'model' && parsed.value.citations?.length) return err('SCHEMA_INVALID');
