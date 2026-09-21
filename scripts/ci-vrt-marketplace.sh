@@ -43,46 +43,68 @@ try {
   process.exit(12);
 }
 
-const messages = [];
-function walk(value) {
-  if (value == null) return;
-  if (Array.isArray(value)) {
-    for (const item of value) walk(item);
-    return;
-  }
-  if (typeof value !== 'object') return;
-  for (const [key, nested] of Object.entries(value)) {
-    if (key === 'failureMessages' && Array.isArray(nested)) {
-      for (const message of nested) {
-        if (typeof message === 'string') messages.push(message);
+function collectFailedTests(value) {
+  const tests = [];
+  function walk(node) {
+    if (node == null) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    if (typeof node !== 'object') return;
+    if (Array.isArray(node.assertionResults)) {
+      for (const assertion of node.assertionResults) {
+        if (!assertion || assertion.status !== 'failed') continue;
+        const messages = [];
+        if (Array.isArray(assertion.failureMessages)) {
+          for (const message of assertion.failureMessages) {
+            if (typeof message === 'string') messages.push(message);
+          }
+        }
+        tests.push({
+          title: assertion.fullName || assertion.title || '',
+          messages,
+        });
       }
-    } else if (key === 'errors' && Array.isArray(nested)) {
-      for (const error of nested) {
-        if (typeof error === 'string') messages.push(error);
-        else if (error && typeof error.message === 'string') messages.push(error.message);
-        else if (error && typeof error.stack === 'string') messages.push(error.stack);
-      }
-    } else if (typeof nested === 'string' && /screenshot|reference|mismatch/i.test(nested)) {
-      messages.push(nested);
-    } else {
-      walk(nested);
+    }
+    if (Array.isArray(node.testResults)) {
+      for (const nested of node.testResults) walk(nested);
     }
   }
+  walk(value);
+  return tests;
 }
-walk(report);
 
-const missing = messages.filter((message) =>
-  /No existing reference screenshot found/i.test(message),
-);
-const mismatch = messages.filter((message) =>
-  /mismatch|to match screenshot|screenshots do not match|Expected screenshot/i.test(message) &&
-  !/No existing reference screenshot found/i.test(message),
-);
-const other = messages.filter(
-  (message) =>
-    !/No existing reference screenshot found/i.test(message) &&
-    !/mismatch|to match screenshot|screenshots do not match|Expected screenshot/i.test(message),
-);
+function kind(message) {
+  if (/No existing reference screenshot found/i.test(message)) return 'missing';
+  if (
+    /Screenshot does not match the stored reference/i.test(message) ||
+    /screenshots do not match/i.test(message) ||
+    /Expected image dimensions/i.test(message) ||
+    /pixels \(ratio .+\) differ/i.test(message)
+  ) {
+    return 'mismatch';
+  }
+  return 'other';
+}
+
+const failedTests = collectFailedTests(report);
+const byTitle = new Map();
+for (const test of failedTests) {
+  const kinds = byTitle.get(test.title) || [];
+  for (const message of test.messages) kinds.push(kind(message));
+  if (test.messages.length === 0) kinds.push('other');
+  byTitle.set(test.title, kinds);
+}
+
+let missing = 0;
+let mismatch = 0;
+let other = 0;
+for (const kinds of byTitle.values()) {
+  if (kinds.includes('missing')) missing += 1;
+  else if (kinds.includes('mismatch')) mismatch += 1;
+  else other += 1;
+}
 
 const failed =
   report.success === false ||
@@ -93,12 +115,12 @@ if (!failed) {
   console.log('CLASS=pass');
   process.exit(0);
 }
-if (mismatch.length > 0 || other.length > 0) {
-  console.log(`CLASS=mismatch missing=${missing.length} mismatch=${mismatch.length} other=${other.length}`);
+if (mismatch > 0 || other > 0) {
+  console.log(`CLASS=mismatch missing=${missing} mismatch=${mismatch} other=${other}`);
   process.exit(11);
 }
-if (missing.length > 0) {
-  console.log(`CLASS=missing missing=${missing.length}`);
+if (missing > 0) {
+  console.log(`CLASS=missing missing=${missing}`);
   process.exit(10);
 }
 console.log('CLASS=other');
@@ -110,11 +132,11 @@ echo "Running marketplace VRT (browsers=${VRT_BROWSERS})"
 set +e
 run_vrt compare
 VRT_EXIT=$?
-set -e
-
 CLASS_OUT="$(classify)"
 CLASS_EXIT=$?
+set -e
 echo "$CLASS_OUT"
+echo "Vitest exit=${VRT_EXIT} classify=${CLASS_EXIT}"
 
 restore_committed_pngs() {
   git checkout -- 'src/test/vrt/**/*-darwin.png' 2>/dev/null || true
@@ -135,13 +157,8 @@ stage_new_linux() {
     done
 }
 
-if [ "$CLASS_EXIT" -eq 0 ]; then
-  echo "Marketplace VRT matched existing Linux baselines."
-  exit 0
-fi
-
-if [ "$CLASS_EXIT" -eq 10 ]; then
-  echo "Missing Linux baselines only. Recording them for the artifact (no darwin writes)."
+record_missing_linux() {
+  echo "Recording missing Linux baselines for the artifact (no darwin writes; committed linux restored)."
   set +e
   run_vrt update
   set -e
@@ -149,10 +166,25 @@ if [ "$CLASS_EXIT" -eq 10 ]; then
   stage_new_linux
   echo "New Linux baselines staged under ${NEW_LINUX_DIR}"
   find "$NEW_LINUX_DIR" -name '*-linux.png' | wc -l
+}
+
+if [ "$CLASS_EXIT" -eq 0 ]; then
+  echo "Marketplace VRT matched existing Linux baselines."
   exit 0
 fi
 
-echo "Marketplace VRT failed on a real mismatch or non-missing error."
-echo "Vitest exit=${VRT_EXIT} classify=${CLASS_EXIT}"
+if [ "$CLASS_EXIT" -eq 10 ]; then
+  record_missing_linux
+  echo "Missing Linux baselines only. Job passes; commit the artifact in a follow-up."
+  exit 0
+fi
+
+if [ "$CLASS_EXIT" -eq 11 ]; then
+  record_missing_linux
+  echo "Marketplace VRT failed on a pixel mismatch against committed Linux baselines."
+  exit 1
+fi
+
+echo "Marketplace VRT failed on a non-screenshot error."
 restore_committed_pngs
 exit 1
