@@ -167,5 +167,21 @@ describe('useMarketplaceLiveBid', () => {
 
     await waitFor(() => expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalled());
     expect(result.current.bid).toBeNull();
+    expect(result.current.listingState).toBeNull();
+  });
+
+  it('records reserved listing state for a visible fixed-price card', async () => {
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue({
+      ...auctionProjection(),
+      saleFormat: 'fixed_price',
+      state: 'reserved',
+      auction: null,
+    });
+    const { result } = renderHook(() => useMarketplaceLiveBid(SELLER, 'boots', true));
+
+    attachAndShow(result.current.ref);
+
+    await waitFor(() => expect(result.current.listingState).toBe('reserved'));
+    expect(result.current.bid).toBeNull();
   });
 });

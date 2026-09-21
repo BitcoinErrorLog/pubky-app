@@ -4,6 +4,7 @@ import { type CSSProperties, useState } from 'react';
 import {
   Bell,
   Camera,
+  Clock3,
   Disc3,
   Footprints,
   Gavel,
@@ -26,6 +27,7 @@ import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavo
 import type { MarketplaceCatalogItem } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { useMarketplaceLiveBid } from '@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import { cn } from '@/libs/utils/utils';
 import { MarketplaceFulfillmentBadge } from '@/molecules/MarketplaceFulfillmentBadge/MarketplaceFulfillmentBadge';
@@ -68,7 +70,8 @@ export interface MarketplaceListingCardProps {
 export function MarketplaceListingCard({ listing, shopName, layout = 'grid', index = 0 }: MarketplaceListingCardProps) {
   const background = MEDIA_BACKGROUNDS[colorIndex(listing.listingId)];
   const isAuction = listing.saleFormat === 'auction';
-  const { ref: liveBidRef, bid } = useMarketplaceLiveBid(listing.sellerId, listing.listingId, isAuction);
+  const { ref: liveBidRef, bid, listingState } = useMarketplaceLiveBid(listing.sellerId, listing.listingId, true);
+  const isReserved = !isAuction && listingState === 'reserved';
   const hasLiveBid = isAuction && bid !== null && bid.bidCount > 0;
   // The card's watch toggle IS the favorite — one concept, presented as the
   // watchlist (favorites are the account-scoped store the watchlist reads).
@@ -123,10 +126,12 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
           <Badge className="absolute top-3 left-3 gap-1 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
             {isAuction ? (
               <Gavel aria-hidden="true" className="size-3" />
+            ) : isReserved ? (
+              <Clock3 aria-hidden="true" className="size-3" />
             ) : (
               <Star aria-hidden="true" className="size-3" />
             )}
-            {isAuction ? 'Auction' : 'Buy now'}
+            {isAuction ? 'Auction' : isReserved ? 'Held' : 'Buy now'}
           </Badge>
           <button
             type="button"
@@ -163,6 +168,11 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
             <Typography as="p" className="truncate text-sm text-muted-foreground">
               {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
             </Typography>
+            {isReserved && (
+              <Typography as="p" className="text-xs text-muted-foreground">
+                {CHECKOUT_HOLD_COPY.listingReserved}
+              </Typography>
+            )}
           </div>
           <div className="space-y-1">
             <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">

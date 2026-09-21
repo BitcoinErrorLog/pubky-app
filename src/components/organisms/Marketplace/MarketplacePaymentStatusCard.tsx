@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
+  ArrowLeft,
   Banknote,
   CheckCircle2,
   Clock3,
@@ -27,9 +28,20 @@ import {
   type SellerPaymentResolutionSubmission,
   useMarketplaceSellerPaymentReviewForm,
 } from '@/hooks/useMarketplaceSellerPaymentReview/useMarketplaceSellerPaymentReviewForm';
+import {
+  CHECKOUT_HOLD_COPY,
+  holderBoundCopy,
+  holderUnboundCopy,
+  isHoldExpiredNoLateMoney,
+  isLateCompletionOrder,
+  isRefundRequiredPayment,
+  refundRequiredSellerCopy,
+  UNBOUND_BACK_CANCEL_REASON,
+} from '@/libs/commerce/checkout-hold';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { type BuyerVisiblePaymentStatus, buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
+import { buildMarketplaceOrderAggregateId } from '@/libs/commerce/transaction-commands';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -140,6 +152,36 @@ export function MarketplacePaymentStatusCard({
   });
   const sellerReview = useMarketplaceSellerPaymentReviewForm(order.id, onPaymentChanged);
   const [paypalTransactionRef, setPaypalTransactionRef] = useState('');
+  const [isReleasingHold, setIsReleasingHold] = useState(false);
+  const [releaseHoldError, setReleaseHoldError] = useState<string | null>(null);
+  const lateCompletion = isLateCompletionOrder(order);
+  const refundRequired = isRefundRequiredPayment(payment);
+  const expiredNoLateMoney = isHoldExpiredNoLateMoney(order, payment);
+
+  const releaseUnboundHold = async () => {
+    setReleaseHoldError(null);
+    setIsReleasingHold(true);
+    try {
+      const response = await CommerceController.executeMarketplaceCommand({
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId: buildMarketplaceOrderAggregateId(order.id),
+        expectedRevision: order.revision,
+        issuedAt: new Date().toISOString(),
+        kind: 'order.cancel_request',
+        payload: { orderId: order.id, reason: UNBOUND_BACK_CANCEL_REASON },
+      });
+      if (!response.ok) {
+        setReleaseHoldError(MARKETPLACE_FAILURE_MESSAGES.orderChanged);
+        return;
+      }
+      await onPaymentChanged();
+    } catch {
+      setReleaseHoldError(MARKETPLACE_FAILURE_MESSAGES.orderChanged);
+    } finally {
+      setIsReleasingHold(false);
+    }
+  };
 
   if (!payment || visibleStatus === null) return null;
 
@@ -192,13 +234,30 @@ export function MarketplacePaymentStatusCard({
         </Typography>
       )}
 
-      {visibleStatus === 'expired' && (
+      {lateCompletion && (
         <Typography as="p" className="text-sm text-muted-foreground">
-          The marketplace payment window elapsed before a verified payment arrived, so this order was not completed. A
-          payment verified after expiry is reconciled manually — never silently applied or discarded.
+          {isBuyer ? CHECKOUT_HOLD_COPY.lateCompleteBuyer : CHECKOUT_HOLD_COPY.lateCompleteSeller}
         </Typography>
       )}
-      {visibleStatus === 'manual_review' && (
+      {refundRequired && isBuyer && (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          {CHECKOUT_HOLD_COPY.refundRequiredBuyer}
+        </Typography>
+      )}
+      {refundRequired && isSeller && (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          {refundRequiredSellerCopy(order.paymentMethod)}
+        </Typography>
+      )}
+
+      {visibleStatus === 'expired' && (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          {expiredNoLateMoney
+            ? CHECKOUT_HOLD_COPY.expiredNoLateMoney
+            : 'The marketplace payment window elapsed before a verified payment arrived, so this order was not completed. A payment verified after expiry is reconciled manually — never silently applied or discarded.'}
+        </Typography>
+      )}
+      {visibleStatus === 'manual_review' && !refundRequired && (
         <Typography as="p" className="text-sm text-muted-foreground">
           A verified event arrived outside the normal flow (for example after the payment window expired), so the seller
           must resolve this order manually. No funds are held by this marketplace.
@@ -231,6 +290,7 @@ export function MarketplacePaymentStatusCard({
             form={sellerReview.resolveForm}
             isSubmitting={sellerReview.isSubmitting}
             error={sellerReview.error}
+            allowPaid={!refundRequired}
             onResolve={() => void sellerReview.submitResolve()}
           />
         )}
@@ -276,10 +336,26 @@ export function MarketplacePaymentStatusCard({
               Loading the seller&rsquo;s payment methods…
             </div>
           ) : methodPayment.availableMethods.length === 0 ? (
-            <Typography as="p" className="text-sm text-muted-foreground">
-              The seller has not set up any payment methods yet, so this order cannot be paid right now. Message the
-              seller — once they configure a method in their payment settings, it appears here.
-            </Typography>
+            <>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                The seller has not set up any payment methods yet, so this order cannot be paid right now. Message the
+                seller — once they configure a method in their payment settings, it appears here.
+              </Typography>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-fit rounded-full"
+                disabled={isReleasingHold}
+                onClick={() => void releaseUnboundHold()}
+              >
+                {isReleasingHold ? (
+                  <LoaderCircle className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <ArrowLeft className="mr-2 size-4" />
+                )}
+                Back
+              </Button>
+            </>
           ) : (
             <>
               {methodPayment.bitcoinOfferUnavailable && (
@@ -288,9 +364,7 @@ export function MarketplacePaymentStatusCard({
                 </Typography>
               )}
               <Typography as="p" className="text-sm text-muted-foreground">
-                Choose how to pay. Every method pays the seller directly — this marketplace never holds funds. The item
-                is reserved for you only once a payment starts, and the reservation lapses if the payment isn&rsquo;t
-                completed in time.
+                {holderUnboundCopy(order.holdExpiresAt)}
               </Typography>
               <div className="flex flex-wrap gap-2">
                 {methodPayment.availableMethods.includes('bitcoin') && (
@@ -334,6 +408,25 @@ export function MarketplacePaymentStatusCard({
                   Setting up the payment…
                 </div>
               )}
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-fit rounded-full"
+                disabled={isReleasingHold || methodPayment.pendingAction !== null}
+                onClick={() => void releaseUnboundHold()}
+              >
+                {isReleasingHold ? (
+                  <LoaderCircle className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <ArrowLeft className="mr-2 size-4" />
+                )}
+                Back
+              </Button>
+              {releaseHoldError && (
+                <Typography as="p" role="alert" className="text-sm text-amber-300">
+                  {releaseHoldError}
+                </Typography>
+              )}
             </>
           )}
         </div>
@@ -341,16 +434,24 @@ export function MarketplacePaymentStatusCard({
 
       {/* Bound bitcoin: the private Paykit request is out; the service confirms independently. */}
       {usesMethodFlow && isBuyer && order.paymentMethod === 'bitcoin' && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" />
-          The Bitcoin payment request was delivered privately to your wallet via Paykit. This page updates once the
-          marketplace independently verifies the payment on-chain.
+        <div className="grid gap-2">
+          <Typography as="p" className="text-sm text-muted-foreground">
+            {holderBoundCopy(order.holdExpiresAt)}
+          </Typography>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin" />
+            The Bitcoin payment request was delivered privately to your wallet via Paykit. This page updates once the
+            marketplace independently verifies the payment on-chain.
+          </div>
         </div>
       )}
 
       {/* Bound stripe: hosted checkout + processor verification. */}
       {usesMethodFlow && isBuyer && order.paymentMethod === 'stripe' && order.fiatCheckoutUrl && (
         <div className="grid gap-2">
+          <Typography as="p" className="text-sm text-muted-foreground">
+            {holderBoundCopy(order.holdExpiresAt)}
+          </Typography>
           <Typography as="p" className="text-sm text-muted-foreground">
             Pay through the seller&rsquo;s Stripe checkout, then verify — the marketplace checks the payment against the
             seller&rsquo;s own Stripe account.
@@ -385,6 +486,9 @@ export function MarketplacePaymentStatusCard({
           remain as the fallback when no notification arrives. */}
       {usesMethodFlow && isBuyer && order.paymentMethod === 'paypal' && order.fiatCheckoutUrl && (
         <div className="grid gap-2">
+          <Typography as="p" className="text-sm text-muted-foreground">
+            {holderBoundCopy(order.holdExpiresAt)}
+          </Typography>
           {order.paymentReportedAt ? (
             <Typography as="p" className="text-sm text-muted-foreground">
               You reported this payment{order.fiatTransactionRef ? ` (ref ${order.fiatTransactionRef})` : ''}. The order
@@ -655,17 +759,20 @@ function SellerBitcoinResolutionReview({
   isSubmitting,
   error,
   onResolve,
+  allowPaid = true,
 }: {
   enteredAt?: string | null;
   form: UseFormReturn<SellerPaymentResolutionForm, unknown, SellerPaymentResolutionSubmission>;
   isSubmitting: boolean;
   error: string | null;
   onResolve: () => void;
+  allowPaid?: boolean;
 }) {
   const outcome = form.watch('outcome');
   const refundReference = form.watch('externalRefundReference') ?? '';
   const validRefundReference = /^[\x20-\x7E]{1,64}$/.test(refundReference);
-  const canResolve = !isSubmitting && (outcome !== 'refunded' || validRefundReference);
+  const canResolve =
+    !isSubmitting && (allowPaid || outcome !== 'paid') && (outcome !== 'refunded' || validRefundReference);
   return (
     <section
       className="grid gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4"
@@ -688,7 +795,7 @@ function SellerBitcoinResolutionReview({
           name="outcome"
           render={({ field }) => (
             <select {...field} id="bitcoin-resolution-outcome" className="h-9 rounded-md border bg-background px-3">
-              <option value="paid">Paid</option>
+              {allowPaid && <option value="paid">Paid</option>}
               <option value="refunded">Refunded</option>
               <option value="abandoned">Abandoned</option>
             </select>

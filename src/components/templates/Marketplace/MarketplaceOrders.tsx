@@ -14,6 +14,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { isTransactionalCommerceMode } from '@/config/commerce';
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
+import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { formatBitcoinAmount } from '@/libs/commerce/pricing';
@@ -27,7 +28,7 @@ import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/Marketplac
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
-import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
+import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
@@ -165,7 +166,7 @@ export function MarketplaceOrders() {
             <div className="grid gap-4">
               {visibleOrders.map(({ order, payment, receipt }) => {
                 const isBuyer = currentUserPubky === order.buyerPubky;
-                const nextActorHint = getNextActorHint(order, isBuyer);
+                const nextActorHint = getNextActorHint(order, payment, isBuyer);
                 return (
                   <Card key={order.id} className="border py-5">
                     <CardContent className="grid gap-5 px-5 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -446,7 +447,14 @@ function orderStateLabel(order: MarketplaceOrder): string {
   return order.state.replaceAll('_', ' ');
 }
 
-function getNextActorHint(order: MarketplaceOrder, isBuyer: boolean): { label: string; isCurrentUser: boolean } | null {
+function getNextActorHint(
+  order: MarketplaceOrder,
+  payment: MarketplacePayment | null,
+  isBuyer: boolean,
+): { label: string; isCurrentUser: boolean } | null {
+  if (isHoldExpiredNoLateMoney(order, payment)) {
+    return { label: CHECKOUT_HOLD_COPY.expiredNoLateMoney, isCurrentUser: false };
+  }
   if (order.nextActor === 'buyer') {
     return isBuyer ? { label: 'Your move', isCurrentUser: true } : { label: 'Waiting on buyer', isCurrentUser: false };
   }

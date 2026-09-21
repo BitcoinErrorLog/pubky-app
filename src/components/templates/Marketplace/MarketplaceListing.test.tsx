@@ -261,6 +261,19 @@ describe('MarketplaceListing', () => {
     expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
   });
 
+  it('shows the holding sentence and disables checkout when the listing is reserved', () => {
+    view.projection = createListingProjectionFixture({ state: 'reserved', availableQuantity: 0, reservedQuantity: 1 });
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(
+      screen.getByText(
+        'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sold out' })).not.toBeInTheDocument();
+  });
+
   function renderAuctionListingNeedingSession() {
     const auctionStartsAt = new Date(Date.now() - 60_000).toISOString();
     const auctionEndsAt = new Date(Date.now() + 60 * 60_000).toISOString();

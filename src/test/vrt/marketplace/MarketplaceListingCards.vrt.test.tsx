@@ -171,10 +171,21 @@ const fixtures = vi.hoisted(async () => {
     ),
   );
 
+  const reservedPrice = catalogItemFromCatalogEntry(
+    createCommerceCatalogEntryFixture({
+      id: `${'r'.repeat(52)}:reserved_boots`,
+      seller_id: 'r'.repeat(52),
+      listing_id: 'reserved_boots',
+      title: 'Handmade leather boots',
+      reputation: { avg: 4.8, count: 23, verifiedCount: 19 },
+    }),
+  );
+
   return {
     attributeStates: [attributedFashion, attributedElectronics, fixedPrice],
     termStates: [auctionWithTerms, auctionMissingTerms, fixedPrice],
     liveBidStates: [auctionWithLiveBid, auctionMissingTerms, fixedPrice],
+    reservedStates: [reservedPrice, fixedPrice],
     endingSoon: filterMarketplaceCatalog([fixedPrice, auctionWithTerms, auctionMissingTerms, auctionEndingSooner], {
       query: '',
       categoryId: null,
@@ -189,6 +200,7 @@ const fixtures = vi.hoisted(async () => {
       [auctionWithTerms.sellerId, 'Proof of Film'],
       [auctionEndingSooner.sellerId, 'Low Time Preference'],
       [fixedPrice.sellerId, 'Satoshi Vintage'],
+      [reservedPrice.sellerId, 'Satoshi Vintage'],
     ]),
   };
 });
@@ -211,6 +223,7 @@ vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
             bidCount: 4,
           }
         : null,
+    listingState: listingId === 'reserved_boots' ? 'reserved' : null,
   }),
 }));
 
@@ -276,5 +289,18 @@ describe('Marketplace listing cards — visual regression', () => {
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-ending-soon-desktop');
+  });
+
+  it('replaces Buy now with the holding sentence on a reserved fixed-price card at desktop viewport', async () => {
+    const { reservedStates, shopNames } = await fixtures;
+    const screen = await renderForVRT(
+      <div className="grid grid-cols-4 gap-5 p-6">
+        {reservedStates.map((listing) => (
+          <MarketplaceListingCard key={listing.id} listing={listing} shopName={shopNames.get(listing.sellerId)} />
+        ))}
+      </div>,
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-cards-reserved-desktop');
   });
 });

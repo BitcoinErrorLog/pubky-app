@@ -1,6 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment';
+import {
+  CHECKOUT_HOLD_COPY,
+  holderBoundCopy,
+  holderUnboundCopy,
+  UNBOUND_BACK_CANCEL_REASON,
+} from '@/libs/commerce/checkout-hold';
 import { createOrderFixture, createPaymentFixture } from '@/test/fixtures/commerce/orders';
 import { MarketplacePaymentStatusCard } from './MarketplacePaymentStatusCard';
 
@@ -42,6 +49,7 @@ vi.mock('@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment', () => (
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getOrFetchListing: vi.fn(async () => ({ digitalLock: null })),
+    executeMarketplaceCommand: vi.fn(async () => ({ ok: true })),
   },
 }));
 
@@ -310,5 +318,143 @@ describe('MarketplacePaymentStatusCard', () => {
     );
 
     expect(screen.getByText('Payment confirmed')).toBeInTheDocument();
+  });
+
+  it('renders unbound hold copy and Back cancel on the method picker', async () => {
+    const onPaymentChanged = vi.fn();
+    vi.mocked(useMarketplaceOrderPayment).mockReturnValue({
+      availableMethods: ['bitcoin', 'stripe', 'paypal'],
+      bitcoinOfferUnavailable: false,
+      configError: null,
+      pendingAction: null,
+      bind: vi.fn(),
+      verifyStripe: vi.fn(),
+      markPaid: vi.fn(),
+      confirmReceived: vi.fn(),
+    });
+    const holdExpiresAt = '2026-08-20T21:15:00.000Z';
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', { holdExpiresAt, holdSource: 'checkout' })}
+        payment={createPaymentFixture('awaiting_entitlement')}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={onPaymentChanged}
+      />,
+    );
+
+    expect(screen.getByText(holderUnboundCopy(holdExpiresAt))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await waitFor(() =>
+      expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'order.cancel_request',
+          payload: expect.objectContaining({ reason: UNBOUND_BACK_CANCEL_REASON }),
+        }),
+      ),
+    );
+    await waitFor(() => expect(onPaymentChanged).toHaveBeenCalled());
+  });
+
+  it('renders bound hold copy after a payment method is chosen', () => {
+    const holdExpiresAt = '2026-08-20T21:15:00.000Z';
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', {
+          holdExpiresAt,
+          holdSource: 'bind',
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+        })}
+        payment={createPaymentFixture('awaiting_entitlement', { adapter: 'paykit' })}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(holderBoundCopy(holdExpiresAt))).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+  });
+
+  it('renders late-completion copy for buyer and seller', () => {
+    const payment = createPaymentFixture('confirmed');
+    const { rerender } = render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('paid', {
+          paymentId: payment.id,
+          cancellationReason: 'payment window elapsed',
+        })}
+        payment={payment}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+    expect(screen.getByText(CHECKOUT_HOLD_COPY.lateCompleteBuyer)).toBeInTheDocument();
+
+    rerender(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('paid', {
+          paymentId: payment.id,
+          cancellationReason: 'payment window elapsed',
+        })}
+        payment={payment}
+        isBuyer={false}
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+    expect(screen.getByText(CHECKOUT_HOLD_COPY.lateCompleteSeller)).toBeInTheDocument();
+  });
+
+  it('renders refund_required copy and hides Paid for the seller', () => {
+    const payment = createPaymentFixture('manual_review', {
+      adapter: 'paykit',
+      reviewReason: 'refund_required',
+    });
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('cancelled', {
+          paymentId: payment.id,
+          paymentMethod: 'bitcoin',
+          cancellationReason: 'payment window elapsed',
+        })}
+        payment={payment}
+        isBuyer={false}
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(CHECKOUT_HOLD_COPY.refundRequiredBitcoinSeller)).toBeInTheDocument();
+    expect(screen.getByLabelText('Outcome')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Paid' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Refunded' })).toBeInTheDocument();
+  });
+
+  it('renders elapsed copy instead of the generic expired explanation', () => {
+    const payment = createPaymentFixture('expired');
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('cancelled', {
+          paymentId: payment.id,
+          cancellationReason: 'payment window elapsed',
+        })}
+        payment={payment}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(CHECKOUT_HOLD_COPY.expiredNoLateMoney)).toBeInTheDocument();
+    expect(screen.queryByText(/reconciled manually/)).not.toBeInTheDocument();
   });
 });

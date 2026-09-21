@@ -22,6 +22,7 @@ import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMa
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { getAuctionPhase } from '@/libs/commerce/auction-phase';
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
@@ -175,9 +176,11 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
     0,
   );
   const isDurable = isDurableCommerceMode(adapterMode);
+  const projectionIsReserved = isDurable && negotiation.projection?.state === 'reserved';
   const projectionIsSoldOut =
     negotiation.projection !== null &&
-    (negotiation.projection.state !== 'available' || negotiation.projection.availableQuantity === 0);
+    (negotiation.projection.state === 'sold' ||
+      (negotiation.projection.state === 'available' && negotiation.projection.availableQuantity === 0));
   const isSoldOut = isDurable ? projectionIsSoldOut : (listing.purchasableQuantity ?? recordQuantity) <= 0;
   const isPurchasable = record.state === 'active';
   const availabilityPending = isDurable && negotiation.isLoading;
@@ -463,6 +466,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       !isPurchasable ||
                       !availabilityReady ||
                       isSoldOut ||
+                      projectionIsReserved ||
                       !selectedVariant ||
                       selectedVariant.quantity === 0
                     }
@@ -475,12 +479,19 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                         ? 'Connect to see availability'
                         : isOwner
                           ? 'You cannot buy your own listing'
-                          : isSoldOut
-                            ? 'Sold out'
-                            : isPurchasable
-                              ? 'Add to cart'
-                              : 'Unavailable'}
+                          : projectionIsReserved
+                            ? 'Held by another buyer'
+                            : isSoldOut
+                              ? 'Sold out'
+                              : isPurchasable
+                                ? 'Add to cart'
+                                : 'Unavailable'}
                   </Button>
+                  {projectionIsReserved && (
+                    <Typography as="p" className="w-full text-sm text-muted-foreground">
+                      {CHECKOUT_HOLD_COPY.listingReserved}
+                    </Typography>
+                  )}
                   {record.sale.acceptsOffers && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}

@@ -16,14 +16,17 @@ import { MarketplaceListingCard } from './MarketplaceListingCard';
 // Here it is replaced with mutable state so each test declares what the
 // service answered — `bid: null` is the default (no fetch / unreachable / no
 // durable backend), which matches how the card renders in every prior test.
-const liveBid = vi.hoisted(() => ({ bid: null as MarketplaceLiveBid | null }));
+const liveBid = vi.hoisted(() => ({
+  bid: null as MarketplaceLiveBid | null,
+  listingState: null as 'available' | 'reserved' | 'sold' | null,
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
 vi.mock('@/hooks/useMarketplaceLiveBid/useMarketplaceLiveBid', () => ({
-  useMarketplaceLiveBid: () => ({ ref: () => {}, bid: liveBid.bid }),
+  useMarketplaceLiveBid: () => ({ ref: () => {}, bid: liveBid.bid, listingState: liveBid.listingState }),
 }));
 
 vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
@@ -37,6 +40,7 @@ function catalogItem(index = 0): MarketplaceCatalogItem {
 
 beforeEach(() => {
   liveBid.bid = null;
+  liveBid.listingState = null;
 });
 
 describe('MarketplaceListingCard', () => {
@@ -158,6 +162,19 @@ describe('MarketplaceListingCard', () => {
     expect(screen.getByText('$125.00')).toBeInTheDocument();
     expect(screen.queryByText(/current bid/i)).not.toBeInTheDocument();
     expect(screen.queryByText('2 bids')).not.toBeInTheDocument();
+  });
+
+  it('replaces Buy now with the holding sentence when the listing is reserved', () => {
+    liveBid.listingState = 'reserved';
+    render(<MarketplaceListingCard listing={catalogItem()} shopName="Satoshi Vintage" />);
+
+    expect(screen.getByText('Held')).toBeInTheDocument();
+    expect(screen.queryByText('Buy now')).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
+      ),
+    ).toBeInTheDocument();
   });
 });
 
