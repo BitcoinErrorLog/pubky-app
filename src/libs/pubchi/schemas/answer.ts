@@ -10,7 +10,9 @@ import { isPubkyId, PUBKY_ID_RE } from './pubky';
 import { fromZod, zPubky, zUnix, zVersion1 } from './zod';
 
 export const SOURCE_URI = /^(?:pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/.+|https:\/\/nexus[^/]*\/.+)$/;
-const C5_POST_URI = /^pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/pub\/pubky\.app\/posts\/[A-Z0-9]{13}$/;
+export const PUBKY_APP_POST_URI =
+  /^pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/pub\/pubky\.app\/posts\/[A-Z0-9]{13}$/;
+const C5_POST_URI = PUBKY_APP_POST_URI;
 const C5_PROFILE_URI = /^pubky:\/\/[ybndrfg8ejkmcpqxot1uwisza345h769]{52}\/pub\/pubky\.app\/profile\.json$/;
 /** Maximum length accepted for a public Pubky evidence URI. */
 export const PUBLIC_EVIDENCE_URI_MAX_LENGTH = 512;
@@ -18,6 +20,12 @@ export const PUBLIC_EVIDENCE_URI_MAX_LENGTH = 512;
 const C5_LABEL_MAX_LENGTH = 20;
 const C5_LABEL = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const C5_SHA256 = /^[a-f0-9]{64}$/;
+/** pubky-app-specs `postShortContentMaxLength`. */
+const C6_SHORT_CONTENT_MAX = 2000;
+/** App article body cap: `postLongContentMaxLength` − title 100 − JSON 22. */
+const C6_LONG_CONTENT_MAX = 49_878;
+/** pubky-app-specs `feedTagsMaxCount`. */
+const C6_TAG_MAX = 5;
 const codePointLength = (value: string): number => Array.from(value).length;
 
 /**
@@ -57,13 +65,15 @@ const C5TargetSchema = z
     }
   });
 
+const C5LabelSchema = z
+  .string()
+  .min(1)
+  .max(C5_LABEL_MAX_LENGTH)
+  .refine((value) => C5_LABEL.test(value) && value.split('-').length <= 3, 'invalid tag label');
+
 const C5SuggestionSchema = z
   .object({
-    label: z
-      .string()
-      .min(1)
-      .max(C5_LABEL_MAX_LENGTH)
-      .refine((value) => C5_LABEL.test(value) && value.split('-').length <= 3, 'invalid tag label'),
+    label: C5LabelSchema,
     rationale: z
       .string()
       .refine(
@@ -75,6 +85,33 @@ const C5SuggestionSchema = z
     source: z.enum(['vocab', 'open']),
   })
   .strict();
+
+const C6DraftPostSchema = z
+  .object({
+    content: z.string(),
+    kind: z.enum(['short', 'long']),
+    tags: z.array(C5LabelSchema).max(C6_TAG_MAX).optional(),
+    parent_uri: z.string().regex(C5_POST_URI).optional(),
+    rationale: z
+      .string()
+      .refine(
+        (value) => codePointLength(value) >= 1 && codePointLength(value) <= 120,
+        'rationale must be 1-120 code points',
+      ),
+    evidence: z.array(PublicEvidenceUriSchema).min(1).max(8),
+  })
+  .strict()
+  .superRefine((draft, ctx) => {
+    const max = draft.kind === 'long' ? C6_LONG_CONTENT_MAX : C6_SHORT_CONTENT_MAX;
+    const points = codePointLength(draft.content);
+    if (points < 1 || draft.content.trim().length === 0 || points > max) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['content'],
+        message: `content must be 1-${max} non-whitespace code points for kind ${draft.kind}`,
+      });
+    }
+  });
 
 const EvidenceSchema = z
   .object({
@@ -169,9 +206,10 @@ export const PubchiAnswerV1Schema = z
     sources: z.array(z.string().regex(SOURCE_URI)).max(50),
     tool_trace_summary: ToolTraceSummarySchema,
     policy_version: z.literal(1),
-    section: z.literal('tag_suggestions').optional(),
+    section: z.enum(['tag_suggestions', 'draft_post']).optional(),
     target: C5TargetSchema.optional(),
     tag_suggestions: z.array(C5SuggestionSchema).max(10).optional(),
+    draft_post: C6DraftPostSchema.optional(),
     continuation: ContinuationSchema.optional(),
     scope: ExecutionScopeSchema.optional(),
     basis: PubchiAnswerBasisSchema.optional(),
@@ -185,13 +223,26 @@ export type ExecutionScope = z.infer<typeof ExecutionScopeSchema>;
 export type PubchiCitation = z.infer<typeof PubchiCitationSchema>;
 export type PubchiAnswerBasis = NonNullable<PubchiAnswerV1['basis']>;
 export type PubchiTagSuggestion = z.infer<typeof C5SuggestionSchema>;
+export type PubchiDraftPost = z.infer<typeof C6DraftPostSchema>;
 
 export function parsePubchiAnswerV1(input: unknown): ParseResult<PubchiAnswerV1> {
   const parsed = fromZod(PubchiAnswerV1Schema, input);
   if (!parsed.ok) return parsed;
-  const c5Fields = [parsed.value.section, parsed.value.target, parsed.value.tag_suggestions];
-  if (c5Fields.some((value) => value !== undefined) && c5Fields.some((value) => value === undefined))
-    return err('SCHEMA_INVALID');
+  const isC5 =
+    parsed.value.section === 'tag_suggestions' ||
+    parsed.value.target !== undefined ||
+    parsed.value.tag_suggestions !== undefined;
+  const isC6 = parsed.value.section === 'draft_post' || parsed.value.draft_post !== undefined;
+  if (isC5 && isC6) return err('SCHEMA_INVALID');
+  if (isC5) {
+    const c5Fields = [parsed.value.section, parsed.value.target, parsed.value.tag_suggestions];
+    if (c5Fields.some((value) => value !== undefined) && c5Fields.some((value) => value === undefined))
+      return err('SCHEMA_INVALID');
+    if (parsed.value.section !== 'tag_suggestions') return err('SCHEMA_INVALID');
+  }
+  if (isC6) {
+    if (parsed.value.section !== 'draft_post' || !parsed.value.draft_post) return err('SCHEMA_INVALID');
+  }
   if (parsed.value.section === 'tag_suggestions' && parsed.value.target && parsed.value.tag_suggestions) {
     const targetUri = parsed.value.target.uri;
     const topEvidence = new Set(parsed.value.evidence.map((item) => item.uri));
@@ -204,6 +255,17 @@ export function parsePubchiAnswerV1(input: unknown): ParseResult<PubchiAnswerV1>
     }
     if (parsed.value.target.snapshot_sha256 === null && parsed.value.tag_suggestions.length > 0)
       return err('SCHEMA_INVALID');
+  }
+  if (parsed.value.section === 'draft_post' && parsed.value.draft_post) {
+    const topEvidence = new Set(parsed.value.evidence.map((item) => item.uri));
+    if (!parsed.value.draft_post.evidence.every((uri) => topEvidence.has(uri))) return err('SCHEMA_INVALID');
+    const tags = parsed.value.draft_post.tags ?? [];
+    const labels = new Set<string>();
+    for (const label of tags) {
+      const normalized = label.normalize('NFKC').toLowerCase();
+      if (labels.has(normalized)) return err('SCHEMA_INVALID');
+      labels.add(normalized);
+    }
   }
   if (parsed.value.basis !== undefined && isPubchiKnownAnswerBasis(parsed.value.basis)) {
     const graphKind = parsed.value.scope?.graph.kind;

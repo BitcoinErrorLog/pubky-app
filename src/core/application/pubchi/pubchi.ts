@@ -30,7 +30,24 @@ import {
   updateDeviceKeyExpiry,
   wipeDeviceKeysNotOwnedBy,
 } from '@/libs/pubchi/device-key';
+import {
+  canPublishDraftPost,
+  canRejectDraftPost,
+  DRAFT_POST_RECEIPT_MAX_BYTES,
+  draftPostBinding,
+  truncateDraftPostReceiptContent,
+} from '@/libs/pubchi/draft-post';
 import { extractPubchiErrorCode, pubchiValidationError } from '@/libs/pubchi/errors';
+import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
+import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
+import {
+  parsePendingEntry,
+  type PendingDelegationDelete,
+  readPendingDelegationDeletes,
+  rememberPendingDelegationDeletes,
+  rememberPendingDelegationDeletesPreservingOwner,
+  replacePendingDelegationDeletesForOwner,
+} from '@/libs/pubchi/pending-delegation-deletes';
 import {
   buildExportBundle,
   hashDocumentBody,
@@ -42,16 +59,6 @@ import {
   publicListDirectories,
   reconstructFeedsFromBundle,
 } from '@/libs/pubchi/portability';
-import { isPubchiEnabled, isPubchiPanelEnabled, pubchiEndpointFor } from '@/libs/pubchi/flags';
-import { PUBCHI_QUESTION_MAX_LENGTH } from '@/libs/pubchi/limits';
-import {
-  parsePendingEntry,
-  type PendingDelegationDelete,
-  readPendingDelegationDeletes,
-  rememberPendingDelegationDeletes,
-  rememberPendingDelegationDeletesPreservingOwner,
-  replacePendingDelegationDeletesForOwner,
-} from '@/libs/pubchi/pending-delegation-deletes';
 import {
   bodySha256,
   botUri,
@@ -72,10 +79,12 @@ import {
   parsePubchiBotV1,
   parsePubchiConfigV1,
   parsePubchiDocumentText,
+  parsePubchiDraftPostReceipt,
   parsePubchiOwnerContextV1,
   parsePubchiTagApplication,
   parseQueryResultV1,
   projectTargetSnapshot,
+  type PubchiAnswerV1,
   type PubchiBotV1,
   type PubchiConfigV1,
   type PubchiOwnerContextV1,
@@ -91,6 +100,8 @@ import {
 } from '@/libs/pubchi/schemas';
 import { canonicalJson, sha256Hex } from '@/libs/pubchi/schemas/canonical';
 import { canApplyTagSuggestion, tagApplicationBinding } from '@/libs/pubchi/tag-application';
+import { PostDetailsModel } from '@/models/post/details/postDetails';
+import { DELETED } from '@/models/post/details/postDetails.constants';
 import { bindingRecordId } from '@/models/pubchi/binding.schema';
 import { toast } from '@/molecules/Toaster/toast';
 import { TagNormalizer } from '@/pipes/tag/tag.normalizer';
@@ -123,6 +134,8 @@ type UnpublishOptions = {
 
 type TagSuggestionReceiptStatus = 'applying' | 'applied' | 'superseded' | 'failed' | 'reverted';
 type TagSuggestionPublicState = 'absent' | 'present-canonical' | 'indeterminate';
+type DraftPostReceiptStatus = 'applying' | 'applied' | 'failed' | 'reverted' | 'rejected';
+type DraftPostPublicState = 'absent' | 'present' | 'indeterminate';
 type TagSuggestionReconciliation = {
   status: Exclude<DiscoveredTagSuggestion['status'], 'applying'>;
   receiptStatus?: Exclude<TagSuggestionReceiptStatus, 'applying'>;
@@ -158,6 +171,33 @@ function reconcileTagSuggestionState({
     return { status, receiptStatus: status };
   }
   if (receiptStatus === 'applying' && tagState === 'absent') return { status: 'failed', receiptStatus: 'failed' };
+  return { status: 'reconciliation-pending' };
+}
+
+function reconcileDraftPostState({
+  receiptStatus,
+  postState,
+  operation,
+}: {
+  receiptStatus: DraftPostReceiptStatus;
+  postState: DraftPostPublicState;
+  operation: 'apply' | 'reject' | 'revert';
+}): {
+  status: 'applied' | 'failed' | 'reverted' | 'rejected' | 'reconciliation-pending';
+  receiptStatus?: 'applied' | 'failed' | 'reverted';
+} {
+  if (receiptStatus === 'rejected') return { status: 'rejected' };
+  if (receiptStatus === 'reverted') return { status: 'reverted' };
+  if (postState === 'indeterminate') return { status: 'reconciliation-pending' };
+  if (receiptStatus === 'applied' && postState === 'present') return { status: 'applied' };
+  if (receiptStatus === 'applied' && operation === 'revert' && postState === 'absent') {
+    return { status: 'reverted', receiptStatus: 'reverted' };
+  }
+  if (receiptStatus === 'failed' && postState === 'absent') return { status: 'failed' };
+  if ((receiptStatus === 'failed' || receiptStatus === 'applying') && postState === 'present') {
+    return { status: 'applied', receiptStatus: 'applied' };
+  }
+  if (receiptStatus === 'applying' && postState === 'absent') return { status: 'failed', receiptStatus: 'failed' };
   return { status: 'reconciliation-pending' };
 }
 
@@ -198,6 +238,7 @@ function randomNonce(): string {
 export class PubchiApplication {
   private static readonly deviceReadiness = new Map<string, Promise<boolean>>();
   private static readonly tagSuggestionOperationsInFlight = new Set<string>();
+  private static readonly draftPostOperationsInFlight = new Set<string>();
   private static deviceListingHadFailures = false;
   private static deviceListingUnlistedSigners: string[] = [];
   private static deviceListingUnlistedCount = 0;
@@ -210,6 +251,46 @@ export class PubchiApplication {
 
   static endTagSuggestionOperation(recordId: string, suggestionIndex: number): void {
     this.tagSuggestionOperationsInFlight.delete(`${recordId}:${suggestionIndex}`);
+  }
+
+  static tryBeginDraftPostOperation(recordId: string): boolean {
+    if (this.draftPostOperationsInFlight.has(recordId)) return false;
+    this.draftPostOperationsInFlight.add(recordId);
+    return true;
+  }
+
+  static endDraftPostOperation(recordId: string): void {
+    this.draftPostOperationsInFlight.delete(recordId);
+  }
+
+  static resetDraftPostOperationsForTests(): void {
+    this.draftPostOperationsInFlight.clear();
+  }
+
+  static async runDraftPostOperation<T>(recordId: string, operation: string, work: () => Promise<T>): Promise<T> {
+    if (!this.tryBeginDraftPostOperation(recordId)) {
+      throw Err.client(ClientErrorCode.CONFLICT, 'Draft post operation is already in progress', {
+        service: ErrorService.Pubchi,
+        operation,
+      });
+    }
+    try {
+      return await work();
+    } finally {
+      this.endDraftPostOperation(recordId);
+    }
+  }
+
+  static async findOwnedDraftPostByContent(
+    owner: string,
+    content: string,
+  ): Promise<{ compositePostId: string; postUri: string } | undefined> {
+    const prefix = `${owner}:`;
+    const match = await PostDetailsModel.table
+      .filter((row) => row.id.startsWith(prefix) && row.content === content && row.content !== DELETED)
+      .first();
+    if (!match) return undefined;
+    return { compositePostId: match.id, postUri: match.uri };
   }
 
   static ensureDeviceReady(owner: string): Promise<boolean> {
@@ -1682,6 +1763,350 @@ export class PubchiApplication {
     await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: receipt });
   }
 
+  static async prepareDraftPostApplication(recordId: string, owner: string, capabilities: string[]) {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    const binding = record ? draftPostBinding(record) : undefined;
+    if (
+      !record ||
+      !binding ||
+      record.owner !== owner ||
+      (record.status !== 'proposed' && record.status !== 'failed') ||
+      !canPublishDraftPost(binding, { info: { capabilities } })
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post is no longer applicable', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareDraftPostApplication',
+      });
+    }
+    const responseSha256 = await sha256Hex(canonicalJson(record.response));
+    if (responseSha256 !== record.response_sha256 || record.response_run_id !== binding.response.run_id) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Stored Pubchi draft post response is invalid', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareDraftPostApplication',
+      });
+    }
+    const draft = binding.response.draft_post;
+    if (!draft) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareDraftPostApplication',
+      });
+    }
+    const applicationId = await this.draftPostApplicationId(binding);
+    await this.writeDraftPostReceipt(binding, applicationId, 'applying');
+    await getPubchiDatabase().draftPosts.update(recordId, {
+      status: 'applying',
+      operation: 'apply',
+      updated_at: Date.now(),
+    });
+    return {
+      binding,
+      applicationId,
+      draft,
+      existingCompositePostId: record.composite_post_id,
+      existingPostUri: record.post_uri,
+    };
+  }
+
+  static async prepareDraftPostReject(recordId: string, owner: string, capabilities: string[]) {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    const binding = record ? draftPostBinding(record) : undefined;
+    if (
+      !record ||
+      !binding ||
+      record.owner !== owner ||
+      (record.status !== 'proposed' && record.status !== 'failed') ||
+      !canRejectDraftPost(binding, { info: { capabilities } })
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post cannot be rejected', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareDraftPostReject',
+      });
+    }
+    const responseSha256 = await sha256Hex(canonicalJson(record.response));
+    if (responseSha256 !== record.response_sha256 || record.response_run_id !== binding.response.run_id) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Stored Pubchi draft post response is invalid', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareDraftPostReject',
+      });
+    }
+    const applicationId = await this.draftPostApplicationId(binding);
+    await this.writeDraftPostReceipt(binding, applicationId, 'rejected');
+    await getPubchiDatabase().draftPosts.update(recordId, {
+      status: 'rejected',
+      operation: 'reject',
+      updated_at: Date.now(),
+    });
+    return { binding, applicationId };
+  }
+
+  static async prepareDraftPostRevert(recordId: string, owner: string) {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    const binding = record ? draftPostBinding(record) : undefined;
+    if (!record || !binding || record.owner !== owner || record.status !== 'applied' || !record.composite_post_id) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post cannot be reverted', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareDraftPostRevert',
+      });
+    }
+    const applicationId = await this.draftPostApplicationId(binding);
+    const receipt = await this.readDraftPostReceipt(binding, applicationId);
+    if (!receipt || receipt.status !== 'applied') {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post receipt cannot be reverted', {
+        service: ErrorService.Pubchi,
+        operation: 'prepareDraftPostRevert',
+      });
+    }
+    return { binding, applicationId, compositePostId: record.composite_post_id };
+  }
+
+  static async finalizeDraftPostApplication(
+    recordId: string,
+    applicationId: string,
+    status: 'applied' | 'failed' | 'reverted' | 'rejected',
+    postUri?: string,
+    compositePostId?: string,
+  ): Promise<void> {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    const binding = record ? draftPostBinding(record) : undefined;
+    if (!record || !binding) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi draft post is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'finalizeDraftPostApplication',
+      });
+    }
+    await this.writeDraftPostReceipt(binding, applicationId, status, postUri);
+    await getPubchiDatabase().draftPosts.update(recordId, {
+      status,
+      ...(postUri ? { post_uri: postUri } : {}),
+      ...(compositePostId ? { composite_post_id: compositePostId } : {}),
+      updated_at: Date.now(),
+    });
+  }
+
+  static async markDraftPostReconciliationPending(recordId: string): Promise<void> {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    if (!record) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi draft post is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'markDraftPostReconciliationPending',
+      });
+    }
+    await getPubchiDatabase().draftPosts.update(recordId, {
+      status: 'reconciliation-pending',
+      updated_at: Date.now(),
+    });
+  }
+
+  static async recordDraftPostApplyOutcome(recordId: string, compositePostId: string, postUri: string): Promise<void> {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    if (!record) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi draft post is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'recordDraftPostApplyOutcome',
+      });
+    }
+    await getPubchiDatabase().draftPosts.update(recordId, {
+      operation: 'apply',
+      composite_post_id: compositePostId,
+      post_uri: postUri,
+      updated_at: Date.now(),
+    });
+  }
+
+  static async recordDraftPostRevertOperation(recordId: string): Promise<void> {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    if (!record) {
+      throw Err.database(DatabaseErrorCode.RECORD_NOT_FOUND, 'Stored Pubchi draft post is missing', {
+        service: ErrorService.Pubchi,
+        operation: 'recordDraftPostRevertOperation',
+      });
+    }
+    await getPubchiDatabase().draftPosts.update(recordId, {
+      operation: 'revert',
+      updated_at: Date.now(),
+    });
+  }
+
+  static async rehydrateDraftPostStatus(recordId: string, owner: string): Promise<string | undefined> {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    const binding = record ? draftPostBinding(record) : undefined;
+    if (!record || !binding || record.owner !== owner) return undefined;
+    if (record.status !== 'proposed') return record.status;
+    try {
+      const applicationId = await this.draftPostApplicationId(binding);
+      const receipt = await this.readDraftPostReceipt(binding, applicationId);
+      if (receipt?.status === 'applying' || receipt?.status === 'rejected') {
+        await getPubchiDatabase().draftPosts.update(recordId, {
+          status: receipt.status,
+          operation: receipt.status === 'rejected' ? 'reject' : 'apply',
+          updated_at: Date.now(),
+        });
+        return receipt.status;
+      }
+    } catch {}
+    return record.status;
+  }
+
+  static async reconcileDraftPostApplication(
+    recordId: string,
+    owner: string,
+  ): Promise<'proposed' | 'applying' | 'applied' | 'failed' | 'reverted' | 'rejected' | 'reconciliation-pending'> {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    const binding = record ? draftPostBinding(record) : undefined;
+    if (!record || !binding || binding.owner !== owner) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post cannot be reconciled', {
+        service: ErrorService.Pubchi,
+        operation: 'reconcileDraftPostApplication',
+      });
+    }
+    if (this.draftPostOperationsInFlight.has(recordId)) {
+      return record.status;
+    }
+    try {
+      const applicationId = await this.draftPostApplicationId(binding);
+      const receipt = await this.readDraftPostReceipt(binding, applicationId);
+      if (!receipt) throw new TypeError('Draft post receipt is missing');
+      const postUri = typeof receipt.post_uri === 'string' ? receipt.post_uri : record.post_uri;
+      const postState = postUri ? await this.readDraftPostPublicPost(postUri) : 'absent';
+      const reconciled = reconcileDraftPostState({
+        receiptStatus: receipt.status as DraftPostReceiptStatus,
+        postState,
+        operation: record.operation ?? 'apply',
+      });
+      if (reconciled.status === 'reconciliation-pending') {
+        await this.markDraftPostReconciliationPending(recordId);
+        return 'reconciliation-pending';
+      }
+      if (reconciled.receiptStatus) {
+        await this.finalizeDraftPostApplication(
+          recordId,
+          applicationId,
+          reconciled.receiptStatus,
+          postUri,
+          record.composite_post_id,
+        );
+      } else {
+        await getPubchiDatabase().draftPosts.update(recordId, {
+          status: reconciled.status,
+          updated_at: Date.now(),
+        });
+      }
+      return reconciled.status;
+    } catch {
+      await this.markDraftPostReconciliationPending(recordId);
+      return 'reconciliation-pending';
+    }
+  }
+
+  private static async draftPostApplicationId(
+    binding: NonNullable<ReturnType<typeof draftPostBinding>>,
+  ): Promise<string> {
+    const draft = binding.response.draft_post;
+    const draftSha256 = await sha256Hex(canonicalJson(draft));
+    return sha256Hex(
+      canonicalJson({ owner: binding.owner, run_id: binding.response.run_id, draft_sha256: draftSha256 }),
+    );
+  }
+
+  private static async readDraftPostReceipt(
+    binding: NonNullable<ReturnType<typeof draftPostBinding>>,
+    applicationId: string,
+  ): Promise<Record<string, unknown> | undefined> {
+    const url = `pubky://${binding.owner}${PUBCHI_PRIVATE_DIRECTORY}draft-posts/${applicationId}.json`;
+    try {
+      const raw = await HomeserverService.requestRawText(url);
+      if (raw && new TextEncoder().encode(raw).byteLength > 64 * 1024) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post receipt exceeds 64 KiB', {
+          service: ErrorService.Pubchi,
+          operation: 'readDraftPostReceipt',
+        });
+      }
+      const response = raw ? JSON.parse(raw) : await HomeserverService.request({ method: HttpMethod.GET, url });
+      const parsed = parsePubchiDraftPostReceipt(response);
+      if (!parsed.ok) {
+        throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'Existing draft post receipt is invalid', {
+          service: ErrorService.Pubchi,
+          operation: 'readDraftPostReceipt',
+        });
+      }
+      return parsed.value as Record<string, unknown>;
+    } catch (cause) {
+      if (hasHttpStatus(cause, HttpStatusCode.NOT_FOUND)) return undefined;
+      if (cause instanceof Error && 'code' in cause) throw cause;
+      throw Err.network(NetworkErrorCode.CONNECTION_FAILED, 'Could not read draft post receipt', {
+        service: ErrorService.Pubchi,
+        operation: 'readDraftPostReceipt',
+        cause,
+      });
+    }
+  }
+
+  private static async readDraftPostPublicPost(postUri: string): Promise<DraftPostPublicState> {
+    try {
+      const raw = await HomeserverService.requestRawText(postUri);
+      if (new TextEncoder().encode(raw).byteLength > 64 * 1024) return 'indeterminate';
+      JSON.parse(raw);
+      return 'present';
+    } catch (cause) {
+      return hasHttpStatus(cause, HttpStatusCode.NOT_FOUND) ? 'absent' : 'indeterminate';
+    }
+  }
+
+  private static async writeDraftPostReceipt(
+    binding: NonNullable<ReturnType<typeof draftPostBinding>>,
+    applicationId: string,
+    status: DraftPostReceiptStatus,
+    postUri?: string,
+  ): Promise<void> {
+    const draft = binding.response.draft_post;
+    if (!draft) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post receipt is incomplete', {
+        service: ErrorService.Pubchi,
+        operation: 'writeDraftPostReceipt',
+      });
+    }
+    const url = `pubky://${binding.owner}${PUBCHI_PRIVATE_DIRECTORY}draft-posts/${applicationId}.json`;
+    const existing = (await this.readDraftPostReceipt(binding, applicationId)) ?? {};
+    const now = Math.floor(Date.now() / 1000);
+    const receiptBase = {
+      ...existing,
+      schema: 'pubchi-draft-post',
+      version: 1,
+      application_id: applicationId,
+      owner: binding.owner,
+      bot: binding.bot,
+      run_id: binding.response.run_id,
+      draft_sha256: await sha256Hex(canonicalJson(draft)),
+      kind: draft.kind,
+      ...(draft.tags ? { tags: draft.tags } : {}),
+      ...(draft.parent_uri ? { parent_uri: draft.parent_uri } : {}),
+      rationale: draft.rationale,
+      evidence: draft.evidence,
+      status,
+      suggested_at: binding.response.generated_at,
+      ...(postUri ? { post_uri: postUri } : {}),
+      ...(status === 'applied' ? { applied_at: now } : {}),
+      ...(status === 'reverted' ? { reverted_at: now } : {}),
+      ...(status === 'rejected' ? { rejected_at: now } : {}),
+    };
+    const content = truncateDraftPostReceiptContent(receiptBase, draft.content);
+    if (!content) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post receipt exceeds 64 KiB', {
+        service: ErrorService.Pubchi,
+        operation: 'writeDraftPostReceipt',
+      });
+    }
+    const receipt = { ...receiptBase, content };
+    if (new TextEncoder().encode(JSON.stringify(receipt)).byteLength > DRAFT_POST_RECEIPT_MAX_BYTES) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post receipt exceeds 64 KiB', {
+        service: ErrorService.Pubchi,
+        operation: 'writeDraftPostReceipt',
+      });
+    }
+    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: receipt });
+  }
+
   static async query(params: PubchiQueryApplicationParams): Promise<PubchiQuerySuccess> {
     if (!isPubchiPanelEnabled()) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
@@ -1726,17 +2151,6 @@ export class PubchiApplication {
       ...(params.target ? { target: params.target } : {}),
     };
     const submittedAt = Date.now();
-    const responseBinding =
-      servedPurpose === 'ask' && body.target
-        ? {
-            owner: params.owner,
-            bot: binding.bot,
-            servedPurpose: 'ask' as const,
-            question: body.question,
-            target: body.target,
-            submitted_at: submittedAt,
-          }
-        : undefined;
     if (body.conversation) {
       const parsedConversation = parseConversation(body.conversation);
       if (!parsedConversation.ok) throw pubchiValidationError(parsedConversation.code, 'query');
@@ -1763,7 +2177,19 @@ export class PubchiApplication {
 
     const response = await PubchiService.query({ request, body });
     const interpreted = interpretQueryResponse(response);
-    if (interpreted.kind !== 'answer' || !responseBinding) return interpreted;
+    if (interpreted.kind !== 'answer') return interpreted;
+    if (servedPurpose === 'ask' && interpreted.result.section === 'draft_post' && interpreted.result.draft_post) {
+      return this.persistDraftPostQuery(params.owner, binding.bot, body.question, submittedAt, interpreted.result);
+    }
+    if (servedPurpose !== 'ask' || !body.target) return interpreted;
+    const responseBinding = {
+      owner: params.owner,
+      bot: binding.bot,
+      servedPurpose: 'ask' as const,
+      question: body.question,
+      target: body.target,
+      submitted_at: submittedAt,
+    };
     const responseSha256 = await sha256Hex(canonicalJson(interpreted.result));
     const recordId = await sha256Hex(
       canonicalJson({ ...responseBinding, response_sha256: responseSha256, run_id: interpreted.result.run_id }),
@@ -1801,6 +2227,58 @@ export class PubchiApplication {
     }
     return {
       ...interpreted,
+      binding: {
+        ...responseBinding,
+        recordId,
+      },
+    };
+  }
+
+  private static async persistDraftPostQuery(
+    owner: string,
+    bot: string,
+    question: string,
+    submittedAt: number,
+    result: PubchiAnswerV1,
+  ): Promise<PubchiQuerySuccess> {
+    const responseSha256 = await sha256Hex(canonicalJson(result));
+    const responseBinding = {
+      owner,
+      bot,
+      servedPurpose: 'ask' as const,
+      question,
+      submitted_at: submittedAt,
+    };
+    const recordId = await sha256Hex(
+      canonicalJson({ ...responseBinding, response_sha256: responseSha256, run_id: result.run_id }),
+    );
+    try {
+      const database = getPubchiDatabase();
+      await database.transaction('rw', database.draftPosts, async () => {
+        await database.draftPosts.put({
+          id: recordId,
+          owner,
+          bot,
+          served_purpose: 'ask',
+          question,
+          submitted_at: submittedAt,
+          response_run_id: result.run_id,
+          response: result,
+          response_sha256: responseSha256,
+          status: 'proposed',
+          updated_at: Date.now(),
+        });
+      });
+    } catch (cause) {
+      throw Err.database(DatabaseErrorCode.TRANSACTION_FAILED, 'Could not persist Pubchi draft post', {
+        service: ErrorService.Pubchi,
+        operation: 'query',
+        cause,
+      });
+    }
+    return {
+      kind: 'answer',
+      result,
       binding: {
         ...responseBinding,
         recordId,

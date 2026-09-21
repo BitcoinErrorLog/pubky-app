@@ -6,6 +6,7 @@ import { Logger } from '@/libs/logger/logger';
 import { isPubchiEnabled } from '@/libs/pubchi/flags';
 import { type PubchiBindingRecord, pubchiBindingTableSchema } from '@/models/pubchi/binding.schema';
 import { type PubchiDeviceKeyRecord, pubchiDeviceKeyTableSchema } from '@/models/pubchi/device-key.schema';
+import { type PubchiDraftPostRecord, pubchiDraftPostTableSchema } from '@/models/pubchi/draft-post.schema';
 import { pubchiFeedProvenanceTableSchema } from '@/models/pubchi/feed-provenance.schema';
 import {
   type PubchiTagApplicationRecord,
@@ -21,6 +22,7 @@ class PubchiDatabase extends Dexie {
   bindings!: Table<PubchiBindingRecord>;
   deviceKeys!: Table<PubchiDeviceKeyRecord>;
   tagApplications!: Table<PubchiTagApplicationRecord>;
+  draftPosts!: Table<PubchiDraftPostRecord>;
 
   constructor() {
     super('pubchi');
@@ -42,6 +44,12 @@ class PubchiDatabase extends Dexie {
       bindings: pubchiBindingTableSchema,
       deviceKeys: pubchiDeviceKeyTableSchema,
       tagApplications: pubchiTagApplicationTableSchema,
+    });
+    this.version(6).stores({
+      bindings: pubchiBindingTableSchema,
+      deviceKeys: pubchiDeviceKeyTableSchema,
+      tagApplications: pubchiTagApplicationTableSchema,
+      draftPosts: pubchiDraftPostTableSchema,
     });
 
     let blockedRetryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -117,5 +125,6 @@ export async function clearPubchiOwnerData(owner: string): Promise<void> {
     db.bindings.where('owner').equals(owner).delete(),
     db.deviceKeys.where('owner').equals(owner).delete(),
     db.tagApplications.where('owner').equals(owner).delete(),
+    db.draftPosts.where('owner').equals(owner).delete(),
   ]);
 }

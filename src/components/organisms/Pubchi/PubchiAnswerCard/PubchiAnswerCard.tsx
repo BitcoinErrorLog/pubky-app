@@ -10,9 +10,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/atoms/Col
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { UserController } from '@/controllers/user/user';
+import { useDraftPostApplication } from '@/hooks/useDraftPostApplication/useDraftPostApplication';
 import { useTagSuggestionApplication } from '@/hooks/useTagSuggestionApplication/useTagSuggestionApplication';
 import { PUBCHI_BASIS_HEADING_EVIDENCE, PUBCHI_BASIS_HEADINGS, pubchiBasisHeading } from '@/libs/pubchi/basis-copy';
 import { linkifyPubkys } from '@/libs/pubchi/capabilities-v1';
+import { DRAFT_POST_COPY } from '@/libs/pubchi/draft-post-copy';
 import type { ExecutionScope, PubchiAnswerV1, PubchiEvidenceV1 } from '@/libs/pubchi/schemas';
 import { pubkyUriToAppHref } from '@/libs/pubchi/uri';
 import { copyToClipboard, truncateMiddle } from '@/libs/utils/utils';
@@ -57,7 +59,11 @@ export function PubchiAnswerCard({
   visible = true,
 }: PubchiAnswerCardProps) {
   const [names, setNames] = useState<Map<string, string>>(new Map());
-  const { statuses, approve, revert, reconcile } = useTagSuggestionApplication(binding?.recordId, visible);
+  const { statuses, approve, revert, reconcile } = useTagSuggestionApplication(
+    answer.section === 'tag_suggestions' ? binding?.recordId : undefined,
+    visible,
+  );
+  const draft = useDraftPostApplication(answer.section === 'draft_post' ? binding?.recordId : undefined, visible);
 
   useEffect(() => {
     let active = true;
@@ -80,6 +86,82 @@ export function PubchiAnswerCard({
 
   return (
     <div data-surface="pubchi-answer" data-testid="pubchi-answer" className="flex flex-col gap-3">
+      {answer.section === 'draft_post' && answer.draft_post ? (
+        <Card data-testid="pubchi-draft-post" data-surface="pubchi-draft-post">
+          <CardHeader>
+            <CardTitle>{DRAFT_POST_COPY.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Typography size="sm" className="text-muted-foreground">
+              {DRAFT_POST_COPY.publishAsYou}
+            </Typography>
+            <Typography data-testid="pubchi-draft-post-content">{answer.draft_post.content}</Typography>
+            <Typography size="sm">{answer.draft_post.rationale}</Typography>
+            {answer.draft_post.tags?.length ? (
+              <Typography size="sm" data-testid="pubchi-draft-post-tags">
+                {answer.draft_post.tags.join(', ')}
+              </Typography>
+            ) : null}
+            {draft.status === 'applied' ? (
+              <div className="flex items-center gap-2">
+                <Typography size="sm">{DRAFT_POST_COPY.published}</Typography>
+                <Button type="button" data-testid="pubchi-draft-post-revert" onClick={() => void draft.revert()}>
+                  {DRAFT_POST_COPY.revert}
+                </Button>
+              </div>
+            ) : draft.status === 'rejected' ? (
+              <Typography size="sm" data-testid="pubchi-draft-post-rejected">
+                {DRAFT_POST_COPY.rejected}
+              </Typography>
+            ) : draft.status === 'reverted' ? (
+              <Typography size="sm">{DRAFT_POST_COPY.reverted}</Typography>
+            ) : draft.status === 'reconciliation-pending' ? (
+              <div className="flex items-center gap-2">
+                <Typography size="sm">{DRAFT_POST_COPY.reconcile}</Typography>
+                <Button
+                  type="button"
+                  data-testid="pubchi-draft-post-check-again"
+                  onClick={() => void draft.reconcile()}
+                >
+                  {DRAFT_POST_COPY.checkAgain}
+                </Button>
+              </div>
+            ) : draft.status === 'reconciling' ? (
+              <Button type="button" disabled>
+                {DRAFT_POST_COPY.checking}
+              </Button>
+            ) : draft.status === 'failed' ? (
+              <div className="flex items-center gap-2">
+                <Button type="button" data-testid="pubchi-draft-post-retry" onClick={() => void draft.approve()}>
+                  {DRAFT_POST_COPY.retry}
+                </Button>
+                <Button type="button" data-testid="pubchi-draft-post-reject" onClick={() => void draft.reject()}>
+                  {DRAFT_POST_COPY.reject}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  data-testid="pubchi-draft-post-approve"
+                  disabled={draft.status === 'applying' || draft.status === 'rejecting'}
+                  onClick={() => void draft.approve()}
+                >
+                  {draft.status === 'applying' ? DRAFT_POST_COPY.applying : DRAFT_POST_COPY.approve}
+                </Button>
+                <Button
+                  type="button"
+                  data-testid="pubchi-draft-post-reject"
+                  disabled={draft.status === 'applying' || draft.status === 'rejecting'}
+                  onClick={() => void draft.reject()}
+                >
+                  {draft.status === 'rejecting' ? DRAFT_POST_COPY.rejecting : DRAFT_POST_COPY.reject}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
       {answer.section === 'tag_suggestions' && answer.tag_suggestions ? (
         <Card data-testid="pubchi-tag-suggestions">
           <CardHeader>

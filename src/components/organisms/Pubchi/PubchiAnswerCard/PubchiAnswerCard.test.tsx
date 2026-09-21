@@ -44,6 +44,11 @@ vi.mock('@/controllers/pubchi/pubchi', () => ({
     applyTagSuggestion: vi.fn(),
     getTagSuggestionStatuses: vi.fn(async () => ({})),
     reconcileTagSuggestion: vi.fn(),
+    applyDraftPost: vi.fn(),
+    rejectDraftPost: vi.fn(),
+    revertDraftPost: vi.fn(),
+    reconcileDraftPost: vi.fn(),
+    getDraftPostStatus: vi.fn(async () => 'proposed'),
   },
 }));
 
@@ -461,4 +466,110 @@ describe('PubchiAnswerCard', () => {
     );
     expect(screen.getByText(heading)).toBeInTheDocument();
   });
+
+  it('renders draft HTML and javascript: as text', () => {
+    render(
+      <PubchiAnswerCard
+        answer={{
+          ...draftAnswer(),
+          draft_post: {
+            ...draftAnswer().draft_post!,
+            content: '<script>alert(1)</script> and javascript:alert(1)',
+          },
+        }}
+        binding={draftBinding()}
+        currentUserPubky={owner}
+      />,
+    );
+    const content = screen.getByTestId('pubchi-draft-post-content');
+    expect(content).toHaveTextContent('<script>alert(1)</script> and javascript:alert(1)');
+    expect(content.querySelector('script')).toBeNull();
+    expect(content.querySelector('a')).toBeNull();
+  });
+
+  it('renders a draft post for explicit approval and does not show tag actions', () => {
+    render(<PubchiAnswerCard answer={draftAnswer()} binding={draftBinding()} currentUserPubky={owner} />);
+    expect(screen.getByTestId('pubchi-draft-post')).toBeInTheDocument();
+    expect(screen.getByTestId('pubchi-draft-post-content')).toHaveTextContent(
+      'Pubky keeps public social state on your homeserver.',
+    );
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeInTheDocument();
+    expect(screen.queryByText('Suggested tags')).not.toBeInTheDocument();
+  });
+
+  it('publishes only after Approve and then offers Revert', async () => {
+    vi.mocked(PubchiController.applyDraftPost).mockResolvedValue('applied');
+    render(<PubchiAnswerCard answer={draftAnswer()} binding={draftBinding()} currentUserPubky={owner} />);
+
+    fireEvent.click(screen.getByTestId('pubchi-draft-post-approve'));
+
+    expect(await screen.findByText('Published as you')).toBeInTheDocument();
+    expect(PubchiController.applyDraftPost).toHaveBeenCalledWith('draft-record');
+    expect(PubchiController.rejectDraftPost).not.toHaveBeenCalled();
+    expect(screen.getByTestId('pubchi-draft-post-revert')).toBeInTheDocument();
+  });
+
+  it('rejects without calling apply', async () => {
+    vi.mocked(PubchiController.rejectDraftPost).mockResolvedValue();
+    render(<PubchiAnswerCard answer={draftAnswer()} binding={draftBinding()} currentUserPubky={owner} />);
+
+    fireEvent.click(screen.getByTestId('pubchi-draft-post-reject'));
+
+    expect(await screen.findByTestId('pubchi-draft-post-rejected')).toHaveTextContent('Rejected');
+    expect(PubchiController.rejectDraftPost).toHaveBeenCalledWith('draft-record');
+    expect(PubchiController.applyDraftPost).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+  });
+
+  it('renders Check again for an unknown apply outcome', async () => {
+    vi.mocked(PubchiController.getDraftPostStatus).mockResolvedValue('reconciliation-pending');
+    vi.mocked(PubchiController.reconcileDraftPost).mockResolvedValue('reconciliation-pending');
+    render(<PubchiAnswerCard answer={draftAnswer()} binding={draftBinding()} currentUserPubky={owner} />);
+
+    expect(
+      await screen.findByText(
+        'Pubchi could not confirm the result of this draft. Check again, or manage the post from your profile.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+  });
 });
+
+function draftAnswer(): PubchiAnswerV1 {
+  const evidenceUri = `pubky://${owner}/pub/pubky.app/profile.json`;
+  return {
+    ...answer,
+    section: 'draft_post',
+    summary: 'A short post you can publish as yourself.',
+    evidence: [
+      {
+        kind: 'user',
+        label: 'Owner profile',
+        uri: evidenceUri,
+        claimants: [],
+        claimant_count: 0,
+        in_your_graph: true,
+      },
+    ],
+    draft_post: {
+      content: 'Pubky keeps public social state on your homeserver.',
+      kind: 'short',
+      tags: ['pubky-app'],
+      rationale: 'Matches the public profile evidence.',
+      evidence: [evidenceUri],
+    },
+  };
+}
+
+function draftBinding() {
+  return {
+    owner,
+    bot: owner,
+    servedPurpose: 'ask' as const,
+    question: 'Draft a short post about Pubky',
+    submitted_at: Date.now(),
+    recordId: 'draft-record',
+  };
+}
