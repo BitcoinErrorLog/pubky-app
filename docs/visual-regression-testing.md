@@ -218,3 +218,46 @@ the three. If the third run fails, the gate is still red: fix the scene or
 the harness, do not widen tolerance or regenerate an untouched baseline to
 make CI merge. After any `--update`, `git status -- '**/__screenshots__/**'`
 and revert every PNG the PR did not intend to change.
+
+## Linux marketplace baselines (`vrt-marketplace` CI)
+
+The `vrt-marketplace` job runs in `mcr.microsoft.com/playwright:v1.60.0-noble`
+(lockfile `playwright` 1.60.0) and compares chromium+firefox captures against
+committed `*-linux.png` only. It never writes `*-darwin.png`. A missing linux
+baseline fails the job; the recorded PNG is uploaded as
+`vrt-marketplace-linux-baselines` and the log tells the author to commit it.
+A pixel mismatch against an existing linux baseline also fails.
+
+Capture region is the element's border box: `expectVrtSurface` / `VRT_ROOT`
+screenshots, with window and element scroll reset to the top before the shot.
+That region is the same on Linux and darwin. Do not clip to the 720px viewport
+and do not take a `fullPage` document shot — a 720-tall crop of a tall
+sell/drops/orders/cart surface will fail darwin (957/957) and is not a Linux
+baseline.
+
+Fonts are the app's vendored `@fontsource-variable/inter-tight` and
+`@fontsource-variable/jetbrains-mono` (`vrt.setup.ts`). Do not install a
+different system family in CI and do not copy a darwin PNG onto `*-linux.png`
+to paper over substitution.
+
+When Linux PNGs are stale (viewport crop, old product chrome) regenerate them
+on Playwright Linux that matches `package-lock.json` (`playwright` 1.60.0 →
+`mcr.microsoft.com/playwright:v1.60.0-noble`):
+
+```bash
+export COPYFILE_DISABLE=1
+docker run --rm \
+  -e COPYFILE_DISABLE=1 \
+  -e VRT_BROWSERS=chromium,firefox \
+  -v "$PWD":/w -w /w \
+  mcr.microsoft.com/playwright:v1.60.0-noble \
+  sh -c 'npm ci && npx vitest run --project vrt-marketplace --update'
+git checkout -- 'src/test/vrt/**/*-darwin.png'
+git status -- 'src/test/vrt/**/*-linux.png'
+```
+
+After `--update`, revert every `*-darwin.png` and any linux file you did not
+intend to touch. Prove three consecutive Linux full runs green, then a local
+darwin `vrt-marketplace` full suite (957/957) before treating the job as a
+candidate required check. Do not raise `allowedMismatchedPixelRatio` to hide a
+region or product mismatch.
