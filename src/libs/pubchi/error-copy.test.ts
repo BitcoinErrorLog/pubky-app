@@ -32,4 +32,19 @@ describe('pubchiErrorCopy', () => {
       "I couldn't reach the Pubchi service. Check your connection and try again in a minute.",
     );
   });
+
+  it('does not fall back to the generic service error for BRAIN_FORBIDDEN', () => {
+    expect(pubchiErrorCopy('BRAIN_FORBIDDEN')).toEqual({
+      message:
+        "This Pubchi's brain isn't allowed here. A self-hosted brain has to run on this machine (127.0.0.1, localhost, or ::1).",
+    });
+    expect(pubchiErrorCopy('BRAIN_FORBIDDEN').message).not.toBe('Something went wrong on the Pubchi service.');
+  });
+
+  it('keeps BRAIN_UNAVAILABLE distinct from the graph UPSTREAM_UNAVAILABLE sentence', () => {
+    expect(pubchiErrorCopy('BRAIN_UNAVAILABLE')).toEqual({
+      message: "The brain didn't answer. If you run a local model, check that it is up and try again in a minute.",
+    });
+    expect(pubchiErrorCopy('BRAIN_UNAVAILABLE').message).not.toBe(pubchiErrorCopy('UPSTREAM_UNAVAILABLE').message);
+  });
 });

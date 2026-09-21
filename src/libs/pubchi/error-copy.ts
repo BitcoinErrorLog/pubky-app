@@ -35,7 +35,10 @@ const COPY_BY_CODE: Partial<Record<PubchiErrorCode, string>> = {
   BUDGET_EXCEEDED: "Your Pubchi has used today's budget. It resets at midnight UTC.",
   RATE_LIMITED: 'Too many questions at once — wait a moment and try again.',
   UPSTREAM_UNAVAILABLE: "The graph service didn't answer in time. Try again in a minute.",
-  BRAIN_UNAVAILABLE: "The graph service didn't answer in time. Try again in a minute.",
+  BRAIN_FORBIDDEN:
+    "This Pubchi's brain isn't allowed here. A self-hosted brain has to run on this machine (127.0.0.1, localhost, or ::1).",
+  BRAIN_UNAVAILABLE:
+    "The brain didn't answer. If you run a local model, check that it is up and try again in a minute.",
   FEED_DISABLED: 'Feed building is temporarily unavailable. Try again in a minute.',
   TENANT_NOT_ENROLLED: 'Your Pubchi is not set up yet. Open Settings → Pubchi to set it up.',
   VERSION_UNSUPPORTED: 'This version of the app is out of date — reload to update.',
@@ -52,7 +55,8 @@ export function pubchiErrorCopy(code: string | undefined): PubchiErrorCopy {
   }
   if (AUTHORIZATION_CODES.has(code)) {
     return {
-      message: "This browser isn't authorized to ask for your Pubchi any more. Open Settings → Pubchi to set it up again.",
+      message:
+        "This browser isn't authorized to ask for your Pubchi any more. Open Settings → Pubchi to set it up again.",
       supportCode: code,
       settingsLink: '/settings/pubchi',
     };

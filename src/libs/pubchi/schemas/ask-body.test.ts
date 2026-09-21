@@ -21,4 +21,23 @@ describe('Pubchi conversation window', () => {
   ])('rejects invalid windows', (input) => {
     expect(parseConversation(input).ok).toBe(false);
   });
+
+  it('accepts web and unknown assistant basis values so a later ask can round-trip them', () => {
+    expect(
+      parseConversation({
+        turns: [
+          { role: 'user', text: 'what is Pubky in the news?' },
+          { role: 'assistant', text: 'Recent coverage.', basis: 'web' },
+        ],
+      }).ok,
+    ).toBe(true);
+    expect(
+      parseConversation({
+        turns: [
+          { role: 'user', text: 'what is Pubky?' },
+          { role: 'assistant', text: 'A public-key protocol.', basis: 'corpus-v2' },
+        ],
+      }).ok,
+    ).toBe(true);
+  });
 });
