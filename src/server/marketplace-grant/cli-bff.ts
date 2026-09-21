@@ -177,6 +177,7 @@ export async function verifyCliChallenge(
   authorization_url: string;
   cli_token: string;
   expires_at: string;
+  flow_id: string;
   state_id: string;
   status: 'awaiting';
 }> {
@@ -276,6 +277,7 @@ export async function verifyCliChallenge(
       authorization_url: created.authorization_url,
       cli_token: bound.value,
       expires_at: created.expires_at,
+      flow_id: created.flow_id,
       state_id: stateId,
       status: 'awaiting',
     };
@@ -336,6 +338,7 @@ export async function cliFlowStatus(
   stateIdParam: string,
 ): Promise<{
   expires_at: string;
+  flow_id: string | null;
   state_id: string;
   status: string;
   terminal_code: string | null;
@@ -347,6 +350,7 @@ export async function cliFlowStatus(
   if (flow.status === 'claimed') {
     return {
       expires_at: flow.expires_at.toISOString(),
+      flow_id: flow.flow_id,
       state_id: flow.state_id,
       status: 'complete',
       terminal_code: null,
@@ -360,6 +364,7 @@ export async function cliFlowStatus(
   if (flow.status === 'mismatch') {
     return {
       expires_at: flow.expires_at.toISOString(),
+      flow_id: flow.flow_id,
       state_id: flow.state_id,
       status: 'mismatch',
       terminal_code: null,
@@ -371,6 +376,7 @@ export async function cliFlowStatus(
   if (status.status === 'awaiting' || status.status === 'verifying' || status.status === 'complete') {
     return {
       expires_at: status.expires_at,
+      flow_id: flow.flow_id,
       state_id: flow.state_id,
       status: status.status,
       terminal_code: status.terminal_code ?? null,
@@ -380,6 +386,7 @@ export async function cliFlowStatus(
   await terminalizeCliFlow(config, flow.state_id, localStatus);
   return {
     expires_at: status.expires_at,
+    flow_id: flow.flow_id,
     state_id: flow.state_id,
     status: status.status,
     terminal_code: status.terminal_code ?? null,

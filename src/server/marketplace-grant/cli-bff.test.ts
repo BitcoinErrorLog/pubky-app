@@ -248,6 +248,7 @@ describe('CLI grant BFF', () => {
     const { verifyCliChallenge } = await import('./cli-bff');
     const verified = await verifyCliChallenge(jsonRequest({ nonce: encodeBase64Url(nonce) }), challengeId);
     expect(verified.status).toBe('awaiting');
+    expect(verified.flow_id).toEqual(expect.any(String));
     expect(verified.cli_token).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$/,
     );
