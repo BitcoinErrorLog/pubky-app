@@ -119,8 +119,18 @@ export function requestFromBridge(
         return;
       }
       iframe = doc.createElement('iframe');
-      iframe.style.display = 'none';
+      // Hidden, but not `display:none` — Safari often never fires `load` on a
+      // display-none iframe, which held the guest→signed-in spinner for the
+      // full load timeout. Off-screen still loads and posts.
+      iframe.style.position = 'absolute';
+      iframe.style.width = '1px';
+      iframe.style.height = '1px';
+      iframe.style.border = '0';
+      iframe.style.opacity = '0';
+      iframe.style.pointerEvents = 'none';
+      iframe.style.left = '-9999px';
       iframe.setAttribute('aria-hidden', 'true');
+      iframe.tabIndex = -1;
       // allow-same-origin keeps the iframe's real origin so the bridge page can
       // read pubky-app localStorage and so postMessage origin matches bridgeOrigin.
       // allow-scripts lets the bridge page run. Other sandbox flags stay off so
@@ -132,6 +142,21 @@ export function requestFromBridge(
       iframe.src = `${bridgeOrigin}/session-bridge`;
       doc.body.appendChild(iframe);
       loadTimer = setTimeout(() => finish({ kind: 'timeout', phase: 'load' }), loadTimeoutMs);
+      // Event-driven: if the document is already complete (cached / about:blank
+      // race), do not wait for a load event that may never come.
+      let alreadyComplete = false;
+      try {
+        const doc = iframe.contentDocument;
+        alreadyComplete =
+          doc?.readyState === 'complete' &&
+          Boolean(iframe.src) &&
+          (doc.URL === iframe.src || doc.URL.includes('/session-bridge'));
+      } catch {
+        alreadyComplete = false;
+      }
+      if (alreadyComplete) {
+        onLoad();
+      }
     } catch (error) {
       finish({ kind: 'unavailable', error });
     }

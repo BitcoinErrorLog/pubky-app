@@ -1,6 +1,11 @@
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketplaceMediaService } from '@/core/services/commerce/marketplace-media';
-import { clearMarketplaceMediaCache, resolveMarketplaceMediaUrlAsync } from './useMarketplaceMediaUrl';
+import {
+  clearMarketplaceMediaCache,
+  resolveMarketplaceMediaUrlAsync,
+  useMarketplaceMediaUrl,
+} from './useMarketplaceMediaUrl';
 
 vi.mock('@/core/services/commerce/marketplace-media', () => ({
   MarketplaceMediaService: {
@@ -112,6 +117,52 @@ describe('marketplace media resolution', () => {
 
     expect(MarketplaceMediaService.fetchMedia).toHaveBeenCalledTimes(2);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:marketplace-media');
+    vi.useRealTimers();
+  });
+
+  it('does not revoke a blob URL while a hook still renders it after the cache TTL', async () => {
+    vi.mocked(MarketplaceMediaService.getOwnerHomeserver).mockResolvedValue('other-homeserver');
+    vi.mocked(MarketplaceMediaService.fetchMedia).mockResolvedValue(new Blob(['media']));
+
+    const { result, unmount } = renderHook(() => useMarketplaceMediaUrl(otherMediaUri));
+    await waitFor(() => expect(result.current).toBe('blob:marketplace-media'));
+
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    expect(result.current).toBe('blob:marketplace-media');
+
+    unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:marketplace-media');
+    vi.useRealTimers();
+  });
+
+  it('revokes the previous blob URL only after the hook replaces or unmounts it and the cache no longer holds it', async () => {
+    let blobSeq = 0;
+    vi.mocked(URL.createObjectURL).mockImplementation(() => `blob:marketplace-media-${++blobSeq}`);
+    vi.mocked(MarketplaceMediaService.getOwnerHomeserver).mockResolvedValue('other-homeserver');
+    vi.mocked(MarketplaceMediaService.fetchMedia).mockResolvedValue(new Blob(['media']));
+
+    const replacementUri = `pubky://${otherOwner}/pub/pubky.app/marketplace/v1/media/other`;
+    const { result, rerender, unmount } = renderHook(({ uri }: { uri: string }) => useMarketplaceMediaUrl(uri), {
+      initialProps: { uri: otherMediaUri },
+    });
+    await waitFor(() => expect(result.current).toBe('blob:marketplace-media-1'));
+
+    rerender({ uri: replacementUri });
+    await waitFor(() => expect(result.current).toBe('blob:marketplace-media-2'));
+    // The previous URL remains cached until TTL, so replacing the rendered URI
+    // must not revoke it while another resolve could still reuse the cache.
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    await resolveMarketplaceMediaUrlAsync(otherMediaUri);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:marketplace-media-1');
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith('blob:marketplace-media-2');
+
+    unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:marketplace-media-2');
     vi.useRealTimers();
   });
 });
