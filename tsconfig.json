@@ -23,9 +23,6 @@
       }
     ],
     "paths": {
-      "@bitcoinerrorlog/pubky-shop": [
-        "/Volumes/t7/vibes-dev/pubky-shop/dist/index.d.ts"
-      ],
       "@/atoms/*": [
         "./src/components/atoms/*"
       ],

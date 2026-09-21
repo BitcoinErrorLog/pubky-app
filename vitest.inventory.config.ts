@@ -11,16 +11,6 @@ import tsconfigPaths from 'vite-tsconfig-paths';
  */
 export default defineConfig({
   plugins: [tsconfigPaths()],
-  resolve: {
-    alias: {
-      '@bitcoinerrorlog/pubky-shop': '/Volumes/t7/vibes-dev/pubky-shop/dist/index.js',
-    },
-  },
-  server: {
-    fs: {
-      allow: ['.', '/Volumes/t7/vibes-dev/pubky-shop'],
-    },
-  },
   test: {
     name: 'inventory-studio-live',
     environment: 'node',

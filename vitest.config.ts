@@ -20,12 +20,10 @@ import { VRT_VIEWPORT_DESKTOP } from './src/test-utils/vrt.viewports';
 const paykitWasmAlias = {
   'paykit-wasm': fileURLToPath(new URL('./vendor/paykit-wasm/paykit_wasm.js', import.meta.url)),
   'locks-sdk-wasm': fileURLToPath(new URL('./vendor/locks-sdk-wasm/locks_sdk_wasm.js', import.meta.url)),
-  '@bitcoinerrorlog/pubky-shop': '/Volumes/t7/vibes-dev/pubky-shop/dist/index.js',
 };
 const assetIncludes = ['**/*.woff', '**/*.woff2', '**/*.ttf', '**/*.otf'];
 const repoRoot = fileURLToPath(new URL('.', import.meta.url));
 const nodeModulesRoot = realpathSync(new URL('./node_modules', import.meta.url));
-const localSdkRoot = '/Volumes/t7/vibes-dev/pubky-shop';
 const fontAssetPattern = /\.(woff2?|ttf|otf)(?:\?.*)?$/;
 
 const vrtBrowserNames = (process.env.VRT_BROWSERS ?? 'chromium,firefox,webkit')
@@ -75,11 +73,6 @@ function vrtProject(opts: {
       ],
     },
     resolve: { alias: paykitWasmAlias },
-    server: {
-      fs: {
-        allow: [repoRoot, nodeModulesRoot, localSdkRoot],
-      },
-    },
     test: {
       name: opts.name,
       globals: true,
@@ -162,7 +155,7 @@ export default defineConfig({
   },
   server: {
     fs: {
-      allow: [repoRoot, nodeModulesRoot, localSdkRoot],
+      allow: [repoRoot, nodeModulesRoot],
     },
   },
   test: {
@@ -207,11 +200,6 @@ export default defineConfig({
           // ._* excludes macOS AppleDouble resource-fork files on external drives.
           exclude: ['**/node_modules/**', '**/.claude/**', '**/*.vrt.test.{ts,tsx}', '**/._*'],
           server: { deps: { inline: ['react-tweet'] } },
-        },
-        server: {
-          fs: {
-            allow: [repoRoot, nodeModulesRoot, localSdkRoot],
-          },
         },
       },
       // VRT(Visual Regression Tests) run in real browsers via Playwright.
