@@ -347,6 +347,51 @@ export function pickupRefusalToastDescription(serverMessage: string): string {
   return pickupRefusalFailureMessage(classifyMarketplacePickupRefusal(serverMessage));
 }
 
+export const PICKUP_LISTING_GONE_TOAST = 'This listing is gone. Refresh the page.';
+export const PICKUP_SESSION_EXPIRED_TOAST = 'Your session expired. Sign in and try again.';
+export const PICKUP_NOTHING_PUBLISHED_TOAST =
+  'The meeting point could not be saved, so the listing was not published as pickup.';
+export const PICKUP_REVERT_FAILED_TOAST =
+  'The meeting point could not be saved. Refresh the listing and check that pickup is not still offered.';
+
+/** Envelope-level pickup command toasts: `NOT_FOUND` / `UNAUTHORIZED` are not INVALID_STATE refusals. */
+export function pickupCommandEnvelopeToastDescription(code: string, serverMessage: string): string {
+  if (code === 'NOT_FOUND') return PICKUP_LISTING_GONE_TOAST;
+  if (code === 'UNAUTHORIZED') return PICKUP_SESSION_EXPIRED_TOAST;
+  return pickupRefusalToastDescription(serverMessage);
+}
+
+const KNOWN_PICKUP_REFUSALS: ReadonlySet<string> = new Set(PICKUP_REFUSAL_MESSAGES.values());
+
+/**
+ * Classifies a thrown pickup command error from `context.refusal` (the shape
+ * `throwIfPickupCommandRefusal` produces) or from a known service message.
+ */
+export function pickupRefusalFromUnknown(error: unknown): MarketplacePickupRefusal | null {
+  if (!error || typeof error !== 'object') return null;
+  const context = 'context' in error ? error.context : undefined;
+  if (context && typeof context === 'object' && 'refusal' in context && typeof context.refusal === 'string') {
+    if (KNOWN_PICKUP_REFUSALS.has(context.refusal)) return context.refusal as MarketplacePickupRefusal;
+  }
+  if ('message' in error && typeof error.message === 'string') {
+    return classifyMarketplacePickupRefusal(error.message);
+  }
+  return null;
+}
+
+/**
+ * Seller-facing copy for a thrown pickup *command* refusal. `pickup_not_published`
+ * is the listing-form race (details saved before the listing publishes pickup),
+ * so the toast names that next step instead of the service's internal state.
+ */
+export function pickupCommandToastDescription(refusal: MarketplacePickupRefusal | null | undefined): string {
+  if (refusal === 'pickup_not_published') {
+    return 'Save the listing as pickup first (Save changes), then save the meeting point.';
+  }
+  if (refusal) return pickupRefusalFailureMessage(refusal);
+  return 'The pickup details could not be saved.';
+}
+
 // -----------------------------------------------------------------------------
 // Checkout fulfillment plumbing (§A2): one `fulfillmentChoice` per seller
 // group, applied to every line of the group. The service splits one order

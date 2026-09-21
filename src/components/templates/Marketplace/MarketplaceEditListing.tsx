@@ -27,15 +27,17 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
   const [isSaving, setIsSaving] = useState(false);
   const listingRoute = getMarketplaceListingRoute(sellerPubky, listingId);
 
-  const submit = async () => {
+  const persistListing = async (options?: { silent?: boolean }) => {
     setIsSaving(true);
     try {
-      const savedId = await editing.submit();
-      if (savedId) router.push(listingRoute);
+      const savedId = await editing.submit(options);
+      return Boolean(savedId);
     } finally {
       setIsSaving(false);
     }
   };
+
+  const submit = persistListing;
 
   if (editing.status !== 'ready') {
     return (
@@ -140,6 +142,7 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
           form={editing.form}
           media={editing.media}
           onSubmit={submit}
+          onPublished={() => router.push(listingRoute)}
           isPublishing={isSaving}
           listingId={listingId}
           mode="edit"

@@ -13,13 +13,18 @@ import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import { PICKUP_NOTHING_PUBLISHED_TOAST } from '@/libs/commerce/pickup';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceListingForm } from './MarketplaceListingForm';
 
 // The form reads the deployment's `pickup_available` capability through the
 // controller seam (§A7). Tests default it to ON; the capability-off describe
 // flips it. The editor's owner read is stubbed too so edit-mode mounts do
 // not touch the network.
-const pickupCapability = vi.hoisted(() => ({ available: true }));
+const pickupCapability = vi.hoisted(() => ({
+  available: true,
+  commitSetPickupDetails: vi.fn(async () => ({ ok: true })),
+}));
 
 // Presets are device-local (Dexie) and not under test here; the row's own
 // behavior (apply fills fields and untoggles free shipping) IS — so the hook
@@ -56,9 +61,14 @@ vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
       fetchPickupAvailable: () => Promise.resolve(pickupCapability.available),
       fetchSellerPickupDetails: () =>
         Promise.resolve({ listingAggregateId: 'listing:agg', current: null, lastVersion: 0 }),
+      commitSetPickupDetails: pickupCapability.commitSetPickupDetails,
     },
   };
 });
+
+vi.mock('@/molecules/Toaster/use-toast', () => ({
+  toast: vi.fn(),
+}));
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -71,6 +81,10 @@ beforeEach(() => {
   // The shipping-preset picker renders only when presets exist; keep the
   // shared mock empty unless a test opts in (the snapshot stays picker-free).
   shippingPresetsMock.presets = [];
+  pickupCapability.available = true;
+  pickupCapability.commitSetPickupDetails.mockReset();
+  pickupCapability.commitSetPickupDetails.mockResolvedValue({ ok: true });
+  vi.mocked(toast).mockReset();
 });
 
 function buildMedia(items: ListingMediaItem[] = []): UseListingMediaManagerResult {
@@ -114,14 +128,18 @@ function FormHarness({
   fulfillment = 'shipping',
   defaultValues = {},
   onSubmit = vi.fn(),
+  onPublished,
   media = buildMedia(),
   mode = 'create' as const,
   saleTermsLocked = false,
   listingId,
+  submittedFulfillment,
 }: {
   fulfillment?: CreateMarketplaceListingData['fulfillment'];
   defaultValues?: Partial<CreateMarketplaceListingData>;
-  onSubmit?: () => Promise<void>;
+  onSubmit?: (options?: { silent?: boolean }) => Promise<boolean | void>;
+  submittedFulfillment?: CreateMarketplaceListingData['fulfillment'][];
+  onPublished?: () => void;
   media?: UseListingMediaManagerResult;
   mode?: 'create' | 'edit';
   saleTermsLocked?: boolean;
@@ -134,7 +152,11 @@ function FormHarness({
     <MarketplaceListingForm
       form={form}
       media={media}
-      onSubmit={onSubmit}
+      onSubmit={async (options) => {
+        submittedFulfillment?.push(form.getValues('fulfillment'));
+        return onSubmit(options);
+      }}
+      onPublished={onPublished}
       isPublishing={false}
       mode={mode}
       saleTermsLocked={saleTermsLocked}
@@ -221,6 +243,160 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
       expect(document.querySelector('[data-surface="pickup-details-editor"]')).not.toBeNull();
     });
     expect(screen.queryByText(/Publish first, then add your meeting point/)).not.toBeInTheDocument();
+  });
+
+  it('refuses to save a pickup listing that still has no meeting point', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => true);
+    const onPublished = vi.fn();
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        mode="edit"
+        listingId="boots_01"
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+        }}
+        media={buildMedia([photoItem('one', 'Front')])}
+        onSubmit={onSubmit}
+        onPublished={onPublished}
+      />,
+    );
+
+    expect(await screen.findByLabelText('Pickup details version 0')).toHaveTextContent('No details saved · counter v0');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onPublished).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description:
+        'Add a meeting point before saving a pickup listing. Buyers can otherwise place an order with nowhere to meet.',
+    });
+  });
+
+  it('saves the listing then the dirty pickup details before publishing', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => true);
+    const onPublished = vi.fn();
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        mode="edit"
+        listingId="boots_01"
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+        }}
+        media={buildMedia([photoItem('one', 'Front')])}
+        onSubmit={onSubmit}
+        onPublished={onPublished}
+      />,
+    );
+
+    await user.type(await screen.findByLabelText('Meeting point'), 'Harbor Market, stall 12');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledOnce();
+    });
+    await waitFor(() => {
+      expect(pickupCapability.commitSetPickupDetails).toHaveBeenCalledWith(
+        'boots_01',
+        expect.objectContaining({
+          expectedVersion: 0,
+          details: expect.objectContaining({ kind: 'spot', spot: 'Harbor Market, stall 12' }),
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(onPublished).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('reverts fulfillment when pickup set fails after listing persist', { timeout: 20_000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSubmit = vi.fn(async () => true);
+    const onPublished = vi.fn();
+    const submittedFulfillment: CreateMarketplaceListingData['fulfillment'][] = [];
+    pickupCapability.commitSetPickupDetails.mockRejectedValueOnce(new Error('injected set failure'));
+    render(
+      <FormHarness
+        fulfillment="shipping"
+        mode="edit"
+        listingId="boots_01"
+        submittedFulfillment={submittedFulfillment}
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+          shippingPrice: '12.00',
+          packageWeight: '1200',
+          packageLength: '35.0',
+          packageWidth: '25.0',
+          packageHeight: '15.0',
+        }}
+        media={buildMedia([photoItem('one', 'Front')])}
+        onSubmit={onSubmit}
+        onPublished={onPublished}
+      />,
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
+    await user.click(await screen.findByRole('option', { name: 'Local pickup' }));
+    await user.type(await screen.findByLabelText('Meeting point'), 'Harbor Market, stall 12');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(2);
+    });
+    expect(submittedFulfillment).toEqual(['pickup', 'shipping']);
+    expect(onPublished).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith({
+      variant: 'error',
+      description: PICKUP_NOTHING_PUBLISHED_TOAST,
+    });
+  });
+
+  it('saves a shipping-only edit without writing pickup details', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => true);
+    const onPublished = vi.fn();
+    render(
+      <FormHarness
+        fulfillment="shipping"
+        mode="edit"
+        listingId="boots_01"
+        defaultValues={{
+          title: 'Vintage boots',
+          description: 'Well cared for boots.',
+          categoryId: 'fashion',
+          price: '125.00',
+          shippingPrice: '12.00',
+          packageWeight: '1200',
+          packageLength: '35.0',
+          packageWidth: '25.0',
+          packageHeight: '15.0',
+        }}
+        media={buildMedia([photoItem('one', 'Front')])}
+        onSubmit={onSubmit}
+        onPublished={onPublished}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledOnce();
+    });
+    expect(pickupCapability.commitSetPickupDetails).not.toHaveBeenCalled();
+    expect(onPublished).toHaveBeenCalledOnce();
   });
 
   it('opens the photo picker and submits through the form owner', async () => {

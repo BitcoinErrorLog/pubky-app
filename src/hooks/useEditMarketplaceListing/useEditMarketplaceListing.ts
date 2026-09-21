@@ -52,7 +52,7 @@ export interface UseEditMarketplaceListingResult {
   /** True for auction listings: the sale terms were fixed at publish time. */
   saleTermsLocked: boolean;
   publishBlocked: 'no-method' | 'unverified' | 'session' | null;
-  submit: () => Promise<string | null>;
+  submit: (options?: { silent?: boolean }) => Promise<string | null>;
 }
 
 /**
@@ -129,7 +129,7 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserPubky, sellerPubky, listingId]);
 
-  const submit = async (): Promise<string | null> => {
+  const submit = async (options?: { silent?: boolean }): Promise<string | null> => {
     if (!currentUserPubky || !record) return null;
     setPublishBlocked(null);
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
@@ -169,7 +169,9 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
         await CommerceController.commitUpsertListing(updated, reservePrice);
         setRecord(updated);
         savedListingId = `${currentUserPubky}:${updated.listingId}`;
-        toast({ title: 'Listing updated', description: `Revision ${updated.revision} is now published.` });
+        if (!options?.silent) {
+          toast({ title: 'Listing updated', description: `Revision ${updated.revision} is now published.` });
+        }
       } catch {
         toast({ variant: 'error', description: 'Could not save these changes.' });
       }

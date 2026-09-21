@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -45,6 +45,7 @@ import {
   presetToShippingFields,
   shippingFieldsToPresetInput,
 } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
+import { PICKUP_NOTHING_PUBLISHED_TOAST, PICKUP_REVERT_FAILED_TOAST } from '@/libs/commerce/pickup';
 import { amountInputSchemaForAsset, amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
 import {
   dimensionInputFromMillimeters,
@@ -57,9 +58,13 @@ import {
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { RequiredToPublishSummary } from '@/molecules/Marketplace/RequiredToPublishSummary';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceCategoryPicker } from '@/organisms/Marketplace/MarketplaceCategoryPicker';
 import { MarketplaceListingAttributeFields } from '@/organisms/Marketplace/MarketplaceListingAttributeFields';
-import { MarketplacePickupDetailsEditor } from '@/organisms/Marketplace/MarketplacePickupDetailsEditor';
+import {
+  MarketplacePickupDetailsEditor,
+  type MarketplacePickupDetailsEditorHandle,
+} from '@/organisms/Marketplace/MarketplacePickupDetailsEditor';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
 const LISTING_FORM_SECTIONS = [
@@ -75,7 +80,13 @@ type ListingFormSectionId = (typeof LISTING_FORM_SECTIONS)[number]['id'];
 export interface MarketplaceListingFormProps {
   form: UseFormReturn<CreateMarketplaceListingData>;
   media: UseListingMediaManagerResult;
-  onSubmit: () => Promise<void>;
+  onSubmit: (options?: { silent?: boolean }) => Promise<boolean | void>;
+  /**
+   * Called after the listing (and any dirty pickup details) persist. Edit
+   * mode uses this for navigation so a pickup save can keep the seller on
+   * the form when the meeting point fails.
+   */
+  onPublished?: () => void;
   isPublishing: boolean;
   /**
    * The listing id the pickup-details editor addresses — edit mode only (the
@@ -94,6 +105,7 @@ export function MarketplaceListingForm({
   form,
   media,
   onSubmit,
+  onPublished,
   isPublishing,
   listingId,
   mode = 'create',
@@ -235,8 +247,90 @@ export function MarketplaceListingForm({
     }
     section?.focus({ preventScroll: true });
   };
+  const pickupEditorRef = useRef<MarketplacePickupDetailsEditorHandle>(null);
+  const publishedFulfillmentRef = useRef(form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT));
+  const persistListing = async (options?: { silent?: boolean }): Promise<boolean> => {
+    const result = await onSubmit(options);
+    return result !== false;
+  };
+  const revertListing = async (): Promise<boolean> => {
+    const intended = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT);
+    const previous = publishedFulfillmentRef.current;
+    if (intended === previous) return true;
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, previous, { shouldValidate: true });
+    try {
+      const result = await onSubmit({ silent: true });
+      return result !== false;
+    } finally {
+      form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, intended, { shouldValidate: true });
+    }
+  };
+  const revertUnpublishedPickup = async (): Promise<void> => {
+    let reverted = false;
+    try {
+      reverted = await revertListing();
+    } catch {
+      reverted = false;
+    }
+    toast({
+      variant: 'error',
+      description: reverted ? PICKUP_NOTHING_PUBLISHED_TOAST : PICKUP_REVERT_FAILED_TOAST,
+    });
+  };
   const submitListing = async () => {
-    await onSubmit();
+    const editor = pickupEditorRef.current;
+    const offersPickup = fulfillment !== 'shipping';
+    if (isEdit && listingId && offersPickup && pickupAvailable !== false && editor) {
+      if (editor.capability === 'loading' || editor.readState === 'loading') {
+        toast({
+          variant: 'error',
+          description: 'Wait for pickup details to finish loading before saving.',
+        });
+        return;
+      }
+      if (editor.capability === 'available' && editor.readState === 'failed') {
+        toast({
+          variant: 'error',
+          description: 'The saved pickup details could not be read, so the listing was not saved.',
+        });
+        return;
+      }
+      if (editor.capability === 'available' && editor.readState === 'ready') {
+        if (!editor.hasSavedDetails && !editor.isDirty) {
+          toast({
+            variant: 'error',
+            description:
+              'Add a meeting point before saving a pickup listing. Buyers can otherwise place an order with nowhere to meet.',
+          });
+          return;
+        }
+        if (editor.isDirty) {
+          const valid = await editor.validate();
+          if (!valid) {
+            toast({ variant: 'error', description: 'Fix the pickup details before saving the listing.' });
+            return;
+          }
+        }
+      }
+    }
+    const willSavePickup =
+      isEdit &&
+      listingId &&
+      offersPickup &&
+      editor?.capability === 'available' &&
+      editor.readState === 'ready' &&
+      editor.isDirty;
+    const saved = await persistListing({ silent: Boolean(willSavePickup) });
+    if (!saved) return;
+    if (willSavePickup) {
+      const pickupSaved = await editor.save();
+      if (!pickupSaved) {
+        await revertUnpublishedPickup();
+        return;
+      }
+    }
+    publishedFulfillmentRef.current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT);
+    onPublished?.();
   };
 
   return (
@@ -567,7 +661,13 @@ export function MarketplaceListingForm({
               publishes pickup, so a create-mode mount could only ever fail
               its owner read. Create mode points at the edit page instead. */}
           {fulfillment !== 'shipping' && listingId && isEdit && (
-            <MarketplacePickupDetailsEditor listingId={listingId} disabled={isPublishing} />
+            <MarketplacePickupDetailsEditor
+              ref={pickupEditorRef}
+              listingId={listingId}
+              disabled={isPublishing}
+              persistListing={persistListing}
+              revertListing={revertListing}
+            />
           )}
           {fulfillment !== 'shipping' && !isEdit && (
             <Typography as="p" className="text-sm text-muted-foreground">
