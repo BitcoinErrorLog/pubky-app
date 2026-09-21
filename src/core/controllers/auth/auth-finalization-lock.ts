@@ -11,6 +11,11 @@ function withInProcessLock<T>(callback: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** Test-only: drop a poisoned in-process tail left by a hanging lock holder. */
+export function resetAuthFinalizationLockForTests(): void {
+  fallbackTail = Promise.resolve();
+}
+
 export async function withAuthFinalizationLock<T>(callback: () => Promise<T>): Promise<T> {
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
   if (locks && typeof locks.request === 'function') {

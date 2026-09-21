@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
 import { BootstrapApplication } from '@/application/bootstrap/bootstrap';
 import { AuthController } from '@/controllers/auth/auth';
+import { resetAuthFinalizationLockForTests } from '@/controllers/auth/auth-finalization-lock';
 import { useAuthStatus } from '@/hooks/useAuthStatus/useAuthStatus';
 import { AuthStatus } from '@/hooks/useAuthStatus/useAuthStatus.types';
 import { Identity } from '@/libs/identity/identity';
@@ -39,6 +40,7 @@ describe('AuthController restore finalization — real useAuthStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     AuthController.resetCleanupLocalStateGuard();
+    resetAuthFinalizationLockForTests();
     useAuthStore.getState().reset();
     useOnboardingStore.getState().reset();
     useOnboardingStore.getState().setHydrated(true);

@@ -1,0 +1,1 @@
+Sign-out and identity-switch Dexie cleanup is keyed to the captured pubky and serialized under the auth-finalization lock, so a concurrent sign-in cannot wipe another account's origin-scoped `franky` database.
