@@ -83,7 +83,9 @@ const pickupNotPublishedError = () =>
     context: { refusal: 'pickup_not_published' },
   });
 
-async function renderReadyForm(options: { persistListing?: () => Promise<boolean>; revertListing?: () => Promise<boolean> } = {}) {
+async function renderReadyForm(
+  options: { persistListing?: () => Promise<boolean>; revertListing?: () => Promise<boolean> } = {},
+) {
   const rendered = renderHook(() => usePickupDetailsForm(LISTING_ID, options));
   await waitFor(() => {
     expect(rendered.result.current.readState).toBe('ready');

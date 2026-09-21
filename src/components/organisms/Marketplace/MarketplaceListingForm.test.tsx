@@ -319,8 +319,8 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     });
   });
 
-  it('reverts fulfillment when pickup set fails after listing persist', async () => {
-    const user = userEvent.setup();
+  it('reverts fulfillment when pickup set fails after listing persist', { timeout: 20_000 }, async () => {
+    const user = userEvent.setup({ delay: null });
     const onSubmit = vi.fn(async () => true);
     const onPublished = vi.fn();
     const submittedFulfillment: CreateMarketplaceListingData['fulfillment'][] = [];

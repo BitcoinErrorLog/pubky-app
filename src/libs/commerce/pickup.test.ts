@@ -347,9 +347,9 @@ describe('pickup command toast classification (issue 51)', () => {
     expect(pickupCommandEnvelopeToastDescription('NOT_FOUND', 'The listing was not found.')).toBe(
       PICKUP_LISTING_GONE_TOAST,
     );
-    expect(pickupCommandEnvelopeToastDescription('UNAUTHORIZED', 'Only the listing seller may set pickup details.')).toBe(
-      PICKUP_SESSION_EXPIRED_TOAST,
-    );
+    expect(
+      pickupCommandEnvelopeToastDescription('UNAUTHORIZED', 'Only the listing seller may set pickup details.'),
+    ).toBe(PICKUP_SESSION_EXPIRED_TOAST);
     expect(pickupCommandEnvelopeToastDescription('INVALID_STATE', 'The listing does not publish pickup.')).toBe(
       pickupRefusalFailureMessage('pickup_not_published'),
     );
