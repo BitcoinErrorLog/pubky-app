@@ -130,6 +130,7 @@ describe('deletePubchiDatabase', () => {
       bindings: 'owner-scoped',
       deviceKeys: 'owner-scoped',
       tagApplications: 'owner-scoped',
+      draftPosts: 'owner-scoped',
     };
     expect(db.tables.map((table) => table.name).every((name) => name in tablePolicies)).toBe(true);
 
@@ -199,6 +200,32 @@ describe('deletePubchiDatabase', () => {
         updated_at: Date.now(),
       },
     ]);
+    await db.draftPosts.bulkPut([
+      {
+        id: 'draft-a',
+        owner,
+        bot: 'bot',
+        served_purpose: 'ask',
+        question: 'draft a post',
+        submitted_at: Date.now(),
+        response_run_id: 'run-draft-a',
+        response: {},
+        status: 'proposed',
+        updated_at: Date.now(),
+      },
+      {
+        id: 'draft-b',
+        owner: otherOwner,
+        bot: 'bot',
+        served_purpose: 'ask',
+        question: 'draft a post',
+        submitted_at: Date.now(),
+        response_run_id: 'run-draft-b',
+        response: {},
+        status: 'proposed',
+        updated_at: Date.now(),
+      },
+    ]);
     await clearPubchiOwnerData(owner);
     await expect(db.bindings.get(`${owner}:bot-a`)).resolves.toBeUndefined();
     await expect(db.bindings.get(`${otherOwner}:bot-b`)).resolves.toMatchObject({ owner: otherOwner });
@@ -206,6 +233,8 @@ describe('deletePubchiDatabase', () => {
     await expect(db.deviceKeys.get(`${otherOwner}:signer-b`)).resolves.toMatchObject({ owner: otherOwner });
     await expect(db.tagApplications.get('application-a')).resolves.toBeUndefined();
     await expect(db.tagApplications.get('application-b')).resolves.toMatchObject({ owner: otherOwner });
+    await expect(db.draftPosts.get('draft-a')).resolves.toBeUndefined();
+    await expect(db.draftPosts.get('draft-b')).resolves.toMatchObject({ owner: otherOwner });
     await deletePubchiDatabase();
   });
 });

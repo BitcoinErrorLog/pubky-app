@@ -28,7 +28,7 @@ export type PubchiRequestBinding = {
   bot: Pubky;
   servedPurpose: 'ask';
   question: string;
-  target: PubchiTarget;
+  target?: PubchiTarget;
   submitted_at: number;
   recordId: string;
 };

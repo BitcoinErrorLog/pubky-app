@@ -10,6 +10,7 @@ import type {
   PubchiQuerySuccess,
 } from '@/application/pubchi/pubchi.types';
 import { TagKind } from '@/application/tag/tag.types';
+import { PostController } from '@/controllers/post/post';
 import { TagController } from '@/controllers/tag/tag';
 import { getPubchiDatabase } from '@/database/pubchi/pubchi';
 import { AuthErrorCode, NetworkErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
@@ -20,6 +21,8 @@ import { Logger } from '@/libs/logger/logger';
 import { APP_SIGNIN_CAPABILITIES, sessionCovers } from '@/libs/pubchi/capabilities';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
 import { type FeedProposalV2, isPubkyId, type PubchiConfigV1, type PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
+import { CompositeIdDomain } from '@/models/models.types';
+import { buildCompositeIdFromPubkyUri, parseCompositeId } from '@/models/models.utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -344,6 +347,138 @@ export class PubchiController {
     const owner = useAuthStore.getState().selectCurrentUserPubky();
     if (!record || record.owner !== owner) return {};
     return PubchiApplication.rehydrateTagSuggestionStatuses(recordId, owner);
+  }
+
+  static async applyDraftPost(recordId: string): Promise<'applied' | 'reconciliation-pending'> {
+    PubchiApplication.beginDraftPostOperation(recordId);
+    try {
+      return await this.applyDraftPostInternal(recordId);
+    } finally {
+      PubchiApplication.endDraftPostOperation(recordId);
+    }
+  }
+
+  private static async applyDraftPostInternal(recordId: string): Promise<'applied' | 'reconciliation-pending'> {
+    const auth = useAuthStore.getState();
+    const owner = auth.selectCurrentUserPubky();
+    const prepared = await PubchiApplication.prepareDraftPostApplication(
+      recordId,
+      owner,
+      auth.selectSession()?.info.capabilities ?? [],
+    );
+    let parentPostId: string | undefined;
+    if (prepared.draft.parent_uri) {
+      const composite = buildCompositeIdFromPubkyUri({
+        uri: prepared.draft.parent_uri,
+        domain: CompositeIdDomain.POSTS,
+      });
+      if (!composite) {
+        await PubchiApplication.finalizeDraftPostApplication(recordId, prepared.applicationId, 'failed');
+        throw Err.validation(ValidationErrorCode.FORMAT_ERROR, 'Invalid draft post parent', {
+          service: ErrorService.Pubchi,
+          operation: 'applyDraftPost',
+        });
+      }
+      parentPostId = composite;
+    }
+    let compositePostId: string;
+    try {
+      compositePostId = await PostController.commitCreate({
+        authorId: owner,
+        content: prepared.draft.content,
+        isArticle: prepared.draft.kind === 'long',
+        ...(prepared.draft.tags?.length ? { tags: prepared.draft.tags } : {}),
+        ...(parentPostId ? { parentPostId } : {}),
+      });
+    } catch (cause) {
+      await PubchiApplication.finalizeDraftPostApplication(recordId, prepared.applicationId, 'failed');
+      throw cause;
+    }
+    const { pubky, id } = parseCompositeId(compositePostId);
+    if (pubky !== owner) {
+      await PubchiApplication.finalizeDraftPostApplication(recordId, prepared.applicationId, 'failed');
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft post was not published as you', {
+        service: ErrorService.Pubchi,
+        operation: 'applyDraftPost',
+      });
+    }
+    const postUri = `pubky://${pubky}/pub/pubky.app/posts/${id}`;
+    try {
+      await PubchiApplication.recordDraftPostApplyOutcome(recordId, compositePostId, postUri);
+    } catch {
+      await PubchiApplication.markDraftPostReconciliationPending(recordId);
+      return 'reconciliation-pending';
+    }
+    try {
+      await PubchiApplication.finalizeDraftPostApplication(
+        recordId,
+        prepared.applicationId,
+        'applied',
+        postUri,
+        compositePostId,
+      );
+      return 'applied';
+    } catch (cause) {
+      await PubchiApplication.markDraftPostReconciliationPending(recordId);
+      throw Err.network(NetworkErrorCode.CONNECTION_FAILED, 'Post was written but receipt needs reconciliation', {
+        service: ErrorService.Pubchi,
+        operation: 'applyDraftPost',
+        cause,
+      });
+    }
+  }
+
+  static async rejectDraftPost(recordId: string): Promise<void> {
+    PubchiApplication.beginDraftPostOperation(recordId);
+    try {
+      const auth = useAuthStore.getState();
+      await PubchiApplication.prepareDraftPostReject(
+        recordId,
+        auth.selectCurrentUserPubky(),
+        auth.selectSession()?.info.capabilities ?? [],
+      );
+    } finally {
+      PubchiApplication.endDraftPostOperation(recordId);
+    }
+  }
+
+  static async revertDraftPost(recordId: string): Promise<void> {
+    PubchiApplication.beginDraftPostOperation(recordId);
+    try {
+      await this.revertDraftPostInternal(recordId);
+    } finally {
+      PubchiApplication.endDraftPostOperation(recordId);
+    }
+  }
+
+  private static async revertDraftPostInternal(recordId: string): Promise<void> {
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const prepared = await PubchiApplication.prepareDraftPostRevert(recordId, owner);
+    await PubchiApplication.recordDraftPostRevertOperation(recordId);
+    await PostController.commitDelete({ compositePostId: prepared.compositePostId });
+    try {
+      await PubchiApplication.finalizeDraftPostApplication(recordId, prepared.applicationId, 'reverted');
+    } catch (cause) {
+      await PubchiApplication.markDraftPostReconciliationPending(recordId);
+      throw Err.network(NetworkErrorCode.CONNECTION_FAILED, 'Post was removed but receipt needs reconciliation', {
+        service: ErrorService.Pubchi,
+        operation: 'revertDraftPost',
+        cause,
+      });
+    }
+  }
+
+  static async reconcileDraftPost(
+    recordId: string,
+  ): Promise<'proposed' | 'applying' | 'applied' | 'failed' | 'reverted' | 'rejected' | 'reconciliation-pending'> {
+    return PubchiApplication.reconcileDraftPostApplication(recordId, useAuthStore.getState().selectCurrentUserPubky());
+  }
+
+  static async getDraftPostStatus(recordId: string): Promise<string | undefined> {
+    const record = await getPubchiDatabase().draftPosts.get(recordId);
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    if (!record || record.owner !== owner) return undefined;
+    return PubchiApplication.rehydrateDraftPostStatus(recordId, owner);
   }
 
   static async discoverTagSuggestions(
