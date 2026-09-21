@@ -399,4 +399,28 @@ describe('useDropStudio — two-truth publish state machine', () => {
 
     expect(CommerceController.refreshListingsBySeller).toHaveBeenCalledTimes(2);
   });
+
+  it('excludes ended auctions from the picker even when the listing record is still active', async () => {
+    const endedAuction = {
+      ...listingsFixture[0],
+      listing_id: 'ended-auction',
+      format: 'auction',
+      record: {
+        ...listingsFixture[0].record,
+        sale: {
+          format: 'auction' as const,
+          unitPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+          startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+          startsAt: '2020-01-01T00:00:00.000Z',
+          endsAt: '2020-01-02T00:00:00.000Z',
+        },
+      },
+    };
+    localListings.value = [listingsFixture[0], endedAuction];
+
+    const { result } = renderHook(() => useDropStudio());
+    await waitFor(() => expect(result.current.catalog).toBe('loaded'));
+
+    expect(result.current.listings.map((listing) => listing.listing_id)).toEqual(['item1']);
+  });
 });

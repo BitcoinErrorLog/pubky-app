@@ -136,4 +136,18 @@ describe('MarketplaceBidDialog', () => {
     expect(screen.getByText(/Minimum maximum: \$90\.01/)).toBeInTheDocument();
     expect(input).toHaveValue('70.01');
   });
+
+  it('labels an ended auction instead of inviting a bid', () => {
+    render(
+      <MarketplaceBidDialog
+        aggregateId="listing:x"
+        projection={createAuctionProjectionFixture()}
+        priceAsset={USD_ASSET}
+        onAccepted={vi.fn()}
+        auctionPhase="ended"
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Auction ended' })).toBeDisabled();
+  });
 });

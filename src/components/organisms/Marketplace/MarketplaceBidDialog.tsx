@@ -83,7 +83,7 @@ export function MarketplaceBidDialog({
           disabled={isOwner || auctionPhase === 'ended' || (!projection?.auction && !isSessionRequired)}
         >
           <Gavel className="mr-2 size-4" />
-          {isOwner ? 'You cannot bid on your own listing' : 'Place a bid'}
+          {isOwner ? 'You cannot bid on your own listing' : auctionPhase === 'ended' ? 'Auction ended' : 'Place a bid'}
         </Button>
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">

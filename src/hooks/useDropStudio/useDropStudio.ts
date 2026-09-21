@@ -6,6 +6,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { type FieldErrors, useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION, getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isAuctionSaleEnded } from '@/libs/commerce/auction-phase';
 import { type CommerceDropRecord, commerceDropRecordSchema } from '@/libs/commerce/marketplace-records';
 import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -53,7 +54,9 @@ export function useDropStudio(): UseDropStudioResult {
     () => (currentUserPubky ? CommerceController.getListingsBySeller(currentUserPubky) : []),
     [currentUserPubky],
   );
-  const listings = (localListings ?? []).filter(({ state }) => state === 'active');
+  const listings = (localListings ?? []).filter(
+    ({ state, record }) => state === 'active' && !isAuctionSaleEnded(record.sale),
+  );
 
   useEffect(() => {
     let active = true;

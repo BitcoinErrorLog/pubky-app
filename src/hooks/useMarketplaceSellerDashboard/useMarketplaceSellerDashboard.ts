@@ -7,9 +7,12 @@ import { seedDraftFormFromListing } from '@/hooks/useCreateMarketplaceListing/us
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
+import { isAuctionSaleEnded } from '@/libs/commerce/auction-phase';
 import { sumMoneyByAsset } from '@/libs/commerce/pricing';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
+
+const REVENUE_ORDER_STATES = ['paid', 'processing', 'shipped', 'delivered', 'completed'] as const;
 
 export function useMarketplaceSellerDashboard() {
   const [nowMs, setNowMs] = useState(0);
@@ -45,7 +48,9 @@ export function useMarketplaceSellerDashboard() {
   const offers = useMarketplaceOffers();
   const sellerOrders = orders.orders.filter(({ order }) => order.sellerPubky === currentUserPubky);
   const sellerOffers = offers.offers.filter(({ sellerPubky }) => sellerPubky === currentUserPubky);
-  const activeListings = (localListings ?? []).filter(({ state }) => state === 'active');
+  const activeListings = (localListings ?? []).filter(
+    (listing) => listing.state === 'active' && !isAuctionSaleEnded(listing.record.sale, nowMs),
+  );
   const expiringBefore = nowMs + 24 * 60 * 60 * 1_000;
   const expiringAuctions = activeListings.filter((listing) => {
     if (listing.record.sale.format !== 'auction') return false;
@@ -65,11 +70,10 @@ export function useMarketplaceSellerDashboard() {
   );
   // One revenue figure per pricing asset: minor units of different assets
   // (USD cents, bitcoin base units) are never summed into one false number.
-  const revenue = sumMoneyByAsset(
-    sellerOrders
-      .filter(({ order }) => ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state))
-      .map(({ order }) => ({ money: order.total, quantity: 1 })),
+  const revenueOrders = sellerOrders.filter(({ order }) =>
+    (REVENUE_ORDER_STATES as readonly string[]).includes(order.state),
   );
+  const revenue = sumMoneyByAsset(revenueOrders.map(({ order }) => ({ money: order.total, quantity: 1 })));
 
   const updateListingState = async (listingIds: string[], state: 'active' | 'paused') => {
     const selected = (localListings ?? []).filter(({ id }) => listingIds.includes(id));
@@ -181,7 +185,7 @@ export function useMarketplaceSellerDashboard() {
       lowStock: activeListings.filter((listing) =>
         listing.record.variants.some((variant) => variant.enabled && variant.quantity <= 1),
       ).length,
-      paidOrders: sellerOrders.filter(({ order }) => order.state !== 'pending_payment').length,
+      paidOrders: revenueOrders.length,
       revenue,
       openOffers: sellerOffers.filter(({ state }) => state === 'pending' || state === 'countered').length,
     },
@@ -196,6 +200,7 @@ export function useMarketplaceSellerDashboard() {
     duplicateListing,
     hasUnsavedListingDraft,
     exportCsv,
+    nowMs,
   };
 }
 

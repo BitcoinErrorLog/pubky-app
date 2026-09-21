@@ -22,6 +22,7 @@ import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMa
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { getAuctionPhase } from '@/libs/commerce/auction-phase';
+import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
   commerceListingFulfillmentMethods,
@@ -536,7 +537,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             )}
             {isTransactionalCommerceMode(adapterMode) && negotiation.error && !negotiation.needsSession && (
               <Typography as="p" role="alert" className="text-center text-sm text-amber-300">
-                {negotiation.error}
+                {auctionPhase === 'ended' && negotiation.error === MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable
+                  ? MARKETPLACE_FAILURE_MESSAGES.bidClosed
+                  : negotiation.error}
               </Typography>
             )}
           </div>

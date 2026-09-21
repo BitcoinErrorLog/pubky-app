@@ -136,7 +136,8 @@ export function MarketplaceCart() {
                             {award && (
                               <>
                                 <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-                                  {formatCommerceMoney(award.unitPrice)} × {award.quantity} ={' '}
+                                  {formatCommerceMoney(award.unitPrice)} × {award.quantity} +{' '}
+                                  {formatCommerceMoney(award.shipping)} shipping ={' '}
                                   {formatCommerceMoney(award.merchandiseTotal)}
                                 </Typography>
                                 <Typography as="p" className="text-sm text-muted-foreground">
@@ -150,7 +151,7 @@ export function MarketplaceCart() {
                           </div>
                           <Button asChild className="rounded-full">
                             <Link href={`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${item.awardId}`} overrideDefaults>
-                              Pay agreed price
+                              Place order
                             </Link>
                           </Button>
                           <Button

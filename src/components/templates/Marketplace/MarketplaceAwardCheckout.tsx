@@ -208,7 +208,7 @@ export function MarketplaceAwardCheckout() {
             <CardContent className="grid gap-6 px-6">
               <div>
                 <Heading level={1} size="lg">
-                  Pay agreed price
+                  Place order
                 </Heading>
                 <Typography as="p" className="mt-2 text-muted-foreground">
                   Checkout window closes {new Date(award.convertBy).toLocaleString('en-US')}
@@ -259,17 +259,28 @@ export function MarketplaceAwardCheckout() {
                     disabled={checkout.isSubmitting}
                     onClick={() => void submit()}
                   >
-                    {checkout.isSubmitting ? 'Submitting…' : 'Pay agreed price'}
+                    {checkout.isSubmitting ? 'Submitting…' : 'Place order'}
                   </Button>
                 </>
               ) : (
-                <Typography as="p" role="alert">
-                  Save a{' '}
-                  <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults>
-                    delivery address
-                  </Link>{' '}
-                  before checkout.
-                </Typography>
+                <div className="grid gap-3">
+                  <Typography as="p" role="alert">
+                    Save a{' '}
+                    <Link
+                      href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}
+                      overrideDefaults
+                      className="text-brand hover:underline"
+                    >
+                      delivery address
+                    </Link>{' '}
+                    before checkout.
+                  </Typography>
+                  <Button asChild className="w-fit rounded-full">
+                    <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults>
+                      Add delivery address
+                    </Link>
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>

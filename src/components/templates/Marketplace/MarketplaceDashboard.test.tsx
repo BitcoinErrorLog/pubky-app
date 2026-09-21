@@ -13,6 +13,7 @@ const dashboardFns = vi.hoisted(() => ({
 }));
 const dashboardState = vi.hoisted(() => ({
   listings: [] as unknown[],
+  nowMs: Date.parse('2026-09-21T12:00:00.000Z'),
   metrics: {
     activeListings: 0,
     totalInventory: 0,
@@ -45,6 +46,7 @@ vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
 vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', () => ({
   useMarketplaceSellerDashboard: () => ({
     listings: dashboardState.listings,
+    nowMs: dashboardState.nowMs,
     sellerOrders: [],
     offers: [],
     isLoading: false,
@@ -214,6 +216,33 @@ describe('MarketplaceDashboard', () => {
 
     expect(await screen.findByTestId('dialog-title')).toHaveTextContent('Replace your unsaved draft?');
     expect(dashboardFns.duplicateListing).not.toHaveBeenCalled();
+  });
+
+  it('badges ended auctions from the dashboard clock, not wall time', () => {
+    viewport.isMobile = false;
+    const endsAt = '2026-09-21T12:00:00.000Z';
+    const rowListing = listing({
+      listingId: 'ended_auction',
+      title: 'Ended rangefinder',
+      sale: {
+        format: 'auction',
+        startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+        startsAt: '2026-09-21T10:00:00.000Z',
+        endsAt,
+        antiSnipingWindowSeconds: 120,
+        antiSnipingExtensionSeconds: 120,
+      },
+    });
+    dashboardState.listings = [rowListing];
+    dashboardState.nowMs = Date.parse(endsAt) - 1;
+
+    const { rerender } = render(<MarketplaceDashboard />);
+    expect(within(screen.getByRole('row', { name: /Ended rangefinder/ })).getByText('active')).toBeInTheDocument();
+
+    dashboardState.nowMs = Date.parse(endsAt);
+    rerender(<MarketplaceDashboard />);
+    expect(within(screen.getByRole('row', { name: /Ended rangefinder/ })).getByText('ended')).toBeInTheDocument();
   });
 });
 

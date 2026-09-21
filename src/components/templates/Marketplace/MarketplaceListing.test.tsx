@@ -335,6 +335,43 @@ describe('MarketplaceListing', () => {
     ).toBeInTheDocument();
   });
 
+  it('labels an ended auction Auction ended and does not blame the seller for checkout unavailability', () => {
+    const endedAt = new Date(Date.now() - 60_000).toISOString();
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        sale: {
+          format: 'auction',
+          startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+          minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+          startsAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+          endsAt: endedAt,
+          antiSnipingWindowSeconds: 300,
+          antiSnipingExtensionSeconds: 300,
+        },
+      }),
+    );
+    view.projection = createListingProjectionFixture({
+      saleFormat: 'auction',
+      auction: {
+        startsAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+        endsAt: endedAt,
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+        currentPrice: { amountMinor: 6_900, currency: 'USD', exponent: 2 },
+        leaderPubky: 'b'.repeat(52),
+        bidCount: 4,
+      },
+    });
+    view.projectionError = 'This listing could not be prepared for checkout. It may have been removed by the seller.';
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Auction ended' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('This auction is no longer open for bidding.');
+    expect(
+      screen.queryByText('This listing could not be prepared for checkout. It may have been removed by the seller.'),
+    ).not.toBeInTheDocument();
+  });
+
   it('reveals the empty-caps reconnect card when a full-grant buyer places a bid without a marketplace session', async () => {
     view.hasFullHomeserverGrant = true;
     const user = userEvent.setup();

@@ -30,12 +30,17 @@ export interface HeaderContainerProps {
   classNameNav?: string;
 }
 export const HeaderContainer = ({ children, className, classNameNav }: HeaderContainerProps) => {
+  const pathname = usePathname();
+  const marketplaceChrome =
+    pathname === APP_ROUTES.MARKETPLACE || Boolean(pathname?.startsWith(`${APP_ROUTES.MARKETPLACE}/`));
   return (
     <Container
       overrideDefaults
       as="header"
       className={cn(
-        'pointer-events-none sticky top-0 z-(--z-sticky-header) w-full bg-linear-to-b from-(--background) from-50% to-transparent p-0 sm:py-6',
+        'pointer-events-none sticky top-0 z-(--z-sticky-header) w-full bg-linear-to-b from-(--background)',
+        marketplaceChrome ? 'from-90%' : 'from-50%',
+        'to-transparent p-0 sm:py-6',
         className,
       )}
     >

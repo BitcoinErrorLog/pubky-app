@@ -21,6 +21,9 @@ const SECTION_TITLES: Record<DropStreamBucket, string> = {
 
 const SECTION_ORDER: DropStreamBucket[] = ['live', 'upcoming', 'ended'];
 
+export const DROPS_INDEX_CAVEAT =
+  'Timed, limited releases listed by the discovery index. Open a drop to confirm its current state with the transaction service before claiming.';
+
 /**
  * The drops calendar (drops design, "Discovery and hype surfaces"): indexed
  * drops in estimate buckets, cards that carry estimate-labeled countdowns,
@@ -59,8 +62,7 @@ export function MarketplaceDrops() {
             Drops
           </Heading>
           <Typography as="p" className="mt-2 max-w-2xl text-muted-foreground">
-            Timed, limited releases listed by the discovery index. Open a drop to confirm its current state with the
-            transaction service before claiming.
+            {DROPS_INDEX_CAVEAT}
           </Typography>
         </div>
 
