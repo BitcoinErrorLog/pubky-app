@@ -200,6 +200,7 @@ export function useMarketplaceSellerDashboard() {
     duplicateListing,
     hasUnsavedListingDraft,
     exportCsv,
+    nowMs,
   };
 }
 

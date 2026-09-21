@@ -35,4 +35,11 @@ describe('listingDisplayState', () => {
   it('surfaces ended for an active auction whose end time has passed', () => {
     expect(listingDisplayState('active', { format: 'auction', startsAt, endsAt }, Date.parse(endsAt))).toBe('ended');
   });
+
+  it('uses the caller clock, not wall time', () => {
+    expect(listingDisplayState('active', { format: 'auction', startsAt, endsAt }, Date.parse(endsAt) - 1)).toBe(
+      'active',
+    );
+    expect(listingDisplayState('active', { format: 'auction', startsAt, endsAt }, Date.parse(endsAt))).toBe('ended');
+  });
 });

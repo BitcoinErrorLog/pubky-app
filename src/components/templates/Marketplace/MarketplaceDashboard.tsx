@@ -417,7 +417,7 @@ export function MarketplaceDashboard() {
                                 </td>
                                 <td className="p-3">
                                   <Badge variant="secondary">
-                                    {listingDisplayState(listing.state, listing.record.sale)}
+                                    {listingDisplayState(listing.state, listing.record.sale, dashboard.nowMs)}
                                   </Badge>
                                 </td>
                                 <td className="p-3">{listing.format.replace('_', ' ')}</td>
