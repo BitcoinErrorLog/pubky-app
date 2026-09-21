@@ -79,6 +79,12 @@ public/sw.js.map
 # Screenshots
 .screenshots
 
+# local pubky-testnet persist/data — never commit
+/testnet-data/
+/testnet-run/
+pkarr-cache/
+homeserver-data/
+
 # Serena
 .serena
 

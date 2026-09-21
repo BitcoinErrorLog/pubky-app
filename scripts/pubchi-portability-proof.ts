@@ -1,8 +1,10 @@
 /**
- * Live P1-PORT proof. Runs through the App test harness (vitest + branch
- * modules) against official staging. Calls PubchiApplication.exportPubchiState,
- * importPubchiState, and planImportPubchiState. Evaluates reconstructFeedsFromBundle
- * against GET-back builders.json and BOT_MISMATCH on a second owner.
+ * Live P1-PORT A→B proof. Runs through the App test harness against official
+ * staging (homeserver A) and a local pubky-testnet (homeserver B). Calls
+ * PubchiApplication.exportPubchiState / importPubchiState / planImportPubchiState.
+ * PKARR migrate-to-B is a design precondition of import (L905–912), not an App
+ * export/import step; the App only wraps publishHomeserverForce as recovery to
+ * the configured deploy HS. This proof calls the SDK primitive directly.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -11,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { Client, Keypair, PublicKey, Pubky, type Session } from '@synonymdev/pubky';
 
 const STAGING_HS = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
+const TESTNET_HS = '8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo';
 const EVIDENCE = '/Volumes/t7/Pubchi/evidence/w2/w2b';
 const GENERATE = `${homedir()}/.cursor/skills/pubky-staging-invite/scripts/generate.sh`;
 const PKARR_RELAYS = ['https://pkarr.pubky.app', 'https://pkarr.pubky.org'];
@@ -69,18 +72,79 @@ function arg(name: string, fallback: string): string {
 }
 
 const fromHs = arg('--from', STAGING_HS);
-const toHs = arg('--to', STAGING_HS);
+const toHs = arg('--to', TESTNET_HS);
 const assertEquality = process.argv.includes('--assert-hash-equality');
 
 function mintToken(): string {
   return execFileSync('bash', [GENERATE], { encoding: 'utf8' }).trim();
 }
 
-async function signup(homeserverZ32: string, token: string): Promise<{ session: Session; owner: string }> {
-  const pubky = Pubky.withClient(new Client({ pkarr: { relays: PKARR_RELAYS } }));
-  const keypair = Keypair.random();
-  const session = await pubky.signer(keypair).signup(PublicKey.from(homeserverZ32), token);
-  return { session, owner: keypair.publicKey.z32() };
+function processRunning(pattern: string): boolean {
+  try {
+    return execFileSync('pgrep', ['-f', pattern], { encoding: 'utf8' }).trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function tmuxHasSession(name: string): boolean {
+  try {
+    execFileSync('tmux', ['has-session', '-t', name], { encoding: 'utf8' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function dockerHomeserverInventory(): Record<string, unknown> {
+  try {
+    const status = execFileSync(
+      'docker',
+      [
+        'inspect',
+        'homeserver',
+        '--format',
+        '{{.State.Status}}|{{.Config.Image}}|{{json .NetworkSettings.Ports}}|{{.RestartCount}}|{{.State.ExitCode}}',
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+    const [state, image, ports, restartCount, exitCode] = status.split('|');
+    return {
+      name: 'homeserver',
+      image,
+      status: state,
+      ports,
+      restart_count: restartCount,
+      exit_code: exitCode,
+      homeserver_key: TESTNET_HS,
+      runnable: state === 'running' && ports !== '{}' && ports !== 'null',
+      not_intended_b: true,
+      log: `${EVIDENCE}/docker-homeserver.log`,
+    };
+  } catch (error) {
+    return { name: 'homeserver', present: false, error: String(error) };
+  }
+}
+
+function secondHomeserverInventory(): Record<string, unknown> {
+  const testnetBin = `${homedir()}/.cargo/bin/pubky-testnet`;
+  return {
+    skill_homeserver: STAGING_HS,
+    skill_second_homeserver: null,
+    railway_docs: 'docs/pubchi-railway.md accepts no homeserver URL or credential',
+    docker_homeserver: dockerHomeserverInventory(),
+    pubky_testnet_binary: {
+      path: testnetBin,
+      installed: existsSync(testnetBin),
+      running: processRunning('pubky-testnet'),
+      tmux_session: 'pubchi-w2b-testnet',
+      tmux_present: tmuxHasSession('pubchi-w2b-testnet'),
+      homeserver_key: TESTNET_HS,
+      postgres: 'postgres://postgres@127.0.0.1:15432/postgres?pubky-test=true',
+      bind_note:
+        'binary hardcodes 0.0.0.0 on 6286/6287/6288/15411/15412/6881; postgres published on 127.0.0.1:15432 only',
+    },
+  };
 }
 
 function pubchiCodeOf(error: unknown): string | null {
@@ -105,63 +169,8 @@ async function expectPubchiCode(run: () => Promise<unknown>, code: string): Prom
   throw new Error(`expected ${code}, but the call succeeded`);
 }
 
-function dockerHomeserverInventory(): Record<string, unknown> {
-  try {
-    const status = execFileSync(
-      'docker',
-      [
-        'inspect',
-        'homeserver',
-        '--format',
-        '{{.State.Status}}|{{.Config.Image}}|{{json .NetworkSettings.Ports}}',
-      ],
-      { encoding: 'utf8' },
-    ).trim();
-    const [state, image, ports] = status.split('|');
-    return {
-      name: 'homeserver',
-      image,
-      status: state,
-      ports,
-      homeserver_key: '8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo',
-      runnable: state === 'running' && ports !== '{}' && ports !== 'null',
-    };
-  } catch (error) {
-    return { name: 'homeserver', present: false, error: String(error) };
-  }
-}
-
-function secondHomeserverInventory(): Record<string, unknown> {
-  const skillHs = STAGING_HS;
-  const testnetBin = `${homedir()}/.cargo/bin/pubky-testnet`;
-  const docker = dockerHomeserverInventory();
-  const testnetRunning = (() => {
-    try {
-      return execFileSync('pgrep', ['-f', 'pubky-testnet'], { encoding: 'utf8' }).trim().length > 0;
-    } catch {
-      return false;
-    }
-  })();
-  return {
-    skill_homeserver: skillHs,
-    skill_second_homeserver: null,
-    railway_docs: 'docs/pubchi-railway.md accepts no homeserver URL or credential',
-    service_staging_docs: 'none (docs/*staging* absent on pubky-ai-bot)',
-    docker_homeserver: docker,
-    pubky_testnet_binary: {
-      path: testnetBin,
-      installed: existsSync(testnetBin),
-      running: testnetRunning,
-      requires: 'ephemeral Postgres via TEST_PUBKY_CONNECTION_STRING; hardcoded HS 8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo',
-    },
-    achieved_a_to_b: false,
-    missing:
-      'A second staging homeserver identity (skill mints only ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy). Local docker homeserver is crash-looping with no published ports. pubky-testnet is installed but not running; starting it would invent a second HS.',
-  };
-}
-
-describe('P1-PORT live proof via PubchiApplication', () => {
-  it('exports, imports, reconstructs builders.json, and rejects B with BOT_MISMATCH', async () => {
+describe('P1-PORT live A→B proof via PubchiApplication', () => {
+  it('exports from staging A, imports same user U to local testnet B, reconstructs feeds, rejects other owner', async () => {
     mkdirSync(EVIDENCE, { recursive: true });
     const inventory = secondHomeserverInventory();
     const report: Record<string, unknown> = {
@@ -177,6 +186,7 @@ describe('P1-PORT live proof via PubchiApplication', () => {
       feed_reconstructed: false,
       bot_mismatch: null,
       equal: false,
+      achieved_a_to_b: false,
     };
 
     const writeReport = () => {
@@ -186,6 +196,14 @@ describe('P1-PORT live proof via PubchiApplication', () => {
     };
 
     try {
+      const testnetMeta = inventory.pubky_testnet_binary as { running?: boolean; tmux_present?: boolean };
+      if (!testnetMeta.running || !testnetMeta.tmux_present) {
+        throw new Error('local pubky-testnet B is not running in tmux pubchi-w2b-testnet');
+      }
+      expect(fromHs).toBe(STAGING_HS);
+      expect(toHs).toBe(TESTNET_HS);
+      expect(fromHs).not.toBe(toHs);
+
       const { resetRuntimeConfigForTests } = await import('@/libs/runtime-config/runtime-config');
       resetRuntimeConfigForTests();
       const { PubchiApplication } = await import('@/core/application/pubchi/pubchi');
@@ -207,12 +225,24 @@ describe('P1-PORT live proof via PubchiApplication', () => {
         useAuthStore.getState().setCurrentUserPubky(owner);
       };
 
+      const hashOwnedPaths = async (owner: string, paths: string[]): Promise<Record<string, string>> => {
+        const hashes: Record<string, string> = {};
+        for (const path of paths) {
+          const body = await HomeserverService.requestRawText(`pubky://${owner}${path}`);
+          hashes[path] = await hashDocumentBody(body);
+        }
+        return hashes;
+      };
+
+      const userKeypair = Keypair.random();
+      const owner = userKeypair.publicKey.z32();
+      const stagingPubky = Pubky.withClient(new Client({ pkarr: { relays: PKARR_RELAYS } }));
       const tokenA = mintToken();
-      const accountA = await signup(fromHs, tokenA);
+      const sessionA = await stagingPubky.signer(userKeypair).signup(PublicKey.from(fromHs), tokenA);
       report.accounts_minted = 1;
-      report.owner_a = accountA.owner;
-      report.session_a_capabilities = accountA.session.info.capabilities ?? [];
-      activate(accountA.session, accountA.owner);
+      report.owner_u = owner;
+      report.session_a_capabilities = sessionA.info.capabilities ?? [];
+      activate(sessionA, owner);
 
       const bot = Keypair.random().publicKey.z32();
       const exportedAt = Math.floor(Date.now() / 1000);
@@ -220,7 +250,7 @@ describe('P1-PORT live proof via PubchiApplication', () => {
         schema: 'pubchi-bot',
         version: 1,
         bot,
-        owner: accountA.owner,
+        owner,
         display_name: 'Pubchi',
         created_at: exportedAt,
         backup_confirmed_at: null,
@@ -231,7 +261,7 @@ describe('P1-PORT live proof via PubchiApplication', () => {
         schema: 'pubchi-config',
         version: 1,
         bot,
-        owner: accountA.owner,
+        owner,
         updated_at: exportedAt,
         display_name: 'Pubchi',
         tier: 'read-only',
@@ -253,7 +283,7 @@ describe('P1-PORT live proof via PubchiApplication', () => {
       const bindingBody = canonicalJson({
         schema: 'pubchi-owner-binding',
         version: 1,
-        owner: accountA.owner,
+        owner,
         bot,
         status: 'active',
         key_generation: 1,
@@ -264,7 +294,7 @@ describe('P1-PORT live proof via PubchiApplication', () => {
         schema: 'pubchi-feed-proposal',
         version: 1,
         bot,
-        owner: accountA.owner,
+        owner,
         generated_at: exportedAt,
         feed: {
           name: 'Builders',
@@ -284,36 +314,67 @@ describe('P1-PORT live proof via PubchiApplication', () => {
       ] as const;
       for (const [path, body] of seed) {
         await HomeserverService.putBlob({
-          url: `pubky://${accountA.owner}${path}`,
+          url: `pubky://${owner}${path}`,
           blob: encoder.encode(body),
         });
       }
 
-      const bundle = await PubchiApplication.exportPubchiState(accountA.owner);
+      const bundle = await PubchiApplication.exportPubchiState(owner);
       (report.exercised as string[]).push('PubchiApplication.exportPubchiState');
-      expect(bundle.owner).toBe(accountA.owner);
+      expect(bundle.owner).toBe(owner);
       expect(bundle.bot).toBe(bot);
       expect(bundle.objects[BUILDERS_PATH]).toBe(feedBody);
 
-      const hashesBefore: Record<string, string> = {};
-      for (const entry of bundle.manifest.objects) hashesBefore[entry.path] = entry.sha256;
+      const objectPaths = bundle.manifest.objects.map((entry) => entry.path);
+      const hashesBefore = await hashOwnedPaths(owner, objectPaths);
       hashesBefore[PATHS.manifest] = await hashDocumentBody(bundle.objects[PATHS.manifest] ?? '');
-      report.hashes_before = hashesBefore;
-
-      for (const path of Object.keys(bundle.objects)) {
-        await HomeserverService.deleteIdempotent(`pubky://${accountA.owner}${path}`);
+      for (const entry of bundle.manifest.objects) {
+        expect(hashesBefore[entry.path]).toBe(entry.sha256);
       }
+      report.hashes_before = hashesBefore;
+      const manifestPaths = [...objectPaths, PATHS.manifest];
+
+      const publicPkarrBefore = await stagingPubky.getHomeserverOf(userKeypair.publicKey);
+      report.pkarr_public_before = publicPkarrBefore?.z32() ?? null;
+
+      const testnetPubky = Pubky.testnet();
+      const testnetSigner = testnetPubky.signer(userKeypair);
+      const sessionB = await testnetSigner.signup(PublicKey.from(toHs), null);
+      await testnetSigner.pkdns.publishHomeserverForce(PublicKey.from(toHs));
+      const testnetPkarr = await testnetPubky.getHomeserverOf(userKeypair.publicKey);
+      report.pkarr = {
+        app_migrate_api: 'none — HomeserverService.republishConfiguredHomeserver only force-publishes getHomeserver()',
+        design_expectation:
+          'design L905–912: import after PKARR migration as a precondition; export/import does not mint identity or republish PKARR',
+        manual_step:
+          'same keypair U signed up on local testnet B (open signup, token null), then signer.pkdns.publishHomeserverForce(B) on Pubky.testnet()',
+        public_network_after_signup_a: publicPkarrBefore?.z32() ?? null,
+        testnet_dht_after_force: testnetPkarr?.z32() ?? null,
+        switched_to_b_on_testnet_dht: testnetPkarr?.z32() === toHs,
+      };
+      expect(testnetPkarr?.z32()).toBe(toHs);
+      report.session_b_capabilities = sessionB.info.capabilities ?? [];
+      activate(sessionB, owner);
 
       putBlobCalls.length = 0;
-      const imported = await PubchiApplication.importPubchiState(accountA.owner, bundle);
+      const imported = await PubchiApplication.importPubchiState(owner, bundle);
       (report.exercised as string[]).push('PubchiApplication.importPubchiState');
       report.putBlob_writes_during_import = [...putBlobCalls];
       expect(putBlobCalls.some((url) => url.endsWith(BUILDERS_PATH))).toBe(true);
-      expect(putBlobCalls.every((url) => url.startsWith(`pubky://${accountA.owner}/pub/app.pubchi/v1/`))).toBe(true);
+      expect(putBlobCalls.every((url) => url.startsWith(`pubky://${owner}/pub/app.pubchi/v1/`))).toBe(true);
       expect(putBlobCalls.every((url) => !url.includes('/priv/'))).toBe(true);
 
-      report.hashes_after = imported.hashes;
-      report.equal = Object.keys(hashesBefore).every((path) => hashesBefore[path] === imported.hashes[path]);
+      const hashesAfter = await hashOwnedPaths(owner, manifestPaths);
+      report.hashes_after = hashesAfter;
+      report.import_result_hashes = imported.hashes;
+      const equal = manifestPaths.every((path) => hashesBefore[path] === hashesAfter[path]);
+      report.equal = equal;
+      expect(equal).toBe(true);
+      for (const path of manifestPaths) {
+        const bodyB = await HomeserverService.requestRawText(`pubky://${owner}${path}`);
+        expect(bodyB).toBe(bundle.objects[path]);
+        expect(hashesAfter[path]).toBe(hashesBefore[path]);
+      }
 
       const reconstructed = reconstructFeedsFromBundle(imported.bundle);
       (report.exercised as string[]).push('reconstructFeedsFromBundle');
@@ -322,7 +383,7 @@ describe('P1-PORT live proof via PubchiApplication', () => {
       expect(reconstructed.value).toEqual([EXPECTED_FEED]);
       expect(imported.feeds).toEqual([EXPECTED_FEED]);
 
-      const importedBuilders = await HomeserverService.requestRawText(`pubky://${accountA.owner}${BUILDERS_PATH}`);
+      const importedBuilders = await HomeserverService.requestRawText(`pubky://${owner}${BUILDERS_PATH}`);
       expect(importedBuilders).toBe(feedBody);
       const parsedBuilders = parsePubchiDocumentText(importedBuilders, parseFeedProposal);
       expect(parsedBuilders.ok).toBe(true);
@@ -341,38 +402,39 @@ describe('P1-PORT live proof via PubchiApplication', () => {
         identical: true,
       };
 
-      const tokenB = mintToken();
-      const accountB = await signup(fromHs, tokenB);
+      const otherKeypair = Keypair.random();
+      const otherOwner = otherKeypair.publicKey.z32();
+      const sessionOther = await testnetPubky.signer(otherKeypair).signup(PublicKey.from(toHs), null);
       report.accounts_minted = 2;
-      report.owner_b = accountB.owner;
-      report.session_b_capabilities = accountB.session.info.capabilities ?? [];
-      activate(accountB.session, accountB.owner);
+      report.owner_other = otherOwner;
+      report.session_other_capabilities = sessionOther.info.capabilities ?? [];
+      activate(sessionOther, otherOwner);
 
       putBlobCalls.length = 0;
       const planCode = await expectPubchiCode(
-        () => PubchiApplication.planImportPubchiState(accountB.owner, bundle),
+        () => PubchiApplication.planImportPubchiState(otherOwner, bundle),
         'BOT_MISMATCH',
       );
       (report.exercised as string[]).push('PubchiApplication.planImportPubchiState');
       const importCode = await expectPubchiCode(
-        () => PubchiApplication.importPubchiState(accountB.owner, bundle),
+        () => PubchiApplication.importPubchiState(otherOwner, bundle),
         'BOT_MISMATCH',
       );
-      expect(putBlobCalls.filter((url) => url.includes(accountB.owner))).toHaveLength(0);
+      expect(putBlobCalls.filter((url) => url.includes(otherOwner))).toHaveLength(0);
       report.bot_mismatch = {
         planImportPubchiState: planCode,
         importPubchiState: importCode,
-        putBlob_calls_on_b: putBlobCalls.filter((url) => url.includes(accountB.owner)),
+        putBlob_calls_on_other: putBlobCalls.filter((url) => url.includes(otherOwner)),
         handled_as_specified: planCode === 'BOT_MISMATCH' && importCode === 'BOT_MISMATCH',
       };
 
-      if (fromHs === toHs) {
-        report.two_homeserver_pkarr_migrate =
-          'pending: skill mints only official staging HS; local second HS not runnable (see two_homeserver_inventory)';
-      }
+      report.achieved_a_to_b = equal === true;
+      report.two_homeserver_pkarr_migrate =
+        'done: same user U exported from staging A, PKARR on local testnet DHT force-published to B, imported via App to B; public PKARR still names A (distinct network)';
 
       writeReport();
       expect(report.equal).toBe(true);
+      expect(report.achieved_a_to_b).toBe(true);
       if (assertEquality && report.equal !== true) {
         throw new Error('hash equality failed');
       }

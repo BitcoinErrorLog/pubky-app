@@ -14,8 +14,8 @@ export default defineConfig({
     globals: false,
     include: ['scripts/pubchi-portability-proof.ts'],
     exclude: ['**/node_modules/**', '**/.claude/**', '**/._*'],
-    testTimeout: 180_000,
-    hookTimeout: 180_000,
+    testTimeout: 240_000,
+    hookTimeout: 240_000,
     fileParallelism: false,
     env: {
       COPYFILE_DISABLE: '1',

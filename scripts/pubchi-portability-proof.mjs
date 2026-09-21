@@ -2,7 +2,7 @@
 /**
  * Launches the App-harness live proof (scripts/pubchi-portability-proof.ts)
  * through vitest so PubchiApplication.exportPubchiState / importPubchiState
- * run against staging. Extra argv is forwarded after `--`.
+ * run against staging A then local pubky-testnet B. Extra argv is forwarded after `--`.
  */
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
