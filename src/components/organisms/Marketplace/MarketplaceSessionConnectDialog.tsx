@@ -8,6 +8,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { CAPABILITIES } from '@/config/app';
 import { useMarketplaceSessionConnect } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect';
 import { Logger } from '@/libs/logger/logger';
+import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -32,10 +33,11 @@ export function MarketplaceSessionConnectDialog({
   autoOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const grantFlowEnabled = getMarketplaceGrantFlowEnabled();
   const session = useMarketplaceSessionConnect({
     onConnected: () => {
       toast({
-        title: 'Purchases approved in Pubky Ring',
+        title: 'Purchases approved',
         description: 'This session stays on this device across tabs and restarts until it expires or you sign out.',
       });
       setOpen(false);
@@ -83,20 +85,24 @@ export function MarketplaceSessionConnectDialog({
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">
         <DialogHeader>
-          <DialogTitle>Approve purchases in Pubky Ring</DialogTitle>
+          <DialogTitle>{grantFlowEnabled ? 'Approve purchases' : 'Approve purchases in Pubky Ring'}</DialogTitle>
         </DialogHeader>
 
         <Typography as="p" className="text-sm text-muted-foreground">
-          {requestsFullGrant
-            ? 'Approving with Pubky Ring signs you in to Shop with the full permission list and lets this marketplace place orders, bids, and offers as you. Nothing is charged until you pay.'
-            : 'Approving with Pubky Ring lets this marketplace place orders, bids, and offers as you. Nothing is charged until you pay. The approval stays on this device across tabs and restarts until it expires or you sign out.'}
+          {grantFlowEnabled
+            ? 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
+            : requestsFullGrant
+              ? 'Approving with Pubky Ring signs you in to Shop with the full permission list and lets this marketplace place orders, bids, and offers as you. Nothing is charged until you pay.'
+              : 'Approving with Pubky Ring lets this marketplace place orders, bids, and offers as you. Nothing is charged until you pay. The approval stays on this device across tabs and restarts until it expires or you sign out.'}
         </Typography>
         <Typography as="p" className="text-sm text-muted-foreground">
-          {requestsFullGrant
-            ? 'Ring will show the full permission list — that is correct. This is the first Shop-scoped approval; it was not covered by signing in on pubky.app.'
-            : 'Ring will show an empty permission list — that is correct. This approval only proves your identity to the marketplace service; it grants no read or write access to anything on your homeserver.'}
+          {grantFlowEnabled
+            ? 'Your signer will show an empty permission list. This approval proves identity to the marketplace service and does not change homeserver access.'
+            : requestsFullGrant
+              ? 'Ring will show the full permission list — that is correct. This is the first Shop-scoped approval; it was not covered by signing in on pubky.app.'
+              : 'Ring will show an empty permission list — that is correct. This approval only proves your identity to the marketplace service; it grants no read or write access to anything on your homeserver.'}
         </Typography>
-        {requestsFullGrant && (
+        {requestsFullGrant && !grantFlowEnabled && (
           <div className="rounded-md border border-border bg-muted/40 p-3">
             <code className="block font-sans text-xs break-all" data-cy="session-connect-requested-capabilities">
               {CAPABILITIES}
@@ -107,10 +113,16 @@ export function MarketplaceSessionConnectDialog({
           </div>
         )}
 
-        {session.status === 'error' ? (
+        {['error', 'mismatch', 'expired', 'cancelled'].includes(session.status) ? (
           <div className="grid gap-3">
             <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
-              {session.errorMessage}
+              {session.status === 'mismatch'
+                ? 'That approval used a different identity. Approve with the same identity currently signed in to Shop.'
+                : session.status === 'expired'
+                  ? 'This approval expired.'
+                  : session.status === 'cancelled'
+                    ? 'Approval cancelled.'
+                    : session.errorMessage}
             </div>
             <Button className="w-fit rounded-full" onClick={session.start}>
               <RefreshCw className="mr-2 size-4" />
@@ -146,8 +158,18 @@ export function MarketplaceSessionConnectDialog({
 
             {session.status === 'awaiting' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                <Loader2 className="size-4 animate-spin" />
+                <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
                 Waiting for approval on your signer…
+              </div>
+            )}
+            {['creating', 'verifying', 'claiming'].includes(session.status) && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+                <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
+                {session.status === 'creating'
+                  ? 'Preparing secure approval…'
+                  : session.status === 'verifying'
+                    ? 'Verifying approval…'
+                    : 'Connecting marketplace…'}
               </div>
             )}
 
@@ -160,11 +182,17 @@ export function MarketplaceSessionConnectDialog({
                 aria-busy={session.isOpeningRing}
               >
                 {session.isOpeningRing ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  <Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" />
                 ) : (
                   <Smartphone className="mr-2 size-4" />
                 )}
-                {session.isOpeningRing ? 'Opening Pubky Ring...' : 'Open in Pubky Ring'}
+                {session.isOpeningRing
+                  ? grantFlowEnabled
+                    ? 'Opening signer...'
+                    : 'Opening Pubky Ring...'
+                  : grantFlowEnabled
+                    ? 'Open in signer'
+                    : 'Open in Pubky Ring'}
               </Button>
               <Button
                 variant="ghost"

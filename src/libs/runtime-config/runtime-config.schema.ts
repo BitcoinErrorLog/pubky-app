@@ -234,6 +234,8 @@ export const APP_RUNTIME_DEFAULTS = {
   commerceAdapterMode: 'unavailable' as CommerceAdapterMode,
   commercePollIntervalMs: 2_000,
   singleApprovalSignIn: true,
+  marketplaceGrantFlowEnabled: false,
+  marketplaceGrantPollMilliseconds: 1_000,
   preludeSdkTimeoutMs: 5_000,
   previewImage: '/preview.webp',
   siteName: 'Pubky App',
@@ -329,6 +331,11 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
    * never by POSTing empty capabilities to `/session`.
    */
   singleApprovalSignIn: z.boolean().default(APP_RUNTIME_DEFAULTS.singleApprovalSignIn),
+  marketplaceGrantFlowEnabled: z.boolean().default(APP_RUNTIME_DEFAULTS.marketplaceGrantFlowEnabled),
+  marketplaceGrantPollMilliseconds: positiveIntValue
+    .min(750)
+    .max(5_000)
+    .default(APP_RUNTIME_DEFAULTS.marketplaceGrantPollMilliseconds),
   preludeSdkKey: nonEmptyStringValue.optional(),
   preludeSdkTimeoutMs: positiveIntValue.default(APP_RUNTIME_DEFAULTS.preludeSdkTimeoutMs),
   plausibleDomain: nonEmptyStringValue.optional(),
@@ -408,6 +415,8 @@ export const runtimeEnvInputSchema = z
     commerceAdapterMode: commerceAdapterModeValue.optional(),
     commercePollIntervalMs: optionalPositiveIntFromString,
     singleApprovalSignIn: optionalBooleanFromString,
+    marketplaceGrantFlowEnabled: optionalBooleanFromString,
+    marketplaceGrantPollMilliseconds: optionalPositiveIntFromString,
     preludeSdkKey: optionalTrimmedString,
     preludeSdkTimeoutMs: optionalPositiveIntFromString,
     plausibleDomain: optionalTrimmedString,
@@ -494,6 +503,8 @@ export const runtimeEnvInputSchemaWithDefaults = z
     commerceAdapterMode: commerceAdapterModeValue.optional(),
     commercePollIntervalMs: optionalPositiveIntFromString,
     singleApprovalSignIn: optionalBooleanFromString,
+    marketplaceGrantFlowEnabled: optionalBooleanFromString,
+    marketplaceGrantPollMilliseconds: optionalPositiveIntFromString,
     preludeSdkKey: optionalTrimmedString,
     preludeSdkTimeoutMs: optionalPositiveIntFromString,
     plausibleDomain: optionalTrimmedString,
@@ -572,6 +583,8 @@ export const PUBKY_RUNTIME_ENV_NAMES: Record<keyof RuntimeConfig, string> = {
   commerceAdapterMode: 'PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE',
   commercePollIntervalMs: 'PUBKY_RUNTIME_COMMERCE_POLL_INTERVAL_MS',
   singleApprovalSignIn: 'PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN',
+  marketplaceGrantFlowEnabled: 'PUBKY_RUNTIME_MARKETPLACE_GRANT_FLOW_ENABLED',
+  marketplaceGrantPollMilliseconds: 'PUBKY_RUNTIME_MARKETPLACE_GRANT_POLL_MILLISECONDS',
   preludeSdkKey: 'PUBKY_RUNTIME_PRELUDE_SDK_KEY',
   preludeSdkTimeoutMs: 'PUBKY_RUNTIME_PRELUDE_SDK_TIMEOUT_MS',
   plausibleDomain: 'PUBKY_RUNTIME_PLAUSIBLE_DOMAIN',

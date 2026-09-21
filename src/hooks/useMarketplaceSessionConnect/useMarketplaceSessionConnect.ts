@@ -10,8 +10,12 @@ import {
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
 import { Logger } from '@/libs/logger/logger';
+import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
+import { beginMarketplaceGrantFlow, type MarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import type {
   MarketplaceSessionConnectStatus,
   UseMarketplaceSessionConnectOptions,
@@ -41,6 +45,8 @@ export function useMarketplaceSessionConnect(
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOpeningRing, setIsOpeningRing] = useState(false);
   const activeFlowRef = useRef<ActiveFlow | null>(null);
+  const activeGrantFlowRef = useRef<MarketplaceGrantFlow | null>(null);
+  const generationRef = useRef(0);
   const onConnectedRef = useRef(options.onConnected);
   const visibilityHandlerRef = useRef<(() => void) | null>(null);
 
@@ -57,14 +63,18 @@ export function useMarketplaceSessionConnect(
   }, []);
 
   const detachActiveFlow = useCallback(() => {
+    generationRef.current += 1;
     const flow = activeFlowRef.current;
     activeFlowRef.current = null;
+    const grantFlow = activeGrantFlowRef.current;
+    activeGrantFlowRef.current = null;
     // Route through the controller: when this flow is still the tracked
     // active flow, the ceremony guard is torn down with it, so a retry mints
     // a FRESH single-use URL instead of joining the cancelled ceremony and
     // re-showing its dead QR. Untracked (empty-capability) flows degrade to
     // the plain cancel.
     if (flow) AuthController.releaseAuthFlow(flow.cancel);
+    if (grantFlow) void grantFlow.cancel();
   }, []);
 
   /**
@@ -72,13 +82,69 @@ export function useMarketplaceSessionConnect(
    * the rendered copy and the flow `start()` actually begins can never
    * diverge (the dialog renders this value; it must not re-evaluate it).
    */
-  const requestsFullGrant = isSingleApprovalSignInEnabled() && !CommerceController.hasFullHomeserverGrant();
+  const grantFlowEnabled = getMarketplaceGrantFlowEnabled();
+  const requestsFullGrant =
+    !grantFlowEnabled && isSingleApprovalSignInEnabled() && !CommerceController.hasFullHomeserverGrant();
 
   const start = useCallback(() => {
     detachActiveFlow();
     removeVisibilityHandler();
     setIsOpeningRing(false);
     setErrorMessage(null);
+
+    if (grantFlowEnabled) {
+      const generation = generationRef.current;
+      setAuthorizationUrl('');
+      setStatus('creating');
+      void beginMarketplaceGrantFlow()
+        .then(async (grantFlow) => {
+          if (generationRef.current !== generation) {
+            await grantFlow.cancel();
+            return;
+          }
+          activeGrantFlowRef.current = grantFlow;
+          setAuthorizationUrl(grantFlow.authorizationUrl);
+          setStatus('awaiting');
+          const result = await grantFlow.awaitResult();
+          if (generationRef.current !== generation || activeGrantFlowRef.current !== grantFlow) return;
+          activeGrantFlowRef.current = null;
+          setAuthorizationUrl('');
+          if (result.status === 'connected') {
+            if (!result.token || !result.pubky || result.capabilities === undefined || !result.expires_at) {
+              throw new Error('grant_invalid_response');
+            }
+            const expectedPubky = useAuthStore.getState().currentUserPubky;
+            if (!expectedPubky) {
+              throw new Error('grant_invalid_response');
+            }
+            const session = MarketplaceSessionService.establishClaimedGrantSession(
+              {
+                token: result.token,
+                pubky: result.pubky,
+                capabilities: result.capabilities,
+                expiresAt: result.expires_at,
+              },
+              expectedPubky,
+            );
+            setStatus('connected');
+            onConnectedRef.current?.(session);
+            return;
+          }
+          if (result.status === 'mismatch') setStatus('mismatch');
+          else if (result.status === 'expired') setStatus('expired');
+          else if (result.status === 'cancelled') setStatus('cancelled');
+          else setStatus('error');
+        })
+        .catch((error: unknown) => {
+          if (generationRef.current !== generation) return;
+          activeGrantFlowRef.current = null;
+          setAuthorizationUrl('');
+          Logger.error('Marketplace grant flow failed', { error });
+          setErrorMessage(MARKETPLACE_FAILURE_MESSAGES.sessionTimeout);
+          setStatus('error');
+        });
+      return;
+    }
 
     let flow: ActiveFlow;
     try {
@@ -145,7 +211,7 @@ export function useMarketplaceSessionConnect(
         );
         setStatus('error');
       });
-  }, [detachActiveFlow, removeVisibilityHandler, requestsFullGrant]);
+  }, [detachActiveFlow, grantFlowEnabled, removeVisibilityHandler, requestsFullGrant]);
 
   const cancel = useCallback(() => {
     detachActiveFlow();

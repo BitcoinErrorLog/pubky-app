@@ -1,0 +1,275 @@
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { Keypair } from '@synonymdev/pubky';
+import canonicalize from 'canonicalize';
+import type { MarketplaceGrantConfig } from './config';
+
+const utf8 = new TextEncoder();
+const STATE_SALT = utf8.encode('marketplace/shop-bff-state/hkdf-salt/v1');
+
+export type StateContext = {
+  resultDeliveryId: string;
+  resultPopSeed: string;
+  version: 1;
+};
+
+export function canonicalJson(value: unknown): string {
+  const encoded = canonicalize(value);
+  if (encoded === undefined) throw new TypeError('Value is not canonical JSON');
+  return encoded;
+}
+
+export function encodeBase64Url(value: Uint8Array): string {
+  return Buffer.from(value).toString('base64url');
+}
+
+export function decodeBase64Url32(value: string): Uint8Array {
+  const bytes = Buffer.from(value, 'base64url');
+  if (bytes.length !== 32 || bytes.toString('base64url') !== value) {
+    throw new TypeError('Expected canonical Base64url for 32 bytes');
+  }
+  return bytes;
+}
+
+function uuidBytes(value: string): Uint8Array {
+  const compact = value.replaceAll('-', '');
+  if (!/^[0-9a-f]{32}$/.test(compact)) throw new TypeError('Expected canonical UUID');
+  return Uint8Array.from(Buffer.from(compact, 'hex'));
+}
+
+function u16(value: number): Uint8Array {
+  const bytes = new Uint8Array(2);
+  new DataView(bytes.buffer).setUint16(0, value, false);
+  return bytes;
+}
+
+function concat(...values: Uint8Array[]): Uint8Array {
+  const length = values.reduce((sum, value) => sum + value.length, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const value of values) {
+    result.set(value, offset);
+    offset += value.length;
+  }
+  return result;
+}
+
+function rootForEpoch(config: MarketplaceGrantConfig, epoch: number): Uint8Array {
+  if (epoch === config.stateKeyEpoch) return Uint8Array.from(Buffer.from(config.stateKey, 'base64'));
+  if (epoch === config.previousStateKeyEpoch && config.previousStateKey) {
+    return Uint8Array.from(Buffer.from(config.previousStateKey, 'base64'));
+  }
+  throw new TypeError('Unknown BFF state key epoch');
+}
+
+function derive(config: MarketplaceGrantConfig, epoch: number, label: string): Uint8Array {
+  return hkdf(sha256, rootForEpoch(config, epoch), STATE_SALT, concat(utf8.encode(label), u16(epoch)), 32);
+}
+
+function cookieHash(
+  config: MarketplaceGrantConfig,
+  epoch: number,
+  kind: 'session' | 'flow',
+  id: string,
+  secret: Uint8Array,
+): Uint8Array {
+  const key = derive(config, epoch, `marketplace/shop-bff-state/${kind}-cookie-key/v1`);
+  return hmac(sha256, key, concat(utf8.encode(`marketplace/shop-bff-state/${kind}-cookie/v1`), uuidBytes(id), secret));
+}
+
+export function makeBoundCookie(id: string): { value: string; secret: Uint8Array } {
+  const secret = Uint8Array.from(randomBytes(32));
+  return { value: `${id}.${encodeBase64Url(secret)}`, secret };
+}
+
+export function parseBoundCookie(value: string | undefined): { id: string; secret: Uint8Array } | null {
+  if (!value) return null;
+  const [id, encoded, extra] = value.split('.');
+  if (extra !== undefined || !/^[0-9a-f-]{36}$/.test(id)) return null;
+  try {
+    uuidBytes(id);
+    return { id, secret: decodeBase64Url32(encoded) };
+  } catch {
+    return null;
+  }
+}
+
+export function hashBoundCookie(
+  config: MarketplaceGrantConfig,
+  epoch: number,
+  kind: 'session' | 'flow',
+  id: string,
+  secret: Uint8Array,
+): Uint8Array {
+  return cookieHash(config, epoch, kind, id, secret);
+}
+
+export function cookieMatches(actual: Uint8Array, expected: Uint8Array): boolean {
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function bridgeAad(bridgeId: string, sessionId: string, pubky: string, epoch: number): Uint8Array {
+  const pubkyBytes = utf8.encode(pubky);
+  return concat(
+    utf8.encode('marketplace/shop-bff-session/bearer/v1'),
+    uuidBytes(bridgeId),
+    uuidBytes(sessionId),
+    u16(pubkyBytes.length),
+    pubkyBytes,
+    u16(epoch),
+  );
+}
+
+function flowAad(stateId: string, bridgeId: string, epoch: number): Uint8Array {
+  return concat(
+    utf8.encode('marketplace/shop-bff-state/envelope/v1'),
+    uuidBytes(stateId),
+    uuidBytes(bridgeId),
+    u16(epoch),
+  );
+}
+
+function seal(config: MarketplaceGrantConfig, epoch: number, plaintext: Uint8Array, aad: Uint8Array): Uint8Array {
+  const nonce = Uint8Array.from(randomBytes(24));
+  const key = derive(config, epoch, 'marketplace/shop-bff-state/seal-key/v1');
+  const encrypted = xchacha20poly1305(key, nonce, aad).encrypt(plaintext);
+  return concat(Uint8Array.of(1), nonce, encrypted);
+}
+
+function open(config: MarketplaceGrantConfig, epoch: number, sealed: Uint8Array, aad: Uint8Array): Uint8Array {
+  if (sealed.length < 42 || sealed[0] !== 1) throw new TypeError('Unknown BFF envelope');
+  const key = derive(config, epoch, 'marketplace/shop-bff-state/seal-key/v1');
+  return xchacha20poly1305(key, sealed.slice(1, 25), aad).decrypt(sealed.slice(25));
+}
+
+export function sealBearer(
+  config: MarketplaceGrantConfig,
+  bridgeId: string,
+  sessionId: string,
+  pubky: string,
+  bearer: string,
+): Uint8Array {
+  return seal(
+    config,
+    config.stateKeyEpoch,
+    utf8.encode(canonicalJson({ bearer, version: 1 })),
+    bridgeAad(bridgeId, sessionId, pubky, config.stateKeyEpoch),
+  );
+}
+
+export function openBearer(
+  config: MarketplaceGrantConfig,
+  bridgeId: string,
+  sessionId: string,
+  pubky: string,
+  epoch: number,
+  sealed: Uint8Array,
+): string {
+  const parsed = JSON.parse(
+    new TextDecoder().decode(open(config, epoch, sealed, bridgeAad(bridgeId, sessionId, pubky, epoch))),
+  ) as unknown;
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    (parsed as { version?: unknown }).version !== 1 ||
+    !/^[A-Za-z0-9_-]{43}$/.test((parsed as { bearer?: string }).bearer ?? '')
+  ) {
+    throw new TypeError('Invalid BFF bearer envelope');
+  }
+  return (parsed as { bearer: string }).bearer;
+}
+
+export function sealFlowContext(
+  config: MarketplaceGrantConfig,
+  stateId: string,
+  bridgeId: string,
+  context: StateContext,
+): Uint8Array {
+  return seal(
+    config,
+    config.stateKeyEpoch,
+    utf8.encode(canonicalJson(context)),
+    flowAad(stateId, bridgeId, config.stateKeyEpoch),
+  );
+}
+
+export function openFlowContext(
+  config: MarketplaceGrantConfig,
+  stateId: string,
+  bridgeId: string,
+  epoch: number,
+  sealed: Uint8Array,
+): StateContext {
+  const text = new TextDecoder().decode(open(config, epoch, sealed, flowAad(stateId, bridgeId, epoch)));
+  const parsed = JSON.parse(text) as StateContext;
+  if (
+    parsed.version !== 1 ||
+    canonicalJson(parsed) !== text ||
+    decodeBase64Url32(parsed.resultDeliveryId).length !== 32 ||
+    decodeBase64Url32(parsed.resultPopSeed).length !== 32
+  ) {
+    throw new TypeError('Invalid BFF flow envelope');
+  }
+  return parsed;
+}
+
+export function resultPublicKey(seed: Uint8Array): string {
+  return Keypair.fromSecret(seed)
+    .publicKey.toString()
+    .replace(/^pubky/, '');
+}
+
+function signCompact(seedHex: string, header: unknown, payload: unknown): string {
+  const encodedHeader = encodeBase64Url(utf8.encode(canonicalJson(header)));
+  const encodedPayload = encodeBase64Url(utf8.encode(canonicalJson(payload)));
+  const message = utf8.encode(`${encodedHeader}.${encodedPayload}`);
+  const signature = ed25519.sign(message, Uint8Array.from(Buffer.from(seedHex, 'hex')));
+  return `${encodedHeader}.${encodedPayload}.${encodeBase64Url(signature)}`;
+}
+
+export function signDeliveryAssertion(
+  config: MarketplaceGrantConfig,
+  deliveryId: string,
+  resultCpk: string,
+  expectedPubky: string,
+  nowSeconds: number,
+  jti: string,
+): string {
+  return signCompact(
+    config.assertionSigningKey,
+    { alg: 'EdDSA', kid: config.assertionKeyId, typ: 'JWT' },
+    {
+      aud: 'marketplace-service',
+      exp: nowSeconds + 60,
+      iat: nowSeconds,
+      iss: config.assertionIssuer,
+      jti,
+      purpose: 'marketplace-result-delivery',
+      result_cpk: resultCpk,
+      result_delivery_id: deliveryId,
+      sub: expectedPubky,
+    },
+  );
+}
+
+export function signServiceBody(
+  config: MarketplaceGrantConfig,
+  body: unknown,
+): {
+  bytes: Uint8Array;
+  signature: string;
+} {
+  const bytes = utf8.encode(canonicalJson(body));
+  return {
+    bytes,
+    signature: encodeBase64Url(ed25519.sign(bytes, Uint8Array.from(Buffer.from(config.requestSigningKey, 'hex')))),
+  };
+}
+
+export function signResultProof(seed: Uint8Array, message: unknown): string {
+  return encodeBase64Url(ed25519.sign(utf8.encode(canonicalJson(message)), Uint8Array.from(seed)));
+}

@@ -19,10 +19,21 @@ const QR_LOGO_URLS = ['/images/ring-logo.svg'];
 // error and a fresh-flow retry, and the session-required card that durable
 // surfaces render in place of the old dead end.
 const view = vi.hoisted(() => ({
-  status: 'awaiting' as 'idle' | 'awaiting' | 'connected' | 'error',
+  status: 'awaiting' as
+    | 'idle'
+    | 'creating'
+    | 'awaiting'
+    | 'verifying'
+    | 'claiming'
+    | 'connected'
+    | 'mismatch'
+    | 'expired'
+    | 'cancelled'
+    | 'error',
   authorizationUrl: '',
   errorMessage: null as string | null,
   isOpeningRing: false,
+  grantEnabled: false,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -55,6 +66,11 @@ vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () 
   }),
 }));
 
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>()),
+  getMarketplaceGrantFlowEnabled: () => view.grantEnabled,
+}));
+
 async function openDialog(trigger: { click: () => Promise<void> }) {
   await trigger.click();
   await vi.waitFor(() => {
@@ -72,6 +88,7 @@ describe('Marketplace session connect — visual regression', () => {
     view.authorizationUrl = '';
     view.errorMessage = null;
     view.isOpeningRing = false;
+    view.grantEnabled = false;
   });
 
   it('renders the awaiting-approval QR state at desktop viewport', async () => {
@@ -127,6 +144,32 @@ describe('Marketplace session connect — visual regression', () => {
     );
     await openDialog(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-error-desktop');
+  });
+
+  it('renders the signer-neutral BFF creating state at desktop viewport', async () => {
+    view.grantEnabled = true;
+    view.status = 'creating';
+    const screen = await renderForVRT(
+      <Harness>
+        <MarketplaceSessionConnectDialog triggerLabel="Approve purchases" />
+      </Harness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await openDialog(screen.getByRole('button', { name: 'Approve purchases' }));
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-bff-creating-desktop');
+  });
+
+  it('renders the signer-neutral identity mismatch at desktop viewport', async () => {
+    view.grantEnabled = true;
+    view.status = 'mismatch';
+    const screen = await renderForVRT(
+      <Harness>
+        <MarketplaceSessionConnectDialog triggerLabel="Approve purchases" />
+      </Harness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await openDialog(screen.getByRole('button', { name: 'Approve purchases' }));
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-bff-mismatch-desktop');
   });
 
   it('renders the session-required card that replaces durable-mode dead ends at desktop viewport', async () => {

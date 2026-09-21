@@ -8,8 +8,10 @@ import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError, isRetryable } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
+import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { sleep } from '@/libs/utils/utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
+import { clearMarketplaceBffSession, pairMarketplaceBffSession } from './marketplace-grant-client';
 import { resetMarketplaceNotificationDiagnostics } from './marketplace-notification-diagnostics';
 
 /**
@@ -43,6 +45,7 @@ const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 const sessionResponseSchema = z.object({
   token: z.string().regex(SESSION_TOKEN_PATTERN),
+  sessionId: z.uuid().optional(),
   pubky: commercePubkySchema,
   capabilities: z.string(),
   expiresAt: z.iso.datetime({ offset: true }),
@@ -72,6 +75,7 @@ export type MarketplaceSessionFlow = {
 
 type StoredMarketplaceSession = {
   token: string;
+  sessionId?: string;
   pubky: string;
   capabilities: string;
   expiresAtMs: number;
@@ -224,11 +228,16 @@ export class MarketplaceSessionService {
         context: { statusCode: response.status },
       });
     }
-    const { token, pubky, capabilities, expiresAt } = parsed.data;
+    const { token, sessionId, pubky, capabilities, expiresAt } = parsed.data;
     const issuedAt = new Date().toISOString();
     resetMarketplaceNotificationDiagnostics();
-    this.session = { token, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt), issuedAt };
+    this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt), issuedAt };
     this.writePersistedSession(parsed.data);
+    if (getMarketplaceGrantFlowEnabled() && sessionId) {
+      void pairMarketplaceBffSession({ token, pubky, sessionId }).catch(() => {
+        Logger.warn('Marketplace grant reconnect is unavailable for this session.');
+      });
+    }
     Logger.info('Established marketplace transaction session', { pubky, expiresAt });
     return this.toPublicInfo(this.session);
   }
@@ -303,7 +312,7 @@ export class MarketplaceSessionService {
       this.removePersistedSession();
       return null;
     }
-    const { token, pubky, capabilities, expiresAt } = parsed.data;
+    const { token, sessionId, pubky, capabilities, expiresAt } = parsed.data;
     const expiresAtMs = Date.parse(expiresAt);
     if (Date.now() >= expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
       this.removePersistedSession();
@@ -311,7 +320,12 @@ export class MarketplaceSessionService {
     }
 
     const issuedAt = new Date().toISOString();
-    this.session = { token, pubky, capabilities, expiresAt, expiresAtMs, issuedAt };
+    this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs, issuedAt };
+    if (getMarketplaceGrantFlowEnabled() && sessionId) {
+      void pairMarketplaceBffSession({ token, pubky, sessionId }).catch(() => {
+        Logger.warn('Marketplace grant reconnect is unavailable for the restored session.');
+      });
+    }
     Logger.info('Restored marketplace transaction session', { pubky, expiresAt });
     return this.toPublicInfo(this.session);
   }
@@ -335,6 +349,7 @@ export class MarketplaceSessionService {
     this.session = null;
     resetMarketplaceNotificationDiagnostics();
     this.removePersistedSession();
+    if (getMarketplaceGrantFlowEnabled()) void clearMarketplaceBffSession();
     if (!ended) return;
     this.notifySessionEnded({ reason, issuedAt: ended.issuedAt });
   }
@@ -346,6 +361,33 @@ export class MarketplaceSessionService {
       expiresAt: session.expiresAt,
       issuedAt: session.issuedAt,
     };
+  }
+
+  static establishClaimedGrantSession(
+    input: {
+      token: string;
+      pubky: string;
+      capabilities: string;
+      expiresAt: string;
+    },
+    expectedPubky: string,
+  ): MarketplaceSessionInfo {
+    const parsed = sessionResponseSchema.parse(input);
+    if (parsed.pubky !== expectedPubky) {
+      throw Err.auth(AuthErrorCode.FORBIDDEN, 'Marketplace returned a session for a different account.', {
+        service: ErrorService.Marketplace,
+        operation: 'establishClaimedGrantSession',
+      });
+    }
+    const issuedAt = new Date().toISOString();
+    this.session = {
+      ...parsed,
+      expiresAtMs: Date.parse(parsed.expiresAt),
+      issuedAt,
+    };
+    this.writePersistedSession(parsed);
+    resetMarketplaceNotificationDiagnostics();
+    return this.toPublicInfo(this.session);
   }
 
   private static notifySessionEnded(event: MarketplaceSessionEndedEvent): void {
