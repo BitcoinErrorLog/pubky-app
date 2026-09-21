@@ -23,3 +23,7 @@ export type TPubchiQueryParams = {
 export type TPubchiOwnerParam = {
   owner: Pubky;
 };
+
+export type TExportPubchiParams = {
+  includeHistory?: boolean;
+};

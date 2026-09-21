@@ -5,6 +5,8 @@ import type {
   DiscoveredTagSuggestion,
   LoadedPubchi,
   PubchiBindingRecordResult,
+  PubchiImportPreview,
+  PubchiImportResult,
   PubchiQuerySuccess,
 } from '@/application/pubchi/pubchi.types';
 import { TagKind } from '@/application/tag/tag.types';
@@ -22,7 +24,12 @@ import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { TGenerateAuthUrlResult } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { type PubchiFlyoutPrefill, usePubchiStore } from '@/stores/pubchi/pubchi.store';
-import type { TConfirmPubchiBackupParams, TCreatePubchiParams, TPubchiQueryParams } from './pubchi.types';
+import type {
+  TConfirmPubchiBackupParams,
+  TCreatePubchiParams,
+  TExportPubchiParams,
+  TPubchiQueryParams,
+} from './pubchi.types';
 import { publishPubchiSync } from './pubchi-sync';
 
 export class PubchiController {
@@ -461,6 +468,41 @@ export class PubchiController {
     }
     publishPubchiSync(ownerAtStart, 'config-saved');
     return config;
+  }
+
+  static async fetchExportPubchi(params: TExportPubchiParams = {}): Promise<PubchiImportPreview['bundle']> {
+    if (!isPubchiEnabled()) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
+        service: ErrorService.Pubchi,
+        operation: 'fetchExportPubchi',
+      });
+    }
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    return PubchiApplication.exportPubchiState(owner, params);
+  }
+
+  static async fetchImportPlan(input: unknown): Promise<PubchiImportPreview> {
+    if (!isPubchiEnabled()) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
+        service: ErrorService.Pubchi,
+        operation: 'fetchImportPlan',
+      });
+    }
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    return PubchiApplication.planImportPubchiState(owner, input);
+  }
+
+  static async commitImportPubchi(input: unknown): Promise<PubchiImportResult> {
+    if (!isPubchiEnabled()) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'PUBCHI_DISABLED', {
+        service: ErrorService.Pubchi,
+        operation: 'commitImportPubchi',
+      });
+    }
+    const owner = useAuthStore.getState().selectCurrentUserPubky();
+    const result = await PubchiApplication.importPubchiState(owner, input);
+    publishPubchiSync(owner, 'config-saved');
+    return result;
   }
 
   static async getCapabilityApprovalUrl(capabilities = APP_SIGNIN_CAPABILITIES): Promise<TGenerateAuthUrlResult> {

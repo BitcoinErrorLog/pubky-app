@@ -86,11 +86,16 @@ describe('PubchiController', () => {
     setPubchiEnv('false');
     const querySpy = vi.spyOn(PubchiApplication, 'query');
     const createSpy = vi.spyOn(PubchiApplication, 'commitCreateBinding');
+    const exportSpy = vi.spyOn(PubchiApplication, 'exportPubchiState');
+    const importSpy = vi.spyOn(PubchiApplication, 'importPubchiState');
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
     await expect(PubchiController.getActiveBinding()).resolves.toBeUndefined();
     await expect(PubchiController.commitCreateBinding({ bot: BOT })).rejects.toThrow('PUBCHI_DISABLED');
     await expect(PubchiController.commitDeleteBinding()).rejects.toThrow('PUBCHI_DISABLED');
+    await expect(PubchiController.fetchExportPubchi()).rejects.toThrow('PUBCHI_DISABLED');
+    await expect(PubchiController.fetchImportPlan({})).rejects.toThrow('PUBCHI_DISABLED');
+    await expect(PubchiController.commitImportPubchi({})).rejects.toThrow('PUBCHI_DISABLED');
     await expect(
       PubchiController.fetchPubchiQuery({
         question: 'who tagged me?',
@@ -100,6 +105,8 @@ describe('PubchiController', () => {
 
     expect(querySpy).not.toHaveBeenCalled();
     expect(createSpy).not.toHaveBeenCalled();
+    expect(exportSpy).not.toHaveBeenCalled();
+    expect(importSpy).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -284,11 +291,7 @@ describe('PubchiController', () => {
         setSession: authState.setSession,
       }),
     );
-    const session = sessionFor(OWNER, [
-      '/pub/pubky.app/:rw',
-      '/pub/app.pubchi/v1/:rw',
-      '/priv/app.pubchi/v1/:rw',
-    ]);
+    const session = sessionFor(OWNER, ['/pub/pubky.app/:rw', '/pub/app.pubchi/v1/:rw', '/priv/app.pubchi/v1/:rw']);
     const bootstrapSpy = vi.spyOn(AuthController, 'initializeAuthenticatedSession');
     await PubchiController.adoptCapabilityApproval(session);
     expect(authState.setSession).toHaveBeenCalledWith(session);
@@ -422,5 +425,23 @@ describe('PubchiController', () => {
     });
     expect(logoutSpy).toHaveBeenCalledWith({ session });
     expect(authState.setSession).not.toHaveBeenCalled();
+  });
+
+  it('forwards export and import to the application for the signed-in owner', async () => {
+    setPubchiEnv('true', 'https://pubchi.example.com');
+    const bundle = { schema: 'pubchi-export-bundle', owner: OWNER, bot: BOT };
+    const preview = { bundle, plan: { hashes: {} }, feeds: [] };
+    const exported = vi.spyOn(PubchiApplication, 'exportPubchiState').mockResolvedValue(bundle as never);
+    const planned = vi.spyOn(PubchiApplication, 'planImportPubchiState').mockResolvedValue(preview as never);
+    const imported = vi
+      .spyOn(PubchiApplication, 'importPubchiState')
+      .mockResolvedValue({ ...preview, hashes: {} } as never);
+
+    await expect(PubchiController.fetchExportPubchi({ includeHistory: false })).resolves.toBe(bundle);
+    await expect(PubchiController.fetchImportPlan(bundle)).resolves.toBe(preview);
+    await expect(PubchiController.commitImportPubchi(bundle)).resolves.toEqual({ ...preview, hashes: {} });
+    expect(exported).toHaveBeenCalledWith(OWNER, { includeHistory: false });
+    expect(planned).toHaveBeenCalledWith(OWNER, bundle);
+    expect(imported).toHaveBeenCalledWith(OWNER, bundle);
   });
 });

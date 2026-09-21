@@ -1,3 +1,4 @@
+import type { PubchiExportBundleV1, PubchiImportPlan, ReconstructedFeed } from '@/libs/pubchi/portability';
 import type {
   Conversation,
   ExecutionScope,
@@ -96,4 +97,18 @@ export type ConfirmPubchiBackupParams = {
 export type PubchiRemoteState = {
   pointer: PubchiBotV1;
   binding: OwnerBindingV1;
+};
+
+export type PubchiExportParams = {
+  includeHistory?: boolean;
+};
+
+export type PubchiImportPreview = {
+  bundle: PubchiExportBundleV1;
+  plan: PubchiImportPlan;
+  feeds: ReconstructedFeed[];
+};
+
+export type PubchiImportResult = PubchiImportPreview & {
+  hashes: Record<string, string>;
 };
