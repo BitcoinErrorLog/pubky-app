@@ -161,6 +161,7 @@ describe('PubchiStore', () => {
     usePubchiStore.getState().addConversationTurn({ role: 'assistant', text: 'answer' }, OWNER);
     usePubchiStore.getState().setConfig(null, 'different-owner' as never);
     expect(usePubchiStore.getState().conversation.turns).toEqual([]);
+    expect(usePubchiStore.getState().proactiveSuggestions).toEqual([]);
     usePubchiStore.getState().addConversationTurn({ role: 'user', text: 'ignored' }, OWNER);
     expect(usePubchiStore.getState().conversation.turns).toEqual([]);
   });

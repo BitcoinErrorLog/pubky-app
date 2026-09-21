@@ -22,7 +22,14 @@ import { Logger } from '@/libs/logger/logger';
 import { APP_SIGNIN_CAPABILITIES, sessionCovers } from '@/libs/pubchi/capabilities';
 import { commitContentForDraftPost } from '@/libs/pubchi/draft-post';
 import { isPubchiEnabled, isPubchiPanelEnabled } from '@/libs/pubchi/flags';
-import { type FeedProposalV2, isPubkyId, type PubchiConfigV1, type PubchiOwnerContextV1 } from '@/libs/pubchi/schemas';
+import { persistDismissedId } from '@/libs/pubchi/proactive';
+import {
+  type FeedProposalV2,
+  isPubkyId,
+  type PubchiConfigV1,
+  type PubchiOwnerContextV1,
+  type PubchiSuggestionV1,
+} from '@/libs/pubchi/schemas';
 import { CompositeIdDomain } from '@/models/models.types';
 import { buildCompositeIdFromPubkyUri, parseCompositeId } from '@/models/models.utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
@@ -117,6 +124,29 @@ export class PubchiController {
       usePubchiStore.getState().setPubchi(pubchi, ownerAtStart);
     }
     return pubchi;
+  }
+
+  static async runAppOpenProactive(): Promise<PubchiSuggestionV1[]> {
+    if (!isPubchiEnabled() || !isPubchiPanelEnabled()) return [];
+    const ownerAtStart = useAuthStore.getState().currentUserPubky;
+    if (!ownerAtStart) return [];
+    const suggestions = await PubchiApplication.runAppOpenProactive(ownerAtStart);
+    if (useAuthStore.getState().currentUserPubky === ownerAtStart) {
+      usePubchiStore.getState().setProactiveSuggestions(suggestions, ownerAtStart);
+    }
+    return suggestions;
+  }
+
+  static dismissProactiveSuggestion(suggestionId: string): void {
+    const owner = useAuthStore.getState().currentUserPubky;
+    if (!owner) return;
+    persistDismissedId(owner, suggestionId);
+    const store = usePubchiStore.getState();
+    if (store.ownerPubky !== owner) return;
+    store.setProactiveSuggestions(
+      store.proactiveSuggestions.filter((item) => item.suggestion_id !== suggestionId),
+      owner,
+    );
   }
 
   static async confirmBackup(params: TConfirmPubchiBackupParams): Promise<LoadedPubchi> {

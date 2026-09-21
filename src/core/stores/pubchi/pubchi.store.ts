@@ -6,6 +6,7 @@ import type {
   FeedProposalV2,
   PubchiConfigV1,
   PubchiOwnerContextV1,
+  PubchiSuggestionV1,
   PubchiTarget,
 } from '@/libs/pubchi/schemas';
 import type { Pubky } from '@/models/models.types';
@@ -41,9 +42,11 @@ export interface PubchiStore {
   quickQuestionsOpen: boolean;
   conversation: Conversation;
   conversationGeneration: number;
+  proactiveSuggestions: PubchiSuggestionV1[];
   setPubchi: (pubchi: NoPhrase<StoredPubchi> | undefined, ownerPubky: Pubky | null) => void;
   setConfig: (config: PubchiConfigV1 | null, ownerPubky: Pubky | null) => void;
   setContext: (context: PubchiOwnerContextV1 | null, ownerPubky: Pubky | null) => void;
+  setProactiveSuggestions: (suggestions: PubchiSuggestionV1[], ownerPubky: Pubky | null) => void;
   openFlyout: (prefill?: PubchiFlyoutPrefill, ownerPubky?: Pubky | null) => void;
   closeFlyout: () => void;
   openFeedBuilder: (proposal?: FeedProposalV2) => void;
@@ -70,6 +73,7 @@ const initialState = {
   quickQuestionsOpen: false,
   conversation: { turns: [] },
   conversationGeneration: 0,
+  proactiveSuggestions: [] as PubchiSuggestionV1[],
 };
 
 export const usePubchiStore = create<PubchiStore>((set, get) => ({
@@ -82,7 +86,7 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
       pubchi,
       ownerPubky,
       lastUpdatedAt: Date.now(),
-      ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] } } : {}),
+      ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] }, proactiveSuggestions: [] } : {}),
     });
   },
   setConfig: (config, ownerPubky) =>
@@ -90,11 +94,18 @@ export const usePubchiStore = create<PubchiStore>((set, get) => ({
       config,
       ownerPubky,
       lastUpdatedAt: Date.now(),
-      ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] } } : {}),
+      ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] }, proactiveSuggestions: [] } : {}),
     }),
   setContext: (context, ownerPubky) =>
     set({
       context,
+      ownerPubky,
+      lastUpdatedAt: Date.now(),
+      ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] }, proactiveSuggestions: [] } : {}),
+    }),
+  setProactiveSuggestions: (proactiveSuggestions, ownerPubky) =>
+    set({
+      proactiveSuggestions,
       ownerPubky,
       lastUpdatedAt: Date.now(),
       ...(get().ownerPubky !== ownerPubky ? { conversation: { turns: [] } } : {}),

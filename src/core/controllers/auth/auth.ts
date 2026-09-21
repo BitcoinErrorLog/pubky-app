@@ -24,6 +24,7 @@ import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { clearMuteSyncCursorSessionStorage } from '@/libs/mute-sync/clear-cursor-session-storage';
 import { clearLocalCursors } from '@/libs/pubchi/capabilities-v1';
+import { clearProactiveLocalState } from '@/libs/pubchi/proactive';
 import { clearAllQueryClients } from '@/libs/query-client/query-client.factory';
 import { clearCookies, sleep } from '@/libs/utils/utils';
 import type { Pubky } from '@/models/models.types';
@@ -250,6 +251,7 @@ export class AuthController {
 
       if (authStore.currentUserPubky && authStore.currentUserPubky !== pubky) {
         clearLocalCursors();
+        clearProactiveLocalState();
         try {
           await clearPubchiOwnerData(authStore.currentUserPubky);
         } catch (error) {
@@ -368,6 +370,7 @@ export class AuthController {
   private static async cleanupLocalState() {
     this.cancelModerationFollow();
     clearLocalCursors();
+    clearProactiveLocalState();
     // Capture pubky before resetting auth store; used to scope marker cleanup.
     const pubky = useAuthStore.getState().currentUserPubky;
     if (pubky) {

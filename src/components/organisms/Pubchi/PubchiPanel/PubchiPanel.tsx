@@ -40,6 +40,7 @@ import { PubchiAppliedTagSuggestions } from '../PubchiAppliedTagSuggestions/Pubc
 import { PubchiCapabilities } from '../PubchiCapabilities/PubchiCapabilities';
 import { PubchiFeedBuilder } from '../PubchiFeedBuilder/PubchiFeedBuilder';
 import { PubchiFlyoutHeader } from '../PubchiFlyoutHeader/PubchiFlyoutHeader';
+import { PubchiProactiveSuggestions } from '../PubchiProactiveSuggestions/PubchiProactiveSuggestions';
 
 export const PUBCHI_PANEL_SURFACE = 'pubchi-panel';
 
@@ -72,6 +73,7 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
   const databaseBlocked = usePubchiStore((state) => state.databaseBlocked);
   const feedBuilderOpen = usePubchiStore((state) => state.feedBuilder.open);
   const feedBuilderProposal = usePubchiStore((state) => state.feedBuilder.proposal);
+  const proactiveSuggestions = usePubchiStore((state) => state.proactiveSuggestions);
   const clearConversation = usePubchiStore((state) => state.clearConversation);
   const setQuickQuestionsOpen = usePubchiStore((state) => state.setQuickQuestionsOpen);
   const question = useWatch({ control: form.control, name: QUERY_FORM_FIELDS.QUESTION }) ?? '';
@@ -247,6 +249,13 @@ export function PubchiPanel({ open, onOpenChange }: PubchiPanelProps) {
               pubchi={pubchi}
               tier={tier}
               brainLabel={config?.brain.execution === 'self-hosted' ? 'Own endpoint' : 'Hosted Kimi'}
+              missedCount={proactiveSuggestions.length}
+            />
+
+            <PubchiProactiveSuggestions
+              suggestions={proactiveSuggestions}
+              currentUserPubky={currentUserPubky}
+              onDismiss={(suggestionId) => PubchiController.dismissProactiveSuggestion(suggestionId)}
             />
 
             {needsReapproval ? (

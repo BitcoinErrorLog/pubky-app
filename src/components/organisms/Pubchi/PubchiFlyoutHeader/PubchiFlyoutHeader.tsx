@@ -26,9 +26,15 @@ export type PubchiFlyoutHeaderProps = {
   pubchi?: PubchiSummary;
   tier?: 'read-only' | 'assisted' | 'autonomous';
   brainLabel?: string;
+  missedCount?: number;
 };
 
-export function PubchiFlyoutHeader({ pubchi, tier = 'read-only', brainLabel = 'Hosted Kimi' }: PubchiFlyoutHeaderProps) {
+export function PubchiFlyoutHeader({
+  pubchi,
+  tier = 'read-only',
+  brainLabel = 'Hosted Kimi',
+  missedCount = 0,
+}: PubchiFlyoutHeaderProps) {
   const { copyToClipboard } = useCopyToClipboard();
   const router = useRouter();
   const closeFlyout = usePubchiStore((state) => state.closeFlyout);
@@ -74,6 +80,11 @@ export function PubchiFlyoutHeader({ pubchi, tier = 'read-only', brainLabel = 'H
             <div className="mt-1 flex flex-wrap gap-1">
               <Badge variant="outline">{tierLabel}</Badge>
               <Badge variant="secondary">{brainLabel}</Badge>
+              {missedCount > 0 ? (
+                <Badge data-testid="pubchi-missed-badge">
+                  {missedCount} missed
+                </Badge>
+              ) : null}
             </div>
             <Typography size="xs" className={pubchi.verified ? 'mt-1 flex items-center gap-1 text-muted-foreground' : 'mt-1 text-destructive'}>
               {pubchi.verified ? <Check aria-hidden="true" className="size-3" /> : null}
