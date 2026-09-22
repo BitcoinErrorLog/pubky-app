@@ -149,6 +149,9 @@ export class MarketplaceShopClientService {
     return new PubkyShopClient({
       session,
       serviceUrl: this.serviceOrigin(),
+      // Chromium throws "Illegal invocation" when Window.fetch runs with `this`
+      // bound to PubkyShopClient. Node fetch does not, which hid the board crash.
+      fetch: globalThis.fetch.bind(globalThis),
     });
   }
 
