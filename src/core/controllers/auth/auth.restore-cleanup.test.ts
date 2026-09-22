@@ -58,6 +58,9 @@ const EXPECTED_PRIVATE_TABLES = [
   'user_streams',
   'bookmarks',
   'commerce_listing_drafts',
+  'commerce_import_manifests',
+  'commerce_import_mappings',
+  'commerce_import_rows',
   'commerce_sync_jobs',
   'commerce_reviews',
   'commerce_review_responses',
@@ -84,11 +87,29 @@ const EXPECTED_PRIVATE_TABLES = [
 ] as const;
 
 const sorted = (values: Iterable<string>) => [...values].sort();
+const EXPECTED_TABLE_COUNT = EXPECTED_PUBLIC_CACHE_TABLES.length + EXPECTED_PRIVATE_TABLES.length;
 
 async function seedEveryTable(): Promise<void> {
   for (const table of db.tables) {
-    expect(table.schema.primKey.keyPath).toBe('id');
-    await db.table<{ id: string }>(table.name).put({ id: `restore-cleanup:${table.name}` });
+    const keyPath = table.schema.primKey.keyPath;
+    const seed = `restore-cleanup:${table.name}`;
+    if (keyPath === 'id') {
+      await db.table<{ id: string }>(table.name).put({ id: seed });
+      continue;
+    }
+    if (typeof keyPath === 'string') {
+      await db.table(table.name).put({ [keyPath]: seed });
+      continue;
+    }
+    if (Array.isArray(keyPath) && keyPath.every((part) => typeof part === 'string')) {
+      const record: Record<string, string> = {};
+      for (const part of keyPath) {
+        record[part] = `${seed}:${part}`;
+      }
+      await db.table(table.name).put(record);
+      continue;
+    }
+    throw new Error(`unseeded primary key ${JSON.stringify(keyPath)} on ${table.name}`);
   }
 }
 
@@ -276,9 +297,9 @@ describe('AuthController restore cleanup with the real bridge and database', () 
     vi.restoreAllMocks();
   });
 
-  it('classifies all 46 stores and clears private data after a no-identity bridge timeout', async () => {
+  it('classifies every Dexie store and clears private data after a no-identity bridge timeout', async () => {
     const expectedTables = [...EXPECTED_PUBLIC_CACHE_TABLES, ...EXPECTED_PRIVATE_TABLES];
-    expect(db.tables).toHaveLength(46);
+    expect(db.tables).toHaveLength(EXPECTED_TABLE_COUNT);
     expect(sorted(db.tables.map((table) => table.name))).toEqual(sorted(expectedTables));
     expect(sorted(PUBLIC_CACHE_TABLES)).toEqual(sorted(EXPECTED_PUBLIC_CACHE_TABLES));
     await seedEveryTable();

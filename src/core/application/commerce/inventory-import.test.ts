@@ -308,6 +308,39 @@ describe('CommerceInventoryImportApplication', () => {
     expect(published.status).toBe('conflict');
   });
 
+  it('quotes formula prefixes in the result CSV download', async () => {
+    const planned = await app().planFile(
+      new BytesFile(utf8(JSON.stringify([canonicalRow('boots_01')])), 'one.json', 'application/json'),
+    );
+    expect(planned.status).toBe('planned');
+    if (planned.status !== 'planned') return;
+    const manifest = await store.load(planned.manifestId);
+    expect(manifest).not.toBeNull();
+    if (!manifest) return;
+    const [row] = manifest.rows;
+    expect(row).toBeDefined();
+    if (!row) return;
+    store.manifests.set(planned.manifestId, {
+      ...manifest,
+      rows: [
+        {
+          ...row,
+          listingId: '=CMD',
+          rowIdentity: '+id',
+          checkpoint: 'failed',
+          failureCode: '@SUM(1)',
+        },
+      ],
+    });
+    const csv = await app().resultCsv(planned.manifestId);
+    expect(csv).toContain('"\'=CMD"');
+    expect(csv).toContain('"\'+id"');
+    expect(csv).toContain('"\'@SUM(1)"');
+    for (const line of csv.trim().split('\n').slice(1)) {
+      expect(line).not.toMatch(/(?:^|,)[=+\-@]/);
+    }
+  });
+
   it('plans 250 JSON rows', async () => {
     const rows = Array.from({ length: 250 }, (_, index) => canonicalRow(`item_${index}`));
     const planned = await app().planFile(new BytesFile(utf8(JSON.stringify(rows)), 'bulk.json', 'application/json'));

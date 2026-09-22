@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AppDatabase, db } from '@/database/franky/franky';
 import { clearDatabase } from '@/database/franky/franky.helpers';
 import { COMMERCE_IMPORT_TABLE_NAMES } from '@/models/commerce/commerce.schema';
+import {
+  DexieManifestStore,
+  type HostImportManifest,
+  MANIFEST_CONFLICT,
+} from '@/services/marketplace/marketplace-import-store';
 
 describe('Inventory Studio Dexie import tables', () => {
   afterEach(async () => {
@@ -64,5 +69,41 @@ describe('Inventory Studio Dexie import tables', () => {
       expect(names.has(tableName)).toBe(true);
     }
     v6.close();
+  });
+
+  it('throws manifest_conflict from Dexie compareAndSwap on a version mismatch', async () => {
+    await db.open();
+    const store = new DexieManifestStore('y'.repeat(52));
+    const manifest: HostImportManifest = {
+      schemaVersion: 2,
+      kind: 'pubky-shop-import-manifest',
+      manifestId: 'cas-1',
+      manifestVersion: 1,
+      sourceSha256: 'a'.repeat(64),
+      sourceByteLength: '1',
+      rowCount: 1,
+      parserVersion: '1',
+      mappingVersion: '1',
+      recordSchemaVersion: '1',
+      createdAt: new Date(0).toISOString(),
+      rows: [
+        {
+          sourceRow: 1,
+          sourceIdentity: 'src',
+          rowIdentity: 'row-1',
+          normalizedHash: 'b'.repeat(64),
+          listingIdentity: 'listing:boots_01',
+          listingId: 'boots_01',
+          generatedListingId: null,
+          variantId: 'default',
+          sku: '',
+          intendedAction: 'create',
+          idempotencyKey: '00000000-0000-5000-8000-000000000001',
+          checkpoint: 'planned',
+        },
+      ],
+    };
+    await store.create(manifest);
+    await expect(store.compareAndSwap('cas-1', 99, (current) => current)).rejects.toThrow(MANIFEST_CONFLICT);
   });
 });

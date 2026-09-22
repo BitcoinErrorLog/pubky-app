@@ -78,6 +78,11 @@ export type InventoryImportHost = {
   currentItems: () => Promise<Readonly<Record<string, CurrentImportItem>>>;
 };
 
+function csvCell(value: string): string {
+  const prefixed = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return `"${prefixed.replaceAll('"', '""')}"`;
+}
+
 function asObject(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -343,7 +348,7 @@ export class CommerceInventoryImportApplication {
     const lines = ['listing_id,row_identity,checkpoint,result'];
     for (const row of manifest?.rows ?? []) {
       const result = row.checkpoint === 'complete' ? 'synced' : (row.failureCode ?? row.checkpoint);
-      lines.push(`${row.listingId},${row.rowIdentity},${row.checkpoint},${result}`);
+      lines.push([row.listingId, row.rowIdentity, row.checkpoint, result].map(csvCell).join(','));
     }
     return `${lines.join('\n')}\n`;
   }
