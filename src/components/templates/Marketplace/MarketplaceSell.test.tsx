@@ -20,9 +20,7 @@ import { MarketplaceSell } from './MarketplaceSell';
 // its boundary; the router push is the assertion target.
 const routerPush = vi.hoisted(() => vi.fn());
 const commerceMode = vi.hoisted(() => ({ current: 'unavailable' as 'unavailable' | 'transaction-service' }));
-const restorePersistedMarketplaceSession = vi.hoisted(
-  () => vi.fn((): MarketplaceSessionInfo | null => null),
-);
+const restorePersistedMarketplaceSession = vi.hoisted(() => vi.fn((): MarketplaceSessionInfo | null => null));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
