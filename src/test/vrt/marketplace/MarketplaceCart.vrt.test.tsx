@@ -166,10 +166,10 @@ vi.mock('@/config/commerce', async (importOriginal) => {
   return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
 });
 
-// The checkout money notice is gated on the deploy environment, not the
+// The checkout staging amber is gated on the deploy environment, not the
 // adapter mode. Each scene names its environment explicitly: staging (test
 // rails, no real funds) is the default; the locks-paykit scene runs on
-// production, where real payment rails are live.
+// production, where the muted helper is "Paid directly to the seller."
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
   return { ...actual, getDeployEnv: () => view.deployEnv };
@@ -464,9 +464,8 @@ describe('Marketplace cart — visual regression', () => {
   });
 
   // locks-paykit mode: real payment rails are live, so the guarantee copy must
-  // NOT claim "no real funds move" — it states where the funds actually go.
-  // The scene is framed as the production deploy, so the money notice is the
-  // real-money one.
+  // NOT claim "no real funds move". The scene is framed as production, so there
+  // is no staging amber; checkout shows the muted seller-direct helper only.
   it('renders the locks-paykit checkout labels at desktop viewport', async () => {
     const { singleSeller } = await fixtures;
     view.items = singleSeller;
@@ -494,6 +493,30 @@ describe('Marketplace cart — visual regression', () => {
     await captureCart('cart-durable-unapproved-desktop');
     view.adapterMode = 'sandbox';
     view.hasMarketplaceSession = false;
+  });
+
+  it('renders the logged-out durable cart at desktop viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: { width: 1440, height: 1600 } });
+    await captureCart('cart-logged-out-desktop');
+    view.adapterMode = 'sandbox';
+  });
+
+  it('renders the logged-out durable cart at mobile viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
+    await captureCart('cart-logged-out-mobile');
+    view.adapterMode = 'sandbox';
   });
 
   it('renders an accepted-offer group without mixing it into ordinary checkout', async () => {

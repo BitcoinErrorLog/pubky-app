@@ -5,7 +5,6 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
-import { CAPABILITIES } from '@/config/app';
 import { useStepUpReauth } from '@/hooks/useStepUpReauth/useStepUpReauth';
 import { Logger } from '@/libs/logger/logger';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
@@ -74,31 +73,12 @@ export function MarketplaceReauthDialog({
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">
         <DialogHeader>
-          <DialogTitle>Sign in again with full permissions</DialogTitle>
+          <DialogTitle>Sign in again</DialogTitle>
         </DialogHeader>
 
         <Typography as="p" className="text-sm text-muted-foreground">
-          Approving with your signer (Pubky Ring) signs you in again with the app&apos;s full permission list — public
-          app data, encrypted messaging, and private storage. Your account and data stay exactly as they are; only the
-          session&apos;s permissions widen, so watchlist sync, portable receipts, and messaging all work.
+          Sign in again for this device.
         </Typography>
-        <Typography as="p" className="text-sm text-muted-foreground">
-          Ring will show the full permission list — that is correct. This approval replaces your current session for the
-          same identity; it does not create a new account.
-        </Typography>
-
-        {/* The exact requested capability string, verbatim from the single
-            `CAPABILITIES` constant the flow is generated with — Ring displays
-            the same list at approval time, so the user can compare the two
-            (docs/ecommerce/step-up-approval.md, QR/phish-swap row). */}
-        <div className="rounded-md border border-border bg-muted/40 p-3">
-          <code className="block font-mono text-xs break-all" data-cy="reauth-requested-capabilities">
-            {CAPABILITIES}
-          </code>
-          <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-            Pubky Ring will show this exact permission list — compare it before approving.
-          </Typography>
-        </div>
 
         {reauth.status === 'error' ? (
           <div className="grid gap-3">

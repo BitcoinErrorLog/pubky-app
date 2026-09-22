@@ -13,12 +13,13 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
     enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') } : null,
 }));
 
-// Record media resolves to a deterministic data-URI image so the gallery
-// captures a REAL loaded image (main viewer + thumbnails) without any network
-// fetch — the fixture pubky:// URIs have no fetchable bytes in VRT.
+// Record media resolves to a deterministic portrait data-URI (8×16, orange
+// over teal) so the gallery captures a REAL loaded image without a network
+// fetch. The listing fixture declares 1200×1600; a square 8×8 made
+// object-cover vs object-contain indistinguishable in the reserved frame.
 const MEDIA_DATA_URL = vi.hoisted(
   () =>
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4UaKEFTEMLQkAgnNfgXMIh2kAAAAASUVORK5CYII=',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAQCAIAAACk6KkqAAAAGUlEQVR42mN4UaKEFTEMMQmtuf1Y0RCTAAByT7UBUCR7sgAAAABJRU5ErkJggg==',
 );
 
 vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
@@ -148,14 +149,15 @@ const fixtures = vi.hoisted(async () => {
 });
 
 const view = vi.hoisted(() => ({
-  adapterMode: 'sandbox' as 'sandbox' | 'unavailable' | 'locks-paykit',
+  adapterMode: 'sandbox' as 'sandbox' | 'unavailable' | 'locks-paykit' | 'transaction-service',
   listing: undefined as unknown,
   shop: undefined as unknown,
   projection: null as unknown,
   reputation: { status: 'new_seller' as const } as unknown,
   fetchFails: false,
-  currentUserPubky: 'u'.repeat(52),
+  currentUserPubky: 'u'.repeat(52) as string | null,
   listingTags: [] as unknown[],
+  needsSession: false,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -168,7 +170,7 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: view.currentUserPubky }),
+  useAuthStore: createMarketplaceVrtAuthStore({ getCurrentUserPubky: () => view.currentUserPubky }),
 }));
 
 vi.mock('@/config/commerce', async (importOriginal) => {
@@ -246,7 +248,13 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
 }));
 
 vi.mock('@/hooks/useMarketplaceProjection/useMarketplaceProjection', () => ({
-  useMarketplaceProjection: () => ({ projection: view.projection, isLoading: false, error: null, refresh: vi.fn() }),
+  useMarketplaceProjection: () => ({
+    projection: view.projection,
+    isLoading: false,
+    error: null,
+    needsSession: view.needsSession,
+    refresh: vi.fn(),
+  }),
 }));
 
 vi.mock('@/hooks/useMarketplaceMessages/useMarketplaceMessages', async () => {
@@ -314,6 +322,7 @@ async function setView(overrides: Partial<typeof view>) {
   view.fetchFails = false;
   view.currentUserPubky = 'u'.repeat(52);
   view.listingTags = [];
+  view.needsSession = false;
   Object.assign(view, overrides);
 }
 
@@ -547,5 +556,42 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-loading-desktop');
+  });
+
+  it('renders the logged-out purchase path at desktop viewport', async () => {
+    const { seller, fixedPriceListing } = await fixtures;
+    await setView({
+      listing: fixedPriceListing,
+      adapterMode: 'transaction-service',
+      currentUserPubky: null,
+      needsSession: true,
+      projection: null,
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: { width: 1440, height: 1800 },
+    });
+    await expect(screen.getByRole('button', { name: 'Sign in to buy' })).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-logged-out-desktop');
+  });
+
+  it('renders the logged-out purchase path at mobile viewport', async () => {
+    const { seller, fixedPriceListing } = await fixtures;
+    await setView({
+      listing: fixedPriceListing,
+      adapterMode: 'transaction-service',
+      currentUserPubky: null,
+      needsSession: true,
+      projection: null,
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: { width: 390, height: 1800 },
+    });
+    await expect(screen.getByRole('button', { name: 'Sign in to buy' })).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'listing-logged-out-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 });

@@ -210,15 +210,13 @@ export function MarketplacePaymentStatusCard({
         {order.fiatVerification === 'seller-attested' && <Badge variant="outline">Seller-attested</Badge>}
         {isSandbox && <Badge variant="secondary">Sandbox · simulated payment · no real funds</Badge>}
       </div>
-      {!isSandbox && isBuyer && isAwaiting && (
+      {!isSandbox && isBuyer && isAwaiting && isStaging && (
         <Typography
           as="p"
           role="note"
           className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
         >
-          {isStaging
-            ? 'Staging environment — test rails, no real funds move'
-            : 'Real money. Payments are final and go directly to the seller.'}
+          Staging environment — test rails, no real funds move
         </Typography>
       )}
       {visibleStatus === 'confirmed' && order.fiatVerification === 'gateway-notified' && (

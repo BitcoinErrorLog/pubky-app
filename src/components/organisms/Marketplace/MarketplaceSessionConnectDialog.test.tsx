@@ -14,6 +14,8 @@ const view = vi.hoisted(() => ({
   authorizationUrl: '',
   errorMessage: null as string | null,
   isOpeningRing: false,
+  requestsFullGrant: true,
+  requestsGrantReconnect: false,
 }));
 
 vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
@@ -21,7 +23,8 @@ vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () 
     status: view.status,
     authorizationUrl: view.authorizationUrl,
     errorMessage: view.errorMessage,
-    requestsFullGrant: true,
+    requestsFullGrant: view.requestsFullGrant,
+    requestsGrantReconnect: view.requestsGrantReconnect,
     start: vi.fn(),
     cancel: vi.fn(),
     copyAuthUrl: vi.fn(async () => {}),
@@ -51,6 +54,8 @@ describe('MarketplaceSessionConnectDialog', () => {
     view.authorizationUrl = '';
     view.errorMessage = null;
     view.isOpeningRing = false;
+    view.requestsFullGrant = true;
+    view.requestsGrantReconnect = false;
   });
 
   it('joined state: honest copy, and no QR slot, Copy, or Open affordances', () => {
@@ -73,5 +78,18 @@ describe('MarketplaceSessionConnectDialog', () => {
     expect(screen.getByLabelText('Copy authorization link')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /open in pubky ring/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    expect(screen.getByText('Sign in to Pubky Shop.')).toBeInTheDocument();
+    expect(screen.queryByText(/permission list/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/compare it before approving/i)).not.toBeInTheDocument();
+  });
+
+  it('uses reconnect copy only when the hook selected grant reconnect', () => {
+    view.requestsGrantReconnect = true;
+    view.requestsFullGrant = false;
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.getByRole('heading', { name: 'Approve purchases' })).toBeInTheDocument();
+    expect(screen.getByText(/reconnect the marketplace session/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Approve purchases in Pubky Ring' })).not.toBeInTheDocument();
   });
 });

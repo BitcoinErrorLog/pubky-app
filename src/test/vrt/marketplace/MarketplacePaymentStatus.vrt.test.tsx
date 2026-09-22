@@ -58,10 +58,11 @@ vi.mock('@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment', () => (
   }),
 }));
 
-// The money notice is gated on the deploy environment. Each scene names its
-// environment: locks-paykit scenes run on production (real rails — the
-// real-money notice is truthful there); transaction-service scenes run on
-// staging (test rails — no real funds move). Sandbox scenes render no notice.
+// Staging amber is gated on the deploy environment. Each scene names its
+// environment: locks-paykit and the production method-picker run on
+// production (no amber money notice; awaiting payment shows muted hold
+// copy). Other transaction-service scenes run on staging (test rails —
+// no real funds move). Sandbox scenes render no notice.
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
   return { ...actual, getDeployEnv: () => view.deployEnv };
@@ -254,10 +255,15 @@ describe('Marketplace payment status card — visual regression', () => {
   it('renders the payment method picker with the seller-configured rails at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
-      deployEnv: 'staging',
+      deployEnv: 'production',
       orderOverrides: { holdExpiresAt: HOLD_DEADLINE, holdSource: 'checkout' },
     });
     await expect.element(screen.getByText('₿ Bitcoin')).toBeInTheDocument();
+    await expect.element(screen.getByText(/The item is held for you until/)).toBeInTheDocument();
+    await expect
+      .element(screen.getByText('Real money. Payments are final and go directly to the seller.'))
+      .not.toBeInTheDocument();
+    await expect.element(screen.getByText(/Choose how to pay/i)).not.toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-picker-desktop');
     view.locks.enabled = true;
   });

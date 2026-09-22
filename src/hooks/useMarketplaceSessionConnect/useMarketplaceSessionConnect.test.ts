@@ -1,11 +1,15 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { copyToClipboard } from '@/libs/utils/utils';
+import { beginMarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.types';
 import { useMarketplaceSessionConnect } from './useMarketplaceSessionConnect';
 
@@ -21,7 +25,15 @@ const SESSION: CommerceMarketplaceSession = {
 };
 
 vi.mock('@/controllers/commerce/commerce', () => ({
-  CommerceController: { beginMarketplaceSessionConnect: vi.fn(), hasFullHomeserverGrant: vi.fn(() => true) },
+  CommerceController: {
+    beginMarketplaceSessionConnect: vi.fn(),
+    hasFullHomeserverGrant: vi.fn(() => true),
+    writeMarketplaceSessionStore: vi.fn(),
+  },
+}));
+
+vi.mock('@/services/marketplace/marketplace-grant-client', () => ({
+  beginMarketplaceGrantFlow: vi.fn(),
 }));
 
 vi.mock('@/controllers/auth/auth', () => ({
@@ -385,5 +397,161 @@ describe('useMarketplaceSessionConnect', () => {
 
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+  });
+});
+
+describe('useMarketplaceSessionConnect grant reconnect', () => {
+  async function enableGrantFlow() {
+    process.env.PUBKY_RUNTIME_MARKETPLACE_GRANT_FLOW_ENABLED = 'true';
+    const { resetRuntimeConfigForTests } = await import('@/libs/runtime-config/runtime-config');
+    resetRuntimeConfigForTests();
+    return () => {
+      delete process.env.PUBKY_RUNTIME_MARKETPLACE_GRANT_FLOW_ENABLED;
+      resetRuntimeConfigForTests();
+    };
+  }
+
+  function createDeferredGrantFlow(url: string) {
+    let resolveResult!: (result: {
+      status: 'connected';
+      token: string;
+      pubky: string;
+      capabilities: string;
+      expires_at: string;
+    }) => void;
+    const pending = new Promise<Parameters<typeof resolveResult>[0]>((resolve) => {
+      resolveResult = resolve;
+    });
+    const grantFlow = {
+      authorizationUrl: url,
+      awaitResult: vi.fn(() => pending),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    };
+    return { grantFlow, resolveResult };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('bootstraps AuthToken when grant is enabled but no marketplace session exists', async () => {
+    const restore = await enableGrantFlow();
+    try {
+      vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+      const { flow } = createDeferredFlow('pubkyauth:///?caps=bootstrap');
+      vi.mocked(CommerceController.beginMarketplaceSessionConnect).mockReturnValue(flow);
+      const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+      act(() => result.current.start());
+
+      expect(beginMarketplaceGrantFlow).not.toHaveBeenCalled();
+      expect(CommerceController.beginMarketplaceSessionConnect).toHaveBeenCalledTimes(1);
+      expect(result.current.requestsGrantReconnect).toBe(false);
+      expect(result.current.status).toBe('awaiting');
+      expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=bootstrap');
+    } finally {
+      restore();
+    }
+  });
+
+  it('falls back to AuthToken when grant create returns shop_session_missing', async () => {
+    const restore = await enableGrantFlow();
+    try {
+      vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue({
+        token: 'session-token',
+        sessionId: '11111111-1111-4111-8111-111111111111',
+        pubky: SESSION.pubky,
+        capabilities: '',
+        expiresAt: SESSION.expiresAt,
+        expiresAtMs: Date.parse(SESSION.expiresAt),
+        issuedAt: SESSION.issuedAt,
+      });
+      vi.mocked(beginMarketplaceGrantFlow).mockRejectedValue(new Error('shop_session_missing'));
+      const { flow } = createDeferredFlow('pubkyauth:///?caps=fallback');
+      vi.mocked(CommerceController.beginMarketplaceSessionConnect).mockReturnValue(flow);
+      const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.status).toBe('awaiting'));
+
+      expect(beginMarketplaceGrantFlow).toHaveBeenCalledTimes(1);
+      expect(CommerceController.beginMarketplaceSessionConnect).toHaveBeenCalledTimes(1);
+      expect(result.current.requestsGrantReconnect).toBe(false);
+      expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=fallback');
+      expect(result.current.errorMessage).toBeNull();
+      expect(result.current.errorMessage).not.toBe(MARKETPLACE_FAILURE_MESSAGES.sessionTimeout);
+    } finally {
+      restore();
+    }
+  });
+
+  it('does not label a grant_unavailable failure as expiry', async () => {
+    const restore = await enableGrantFlow();
+    try {
+      vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue({
+        token: 'session-token',
+        sessionId: '11111111-1111-4111-8111-111111111111',
+        pubky: SESSION.pubky,
+        capabilities: '',
+        expiresAt: SESSION.expiresAt,
+        expiresAtMs: Date.parse(SESSION.expiresAt),
+        issuedAt: SESSION.issuedAt,
+      });
+      vi.mocked(beginMarketplaceGrantFlow).mockRejectedValue(new Error('grant_unavailable'));
+      const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.status).toBe('error'));
+
+      expect(result.current.errorMessage).toBe(MARKETPLACE_FAILURE_MESSAGES.sessionStart);
+      expect(result.current.errorMessage).not.toBe(MARKETPLACE_FAILURE_MESSAGES.sessionTimeout);
+      expect(CommerceController.beginMarketplaceSessionConnect).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('writes the commerce store after a claimed grant session', async () => {
+    const restore = await enableGrantFlow();
+    try {
+      vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue({
+        token: 'session-token',
+        sessionId: '11111111-1111-4111-8111-111111111111',
+        pubky: SESSION.pubky,
+        capabilities: '',
+        expiresAt: SESSION.expiresAt,
+        expiresAtMs: Date.parse(SESSION.expiresAt),
+        issuedAt: SESSION.issuedAt,
+      });
+      const { grantFlow, resolveResult } = createDeferredGrantFlow('pubkyauth://signin_grant/?caps=empty');
+      vi.mocked(beginMarketplaceGrantFlow).mockResolvedValue(grantFlow);
+      vi.spyOn(MarketplaceSessionService, 'establishClaimedGrantSession').mockReturnValue(SESSION);
+      useAuthStore.setState({ currentUserPubky: SESSION.pubky });
+      const onConnected = vi.fn();
+      const { result } = renderHook(() => useMarketplaceSessionConnect({ onConnected }));
+
+      act(() => result.current.start());
+      await waitFor(() => expect(result.current.status).toBe('awaiting'));
+      expect(result.current.requestsGrantReconnect).toBe(true);
+      expect(result.current.authorizationUrl).toBe('pubkyauth://signin_grant/?caps=empty');
+
+      resolveResult({
+        status: 'connected',
+        token: 'claimed-token',
+        pubky: SESSION.pubky,
+        capabilities: '',
+        expires_at: SESSION.expiresAt,
+      });
+      await waitFor(() => expect(result.current.status).toBe('connected'));
+      expect(CommerceController.writeMarketplaceSessionStore).toHaveBeenCalledWith(SESSION);
+      expect(onConnected).toHaveBeenCalledWith(SESSION);
+    } finally {
+      restore();
+    }
   });
 });

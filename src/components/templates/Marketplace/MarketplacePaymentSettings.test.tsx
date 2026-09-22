@@ -15,9 +15,20 @@ const view = vi.hoisted(() => ({
     error: null as string | null,
   },
 }));
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+  searchParams: new URLSearchParams(),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: navigation.push }),
+  usePathname: () => '/marketplace/settings',
+  useSearchParams: () => navigation.searchParams,
+}));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
+    getSellerPaymentConfig: vi.fn(),
     getPaykitSetupUrl: vi.fn((returnTo: string, state: string, creator: string) => {
       const url = new URL('https://paykit.example/setup');
       url.searchParams.set('return_to', returnTo);
@@ -65,7 +76,16 @@ const PLAUSIBLE_XPUB = `zpub${'r'.repeat(107)}`;
 beforeEach(() => {
   vi.useRealTimers();
   mockedToast.mockReset();
+  sessionStorage.clear();
+  navigation.push.mockReset();
+  navigation.searchParams = new URLSearchParams();
   view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+  mockedController.getSellerPaymentConfig.mockReset().mockResolvedValue({
+    bitcoinAvailable: false,
+    bitcoinOfferAvailable: true,
+    stripePaymentLink: null,
+    paypalMerchantEmail: null,
+  });
   mockedController.getMyPaymentConfig.mockReset().mockResolvedValue(EMPTY_CONFIG);
   mockedController.isOwnPaykitAccountClaimed.mockReset().mockResolvedValue(false);
   mockedController.putMyPaymentConfig.mockReset().mockImplementation(async (input) => ({
@@ -109,13 +129,15 @@ function setPaykitIframeSource(iframe: HTMLIFrameElement): WindowProxy {
 }
 
 describe('MarketplacePaymentSettings', () => {
-  it('leads with the seller-direct promise', async () => {
+  it('leads with how-you-get-paid setup copy, not a funds warning', async () => {
     await renderSettings();
 
     expect(screen.getByRole('heading', { name: 'How you get paid' })).toBeInTheDocument();
-    expect(
-      screen.getByText('Every method pays the seller directly — this marketplace never holds funds.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Set up the methods buyers can use at checkout.')).toBeInTheDocument();
+    expect(screen.queryByText(/pays the seller directly/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/never holds funds/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pre-production/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/this prototype/i)).not.toBeInTheDocument();
   });
 
   it('renders the three method cards in buyer-familiar order', async () => {
@@ -233,6 +255,19 @@ describe('MarketplacePaymentSettings', () => {
 
     // The payload contract is unchanged: invalid input never leaves the browser.
     expect(mockedController.putMyPaymentConfig).not.toHaveBeenCalled();
+  });
+
+  it('tells Ring-signed-up sellers to create a Shop identity in Bitkit', async () => {
+    await renderSettings();
+
+    const helper =
+      'Your Shop identity must live in Bitkit. Signed up with Pubky Ring? Create a new Shop account by scanning the sign-up QR with Bitkit — Ring import is coming to Bitkit.';
+    expect(screen.getByText(helper)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    expect(screen.getAllByText(helper)).toHaveLength(2);
+    expect(screen.getByText(/Bitkit 2.5 or newer is required/)).toBeInTheDocument();
   });
 
   it('validates the Bitkit setup callback', async () => {
@@ -444,5 +479,30 @@ describe('MarketplacePaymentSettings', () => {
 
     expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledTimes(1);
     expect(mockedController.beginPaykitClaimFlow.mock.calls).toMatchSnapshot();
+  });
+
+  it('shows a disabled return path into the listing composer until a method is configured', async () => {
+    navigation.searchParams = new URLSearchParams('returnTo=/marketplace/sell');
+    await renderSettings();
+
+    expect(screen.getByRole('link', { name: /Back to listing/ })).toHaveAttribute('href', '/marketplace/sell');
+    expect(screen.getByTestId('listing-composer-return')).toHaveTextContent(
+      'After at least one payment method is configured, continue creating your listing.',
+    );
+    expect(screen.getByRole('button', { name: 'Continue creating listing' })).toBeDisabled();
+  });
+
+  it('returns to the listing composer after a payment method is saved', async () => {
+    navigation.searchParams = new URLSearchParams('returnTo=/marketplace/sell');
+    const user = userEvent.setup();
+    await renderSettings();
+
+    await user.type(screen.getByLabelText('PayPal merchant email'), 'seller@example.com');
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[0]);
+
+    await waitFor(() => {
+      expect(navigation.push).toHaveBeenCalledWith('/marketplace/sell');
+    });
+    expect(sessionStorage.getItem('pubky.marketplace.listingComposerReturnTo')).toBeNull();
   });
 });

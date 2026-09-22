@@ -276,7 +276,7 @@ export function MarketplaceCart() {
                                       alt={item.listing.record.title}
                                       fill
                                       sizes="80px"
-                                      className="absolute inset-0 object-cover"
+                                      className="absolute inset-0 object-cover object-center"
                                     />
                                   )}
                                 </div>
@@ -506,7 +506,7 @@ export function MarketplaceCart() {
                         This places {checkout.orderCount} orders — one per seller and delivery method.
                       </Typography>
                     )}
-                    {isStaging ? (
+                    {isStaging && (
                       <Typography
                         as="p"
                         role="note"
@@ -514,30 +514,25 @@ export function MarketplaceCart() {
                       >
                         Staging environment — test rails, no real funds move
                       </Typography>
-                    ) : (
-                      <Typography
-                        as="p"
-                        role="note"
-                        className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
-                      >
-                        Real money. Payments are final and go directly to the seller.
-                      </Typography>
                     )}
                     <Button
                       className="w-full rounded-full"
                       onClick={submit}
                       disabled={!canPlaceOrder}
-                      aria-describedby={!canPlaceOrder ? 'place-order-reason' : undefined}
+                      aria-describedby={!canPlaceOrder && !approvalNeeded ? 'place-order-reason' : undefined}
                     >
                       {isSandbox ? 'Place sandbox order' : 'Place order'}
                     </Button>
-                    {!canPlaceOrder && (
+                    {!isStaging && !isSandbox && (
+                      <Typography as="p" className="text-xs text-muted-foreground">
+                        Paid directly to the seller.
+                      </Typography>
+                    )}
+                    {!canPlaceOrder && !approvalNeeded && (
                       <Typography id="place-order-reason" as="p" className="text-xs text-muted-foreground">
-                        {approvalNeeded
-                          ? 'Approve purchases in Pubky Ring before placing the order.'
-                          : checkout.hasFulfillmentConflict
-                            ? "Some items can't be checked out together — see the note in your cart."
-                            : 'Fill in delivery details and accept the guarantee to place the order.'}
+                        {checkout.hasFulfillmentConflict
+                          ? "Some items can't be checked out together — see the note in your cart."
+                          : 'Fill in delivery details and accept the guarantee to place the order.'}
                       </Typography>
                     )}
                   </section>
