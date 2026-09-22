@@ -317,6 +317,43 @@ describe('LocalCommerceService', () => {
     expect(await CommerceListingDraftModel.table.count()).toBe(0);
   });
 
+  it("stores photo blobs on the draft row and never returns another identity's drafts", async () => {
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
+    await LocalCommerceService.upsertDraft({
+      ownerId: COMMERCE_FIXTURE_SELLER,
+      listingId: 'boots_01',
+      data: {
+        ownerPubky: COMMERCE_FIXTURE_SELLER,
+        listingId: 'boots_01',
+        form: {
+          title: 'First title',
+          mediaRefs: [
+            { kind: 'new', key: 'p1', altText: 'Front', name: 'front.jpg', type: 'image/jpeg', lastModified: 1 },
+          ],
+        },
+      },
+      now: 100,
+      mediaBlobs: { p1: blob },
+    });
+    await LocalCommerceService.upsertDraft({
+      ownerId: COMMERCE_FIXTURE_BUYER,
+      listingId: 'private',
+      data: { ownerPubky: COMMERCE_FIXTURE_BUYER, listingId: 'private', form: { title: 'Other account' } },
+      now: 300,
+    });
+
+    const sellerDrafts = await LocalCommerceService.getDraftsByOwner(COMMERCE_FIXTURE_SELLER);
+    expect(sellerDrafts).toHaveLength(1);
+    expect(sellerDrafts[0].media_blobs?.p1).toBeInstanceOf(Blob);
+    expect(sellerDrafts[0].media_blobs?.p1.size).toBe(3);
+    const raw = await CommerceListingDraftModel.table.get(`${COMMERCE_FIXTURE_SELLER}:boots_01`);
+    expect(raw?.media_blobs?.p1).not.toBeInstanceOf(Blob);
+    expect(raw?.media_blobs?.p1).toEqual(expect.objectContaining({ type: 'image/jpeg' }));
+    expect(ArrayBuffer.isView((raw?.media_blobs?.p1 as { bytes?: unknown } | undefined)?.bytes)).toBe(true);
+    expect(await LocalCommerceService.getDraftsByOwner(COMMERCE_FIXTURE_BUYER)).toHaveLength(1);
+    expect((await LocalCommerceService.getDraftsByOwner(COMMERCE_FIXTURE_BUYER))[0].listing_id).toBe('private');
+  });
+
   it('completes a staged sync job by removing it', async () => {
     const job = createCommerceSyncJobFixture();
     await LocalCommerceService.stageListingSync(createCommerceListingFixture(), job);

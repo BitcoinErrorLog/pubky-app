@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm } from 'react-hook-form';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +21,7 @@ import { MarketplaceSell } from './MarketplaceSell';
 const routerPush = vi.hoisted(() => vi.fn());
 const commerceMode = vi.hoisted(() => ({ current: 'unavailable' as 'unavailable' | 'transaction-service' }));
 const restorePersistedMarketplaceSession = vi.hoisted(() => vi.fn((): MarketplaceSessionInfo | null => null));
+const sessionConnect = vi.hoisted(() => ({ errorMessage: null as string | null }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
@@ -33,7 +34,10 @@ vi.mock('@/config/commerce', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/config/commerce')>();
   return {
     ...actual,
-    getCommerceAdapterMode: () => commerceMode.current,
+    getCommerceAdapterMode: () =>
+      commerceMode.current === 'transaction-service' || createListing.adapterMode === 'transaction-service'
+        ? 'transaction-service'
+        : commerceMode.current,
   };
 });
 
@@ -46,7 +50,11 @@ vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
     autoOpen?: boolean;
   }) =>
     autoOpen ? (
-      <div role="dialog" aria-label="Connect a marketplace session">
+      <div
+        role="dialog"
+        aria-label={sessionConnect.errorMessage ? 'Approve purchases' : 'Connect a marketplace session'}
+      >
+        {sessionConnect.errorMessage}
         <button type="button">{triggerLabel}</button>
       </div>
     ) : (
@@ -73,6 +81,19 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 const createListing = vi.hoisted(() => ({
   fulfillment: 'shipping' as CreateMarketplaceListingData['fulfillment'],
   submitResult: 'seller:boots_01' as string | null,
+  adapterMode: 'sandbox' as 'sandbox' | 'transaction-service',
+  marketplaceSession: {
+    pubky: 'y'.repeat(52),
+    capabilities: '/pub/pubky.app/:rw',
+    expiresAt: '2026-09-14T00:00:00.000Z',
+    issuedAt: '2026-09-13T00:00:00.000Z',
+  } as object | null,
+  pendingRestore: null as { listingId: string; updatedAt: number; title: string; extraCount: number } | null,
+  restoredDraft: false,
+  submit: vi.fn(async () => createListing.submitResult),
+  flushDraft: vi.fn(async () => undefined),
+  resumeDraft: vi.fn(),
+  reset: vi.fn(),
   publishBlocked: null as 'unsigned' | 'session' | 'no-method' | 'unverified' | null,
 }));
 
@@ -125,15 +146,21 @@ vi.mock('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing', async
           moveItem: vi.fn(),
           setAltText: vi.fn(),
           seed: vi.fn(),
+          restore: vi.fn(),
           reset: vi.fn(),
           prepare: vi.fn(),
         } satisfies UseListingMediaManagerResult,
         draftId: 'draft-1',
-        restoredDraft: false,
+        restoredDraft: createListing.restoredDraft,
+        pendingRestore: createListing.pendingRestore,
+        activeSectionId: 'listing-section-photos',
+        setActiveSectionId: vi.fn(),
         seededFromTitle: null,
         seededAuctionAsFixedPrice: false,
-        submit: vi.fn(async () => createListing.submitResult),
-        reset: vi.fn(),
+        submit: createListing.submit,
+        reset: createListing.reset,
+        resumeDraft: createListing.resumeDraft,
+        flushDraft: createListing.flushDraft,
         publishBlocked: createListing.publishBlocked,
         publishGuardReady: true,
       };
@@ -150,10 +177,27 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
     commerceMode.current = 'unavailable';
     routerPush.mockClear();
     createListing.submitResult = 'seller:boots_01';
+    createListing.adapterMode = 'sandbox';
+    createListing.marketplaceSession = {
+      pubky: 'y'.repeat(52),
+      capabilities: '/pub/pubky.app/:rw',
+      expiresAt: '2026-09-14T00:00:00.000Z',
+      issuedAt: '2026-09-13T00:00:00.000Z',
+    };
+    createListing.pendingRestore = null;
+    createListing.restoredDraft = false;
+    createListing.submit.mockClear();
+    createListing.flushDraft.mockClear();
+    createListing.resumeDraft.mockClear();
+    createListing.reset.mockClear();
+    createListing.submit.mockImplementation(async () => createListing.submitResult);
     createListing.publishBlocked = null;
     paymentGate.isDurable = false;
     paymentGate.ready = true;
     paymentGate.reason = null;
+    sessionConnect.errorMessage = null;
+    restorePersistedMarketplaceSession.mockReset();
+    restorePersistedMarketplaceSession.mockReturnValue(null);
   });
 
   it('routes to the public listing page after publishing a shipped listing', async () => {
@@ -181,6 +225,48 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
       );
     });
   });
+
+  it('asks to resume a stored draft instead of silently hydrating', () => {
+    createListing.pendingRestore = {
+      listingId: 'draftlisting01',
+      updatedAt: Date.parse('2026-09-22T07:00:00.000Z'),
+      title: 'Vintage leather boots',
+      extraCount: 1,
+    };
+    render(<MarketplaceSell />);
+
+    expect(screen.getByRole('status')).toHaveAttribute('data-surface', 'listing-draft-restore-prompt');
+    expect(screen.getByText('Vintage leather boots · 1 more in Seller studio')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    expect(createListing.resumeDraft).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(createListing.reset).toHaveBeenCalledOnce();
+  });
+
+  it('flushes the draft and keeps the composer when the grant dialog reports approval expired', async () => {
+    createListing.adapterMode = 'transaction-service';
+    commerceMode.current = 'transaction-service';
+    createListing.marketplaceSession = null;
+    paymentGate.isDurable = true;
+    paymentGate.ready = true;
+    paymentGate.reason = null;
+    sessionConnect.errorMessage = 'The approval expired before it was completed. Try again.';
+    useCommerceStore.getState().setMarketplaceSession(null);
+    const user = userEvent.setup();
+    render(<MarketplaceSell />);
+
+    await user.click(screen.getByRole('button', { name: 'Publish listing' }));
+
+    await vi.waitFor(() => {
+      expect(createListing.flushDraft).toHaveBeenCalledOnce();
+    });
+    expect(createListing.submit).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Approve purchases' })).toHaveTextContent(
+      'The approval expired before it was completed. Try again.',
+    );
+    expect(screen.getByRole('heading', { name: 'Create a listing' })).toBeInTheDocument();
+    expect(createListing.reset).not.toHaveBeenCalled();
+  });
 });
 
 describe('MarketplaceSell payment-method entrance', () => {
@@ -189,6 +275,8 @@ describe('MarketplaceSell payment-method entrance', () => {
     paymentGate.ready = true;
     paymentGate.reason = null;
     createListing.publishBlocked = null;
+    createListing.adapterMode = 'sandbox';
+    sessionConnect.errorMessage = null;
   });
 
   it('shows the payment interstitial and no listing fields when unconfigured', () => {
@@ -239,6 +327,8 @@ describe('MarketplaceSell durable session gate', () => {
     commerceMode.current = 'transaction-service';
     createListing.fulfillment = 'shipping';
     createListing.publishBlocked = null;
+    createListing.adapterMode = 'sandbox';
+    sessionConnect.errorMessage = null;
     paymentGate.isDurable = true;
     paymentGate.ready = true;
     paymentGate.reason = null;

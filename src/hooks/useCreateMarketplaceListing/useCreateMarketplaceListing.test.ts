@@ -1,7 +1,13 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import {
+  LISTING_DRAFT_AUTOSAVE_MS,
+  LISTING_DRAFT_RESUME_STORAGE_KEY,
+  markListingDraftResumeId,
+} from '@/libs/commerce/listing-drafts';
 import { commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
+import type { CommerceListingDraftModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import { seedDraftFormFromListing, useCreateMarketplaceListing } from './useCreateMarketplaceListing';
@@ -14,6 +20,17 @@ vi.mock('@/config/commerce', async () => ({
 }));
 const mediaState = vi.hoisted(() => ({
   prepared: true,
+  items: [] as Array<{
+    key: string;
+    kind: 'new';
+    file: File;
+    previewUrl: string;
+    altText: string;
+  }>,
+}));
+const mediaFns = vi.hoisted(() => ({
+  restore: vi.fn(),
+  reset: vi.fn(),
 }));
 
 const coverRecord = {
@@ -57,7 +74,7 @@ vi.mock('@/stores/commerce/commerce.store', () => ({
 
 vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', () => ({
   useListingMediaManager: () => ({
-    items: [],
+    items: mediaState.items,
     maxPhotos: 8,
     error: null,
     inputRef: { current: null },
@@ -67,7 +84,8 @@ vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', () => ({
     moveItem: vi.fn(),
     setAltText: vi.fn(),
     seed: vi.fn(),
-    reset: vi.fn(),
+    restore: mediaFns.restore,
+    reset: mediaFns.reset,
     prepare: vi.fn(async () =>
       mediaState.prepared
         ? {
@@ -106,7 +124,10 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 describe('useCreateMarketplaceListing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([]);
     mediaState.prepared = true;
+    mediaState.items = [];
+    sessionStorage.removeItem(LISTING_DRAFT_RESUME_STORAGE_KEY);
     commerceState.marketplaceSession = {
       pubky: OWNER,
       capabilities: '/pub/pubky.app/:rw',
@@ -278,6 +299,7 @@ describe('useCreateMarketplaceListing', () => {
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({ variant: 'error', description: 'Could not publish this listing.' }),
     );
+    expect(CommerceController.commitDeleteListingDraft).not.toHaveBeenCalled();
 
     await act(async () => {
       await result.current.submit();
@@ -379,12 +401,13 @@ describe('useCreateMarketplaceListing', () => {
       await Promise.resolve();
     });
     act(() => {
-      vi.advanceTimersByTime(750);
+      vi.advanceTimersByTime(LISTING_DRAFT_AUTOSAVE_MS);
     });
 
     expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
       '018f47d26a277c23a49d6b21bb770121',
       expect.objectContaining({ title: 'Autosaved boots' }),
+      {},
     );
   });
 
@@ -408,85 +431,105 @@ describe('useCreateMarketplaceListing', () => {
       await Promise.resolve();
     });
     act(() => {
-      vi.advanceTimersByTime(750);
+      vi.advanceTimersByTime(LISTING_DRAFT_AUTOSAVE_MS);
     });
 
     expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
       '018f47d26a277c23a49d6b21bb770121',
       expect.objectContaining({ title: 'Draft without payment settings' }),
+      {},
     );
   });
 
-  it('reports a restored draft and clears it on reset', async () => {
+  it('prompts instead of silently hydrating a contentful draft', async () => {
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
-      {
-        id: `${OWNER}:draftlisting01`,
-        owner_id: OWNER,
-        listing_id: 'draftlisting01',
-        data: { ownerPubky: OWNER, listingId: 'draftlisting01', form: { title: 'Draft boots' } },
-        created_at: 1_000,
-        updated_at: 2_000,
-      },
+      listingDraftRow('draftlisting01', { title: 'Draft boots' }),
     ]);
     const { result } = renderHook(() => useCreateMarketplaceListing());
     await act(async () => {
       await Promise.resolve();
     });
 
-    expect(result.current.restoredDraft).toBe(true);
+    expect(result.current.restoredDraft).toBe(false);
+    expect(result.current.form.getValues('title')).toBe('');
+    expect(result.current.pendingRestore).toMatchObject({
+      listingId: 'draftlisting01',
+      title: 'Draft boots',
+      extraCount: 0,
+    });
+    expect(CommerceController.commitUpdateListingDraft).not.toHaveBeenCalled();
+  });
+
+  it('hydrates form and photos after Resume and discards the pending listing id', async () => {
+    const photo = new File([new Uint8Array([1, 2, 3])], 'front.jpg', { type: 'image/jpeg', lastModified: 42 });
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+      listingDraftRow(
+        'draftlisting01',
+        {
+          title: 'Draft boots',
+          mediaRefs: [
+            {
+              kind: 'new',
+              key: 'photo_front',
+              altText: 'Front',
+              name: 'front.jpg',
+              type: 'image/jpeg',
+              lastModified: 42,
+            },
+          ],
+          activeSectionId: 'listing-section-item',
+        },
+        { media_blobs: { photo_front: photo } },
+      ),
+    ]);
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => result.current.resumeDraft());
+    await waitFor(() => expect(result.current.restoredDraft).toBe(true));
+
+    expect(result.current.pendingRestore).toBeNull();
     expect(result.current.form.getValues('title')).toBe('Draft boots');
+    expect(result.current.activeSectionId).toBe('listing-section-item');
+    expect(mediaFns.restore).toHaveBeenCalledWith([
+      expect.objectContaining({ kind: 'new', key: 'photo_front', altText: 'Front' }),
+    ]);
 
     act(() => result.current.reset());
 
     expect(result.current.restoredDraft).toBe(false);
     expect(result.current.form.getValues('title')).toBe('');
     expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalledWith('draftlisting01');
+    expect(CommerceController.commitDeleteListingDraft).not.toHaveBeenCalledWith('018f47d26a277c23a49d6b21bb770121');
   });
 
-  it("migrates a legacy draft's 'SATS' currency to the canonical 'BTC' on restore", async () => {
+  it("migrates a legacy draft's 'SATS' currency to the canonical 'BTC' on targeted resume", async () => {
+    markListingDraftResumeId('draftlisting02');
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
-      {
-        id: `${OWNER}:draftlisting02`,
-        owner_id: OWNER,
-        listing_id: 'draftlisting02',
-        data: {
-          ownerPubky: OWNER,
-          listingId: 'draftlisting02',
-          form: { title: 'Legacy bitcoin draft', currency: 'SATS', price: '15000' },
-        },
-        created_at: 1_000,
-        updated_at: 2_000,
-      },
+      listingDraftRow('draftlisting02', { title: 'Legacy bitcoin draft', currency: 'SATS', price: '15000' }),
     ]);
     const { result } = renderHook(() => useCreateMarketplaceListing());
     await act(async () => {
       await Promise.resolve();
     });
 
+    expect(result.current.pendingRestore).toBeNull();
     expect(result.current.restoredDraft).toBe(true);
     expect(result.current.form.getValues('currency')).toBe('BTC');
     expect(result.current.form.getValues('price')).toBe('15000');
   });
 
   it('restores a duplicated listing draft with source title metadata', async () => {
+    markListingDraftResumeId('draftlisting03');
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
-      {
-        id: `${OWNER}:draftlisting03`,
-        owner_id: OWNER,
-        listing_id: 'draftlisting03',
-        data: {
-          ownerPubky: OWNER,
-          listingId: 'draftlisting03',
-          form: {
-            title: 'Vintage leather boots',
-            saleFormat: 'fixed_price',
-            seededFromTitle: 'Vintage leather boots',
-            seededAuctionAsFixedPrice: true,
-          },
-        },
-        created_at: 1_000,
-        updated_at: 2_000,
-      },
+      listingDraftRow('draftlisting03', {
+        title: 'Vintage leather boots',
+        saleFormat: 'fixed_price',
+        seededFromTitle: 'Vintage leather boots',
+        seededAuctionAsFixedPrice: true,
+      }),
     ]);
     const { result } = renderHook(() => useCreateMarketplaceListing());
     await act(async () => {
@@ -498,7 +541,95 @@ describe('useCreateMarketplaceListing', () => {
     expect(result.current.seededAuctionAsFixedPrice).toBe(true);
     expect(result.current.form.getValues('saleFormat')).toBe('fixed_price');
   });
+
+  it('autosaves photo blobs with the form JSON', async () => {
+    vi.useFakeTimers();
+    const photo = new File([new Uint8Array([9, 8, 7])], 'front.jpg', { type: 'image/jpeg', lastModified: 7 });
+    mediaState.items = [
+      { key: 'photo_front', kind: 'new', file: photo, previewUrl: 'blob:front', altText: 'Front of the boots' },
+    ];
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.form.setValue('title', 'Boots with photos');
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      vi.advanceTimersByTime(LISTING_DRAFT_AUTOSAVE_MS);
+    });
+
+    expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
+      '018f47d26a277c23a49d6b21bb770121',
+      expect.objectContaining({
+        title: 'Boots with photos',
+        mediaRefs: [expect.objectContaining({ kind: 'new', key: 'photo_front', name: 'front.jpg' })],
+      }),
+      { photo_front: photo },
+    );
+  });
+
+  it('skips empty autosave while a restore prompt is open', async () => {
+    vi.useFakeTimers();
+    vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+      listingDraftRow('draftlisting01', { title: 'Keep me' }),
+    ]);
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.pendingRestore?.listingId).toBe('draftlisting01');
+    act(() => {
+      vi.advanceTimersByTime(LISTING_DRAFT_AUTOSAVE_MS);
+    });
+    expect(CommerceController.commitUpdateListingDraft).not.toHaveBeenCalled();
+  });
+
+  it('flushes the draft on pagehide before the debounce fires', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      result.current.form.setValue('title', 'Flushed on hide');
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'));
+      await Promise.resolve();
+    });
+
+    expect(CommerceController.commitUpdateListingDraft).toHaveBeenCalledWith(
+      '018f47d26a277c23a49d6b21bb770121',
+      expect.objectContaining({ title: 'Flushed on hide' }),
+      {},
+    );
+  });
 });
+
+function listingDraftRow(
+  listingId: string,
+  form: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+): CommerceListingDraftModelSchema {
+  return {
+    id: `${OWNER}:${listingId}`,
+    owner_id: OWNER,
+    listing_id: listingId,
+    data: { ownerPubky: OWNER, listingId, form: JSON.parse(JSON.stringify(form)) },
+    created_at: 1_000,
+    updated_at: 2_000,
+    ...extra,
+  } as CommerceListingDraftModelSchema;
+}
 
 describe('seedDraftFormFromListing', () => {
   it('copies sellable fields and excludes ids, revision, and photos', () => {

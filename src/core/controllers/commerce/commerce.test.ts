@@ -203,10 +203,19 @@ describe('CommerceController', () => {
 
     await CommerceController.commitUpdateListingDraft('draft_01', { title: 'Autosaved boots', quantity: '1' });
 
-    expect(update).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, 'draft_01', {
-      title: 'Autosaved boots',
-      quantity: '1',
-    });
+    expect(update).toHaveBeenCalledWith(
+      COMMERCE_FIXTURE_SELLER,
+      'draft_01',
+      {
+        title: 'Autosaved boots',
+        quantity: '1',
+      },
+      {},
+    );
+
+    const photo = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
+    await CommerceController.commitUpdateListingDraft('draft_01', { title: 'With photo' }, { p1: photo });
+    expect(update).toHaveBeenCalledWith(COMMERCE_FIXTURE_SELLER, 'draft_01', { title: 'With photo' }, { p1: photo });
     await expect(CommerceController.commitUpdateListingDraft('draft_01', { invalid: BigInt(1) })).rejects.toMatchObject(
       {
         code: 'INVALID_INPUT',

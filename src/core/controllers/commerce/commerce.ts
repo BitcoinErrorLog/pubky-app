@@ -1026,11 +1026,12 @@ export class CommerceController {
     return await CommerceApplication.getListingDrafts(this.getCurrentUserPubky());
   }
 
-  static async commitUpdateListingDraft(listingId: unknown, form: unknown): Promise<void> {
+  static async commitUpdateListingDraft(listingId: unknown, form: unknown, mediaBlobs: unknown = {}): Promise<void> {
     await CommerceApplication.commitUpdateListingDraft(
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.entityId(listingId),
       CommerceRecordNormalizer.jsonValue(form),
+      CommerceRecordNormalizer.mediaBlobs(mediaBlobs),
     );
   }
 

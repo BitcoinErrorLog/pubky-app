@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Copy,
   Download,
+  History,
   ImageIcon,
   Package,
   Pause,
@@ -208,6 +209,62 @@ export function MarketplaceDashboard() {
                       Set up your shop
                     </Link>
                   </Button>
+                </CardContent>
+              </Card>
+            )}
+            {dashboard.unfinishedDrafts.length > 1 && (
+              <Card data-surface="listing-drafts-list" className="border border-brand/30 bg-brand/5">
+                <CardContent className="flex flex-col gap-4 px-5 py-5">
+                  <div className="flex items-start gap-3">
+                    <History className="mt-1 size-5 shrink-0 text-brand" />
+                    <div>
+                      <Typography as="h2" className="font-semibold">
+                        Unfinished drafts
+                      </Typography>
+                      <Typography as="p" className="text-sm text-muted-foreground">
+                        Listings saved on this device. Resume one or discard it.
+                      </Typography>
+                    </div>
+                  </div>
+                  <ul className="flex flex-col gap-3">
+                    {dashboard.unfinishedDrafts.map((draft) => (
+                      <li
+                        key={draft.listingId}
+                        className="flex flex-col gap-2 rounded-lg border border-border bg-background px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <Typography as="p" className="font-medium">
+                            {draft.title}
+                          </Typography>
+                          <Typography as="p" className="text-sm text-muted-foreground">
+                            {draft.ageLabel}
+                          </Typography>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            className="rounded-full"
+                            onClick={() => {
+                              dashboard.resumeListingDraft(draft.listingId);
+                              router.push(MARKETPLACE_ROUTES.SELL);
+                            }}
+                          >
+                            Resume
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="rounded-full"
+                            onClick={() => {
+                              void dashboard.discardListingDraft(draft.listingId);
+                            }}
+                          >
+                            Discard
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 </CardContent>
               </Card>
             )}

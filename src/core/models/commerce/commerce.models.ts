@@ -343,6 +343,7 @@ export class CommerceListingDraftModel
   data: CommerceListingDraftModelSchema['data'];
   created_at: number;
   updated_at: number;
+  media_blobs?: Record<string, Blob>;
 
   constructor(draft: CommerceListingDraftModelSchema) {
     super(draft);
@@ -351,6 +352,7 @@ export class CommerceListingDraftModel
     this.data = draft.data;
     this.created_at = draft.created_at;
     this.updated_at = draft.updated_at;
+    this.media_blobs = draft.media_blobs;
   }
 
   static async findByOwner(ownerId: string): Promise<CommerceListingDraftModelSchema[]> {

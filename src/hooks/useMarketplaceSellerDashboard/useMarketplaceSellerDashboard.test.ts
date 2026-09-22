@@ -38,8 +38,11 @@ vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
   useMarketplaceOffers: () => ({ offers: [], isLoading: false, needsSession: false, error: null }),
 }));
 
+let listingDraftRows: unknown[] = [];
+
 vi.mock('dexie-react-hooks', () => ({
-  useLiveQuery: () => localListings,
+  useLiveQuery: (querier: () => unknown) =>
+    querier.toString().includes('getListingDrafts') ? listingDraftRows : localListings,
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
@@ -65,6 +68,8 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     vi.clearAllMocks();
     currentUserPubky = OWNER;
     localListings = [];
+    listingDraftRows = [];
+    sessionStorage.removeItem('pubky.marketplace.listingDraft.resumeId');
     ordersState.orders = [];
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([]);
     vi.mocked(CommerceController.commitUpdateListingDraft).mockResolvedValue(undefined);
@@ -418,6 +423,31 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     expect(form.saleFormat).toBe('fixed_price');
     expect(form.price).toBe('45.00');
     expect(form.seededAuctionAsFixedPrice).toBe(true);
+  });
+
+  it('lists contentful unfinished drafts for the signed-in identity', () => {
+    listingDraftRows = [
+      unsavedDraft({ title: 'Boots' }),
+      {
+        ...unsavedDraft({ title: 'Jacket' }),
+        id: `${OWNER}:jacketdraft`,
+        listing_id: 'jacketdraft',
+      },
+      {
+        ...unsavedDraft({}),
+        id: `${OWNER}:empty`,
+        listing_id: 'empty',
+      },
+    ];
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    expect(result.current.unfinishedDrafts.map((draft) => draft.listingId)).toEqual(['existingdraft', 'jacketdraft']);
+    expect(result.current.unfinishedDrafts[0]?.title).toBe('Boots');
+  });
+
+  it('marks a one-shot resume id without deleting the row', () => {
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    act(() => result.current.resumeListingDraft('draft_1'));
+    expect(sessionStorage.getItem('pubky.marketplace.listingDraft.resumeId')).toBe('draft_1');
   });
 });
 

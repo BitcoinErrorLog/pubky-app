@@ -434,6 +434,10 @@ export const createMarketplaceListingDraftSchema = z
     seededFromTitle: z.string(),
     /** Present when the source listing was an auction copied as fixed price. */
     seededAuctionAsFixedPrice: z.boolean(),
+    /** Composer photo refs. New-file blobs sit on the Dexie row, not here. */
+    mediaRefs: z.array(z.unknown()),
+    /** Last open wizard section (`listing-section-*`). */
+    activeSectionId: z.string(),
   })
   .partial()
   .strict();

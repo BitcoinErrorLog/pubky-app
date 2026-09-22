@@ -336,6 +336,29 @@ export class CommerceRecordNormalizer {
     return this.parse(z.json(), input, 'jsonValue');
   }
 
+  static mediaBlobs(input: unknown): Record<string, Blob> {
+    if (input === undefined || input === null) return {};
+    if (typeof input !== 'object' || Array.isArray(input)) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Invalid commerce mediaBlobs.', {
+        service: ErrorService.Local,
+        operation: 'normalizeCommercemediaBlobs',
+        context: { issues: [{ code: 'invalid_type', message: 'Expected a blob map.', path: '' }] },
+      });
+    }
+    const blobs: Record<string, Blob> = {};
+    for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+      if (key.trim() === '' || !(value instanceof Blob)) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Invalid commerce mediaBlobs.', {
+          service: ErrorService.Local,
+          operation: 'normalizeCommercemediaBlobs',
+          context: { issues: [{ code: 'invalid_type', message: 'Expected Blob values.', path: key }] },
+        });
+      }
+      blobs[key] = value;
+    }
+    return blobs;
+  }
+
   static deliveryAddressInput(input: unknown): CommerceDeliveryAddressInput {
     return this.parse(commerceDeliveryAddressInputSchema, input, 'deliveryAddressInput');
   }

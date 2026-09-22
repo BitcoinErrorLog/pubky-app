@@ -6,6 +6,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { COMMERCE_LISTING_STUDIO_MAX_PHOTOS } from '@/config/commerce';
 import { IMAGE_MAX_RAW_SIZE } from '@/config/images';
 import { resolveMarketplaceMediaUrlAsync } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import type { ListingDraftHydrateItem } from '@/libs/commerce/listing-drafts';
 import { type CommerceListingRecord, commerceMediaSchema } from '@/libs/commerce/marketplace-records';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
@@ -45,6 +46,8 @@ export interface UseListingMediaManagerResult {
   setAltText: (key: string, altText: string) => void;
   /** Replaces the working set with a listing's already-published media (edit mode). */
   seed: (records: ListingMediaRecord[]) => void;
+  /** Rehydrates composer photos from a Dexie listing draft. */
+  restore: (items: ListingDraftHydrateItem[]) => void;
   reset: () => void;
   /**
    * Sanitizes, hashes, and measures every NEW photo and returns the full
@@ -162,6 +165,38 @@ export function useListingMediaManager(maxSize = IMAGE_MAX_RAW_SIZE): UseListing
     setError(null);
   }, []);
 
+  const restore = useCallback((incoming: ListingDraftHydrateItem[]) => {
+    setItems((current) => {
+      for (const item of current) {
+        if (item.kind === 'new') URL.revokeObjectURL(item.previewUrl);
+      }
+      const next: ListingMediaItem[] = incoming.map((item) =>
+        item.kind === 'existing'
+          ? { key: item.key, kind: 'existing' as const, record: item.record, previewUrl: null, altText: item.altText }
+          : {
+              key: item.key,
+              kind: 'new' as const,
+              file: item.file,
+              previewUrl: URL.createObjectURL(item.file),
+              altText: item.altText,
+            },
+      );
+      for (const item of next) {
+        if (item.kind !== 'existing' || item.record.type !== 'image') continue;
+        const record = item.record;
+        void resolveMarketplaceMediaUrlAsync(record.url).then((previewUrl) => {
+          setItems((currentItems) =>
+            currentItems.map((entry) =>
+              entry.key === record.id && entry.kind === 'existing' ? { ...entry, previewUrl } : entry,
+            ),
+          );
+        });
+      }
+      return next;
+    });
+    setError(null);
+  }, []);
+
   const reset = useCallback(() => {
     setItems((current) => {
       for (const item of current) {
@@ -227,6 +262,7 @@ export function useListingMediaManager(maxSize = IMAGE_MAX_RAW_SIZE): UseListing
     moveItem,
     setAltText,
     seed,
+    restore,
     reset,
     prepare,
   };

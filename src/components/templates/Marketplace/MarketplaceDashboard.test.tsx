@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { COMMERCE_FIXTURE_SELLER, createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
@@ -10,6 +10,8 @@ const router = vi.hoisted(() => ({ push: vi.fn() }));
 const dashboardFns = vi.hoisted(() => ({
   duplicateListing: vi.fn(async () => true),
   hasUnsavedListingDraft: vi.fn(async (): Promise<string | null> => null),
+  discardListingDraft: vi.fn(async () => undefined),
+  resumeListingDraft: vi.fn(),
 }));
 const dashboardState = vi.hoisted(() => ({
   listings: [] as unknown[],
@@ -28,6 +30,7 @@ const dashboardState = vi.hoisted(() => ({
     expiringAuctions: 0,
     total: 0,
   },
+  unfinishedDrafts: [] as Array<{ listingId: string; title: string; updatedAt: number; ageLabel: string }>,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -57,6 +60,9 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     updateListingState: vi.fn(async () => true),
     duplicateListing: dashboardFns.duplicateListing,
     hasUnsavedListingDraft: dashboardFns.hasUnsavedListingDraft,
+    unfinishedDrafts: dashboardState.unfinishedDrafts,
+    discardListingDraft: dashboardFns.discardListingDraft,
+    resumeListingDraft: dashboardFns.resumeListingDraft,
     exportCsv: () => 'listing_id,title,state,format,price_minor,currency,inventory',
   }),
 }));
@@ -103,6 +109,10 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 
 describe('MarketplaceDashboard', () => {
   beforeEach(() => {
+    dashboardState.unfinishedDrafts = [];
+    dashboardFns.discardListingDraft.mockClear();
+    dashboardFns.resumeListingDraft.mockClear();
+    router.push.mockClear();
     paymentGate.isDurable = false;
     paymentGate.ready = true;
     paymentGate.reason = null;
@@ -260,6 +270,28 @@ describe('MarketplaceDashboard', () => {
     dashboardState.nowMs = Date.parse(endsAt);
     rerender(<MarketplaceDashboard />);
     expect(within(screen.getByRole('row', { name: /Ended rangefinder/ })).getByText('ended')).toBeInTheDocument();
+  });
+
+  it('lists unfinished drafts when more than one is saved on this device', () => {
+    viewport.isMobile = false;
+    dashboardState.listings = [listing()];
+    dashboardState.unfinishedDrafts = [
+      { listingId: 'draft_a', title: 'Vintage boots', updatedAt: 1, ageLabel: '3 min ago' },
+      { listingId: 'draft_b', title: 'Untitled listing', updatedAt: 2, ageLabel: '1 hour ago' },
+    ];
+
+    render(<MarketplaceDashboard />);
+
+    expect(screen.getByRole('heading', { name: 'Unfinished drafts' })).toBeInTheDocument();
+    expect(document.querySelector('[data-surface="listing-drafts-list"]')).not.toBeNull();
+    expect(screen.getByText('Vintage boots')).toBeInTheDocument();
+    expect(screen.getByText('Untitled listing')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Resume' })[0]);
+    expect(dashboardFns.resumeListingDraft).toHaveBeenCalledWith('draft_a');
+    expect(router.push).toHaveBeenCalledWith(MARKETPLACE_ROUTES.SELL);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Discard' })[1]);
+    expect(dashboardFns.discardListingDraft).toHaveBeenCalledWith('draft_b');
   });
 
   it('surfaces the payment-method precondition on Create listing / Sell an item', () => {

@@ -46,6 +46,7 @@ import {
   presetToShippingFields,
   shippingFieldsToPresetInput,
 } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
+import { isListingDraftSectionId, type ListingDraftSectionId } from '@/libs/commerce/listing-drafts';
 import {
   LISTING_PUBLISH_BLOCK_COPY,
   LISTING_PUBLISH_GUARD_CHECKING,
@@ -106,6 +107,9 @@ export interface MarketplaceListingFormProps {
   mode?: 'create' | 'edit';
   /** True for auctions being edited: price and format were fixed at publish. */
   saleTermsLocked?: boolean;
+  /** Restored wizard section from a listing draft (create mode). */
+  initialActiveSectionId?: ListingDraftSectionId;
+  onActiveSectionChange?: (sectionId: ListingDraftSectionId) => void;
   /**
    * Durable-mode publish handler guard (payment method, session, etc.). When
    * set, Review is not complete and Publish stays disabled with the reason
@@ -128,6 +132,8 @@ export function MarketplaceListingForm({
   listingId,
   mode = 'create',
   saleTermsLocked = false,
+  initialActiveSectionId,
+  onActiveSectionChange,
   publishBlocked = null,
   publishGuardReady = true,
   returnTo,
@@ -262,10 +268,20 @@ export function MarketplaceListingForm({
     ...(publishBlocked ? [LISTING_PUBLISH_BLOCK_COPY[publishBlocked].checklist] : []),
   ];
   const optionalLaterItems = getOptionalLaterItems(formValues);
-  const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(LISTING_FORM_SECTIONS[0].id);
+  const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(
+    initialActiveSectionId && isListingDraftSectionId(initialActiveSectionId)
+      ? initialActiveSectionId
+      : LISTING_FORM_SECTIONS[0].id,
+  );
+  useEffect(() => {
+    if (initialActiveSectionId && isListingDraftSectionId(initialActiveSectionId)) {
+      setActiveSectionId(initialActiveSectionId);
+    }
+  }, [initialActiveSectionId]);
   const activeSectionIndex = LISTING_FORM_SECTIONS.findIndex((section) => section.id === activeSectionId);
   const navigateToSection = (sectionId: ListingFormSectionId) => {
     setActiveSectionId(sectionId);
+    onActiveSectionChange?.(sectionId);
     const section = document.getElementById(sectionId);
     if (section && typeof section.scrollIntoView === 'function') {
       section.scrollIntoView({ behavior: 'smooth', block: 'start' });

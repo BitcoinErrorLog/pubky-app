@@ -8,6 +8,14 @@ import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplac
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { isAuctionSaleEnded } from '@/libs/commerce/auction-phase';
+import {
+  contentfulListingDrafts,
+  formatListingDraftAge,
+  listingDraftFormRecord,
+  listingDraftHasUserContent,
+  listingDraftTitleLabel,
+  markListingDraftResumeId,
+} from '@/libs/commerce/listing-drafts';
 import { sumMoneyByAsset } from '@/libs/commerce/pricing';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -125,6 +133,7 @@ export function useMarketplaceSellerDashboard() {
       const draftId = crypto.randomUUID().replaceAll('-', '');
       const form = seedDraftFormFromListing(record, measurementSystem);
       await CommerceController.commitUpdateListingDraft(draftId, form);
+      markListingDraftResumeId(draftId);
       if (unsavedDraftId && options.replaceUnsavedDraft) {
         try {
           await CommerceController.commitDeleteListingDraft(unsavedDraftId);
@@ -137,6 +146,28 @@ export function useMarketplaceSellerDashboard() {
       toast({ variant: 'error', description: 'Could not duplicate this listing.' });
       return false;
     }
+  };
+
+  const listingDraftRows = useLiveQuery(
+    () => (currentUserPubky ? CommerceController.getListingDrafts() : []),
+    [currentUserPubky],
+  );
+  const unfinishedDrafts = contentfulListingDrafts(listingDraftRows ?? []).map((draft) => {
+    const form = listingDraftFormRecord(draft);
+    return {
+      listingId: draft.listing_id,
+      title: listingDraftTitleLabel(form?.title),
+      updatedAt: draft.updated_at,
+      ageLabel: nowMs === 0 ? '' : formatListingDraftAge(draft.updated_at, nowMs),
+    };
+  });
+
+  const discardListingDraft = async (listingId: string): Promise<void> => {
+    await CommerceController.commitDeleteListingDraft(listingId);
+  };
+
+  const resumeListingDraft = (listingId: string): void => {
+    markListingDraftResumeId(listingId);
   };
 
   const hasUnsavedListingDraft = async (): Promise<string | null> => unsavedListingDraftId();
@@ -199,6 +230,9 @@ export function useMarketplaceSellerDashboard() {
     retryListingRegistration,
     duplicateListing,
     hasUnsavedListingDraft,
+    unfinishedDrafts,
+    discardListingDraft,
+    resumeListingDraft,
     exportCsv,
     nowMs,
   };
@@ -215,79 +249,4 @@ async function unsavedListingDraftId(): Promise<string | null> {
   const form = latest.data.form;
   if (!form || typeof form !== 'object') return null;
   return listingDraftHasUserContent(form as Record<string, unknown>) ? latest.listing_id : null;
-}
-
-function isNonEmptyString(value: unknown): boolean {
-  return typeof value === 'string' && value.trim() !== '';
-}
-
-function listingDraftHasUserContent(record: Record<string, unknown>): boolean {
-  if (
-    [record.title, record.description, record.seededFromTitle, record.categoryId, record.price].some(isNonEmptyString)
-  ) {
-    return true;
-  }
-  if (typeof record.condition === 'string' && record.condition.trim() !== '' && record.condition !== 'good') {
-    return true;
-  }
-  if (listingDraftHasCustomVariants(record.variants)) return true;
-  if (listingDraftHasMedia(record)) return true;
-  if (
-    [
-      record.shippingPrice,
-      record.packageWeight,
-      record.packageLength,
-      record.packageWidth,
-      record.packageHeight,
-      record.region,
-    ].some(isNonEmptyString)
-  ) {
-    return true;
-  }
-  if (
-    typeof record.shippingLabel === 'string' &&
-    record.shippingLabel.trim() !== '' &&
-    record.shippingLabel !== 'Seller shipping'
-  ) {
-    return true;
-  }
-  if (
-    typeof record.shippingMinDays === 'string' &&
-    record.shippingMinDays.trim() !== '' &&
-    record.shippingMinDays !== '3'
-  ) {
-    return true;
-  }
-  if (
-    typeof record.shippingMaxDays === 'string' &&
-    record.shippingMaxDays.trim() !== '' &&
-    record.shippingMaxDays !== '7'
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function listingDraftHasMedia(record: Record<string, unknown>): boolean {
-  if (isNonEmptyString(record.altText)) return true;
-  return ['photos', 'media', 'photoIds', 'mediaIds'].some((key) => {
-    const value = record[key];
-    return Array.isArray(value) && value.length > 0;
-  });
-}
-
-function listingDraftHasCustomVariants(value: unknown): boolean {
-  if (!Array.isArray(value) || value.length === 0) return false;
-  if (value.length > 1) return true;
-  const row = value[0];
-  if (!row || typeof row !== 'object') return true;
-  const variant = row as Record<string, unknown>;
-  return (
-    isNonEmptyString(variant.sku) ||
-    isNonEmptyString(variant.size) ||
-    isNonEmptyString(variant.color) ||
-    isNonEmptyString(variant.style) ||
-    isNonEmptyString(variant.priceOverride) ||
-    (typeof variant.quantity === 'string' && variant.quantity.trim() !== '' && variant.quantity.trim() !== '1')
-  );
 }
