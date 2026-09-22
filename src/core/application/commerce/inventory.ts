@@ -25,6 +25,7 @@ export type InventoryBoardRow = {
   serverRevision: number;
   sync: 'synced' | 'missing';
   syncMessage?: string | null;
+  recordStatus?: 'unavailable';
 };
 
 export type InventoryBoardLoad =
@@ -84,6 +85,10 @@ function thumbUrl(record: Record<string, unknown> | null): string | null {
 function dropIdFromRecord(record: Record<string, unknown> | null): string | null {
   const edition = asObject(record?.edition);
   return asString(edition?.dropId) ?? asString(record?.dropId);
+}
+
+function recordStatusFromExport(entry: Record<string, unknown>): 'unavailable' | undefined {
+  return entry.record_status === 'unavailable' ? 'unavailable' : undefined;
 }
 
 export function planInventoryAdjust(input: {
@@ -236,6 +241,7 @@ export class CommerceInventoryApplication {
             total: asInt(projection?.total_quantity) ?? 0,
             serverRevision: asInt(projection?.server_revision) ?? 0,
             sync: 'missing',
+            ...(recordStatusFromExport(object) ? { recordStatus: 'unavailable' as const } : {}),
           });
           continue;
         }
@@ -255,6 +261,7 @@ export class CommerceInventoryApplication {
           total: Number(stock.total),
           serverRevision: Number(inventoryResult.value.server_revision),
           sync: 'synced',
+          ...(recordStatusFromExport(object) ? { recordStatus: 'unavailable' as const } : {}),
         });
       }
       const next = asString(page.value.next_cursor);

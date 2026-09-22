@@ -184,9 +184,16 @@ export function MarketplaceInventory() {
                                 <ImageIcon className="size-4 text-muted-foreground" />
                               </div>
                             )}
-                            <Typography as="p" className="font-medium">
-                              {entry.title}
-                            </Typography>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Typography as="p" className="font-medium">
+                                {entry.title}
+                              </Typography>
+                              {entry.recordStatus === 'unavailable' ? (
+                                <Badge variant="outline" data-testid={`inventory-unavailable-${entry.listingId}`}>
+                                  Unavailable
+                                </Badge>
+                              ) : null}
+                            </div>
                           </div>
                         </td>
                         <td className="p-3">{entry.state}</td>
