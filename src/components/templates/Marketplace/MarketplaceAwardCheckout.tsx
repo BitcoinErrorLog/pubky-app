@@ -99,7 +99,7 @@ export function MarketplaceAwardCheckout() {
       showLeftMobileButton={false}
       showRightMobileButton={false}
       className="pb-28"
-      classNameWrapperContent="max-w-3xl"
+      classNameWrapperContent="max-w-7xl"
     >
       <Container
         overrideDefaults
@@ -110,181 +110,184 @@ export function MarketplaceAwardCheckout() {
         <Link href={MARKETPLACE_ROUTES.CART} overrideDefaults className="text-sm text-muted-foreground">
           Back to cart
         </Link>
-        {outcome === 'success' ? (
-          <Card className="border">
-            <CardContent className="grid gap-4 px-6">
-              <Heading level={1} size="lg">
-                Order created
-              </Heading>
-              <Typography as="p">
-                Your agreed merchandise total is {award ? formatCommerceMoney(award.merchandiseTotal) : ''}.
-              </Typography>
-              <Button asChild className="w-fit rounded-full">
-                <Link href={`${MARKETPLACE_ROUTES.ORDERS}${orderId ? `#${orderId}` : ''}`} overrideDefaults>
-                  View order
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        ) : outcome === 'expired' ? (
-          <Card className="border">
-            <CardContent className="grid gap-4 px-6">
-              <Heading level={1} size="lg">
-                Offer expired
-              </Heading>
-              <Typography as="p">
-                This accepted offer expired before the order was placed. Nothing was ordered.
-              </Typography>
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="secondary" className="rounded-full">
-                  <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
-                    View offers
+        <div className="w-full max-w-3xl">
+          {outcome === 'success' ? (
+            <Card className="border">
+              <CardContent className="grid gap-4 px-6">
+                <Heading level={1} size="lg">
+                  Order created
+                </Heading>
+                <Typography as="p">
+                  Your agreed merchandise total is {award ? formatCommerceMoney(award.merchandiseTotal) : ''}.
+                </Typography>
+                <Button asChild className="w-fit rounded-full">
+                  <Link href={`${MARKETPLACE_ROUTES.ORDERS}${orderId ? `#${orderId}` : ''}`} overrideDefaults>
+                    View order
                   </Link>
                 </Button>
-                {listingRoute && (
-                  <Button asChild className="rounded-full">
-                    <Link href={listingRoute} overrideDefaults>
-                      Buy at current price
-                    </Link>
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ) : outcome === 'converted' ? (
-          <Card className="border">
-            <CardContent className="grid gap-4 px-6">
-              <Heading level={1} size="lg">
-                Offer already converted
-              </Heading>
-              <Typography as="p">This accepted offer has already been converted to an order.</Typography>
-              <Button asChild className="w-fit rounded-full">
-                <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
-                  View orders
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        ) : outcome === 'unavailable' ? (
-          <Card className="border">
-            <CardContent className="grid gap-3 px-6">
-              <Heading level={1} size="lg">
-                Checkout unavailable
-              </Heading>
-              <Typography as="p">This offer is no longer available.</Typography>
-              <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
-                View offers
-              </Link>
-            </CardContent>
-          </Card>
-        ) : outcome === 'session' ? (
-          <MarketplaceSessionRequiredCard />
-        ) : outcome === 'error' ? (
-          <Card className="border">
-            <CardContent className="grid gap-4 px-6">
-              <Heading level={1} size="lg">
-                Checkout could not be completed
-              </Heading>
-              <Typography as="p">{marketplaceOfferCheckoutFailureMessage(errorCode)}</Typography>
-              <Button className="w-fit rounded-full" onClick={() => setOutcome(null)}>
-                Retry
-              </Button>
-            </CardContent>
-          </Card>
-        ) : unavailable ? (
-          <Card className="border">
-            <CardContent className="grid gap-3 px-6">
-              <Heading level={1} size="lg">
-                Checkout unavailable
-              </Heading>
-              <Typography as="p">Checkout for this offer is unavailable right now.</Typography>
-              <Link href={APP_ROUTES.MARKETPLACE} overrideDefaults>
-                Browse the marketplace
-              </Link>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="border">
-            <CardContent className="grid gap-6 px-6">
-              <div>
+              </CardContent>
+            </Card>
+          ) : outcome === 'expired' ? (
+            <Card className="border">
+              <CardContent className="grid gap-4 px-6">
                 <Heading level={1} size="lg">
-                  Place order
+                  Offer expired
                 </Heading>
-                <Typography as="p" className="mt-2 text-muted-foreground">
-                  Checkout window closes {new Date(award.convertBy).toLocaleString('en-US')}
-                </Typography>
-              </div>
-              <div className="grid gap-2 rounded-xl border p-4">
-                <Typography as="p" className="font-semibold">
-                  {award.listing.title}
-                </Typography>
-                <Typography as="p" className="text-sm text-muted-foreground">
-                  {award.variant.options.map((item) => item.value).join(' · ') || 'Default'} · Quantity {award.quantity}
-                </Typography>
                 <Typography as="p">
-                  Subtotal <span className="font-bold">{formatCommerceMoney(award.subtotal)}</span>
+                  This accepted offer expired before the order was placed. Nothing was ordered.
                 </Typography>
-                <Typography as="p">
-                  Shipping <span className="font-bold">{formatCommerceMoney(award.shipping)}</span>
-                </Typography>
-                <Typography as="p" className="border-t pt-2 font-semibold">
-                  Merchandise total <span className="text-brand">{formatCommerceMoney(award.merchandiseTotal)}</span>
-                </Typography>
-              </div>
-              {addressBook.isLoading ? (
-                <Typography as="p" role="status">
-                  Loading delivery addresses…
-                </Typography>
-              ) : addresses.length ? (
-                <>
-                  <div className="grid gap-2">
-                    <Typography as="p" className="font-medium">
-                      Delivery address
-                    </Typography>
-                    <Select value={selectedAddress?.id} onValueChange={setAddressId}>
-                      <SelectTrigger className="h-11 w-full rounded-md border px-3">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {addresses.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.label} · {item.city}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button
-                    className="w-full rounded-full"
-                    disabled={checkout.isSubmitting}
-                    onClick={() => void submit()}
-                  >
-                    {checkout.isSubmitting ? 'Submitting…' : 'Place order'}
-                  </Button>
-                </>
-              ) : (
-                <div className="grid gap-3">
-                  <Typography as="p" role="alert">
-                    Save a{' '}
-                    <Link
-                      href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}
-                      overrideDefaults
-                      className="text-brand hover:underline"
-                    >
-                      delivery address
-                    </Link>{' '}
-                    before checkout.
-                  </Typography>
-                  <Button asChild className="w-fit rounded-full">
-                    <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults>
-                      Add delivery address
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild variant="secondary" className="rounded-full">
+                    <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
+                      View offers
                     </Link>
                   </Button>
+                  {listingRoute && (
+                    <Button asChild className="rounded-full">
+                      <Link href={listingRoute} overrideDefaults>
+                        Buy at current price
+                      </Link>
+                    </Button>
+                  )}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+              </CardContent>
+            </Card>
+          ) : outcome === 'converted' ? (
+            <Card className="border">
+              <CardContent className="grid gap-4 px-6">
+                <Heading level={1} size="lg">
+                  Offer already converted
+                </Heading>
+                <Typography as="p">This accepted offer has already been converted to an order.</Typography>
+                <Button asChild className="w-fit rounded-full">
+                  <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
+                    View orders
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : outcome === 'unavailable' ? (
+            <Card className="border">
+              <CardContent className="grid gap-3 px-6">
+                <Heading level={1} size="lg">
+                  Checkout unavailable
+                </Heading>
+                <Typography as="p">This offer is no longer available.</Typography>
+                <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
+                  View offers
+                </Link>
+              </CardContent>
+            </Card>
+          ) : outcome === 'session' ? (
+            <MarketplaceSessionRequiredCard />
+          ) : outcome === 'error' ? (
+            <Card className="border">
+              <CardContent className="grid gap-4 px-6">
+                <Heading level={1} size="lg">
+                  Checkout could not be completed
+                </Heading>
+                <Typography as="p">{marketplaceOfferCheckoutFailureMessage(errorCode)}</Typography>
+                <Button className="w-fit rounded-full" onClick={() => setOutcome(null)}>
+                  Retry
+                </Button>
+              </CardContent>
+            </Card>
+          ) : unavailable ? (
+            <Card className="border">
+              <CardContent className="grid gap-3 px-6">
+                <Heading level={1} size="lg">
+                  Checkout unavailable
+                </Heading>
+                <Typography as="p">Checkout for this offer is unavailable right now.</Typography>
+                <Link href={APP_ROUTES.MARKETPLACE} overrideDefaults>
+                  Browse the marketplace
+                </Link>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border">
+              <CardContent className="grid gap-6 px-6">
+                <div>
+                  <Heading level={1} size="lg">
+                    Place order
+                  </Heading>
+                  <Typography as="p" className="mt-2 text-muted-foreground">
+                    Checkout window closes {new Date(award.convertBy).toLocaleString('en-US')}
+                  </Typography>
+                </div>
+                <div className="grid gap-2 rounded-xl border p-4">
+                  <Typography as="p" className="font-semibold">
+                    {award.listing.title}
+                  </Typography>
+                  <Typography as="p" className="text-sm text-muted-foreground">
+                    {award.variant.options.map((item) => item.value).join(' · ') || 'Default'} · Quantity{' '}
+                    {award.quantity}
+                  </Typography>
+                  <Typography as="p">
+                    Subtotal <span className="font-bold">{formatCommerceMoney(award.subtotal)}</span>
+                  </Typography>
+                  <Typography as="p">
+                    Shipping <span className="font-bold">{formatCommerceMoney(award.shipping)}</span>
+                  </Typography>
+                  <Typography as="p" className="border-t pt-2 font-semibold">
+                    Merchandise total <span className="text-brand">{formatCommerceMoney(award.merchandiseTotal)}</span>
+                  </Typography>
+                </div>
+                {addressBook.isLoading ? (
+                  <Typography as="p" role="status">
+                    Loading delivery addresses…
+                  </Typography>
+                ) : addresses.length ? (
+                  <>
+                    <div className="grid gap-2">
+                      <Typography as="p" className="font-medium">
+                        Delivery address
+                      </Typography>
+                      <Select value={selectedAddress?.id} onValueChange={setAddressId}>
+                        <SelectTrigger className="h-11 w-full rounded-md border px-3">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {addresses.map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.label} · {item.city}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      className="w-full rounded-full"
+                      disabled={checkout.isSubmitting}
+                      onClick={() => void submit()}
+                    >
+                      {checkout.isSubmitting ? 'Submitting…' : 'Place order'}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="grid gap-3">
+                    <Typography as="p" role="alert">
+                      Save a{' '}
+                      <Link
+                        href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}
+                        overrideDefaults
+                        className="text-brand hover:underline"
+                      >
+                        delivery address
+                      </Link>{' '}
+                      before checkout.
+                    </Typography>
+                    <Button asChild className="w-fit rounded-full">
+                      <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults>
+                        Add delivery address
+                      </Link>
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </Container>
     </ContentLayout>
   );
