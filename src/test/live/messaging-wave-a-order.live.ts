@@ -357,12 +357,16 @@ function attachNetworkLog(context: BrowserContext, role: string, lines: string[]
       return;
     }
     if (!/pubky|homeserver|pkarr|staging-api/.test(`${hostname}${pathname}`)) return;
-    lines.push(`${role} ${request.method()} ${hostname}${pathname} ${response.status()}`);
+    const pubkyHost = request.headers()['pubky-host'] ?? '';
+    const hostTag = pubkyHost ? ` host=${pubkyHost.slice(0, 8)}` : '';
+    lines.push(`${role} ${request.method()} ${hostname}${pathname} ${response.status()}${hostTag}`);
   });
 }
 
 async function installStagingCorsBypass(context: BrowserContext): Promise<void> {
   const shopOrigin = () => shopUrl || `http://127.0.0.1:${SHOP_PORT}`;
+  const corsAllowHeaders =
+    'authorization,content-type,pubky-host,if-match,if-none-match,accept,cookie,range,cache-control';
   await context.route(
     (url) => url.protocol === 'https:' && url.origin !== new URL(shopOrigin()).origin,
     async (route) => {
@@ -378,31 +382,39 @@ async function installStagingCorsBypass(context: BrowserContext): Promise<void> 
         return;
       }
       const origin = shopOrigin();
-      const allowHeaders = request.headers()['access-control-request-headers'] ?? 'authorization,content-type,pubky-host';
+      const requested = request.headers()['access-control-request-headers'] ?? '';
+      const allowHeaders = Array.from(
+        new Set([...corsAllowHeaders.split(','), ...requested.split(',')].map((value) => value.trim()).filter(Boolean)),
+      ).join(',');
       if (request.method() === 'OPTIONS') {
         await route.fulfill({
           status: 204,
           headers: {
             'access-control-allow-origin': origin,
             'access-control-allow-credentials': 'true',
-            'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+            'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS',
             'access-control-allow-headers': allowHeaders,
-            'access-control-max-age': '86400',
+            'access-control-max-age': '0',
           },
         });
         return;
       }
       try {
-        const response = await route.fetch();
+        const inboundHeaders = { ...request.headers() };
+        const response = await route.fetch({ headers: inboundHeaders });
         const headers = { ...response.headers() };
+        delete headers['content-encoding'];
+        delete headers['content-length'];
         await route.fulfill({
-          response,
+          status: response.status(),
           headers: {
             ...headers,
             'access-control-allow-origin': origin,
             'access-control-allow-credentials': 'true',
-            'access-control-expose-headers': Object.keys(headers).join(', ') || '*',
+            'access-control-expose-headers': '*',
+            'access-control-allow-headers': allowHeaders,
           },
+          body: await response.body(),
         });
       } catch {
         await route.continue().catch(() => undefined);
