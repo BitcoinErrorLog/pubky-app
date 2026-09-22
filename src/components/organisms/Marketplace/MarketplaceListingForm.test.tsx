@@ -956,7 +956,7 @@ describe('MarketplaceListingForm durable publish guards at the button', () => {
 
   it.each([
     ['no-method', 'Payment method', 'Configure a payment method before publishing'],
-    ['session', 'Marketplace session', 'Connect your marketplace session before publishing'],
+    ['session', 'Marketplace session', 'Connect a marketplace session before publishing'],
     ['unsigned', 'Sign in', 'Sign in before publishing'],
     [
       'unverified',

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  consumeListingComposerReturnTo,
   evaluateDurableListingPublishGuards,
   evaluateSellerPaymentMethodGate,
   LISTING_COMPOSER_RETURN_INTENT_KEY,
@@ -7,7 +8,6 @@ import {
   LISTING_PUBLISH_BLOCK_REASONS,
   listingPublishBlockToast,
   rememberListingComposerReturnTo,
-  consumeListingComposerReturnTo,
 } from './listing-publish-guards';
 
 const OWNER = 'y'.repeat(52);

@@ -33,8 +33,8 @@ export const LISTING_PUBLISH_BLOCK_COPY: Record<
     checklist: 'Sign in',
   },
   session: {
-    title: 'Connect your marketplace session before publishing',
-    body: 'Approve the marketplace session in Pubky Ring, then submit these changes again.',
+    title: 'Connect a marketplace session before publishing',
+    body: 'This is a new session, not an expired approval. Connect a marketplace session, then submit these changes again.',
     checklist: 'Marketplace session',
   },
   'no-method': {

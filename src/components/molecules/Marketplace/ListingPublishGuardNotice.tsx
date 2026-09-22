@@ -10,7 +10,6 @@ import {
   rememberListingComposerReturnTo,
 } from '@/libs/commerce/listing-publish-guards';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
-import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 
 export function ListingPublishGuardNotice({
   reason,
@@ -28,14 +27,18 @@ export function ListingPublishGuardNotice({
   onSessionConnected?: () => void | Promise<void>;
 }) {
   const copy = LISTING_PUBLISH_BLOCK_COPY[reason];
-  const reconnect = reason === 'session' || reason === 'unverified';
+  const needsSession = reason === 'session' || reason === 'unverified';
 
   return (
     <div
       role="alert"
       id={id}
       data-surface={surface}
-      className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
+      className={
+        density === 'action'
+          ? 'rounded-xl border border-amber-500/40 bg-amber-500/10 p-3'
+          : 'rounded-xl border border-amber-500/40 bg-amber-500/10 p-4'
+      }
       tabIndex={-1}
     >
       <Typography as="p" className="font-semibold">
@@ -54,13 +57,12 @@ export function ListingPublishGuardNotice({
             Payment settings
           </Link>
         </Button>
-      ) : reconnect && density === 'banner' ? (
+      ) : needsSession ? (
         <div className="mt-3">
-          <MarketplaceSessionRequiredCard onConnected={onSessionConnected} />
-        </div>
-      ) : reconnect ? (
-        <div className="mt-3">
-          <MarketplaceSessionConnectDialog triggerLabel="Approve in Pubky Ring" onConnected={onSessionConnected} />
+          <MarketplaceSessionConnectDialog
+            triggerLabel="Connect marketplace session"
+            onConnected={onSessionConnected}
+          />
         </div>
       ) : null}
     </div>

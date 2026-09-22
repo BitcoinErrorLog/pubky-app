@@ -24,6 +24,14 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
+  MarketplaceSessionConnectDialog: ({
+    triggerLabel = 'Connect marketplace session',
+  }: {
+    triggerLabel?: string;
+  }) => <button type="button">{triggerLabel}</button>,
+}));
+
 // Keep the deployment's pickup capability ON: the default sandbox mode reads
 // false and would coerce the form's fulfillment to shipping before publish.
 vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
@@ -40,6 +48,7 @@ vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
 const createListing = vi.hoisted(() => ({
   fulfillment: 'shipping' as CreateMarketplaceListingData['fulfillment'],
   submitResult: 'seller:boots_01' as string | null,
+  publishBlocked: null as 'unsigned' | 'session' | 'no-method' | 'unverified' | null,
 }));
 
 const paymentGate = vi.hoisted(() => ({
@@ -100,7 +109,7 @@ vi.mock('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing', async
         seededAuctionAsFixedPrice: false,
         submit: vi.fn(async () => createListing.submitResult),
         reset: vi.fn(),
-        publishBlocked: null,
+        publishBlocked: createListing.publishBlocked,
         publishGuardReady: true,
       };
     },
@@ -115,6 +124,7 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
   beforeEach(() => {
     routerPush.mockClear();
     createListing.submitResult = 'seller:boots_01';
+    createListing.publishBlocked = null;
     paymentGate.isDurable = false;
     paymentGate.ready = true;
     paymentGate.reason = null;
@@ -152,6 +162,7 @@ describe('MarketplaceSell payment-method entrance', () => {
     paymentGate.isDurable = true;
     paymentGate.ready = true;
     paymentGate.reason = null;
+    createListing.publishBlocked = null;
   });
 
   it('shows the payment interstitial and no listing fields when unconfigured', () => {
@@ -182,5 +193,15 @@ describe('MarketplaceSell payment-method entrance', () => {
     expect(screen.getByText('Checking payment settings…')).toBeInTheDocument();
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Payment settings' })).not.toBeInTheDocument();
+  });
+
+  it('bootstraps a marketplace session from the publish guard, not the buyer reconnect card', () => {
+    createListing.publishBlocked = 'session';
+    render(<MarketplaceSell />);
+
+    const connectButtons = screen.getAllByRole('button', { name: 'Connect marketplace session' });
+    expect(connectButtons.length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole('heading', { name: 'Approve purchases in Pubky Ring' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
   });
 });

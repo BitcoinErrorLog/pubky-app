@@ -10,10 +10,6 @@ vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
   ),
 }));
 
-vi.mock('@/organisms/Marketplace/MarketplaceSessionRequiredCard', () => ({
-  MarketplaceSessionRequiredCard: () => <div>Approve purchases in Pubky Ring</div>,
-}));
-
 describe('ListingPublishGuardNotice', () => {
   it.each(LISTING_PUBLISH_BLOCK_REASONS)('renders %s copy at the action density', (reason) => {
     render(
@@ -39,19 +35,21 @@ describe('ListingPublishGuardNotice', () => {
       'href',
       `${MARKETPLACE_ROUTES.SETTINGS}?returnTo=${encodeURIComponent(MARKETPLACE_ROUTES.SELL)}`,
     );
+    expect(screen.queryByRole('button', { name: 'Connect marketplace session' })).not.toBeInTheDocument();
+  });
+
+  it('bootstraps a marketplace session from the session guard, not the buyer reconnect card', () => {
+    render(<ListingPublishGuardNotice reason="session" surface="listing-publish-guard" density="action" />);
+
+    expect(screen.getByRole('button', { name: 'Connect marketplace session' })).toBeInTheDocument();
+    expect(screen.queryByText('Approve purchases in Pubky Ring')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Approve in Pubky Ring' })).not.toBeInTheDocument();
   });
 
-  it('uses a compact session control at the action density', () => {
-    render(<ListingPublishGuardNotice reason="session" surface="listing-publish-guard" density="action" />);
-
-    expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
-    expect(screen.queryByText('Approve purchases in Pubky Ring')).not.toBeInTheDocument();
-  });
-
-  it('keeps the full session card on the page banner', () => {
+  it('uses the same session bootstrap control on the page banner', () => {
     render(<ListingPublishGuardNotice reason="unverified" surface="seller-publish-blocked" density="banner" />);
 
-    expect(screen.getByText('Approve purchases in Pubky Ring')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect marketplace session' })).toBeInTheDocument();
+    expect(screen.queryByText('Approve purchases in Pubky Ring')).not.toBeInTheDocument();
   });
 });
