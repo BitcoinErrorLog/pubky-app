@@ -4,13 +4,18 @@ on:
   merge_group:
   push:
     branches:
+      - 'release/**'
+      - main
       - master
-      - dev
   pull_request:
     branches:
       - '**' # Run on PRs targeting any branch
   # Enable manual trigger
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   code-quality:

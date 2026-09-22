@@ -4,8 +4,9 @@ on:
   merge_group:
   push:
     branches:
+      - 'release/**'
+      - main
       - master
-      - dev
   pull_request:
     branches:
       - '**' # Run on PRs targeting any branch
