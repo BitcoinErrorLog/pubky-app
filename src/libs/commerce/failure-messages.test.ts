@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { AppError } from '@/libs/error/error';
 import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
   marketplaceCheckoutRefusalMessage,
+  marketplaceDropRefusalMessage,
   marketplaceFailureMessage,
   marketplaceOfferCheckoutFailureMessage,
+  marketplaceOfferFailureMessage,
   marketplacePaymentMethodFailureMessage,
   marketplacePaymentMethodReasonMessage,
 } from './failure-messages';
@@ -231,5 +234,30 @@ describe('marketplaceOfferCheckoutFailureMessage', () => {
 
   it('uses the static checkout fallback for unknown codes', () => {
     expect(marketplaceOfferCheckoutFailureMessage('UNEXPECTED')).toBe(MARKETPLACE_FAILURE_MESSAGES.checkout);
+  });
+});
+
+describe('marketplaceOfferFailureMessage', () => {
+  it('never emits drop sold-out copy for a listing inventory refusal', () => {
+    expect(marketplaceOfferFailureMessage('INSUFFICIENT_INVENTORY')).toBe(MARKETPLACE_FAILURE_MESSAGES.listingSoldOut);
+    expect(marketplaceOfferFailureMessage('INSUFFICIENT_INVENTORY')).not.toBe(MARKETPLACE_FAILURE_MESSAGES.soldOut);
+    expect(marketplaceFailureMessage('INSUFFICIENT_INVENTORY', MARKETPLACE_FAILURE_MESSAGES.sendOffer)).not.toBe(
+      MARKETPLACE_FAILURE_MESSAGES.soldOut,
+    );
+    expect(marketplaceDropRefusalMessage('INSUFFICIENT_INVENTORY', 'The drop is sold out.')).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.soldOut,
+    );
+  });
+
+  it('maps a held-listing offer refusal to hold copy, not drop copy', () => {
+    expect(
+      marketplaceOfferFailureMessage(
+        'INVALID_STATE',
+        "Another buyer's payment is holding this item. If it isn't completed in time, the item restocks.",
+      ),
+    ).toBe(CHECKOUT_HOLD_COPY.heldWhileAnotherPays);
+    expect(marketplaceOfferFailureMessage('INVALID_STATE', 'sentinel-drop-copy')).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.sendOffer,
+    );
   });
 });

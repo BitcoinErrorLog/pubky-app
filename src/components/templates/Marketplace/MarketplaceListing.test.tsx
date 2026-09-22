@@ -3,8 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommerceSellerReputationOverview } from '@/application/commerce/commerce';
 import { CAPABILITIES } from '@/config/app';
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { createCommerceListingFixture, createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel, toCommerceShopModel } from '@/test/fixtures/commerce/listing-models';
+import { createOrderFixture } from '@/test/fixtures/commerce/orders';
 import { createListingProjectionFixture } from '@/test/fixtures/commerce/projections';
 import { MarketplaceListing } from './MarketplaceListing';
 
@@ -25,6 +27,7 @@ const view = vi.hoisted(() => ({
   projectionError: null as string | null,
   needsSession: false,
   hasFullHomeserverGrant: false,
+  orders: [] as Array<{ order: ReturnType<typeof createOrderFixture> }>,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -89,6 +92,16 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
+  useMarketplaceOrders: () => ({
+    orders: view.orders,
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceProjection/useMarketplaceProjection', () => ({
   useMarketplaceProjection: () => ({
     projection: view.projection,
@@ -143,6 +156,7 @@ describe('MarketplaceListing', () => {
     view.projectionError = null;
     view.needsSession = false;
     view.hasFullHomeserverGrant = false;
+    view.orders = [];
     sellerReputation.value = { status: 'new_seller' };
     cartAdd.mockClear();
     projectionRefresh.mockClear();
@@ -312,6 +326,72 @@ describe('MarketplaceListing', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sold out' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: CHECKOUT_HOLD_COPY.heldWhileAnotherPays })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
+  });
+
+  it('links Held for you to the viewer pending_payment order, not a session id', () => {
+    const listing = view.listing;
+    if (!listing) throw new Error('Expected listing fixture');
+    const sessionId = 'sess_not-a-pubky-identifier';
+    const ownHold = createOrderFixture('pending_payment', {
+      buyerPubky: authState.currentUserPubky ?? '',
+      lines: [
+        {
+          ...createOrderFixture('pending_payment').lines[0],
+          listingAggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+        },
+      ],
+    });
+    view.projection = createListingProjectionFixture({
+      aggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+      sellerPubky: listing.seller_id,
+      listingId: listing.listing_id,
+      state: 'reserved',
+      availableQuantity: 0,
+      reservedQuantity: 1,
+    });
+    view.orders = [{ order: { ...ownHold, buyerPubky: sessionId } }];
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouCta })).not.toBeInTheDocument();
+  });
+
+  it('shows Held for you when the pending hold buyerPubky matches the viewer pubky', () => {
+    const listing = view.listing;
+    if (!listing) throw new Error('Expected listing fixture');
+    const ownHold = createOrderFixture('pending_payment', {
+      buyerPubky: authState.currentUserPubky ?? '',
+      lines: [
+        {
+          ...createOrderFixture('pending_payment').lines[0],
+          listingAggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+        },
+      ],
+    });
+    view.projection = createListingProjectionFixture({
+      aggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+      sellerPubky: listing.seller_id,
+      listingId: listing.listing_id,
+      state: 'reserved',
+      availableQuantity: 0,
+      reservedQuantity: 1,
+    });
+    view.orders = [{ order: ownHold }];
+
+    renderListing();
+
+    const link = screen.getByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouCta });
+    expect(link).toHaveAttribute('href', `/marketplace/orders#${ownHold.id}`);
+    expect(screen.getByRole('button', { name: CHECKOUT_HOLD_COPY.heldForYouCta })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Held by another buyer' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
+      ),
+    ).not.toBeInTheDocument();
   });
 
   function renderAuctionListingNeedingSession() {

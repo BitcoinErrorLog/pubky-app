@@ -26,7 +26,13 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/award-checkout',
 }));
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
-  ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
+  ContentLayout: ({
+    children,
+    classNameWrapperContent,
+  }: {
+    children: React.ReactNode;
+    classNameWrapperContent?: string;
+  }) => <main className={classNameWrapperContent}>{children}</main>,
 }));
 vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
   useMarketplaceOffers: () => ({
@@ -102,11 +108,21 @@ describe('Marketplace award checkout — visual regression', () => {
     await capture('award-checkout-expired-desktop');
   });
 
-  it('captures the success state', async () => {
+  it('captures the success state at desktop viewport', async () => {
     state.outcome = 'success';
     const screen = await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
     await userEvent.click(screen.getByRole('button', { name: 'Place order' }));
+    await expect(screen.getByRole('heading', { name: 'Order created' })).toBeVisible();
     const surface = expectVrtSurface('marketplace-award-checkout');
     await expect(surface).toMatchScreenshot('award-checkout-success-desktop');
+  });
+
+  it('captures the success state at mobile viewport', async () => {
+    state.outcome = 'success';
+    const screen = await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_MOBILE });
+    await userEvent.click(screen.getByRole('button', { name: 'Place order' }));
+    await expect(screen.getByRole('heading', { name: 'Order created' })).toBeVisible();
+    const surface = expectVrtSurface('marketplace-award-checkout');
+    await expect(surface).toMatchScreenshot('award-checkout-success-mobile');
   });
 });

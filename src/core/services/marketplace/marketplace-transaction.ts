@@ -56,6 +56,7 @@ import { HttpStatusCode } from '@/libs/http/http.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { reportMarketplaceNotificationInvalidTypes } from './marketplace-notification-diagnostics';
 import {
+  listingHasSellerReserveAuthority,
   type MarketplaceBidHistory,
   marketplaceBidHistorySchema,
   type MarketplaceDropReadyCheck,
@@ -80,6 +81,7 @@ import {
   type MarketplaceSellerListingProjection,
   marketplaceSellerListingProjectionSchema,
   parseMarketplaceNotificationEntries,
+  stripSellerReserveAuthorityFields,
 } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
 
@@ -214,22 +216,16 @@ export class MarketplaceTransactionService {
       typeof raw === 'object' &&
       !Array.isArray(raw) &&
       (raw as Record<string, unknown>).sellerPubky === actor &&
-      'reservePrice' in raw
+      listingHasSellerReserveAuthority(raw)
     ) {
-      const seller = this.parseProjection(
+      const seller = marketplaceSellerListingProjectionSchema.safeParse(raw);
+      const publicInput = seller.success ? seller.data : stripSellerReserveAuthorityFields(raw);
+      return this.parseProjection(
         'getListing',
-        marketplaceSellerListingProjectionSchema,
-        raw,
-        'Marketplace returned an invalid seller listing projection.',
+        marketplaceListingProjectionSchema,
+        stripSellerReserveAuthorityFields(publicInput),
+        'Marketplace returned an invalid listing projection.',
       );
-      const {
-        reservePrice: _reservePrice,
-        reserveMet: _reserveMet,
-        reserveRecordRevision: _reserveRecordRevision,
-        lastReserveCommandId: _lastReserveCommandId,
-        ...publicProjection
-      } = seller;
-      return marketplaceListingProjectionSchema.parse(publicProjection);
     }
     return this.parseProjection(
       'getListing',

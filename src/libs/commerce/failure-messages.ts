@@ -1,3 +1,4 @@
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { isAppError } from '@/libs/error/error';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory } from '@/libs/error/error.types';
@@ -69,7 +70,6 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
 type MarketplaceFailureCode = string | null | undefined;
 
 const CODE_MESSAGES: ReadonlyMap<string, string> = new Map([
-  ['INSUFFICIENT_INVENTORY', MARKETPLACE_FAILURE_MESSAGES.soldOut],
   ['INVALID_RESPONSE', MARKETPLACE_FAILURE_MESSAGES.unavailable],
   ['SESSION_EXPIRED', MARKETPLACE_FAILURE_MESSAGES.session],
   ['UNAUTHORIZED', MARKETPLACE_FAILURE_MESSAGES.session],
@@ -116,6 +116,23 @@ export function marketplaceCheckoutRefusalMessage(code: MarketplaceFailureCode, 
 export function marketplaceDropRefusalMessage(code: MarketplaceFailureCode, message: unknown): string | null {
   if (typeof code !== 'string' || typeof message !== 'string') return null;
   return DROP_REFUSAL_MESSAGES.get(`${code}:${message}`) ?? null;
+}
+
+const OFFER_HOLD_MESSAGES = new Set([
+  "Another buyer's payment is holding this item. If it isn't completed in time, the item restocks.",
+  CHECKOUT_HOLD_COPY.listingReserved,
+]);
+
+/**
+ * Offer.create failures must never use drop copy. `INSUFFICIENT_INVENTORY` on
+ * a listing is sold-out or held inventory, not "this drop is sold out."
+ */
+export function marketplaceOfferFailureMessage(code: MarketplaceFailureCode, message?: unknown): string {
+  if (code === 'INSUFFICIENT_INVENTORY') return MARKETPLACE_FAILURE_MESSAGES.listingSoldOut;
+  if (code === 'INVALID_STATE' && typeof message === 'string' && OFFER_HOLD_MESSAGES.has(message)) {
+    return CHECKOUT_HOLD_COPY.heldWhileAnotherPays;
+  }
+  return marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sendOffer);
 }
 
 export function marketplaceFailureMessage(code: MarketplaceFailureCode, fallback: string, error?: unknown): string {
