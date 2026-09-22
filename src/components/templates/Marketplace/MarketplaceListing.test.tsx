@@ -240,7 +240,9 @@ describe('MarketplaceListing', () => {
     const purchase = screen.getByRole('button', { name: 'Approve to buy' });
     expect(purchase).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Add to cart' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Connect to see availability before adding this item to your cart.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Connect to see availability before adding this item to your cart.'),
+    ).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Approve to buy' })).toHaveLength(1);
     expect(cartAdd).not.toHaveBeenCalled();
   });
@@ -257,7 +259,9 @@ describe('MarketplaceListing', () => {
 
     expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
-    expect(screen.queryByText('Connect to see availability before adding this item to your cart.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Connect to see availability before adding this item to your cart.'),
+    ).not.toBeInTheDocument();
   });
 
   it('uses one Sign in to buy path when the viewer has no identity', async () => {
@@ -274,7 +278,9 @@ describe('MarketplaceListing', () => {
     expect(screen.getAllByRole('button', { name: 'Sign in to buy' })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Make offer' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Add to watchlist' })).toBeEnabled();
-    expect(screen.queryByText('Connect to see availability before adding this item to your cart.')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Connect to see availability before adding this item to your cart.'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     await user.click(purchase);
