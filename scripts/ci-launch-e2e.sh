@@ -23,6 +23,9 @@ export PUBKY_RUNTIME_PKARR_RELAYS="${PUBKY_RUNTIME_PKARR_RELAYS:-[\"https://pkar
 export PUBKY_RUNTIME_DEFAULT_HTTP_RELAY="${PUBKY_RUNTIME_DEFAULT_HTTP_RELAY:-https://httprelay.staging.pubky.app/inbox}"
 export PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE="${PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE:-transaction-service}"
 export PUBKY_RUNTIME_MARKETPLACE_URL="${PUBKY_RUNTIME_MARKETPLACE_URL:-https://staging-api.pubky.app}"
+# Official social Nexus does not serve v0/stream/listings; staging Shop points
+# commerce index reads at the dedicated marketplace-indexing Nexus.
+export PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL="${PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL:-https://nexusd-production-7108.up.railway.app}"
 
 if [[ ! -d .next || ! -f .next/BUILD_ID ]]; then
   echo "Missing .next — this script reuses a production build and must not run next build."

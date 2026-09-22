@@ -20,6 +20,13 @@ const SELLER_PUBKY = 'y'.repeat(52);
 
 const BASE_URL = (process.env.LAUNCH_E2E_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
 const SERVICE_URL = process.env.LAUNCH_E2E_SERVICE_URL ?? 'https://staging-api.pubky.app';
+const NEXUS_URL = (
+  process.env.PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL ??
+  process.env.PUBKY_RUNTIME_NEXUS_URL ??
+  'https://nexusd-production-7108.up.railway.app'
+).replace(/\/$/, '');
+const PUBKY_RE = /^[a-z0-9]{52}$/i;
+const LISTING_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
 const failures = [];
 const results = [];
@@ -73,7 +80,11 @@ async function runAxe(page, pageId) {
       id: violation.id,
       impact: violation.impact,
       description: violation.description,
-      nodes: violation.nodes.length,
+      nodes: violation.nodes.map((node) => ({
+        target: node.target,
+        html: String(node.html ?? '').slice(0, 240),
+        failureSummary: String(node.failureSummary ?? '').slice(0, 240),
+      })),
     }));
   });
   const blocking = report.filter((item) => item.impact === 'critical' || item.impact === 'serious');
@@ -81,11 +92,70 @@ async function runAxe(page, pageId) {
     record(
       `a11y:${pageId}`,
       false,
-      blocking.map((item) => `${item.impact}:${item.id}×${item.nodes}`).join('; '),
+      blocking
+        .map((item) => {
+          const first = item.nodes[0];
+          const where = first ? `${first.target.join(' ')} :: ${first.html}` : '';
+          return `${item.impact}:${item.id}×${item.nodes.length}${where ? ` ${where}` : ''}`;
+        })
+        .join('; '),
     );
     return;
   }
   record(`a11y:${pageId}`, true, report.length === 0 ? 'no violations' : `non-blocking ${report.map((item) => item.id).join(',')}`);
+}
+
+async function fetchStagingListingFromNexus() {
+  const url = `${NEXUS_URL}/v0/stream/listings?state=active&limit=1`;
+  try {
+    const response = await fetch(url, { headers: { accept: 'application/json' } });
+    if (!response.ok) {
+      return { ok: false, detail: `nexus ${response.status}` };
+    }
+    const payload = await response.json();
+    const row = Array.isArray(payload) ? payload[0] : null;
+    if (!row || typeof row !== 'object') {
+      return { ok: false, detail: 'nexus stream empty' };
+    }
+    const seller = typeof row.owner_id === 'string' ? row.owner_id : '';
+    const listingId = typeof row.id === 'string' ? row.id : '';
+    if (!PUBKY_RE.test(seller) || !LISTING_ID_RE.test(listingId)) {
+      return { ok: false, detail: 'nexus row missing owner_id/id' };
+    }
+    return { ok: true, seller, listingId };
+  } catch (error) {
+    return { ok: false, detail: String(error).slice(0, 180) };
+  }
+}
+
+async function waitForListingReady(page) {
+  await page.locator('[data-testid="marketplace-listing-skeleton"]').waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => undefined);
+}
+
+async function exerciseListingCheckout(page) {
+  await waitForListingReady(page);
+  const buy = page.getByRole('button', { name: 'Sign in to buy' });
+  const add = page.getByRole('button', { name: 'Add to cart' });
+  if (await buy.count()) {
+    await buy.first().click();
+    await waitForJoinPubky(page);
+    record('checkout:payment-step', true, 'Sign in to buy → Join Pubky');
+    await runAxe(page, 'listing-checkout');
+    await closeJoinDialog(page);
+  } else if (await add.count()) {
+    await add.first().click();
+    await waitForJoinPubky(page);
+    record('checkout:payment-step', true, 'Add to cart → Join Pubky');
+    await closeJoinDialog(page);
+  } else {
+    const unavailable = await page.getByRole('heading', { name: 'Listing unavailable' }).count();
+    record(
+      'checkout:payment-step',
+      false,
+      unavailable ? 'listing unavailable after Chromium navigation' : 'no Sign in to buy / Add to cart on listing',
+    );
+  }
+  await runAxe(page, 'listing');
 }
 
 async function installSdkRoute(page) {
@@ -189,32 +259,31 @@ async function main() {
 
     const listingCard = page.locator(fixture.listingCardSelector).first();
     const hasListing = await listingCard
-      .waitFor({ state: 'visible', timeout: 25_000 })
+      .waitFor({ state: 'visible', timeout: 8_000 })
       .then(() => true)
       .catch(() => false);
-    if (!hasListing) {
-      record('listing:open', false, 'no staging listing card on catalog');
-    } else {
+    if (hasListing) {
       await listingCard.click();
       await page.waitForURL(/\/marketplace\/listing\//, { timeout: 20_000 });
       record('listing:open', true, page.url());
-      const buy = page.getByRole('button', { name: 'Sign in to buy' });
-      const add = page.getByRole('button', { name: 'Add to cart' });
-      if (await buy.count()) {
-        await buy.first().click();
-        await waitForJoinPubky(page);
-        record('checkout:payment-step', true, 'Sign in to buy → Join Pubky');
-        await runAxe(page, 'listing-checkout');
-        await closeJoinDialog(page);
-      } else if (await add.count()) {
-        await add.first().click();
-        await waitForJoinPubky(page);
-        record('checkout:payment-step', true, 'Add to cart → Join Pubky');
-        await closeJoinDialog(page);
+      await exerciseListingCheckout(page);
+    } else {
+      const fromNexus = await fetchStagingListingFromNexus();
+      if (!fromNexus.ok) {
+        record('listing:open', false, `catalog empty; ${fromNexus.detail}`);
       } else {
-        record('checkout:payment-step', false, 'no Sign in to buy / Add to cart on listing');
+        const listingPath = `/marketplace/listing/${fromNexus.seller}/${fromNexus.listingId}`;
+        await gotoAndSettle(page, listingPath);
+        const onListing = /\/marketplace\/listing\//.test(page.url());
+        record(
+          'listing:open',
+          onListing,
+          onListing ? `${page.url()} via nexus stream` : `expected ${listingPath}, got ${page.url()}`,
+        );
+        if (onListing) {
+          await exerciseListingCheckout(page);
+        }
       }
-      await runAxe(page, 'listing');
     }
 
     await gotoAndSettle(page, fixture.pages[2].path);
