@@ -12,6 +12,10 @@ on:
   # Enable manual trigger
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Check NextJS Build
@@ -150,6 +154,7 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
           LAUNCH_E2E_BASE_URL: http://127.0.0.1:3000
           LAUNCH_E2E_SERVICE_URL: https://staging-api.pubky.app
+          LAUNCH_E2E_SELLER_SECRET_HEX: ${{ secrets.LAUNCH_E2E_SELLER_SECRET_HEX }}
         run: bash scripts/ci-launch-e2e.sh
 
       - name: Upload launch-e2e log
