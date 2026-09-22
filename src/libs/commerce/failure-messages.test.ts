@@ -7,6 +7,8 @@ import {
   marketplaceCheckoutRefusalMessage,
   marketplaceFailureMessage,
   marketplaceOfferCheckoutFailureMessage,
+  marketplacePaymentMethodFailureMessage,
+  marketplacePaymentMethodReasonMessage,
 } from './failure-messages';
 
 describe('marketplaceFailureMessage', () => {
@@ -121,6 +123,95 @@ describe('marketplaceCheckoutRefusalMessage', () => {
     expect(marketplaceCheckoutRefusalMessage('UNAUTHORIZED', 'A buyer cannot purchase their own listing.')).not.toBe(
       MARKETPLACE_FAILURE_MESSAGES.session,
     );
+  });
+});
+
+describe('marketplacePaymentMethodFailureMessage', () => {
+  it('maps a capability_required family from the service code', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL_PAYMENT_METHOD_WIRE',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 403, serviceCode: 'capability_required' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'The payment action could not be completed.')).toBe(
+      'This payment needs a marketplace grant. Approve access on your signer and try again.',
+    );
+    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).not.toContain('SENTINEL');
+  });
+
+  it('maps a CAS 409 revision conflict from the wire code', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.CONFLICT,
+      message: 'SENTINEL_PAYMENT_METHOD_WIRE',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, serviceCode: 'REVISION_CONFLICT' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).toBe(MARKETPLACE_FAILURE_MESSAGES.paymentChanged);
+  });
+
+  it('maps a missing payment method without copying the wire message', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL_PAYMENT_METHOD_WIRE',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: 'method_unavailable' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).toBe(
+      'The seller has not configured this payment method.',
+    );
+  });
+
+  it('maps seller-not-configured and service-unavailable families', () => {
+    const seller = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: 'stripe_key_missing' },
+    });
+    const unavailable = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 503, reason: 'paykit_unavailable' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(seller, 'fallback')).toBe(
+      'This seller has not configured a Stripe key.',
+    );
+    expect(marketplacePaymentMethodFailureMessage(unavailable, 'fallback')).toBe(
+      'The Paykit server is unavailable. Try again shortly.',
+    );
+  });
+
+  it('keeps the action fallback when no payment-method reason is present', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.CONFLICT,
+      message: 'SENTINEL_ORDER_PAYMENT_ACTION',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'The payment action could not be completed.')).toBe(
+      'The payment action could not be completed.',
+    );
+  });
+
+  it('maps known reasons and ignores prototype keys', () => {
+    expect(marketplacePaymentMethodReasonMessage('method_unavailable')).toBe(
+      'The seller has not configured this payment method.',
+    );
+    expect(marketplacePaymentMethodReasonMessage('constructor')).toBe('The payment method request was refused.');
+    expect(marketplacePaymentMethodReasonMessage(undefined)).toBe('The payment method request was refused.');
   });
 });
 

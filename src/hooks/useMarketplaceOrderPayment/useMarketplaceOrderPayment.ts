@@ -6,6 +6,7 @@ import {
   MARKETPLACE_FAILURE_MESSAGES,
   marketplaceErrorCode,
   marketplaceFailureMessage,
+  marketplacePaymentMethodFailureMessage,
 } from '@/libs/commerce/failure-messages';
 import {
   availablePaymentMethods,
@@ -70,12 +71,9 @@ export function useMarketplaceOrderPayment({
       } catch (error) {
         Logger.error(`Marketplace payment action '${action}' failed`, { error });
         toast({
+          variant: 'error',
           title: 'Payment action failed',
-          description: marketplaceFailureMessage(
-            marketplaceErrorCode(error),
-            'The payment action could not be completed.',
-            error,
-          ),
+          description: marketplacePaymentMethodFailureMessage(error, 'The payment action could not be completed.'),
         });
       } finally {
         setPendingAction(null);

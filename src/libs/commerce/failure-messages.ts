@@ -129,6 +129,83 @@ export function marketplaceFailureMessage(code: MarketplaceFailureCode, fallback
   return (code && CODE_MESSAGES.get(code)) || fallback;
 }
 
+/**
+ * Static copy for durable payment-method refusals. Keys are service
+ * `error.reason` values and, for families that ship `code` with no `reason`
+ * (`capability_required`, CAS `REVISION_CONFLICT`), the wire `error.code`.
+ * Never copy the service `error.message` — it can echo a rejected Stripe key.
+ */
+export const MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES: ReadonlyMap<string, string> = new Map([
+  ['bitcoin_unavailable', 'Bitcoin payments are not available for this seller.'],
+  ['capability_required', 'This payment needs a marketplace grant. Approve access on your signer and try again.'],
+  ['currency_unsupported', 'This payment method does not support the order currency.'],
+  ['hold_unavailable', 'The inventory hold for this order is no longer available.'],
+  ['INTERNAL', MARKETPLACE_FAILURE_MESSAGES.unavailable],
+  ['invalid_method', 'That payment method is not valid for this order.'],
+  ['invalid_payment_link', 'The Stripe payment link is not valid.'],
+  ['invalid_paypal_email', 'The PayPal merchant email is not valid.'],
+  ['invalid_pubky', 'The seller identity on this payment configuration is not valid.'],
+  ['invalid_restricted_key', 'The Stripe restricted key is not valid.'],
+  ['invalid_sats', 'The Bitcoin amount must be a positive satoshi amount.'],
+  ['invalid_transaction_ref', 'The payment reference is not valid.'],
+  ['INVALID_RESPONSE', MARKETPLACE_FAILURE_MESSAGES.unavailable],
+  ['locks_managed', 'A Locks-correlated payment advances only by server-side verification.'],
+  ['method_mismatch', 'The payment method does not match this order.'],
+  ['method_unavailable', 'The seller has not configured this payment method.'],
+  ['not_buyer', 'Only the buyer may bind the payment method.'],
+  ['not_participant', 'Only a participant on this order can continue.'],
+  ['not_seller', 'Only the seller can continue this payment step.'],
+  ['order_not_found', 'The order was not found.'],
+  ['order_not_pending', 'Only an order pending payment can bind a payment method.'],
+  ['paykit_expiry_inconsistent', 'The Paykit payment window does not match this order.'],
+  ['paykit_rejected', 'The Paykit server rejected the payment request.'],
+  ['paykit_total_inconsistent', 'The Paykit amount does not match this order.'],
+  ['paykit_unavailable', 'The Paykit server is unavailable. Try again shortly.'],
+  ['payment_method_already_bound', 'A payment method is already bound to this order.'],
+  ['payment_not_awaiting', 'The payment is no longer awaiting a method.'],
+  ['payments_disabled', 'Payments are disabled on this marketplace.'],
+  ['REVISION_CONFLICT', MARKETPLACE_FAILURE_MESSAGES.paymentChanged],
+  ['revision_conflict', MARKETPLACE_FAILURE_MESSAGES.paymentChanged],
+  ['seller_account_unclaimed', 'The seller has not claimed a Bitcoin account yet.'],
+  ['sold_out', 'This listing no longer has enough inventory.'],
+  ['stripe_key_invalid', 'Stripe rejected the seller payment key. The seller must update their payment settings.'],
+  ['stripe_key_missing', 'This seller has not configured a Stripe key.'],
+  ['stripe_unavailable', 'Stripe could not be reached. Try again shortly.'],
+  ['unavailable', 'The payment method request was refused.'],
+  ['UPSTREAM_UNAVAILABLE', MARKETPLACE_FAILURE_MESSAGES.unavailable],
+]);
+
+function paymentMethodRefusalLookupKeys(error: unknown): string[] {
+  if (!isAppError(error)) return [];
+  const keys: string[] = [];
+  const reason = error.context?.reason;
+  const serviceCode = error.context?.serviceCode;
+  if (typeof reason === 'string' && reason.length > 0) keys.push(reason);
+  if (typeof serviceCode === 'string' && serviceCode.length > 0) keys.push(serviceCode);
+  if (typeof error.code === 'string' && error.code.length > 0) keys.push(error.code);
+  return keys;
+}
+
+export function marketplacePaymentMethodReasonMessage(reason: string | null | undefined): string {
+  if (typeof reason !== 'string' || reason.length === 0) {
+    return MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES.get('unavailable') ?? 'The payment method request was refused.';
+  }
+  return (
+    MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES.get(reason) ??
+    MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES.get('unavailable') ??
+    'The payment method request was refused.'
+  );
+}
+
+/** Buyer/seller payment-action toast: map reason or family code, never a wire message. */
+export function marketplacePaymentMethodFailureMessage(error: unknown, fallback: string): string {
+  for (const key of paymentMethodRefusalLookupKeys(error)) {
+    const mapped = MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES.get(key);
+    if (mapped) return mapped;
+  }
+  return marketplaceFailureMessage(marketplaceErrorCode(error), fallback, error);
+}
+
 export function marketplaceBidFailureMessage(code: MarketplaceFailureCode): string {
   if (code === 'BID_TOO_LOW') return MARKETPLACE_FAILURE_MESSAGES.bidTooLow;
   if (code === 'UNAUTHORIZED') return MARKETPLACE_FAILURE_MESSAGES.bidUnauthorized;
