@@ -237,6 +237,19 @@ describe('MarketplacePaymentSettings', () => {
     expect(mockedController.putMyPaymentConfig).not.toHaveBeenCalled();
   });
 
+  it('tells Ring-signed-up sellers to create a Shop identity in Bitkit', async () => {
+    await renderSettings();
+
+    const helper =
+      'Your Shop identity must live in Bitkit. Signed up with Pubky Ring? Create a new Shop account by scanning the sign-up QR with Bitkit — Ring import is coming to Bitkit.';
+    expect(screen.getByText(helper)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    expect(screen.getAllByText(helper)).toHaveLength(2);
+    expect(screen.getByText(/Bitkit 2.5 or newer is required/)).toBeInTheDocument();
+  });
+
   it('validates the Bitkit setup callback', async () => {
     render(<MarketplacePaymentSettings />);
     expect(screen.getByRole('heading', { name: 'PayPal' })).toBeInTheDocument();

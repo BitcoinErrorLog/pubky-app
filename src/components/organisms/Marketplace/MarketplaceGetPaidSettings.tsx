@@ -62,6 +62,8 @@ type PaykitSetupStatus = 'idle' | 'error' | 'mismatch' | 'verifying' | 'timeout'
 const PAYKIT_SETUP_TIMEOUT_MS = 6 * 60 * 1_000;
 const PAYKIT_SETUP_EXPLANATION =
   'Scan the code with Bitkit, or open this page on your phone and tap Open in Bitkit. Bitkit 2.5 or newer is required.';
+const PAYKIT_RING_IDENTITY_HELPER =
+  'Your Shop identity must live in Bitkit. Signed up with Pubky Ring? Create a new Shop account by scanning the sign-up QR with Bitkit — Ring import is coming to Bitkit.';
 
 function createPaykitSetupState(): string {
   const bytes = new Uint8Array(16);
@@ -473,6 +475,9 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
               Open the setup in Bitkit and approve it there. Payments settle to your own bitcoin wallet — your spending
               keys never leave it.
             </Typography>
+            <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+              {PAYKIT_RING_IDENTITY_HELPER}
+            </Typography>
             {payments.accountClaimed === true && (
               <Typography as="p" className="mt-2 flex items-center gap-2 text-sm text-brand">
                 <CheckCircle2 className="size-4" />
@@ -579,6 +584,9 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
           </DialogHeader>
           <Typography as="p" className="text-sm text-muted-foreground">
             {PAYKIT_SETUP_EXPLANATION}
+          </Typography>
+          <Typography as="p" className="text-sm text-muted-foreground">
+            {PAYKIT_RING_IDENTITY_HELPER}
           </Typography>
           {paykitSetupUrl && (
             <iframe
