@@ -848,8 +848,8 @@ export class LocalCommerceService {
     await CommerceListingDraftModel.upsert({
       ...draft,
       media_blobs: (await encodeListingDraftBlobs(
-        draft.media_blobs ?? {},
-      )) as CommerceListingDraftModelSchema['media_blobs'],
+        decodeListingDraftBlobs(draft.media_blobs),
+      )) as unknown as CommerceListingDraftModelSchema['media_blobs'],
     });
   }
 

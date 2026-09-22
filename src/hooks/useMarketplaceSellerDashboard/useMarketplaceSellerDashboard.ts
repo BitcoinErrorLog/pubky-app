@@ -158,7 +158,7 @@ export function useMarketplaceSellerDashboard() {
       listingId: draft.listing_id,
       title: listingDraftTitleLabel(form?.title),
       updatedAt: draft.updated_at,
-      ageLabel: formatListingDraftAge(draft.updated_at, nowMs || Date.now()),
+      ageLabel: nowMs === 0 ? '' : formatListingDraftAge(draft.updated_at, nowMs),
     };
   });
 

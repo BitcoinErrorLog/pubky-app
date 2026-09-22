@@ -344,7 +344,9 @@ function listingDraftValueToBlob(value: unknown): Blob | null {
     value && typeof value === 'object' && typeof (value as { type?: unknown }).type === 'string'
       ? (value as { type: string }).type
       : 'application/octet-stream';
-  return new Blob([bytes], { type: type || 'application/octet-stream' });
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return new Blob([copy.buffer], { type: type || 'application/octet-stream' });
 }
 
 function listingDraftStoredBytesField(value: unknown): unknown {

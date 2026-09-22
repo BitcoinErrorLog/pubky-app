@@ -102,6 +102,7 @@ function buildMedia(items: ListingMediaItem[] = []): UseListingMediaManagerResul
     moveItem: vi.fn(),
     setAltText: vi.fn(),
     seed: vi.fn(),
+    restore: vi.fn(),
     reset: vi.fn(),
     prepare: vi.fn(),
   };

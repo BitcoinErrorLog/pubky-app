@@ -7,6 +7,7 @@ import {
   markListingDraftResumeId,
 } from '@/libs/commerce/listing-drafts';
 import { commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
+import type { CommerceListingDraftModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import { seedDraftFormFromListing, useCreateMarketplaceListing } from './useCreateMarketplaceListing';
@@ -587,16 +588,20 @@ describe('useCreateMarketplaceListing', () => {
   });
 });
 
-function listingDraftRow(listingId: string, form: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+function listingDraftRow(
+  listingId: string,
+  form: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+): CommerceListingDraftModelSchema {
   return {
     id: `${OWNER}:${listingId}`,
     owner_id: OWNER,
     listing_id: listingId,
-    data: { ownerPubky: OWNER, listingId, form },
+    data: { ownerPubky: OWNER, listingId, form: JSON.parse(JSON.stringify(form)) },
     created_at: 1_000,
     updated_at: 2_000,
     ...extra,
-  };
+  } as CommerceListingDraftModelSchema;
 }
 
 describe('seedDraftFormFromListing', () => {

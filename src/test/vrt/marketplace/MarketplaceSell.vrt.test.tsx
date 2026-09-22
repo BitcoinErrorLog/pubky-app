@@ -60,7 +60,7 @@ const view = vi.hoisted(() => ({
     expiresAt: '2026-09-14T00:00:00.000Z',
     issuedAt: '2026-09-13T00:00:00.000Z',
   } as object | null,
-  commitDeleteListingDraft: vi.fn(() => Promise.resolve()),
+  commitDeleteListingDraft: vi.fn((..._args: unknown[]) => Promise.resolve()),
   sessionErrorMessage: null as string | null,
 }));
 const sellerPaymentConfig = vi.hoisted(() =>
@@ -198,7 +198,7 @@ async function resumeAutosavedDraft(
   expectedTitle = draftFixture.data.form.title,
 ) {
   await vi.waitFor(() => {
-    if (!screen.queryByRole('button', { name: 'Resume' })) {
+    if (!screen.container.querySelector('[data-surface="listing-draft-restore-prompt"]')) {
       throw new Error('The resume prompt has not rendered yet.');
     }
   });
