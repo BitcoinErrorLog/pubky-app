@@ -46,6 +46,8 @@ describe('MarketplaceMediaGallery', () => {
     const main = screen.getByAltText('Brown leather boots');
     expect(main).toHaveAttribute('src', expect.stringContaining('/pub/pubky.app/marketplace/v1/media/image_01'));
     expect(main).toHaveAttribute('src', expect.stringContaining(`pubky-host=${COMMERCE_FIXTURE_SELLER}`));
+    expect(main).toHaveClass('object-cover', 'object-center');
+    expect(main).not.toHaveClass('object-contain');
     // A single media item needs no thumbnail strip.
     expect(screen.queryByRole('group', { name: 'Listing media' })).not.toBeInTheDocument();
   });

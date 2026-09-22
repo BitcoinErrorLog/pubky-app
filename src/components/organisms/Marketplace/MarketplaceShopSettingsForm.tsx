@@ -139,7 +139,7 @@ function ShopImageField({
         >
           {previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- homeserver media and object URLs bypass Next image optimization
-            <img src={previewUrl} alt={`${label} preview`} className="size-full object-cover" />
+            <img src={previewUrl} alt={`${label} preview`} className="size-full object-cover object-center" />
           ) : (
             <Store className="size-8" aria-hidden />
           )}
