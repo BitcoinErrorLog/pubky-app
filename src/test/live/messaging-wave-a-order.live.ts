@@ -302,23 +302,82 @@ async function handshakeRole(page: Page): Promise<'initiator' | 'responder' | 'r
   return 'other';
 }
 
-async function reopenOrderThread(page: Page, keypair: Keypair, listingTitle: string, shotPrefix: string): Promise<void> {
+async function closeOrderThread(page: Page): Promise<void> {
   const close = page.getByRole('button', { name: 'Close' });
-  if ((await close.count()) > 0) {
-    await close.first().click().catch(() => undefined);
-    await sleep(1_000);
+  if ((await close.count()) === 0) return;
+  await close.first().click().catch(() => undefined);
+  await page
+    .locator('[data-surface="marketplace-encrypted-conversation"]')
+    .waitFor({ state: 'hidden', timeout: 10_000 })
+    .catch(() => undefined);
+}
+
+async function reopenOrderThread(
+  page: Page,
+  keypair: Keypair,
+  listingTitle: string,
+  shotPrefix: string,
+  options?: { allowNotEnrolled?: boolean },
+): Promise<void> {
+  await closeOrderThread(page);
+  await sleep(1_000);
+  await openOrderThread(page, keypair, listingTitle, shotPrefix, options);
+}
+
+function lastNetworkHit(lines: string[], predicate: (line: string) => boolean): string | undefined {
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (predicate(lines[index])) return lines[index];
   }
-  await openOrderThread(page, keypair, listingTitle, shotPrefix);
+  return undefined;
+}
+
+async function waitForNetworkLine(
+  lines: string[],
+  what: string,
+  deadlineMs: number,
+  predicate: (line: string) => boolean,
+): Promise<string> {
+  return await withPatience(what, deadlineMs, 400, async () => {
+    const hit = lastNetworkHit(lines, predicate);
+    return { done: Boolean(hit), value: hit ?? '', detail: `n=${lines.length}` };
+  });
+}
+
+async function waitForReceiverPut(lines: string[], role: string, pubkyPrefix: string): Promise<string> {
+  return await waitForNetworkLine(
+    lines,
+    `${role} receiver.json PUT`,
+    90_000,
+    (line) =>
+      line.startsWith(`${role} PUT `) &&
+      line.includes('/receiver.json') &&
+      / (201|200) /.test(line) &&
+      line.includes(`host=${pubkyPrefix}`),
+  );
+}
+
+async function waitForHandshakeOfferPut(lines: string[], role: string, pubkyPrefix: string): Promise<string> {
+  return await waitForNetworkLine(
+    lines,
+    `${role} handshake offer PUT`,
+    90_000,
+    (line) =>
+      line.startsWith(`${role} PUT `) &&
+      /\/messages\/[0-9a-f]{16,}[^/]*\/0 201/.test(line) &&
+      line.includes(`host=${pubkyPrefix}`),
+  );
 }
 
 async function waitUntilHandshakeReady(
   buyerPage: Page,
   sellerPage: Page,
+  buyerKeypair: Keypair,
   sellerKeypair: Keypair,
   listingTitle: string,
   networkLog: string[],
 ): Promise<void> {
   const deadline = Date.now() + 180_000;
+  let lastBuyerReopen = Date.now();
   let lastSellerReopen = Date.now();
   while (Date.now() < deadline) {
     await buyerPage.bringToFront();
@@ -328,9 +387,14 @@ async function waitUntilHandshakeReady(
     const buyerRole = await handshakeRole(buyerPage);
     const sellerRole = await handshakeRole(sellerPage);
     if (buyerRole === 'ready' && sellerRole === 'ready') return;
-    if (buyerRole === 'initiator' && sellerRole === 'initiator' && Date.now() - lastSellerReopen > 12_000) {
+    if (buyerRole === 'initiator' && sellerRole === 'initiator' && Date.now() - lastBuyerReopen > 12_000) {
+      await buyerPage.bringToFront();
+      await reopenOrderThread(buyerPage, buyerKeypair, listingTitle, 'buyer-reopen');
+      lastBuyerReopen = Date.now();
+    }
+    if (buyerRole === 'initiator' && sellerRole === 'other' && Date.now() - lastSellerReopen > 8_000) {
       await sellerPage.bringToFront();
-      await reopenOrderThread(sellerPage, sellerKeypair, listingTitle, 'seller-reopen');
+      await reopenOrderThread(sellerPage, sellerKeypair, listingTitle, 'seller-reopen', { allowNotEnrolled: true });
       lastSellerReopen = Date.now();
     }
     await sleep(1_500);
@@ -873,7 +937,13 @@ async function connectMarketplaceSession(
   await waitForListingOnOrders(page, persisted, listingTitle, shotPrefix);
 }
 
-async function openOrderThread(page: Page, keypair: Keypair, listingTitle: string, shotPrefix: string): Promise<void> {
+async function openOrderThread(
+  page: Page,
+  keypair: Keypair,
+  listingTitle: string,
+  shotPrefix: string,
+  options?: { allowNotEnrolled?: boolean },
+): Promise<void> {
   const card = page
     .locator('div')
     .filter({ hasText: `${listingTitle} × 1` })
@@ -922,6 +992,7 @@ async function openOrderThread(page: Page, keypair: Keypair, listingTitle: strin
     }
     if ((await composer.count()) > 0) return;
     if ((await notEnrolled.count()) > 0) {
+      if (options?.allowNotEnrolled) return;
       await capturePage(page, `${shotPrefix}-thread-not-enrolled`);
       throw new Error(`${shotPrefix}: counterparty is not enrolled for encrypted messaging`);
     }
@@ -936,7 +1007,20 @@ async function openOrderThread(page: Page, keypair: Keypair, listingTitle: strin
   }
   try {
     await approveSignerUrl(page, keypair);
-    await composer.waitFor({ state: 'visible', timeout: 90_000 });
+    await Promise.race([
+      composer.waitFor({ state: 'visible', timeout: 90_000 }),
+      notEnrolled.waitFor({ state: 'visible', timeout: 90_000 }),
+      handshakeCopy(page).initiator.waitFor({ state: 'visible', timeout: 90_000 }),
+      handshakeCopy(page).responder.waitFor({ state: 'visible', timeout: 90_000 }),
+    ]);
+    if ((await composer.count()) > 0) return;
+    if ((await handshakeCopy(page).initiator.count()) > 0) return;
+    if ((await handshakeCopy(page).responder.count()) > 0) return;
+    if ((await notEnrolled.count()) > 0) {
+      if (options?.allowNotEnrolled) return;
+      await capturePage(page, `${shotPrefix}-thread-not-enrolled`);
+      throw new Error(`${shotPrefix}: counterparty is not enrolled after enable`);
+    }
   } catch (error) {
     await capturePage(page, `${shotPrefix}-thread-enable`);
     throw error;
@@ -1008,19 +1092,33 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
         await connectMarketplaceSession(buyerPage, buyerPersistedSession, created.title, 'buyer');
 
         failingStep = 'open_threads';
+        // Publish the seller's this-device receiver before the buyer DHs.
+        // Opening the buyer first made the buyer lock onto the previous
+        // restore's marker; seller then rotated and both seats stayed initiator.
+        await sellerPage.bringToFront();
+        await forcePageVisible(sellerPage);
+        await openOrderThread(sellerPage, sellerSeat.keypair, created.title, 'seller', { allowNotEnrolled: true });
+        await waitForReceiverPut(networkLog, 'seller', TRAIN_SELLER_PREFIX);
+        await closeOrderThread(sellerPage);
+
         await buyerPage.bringToFront();
         await forcePageVisible(buyerPage);
         await openOrderThread(buyerPage, buyerSeat.keypair, created.title, 'buyer');
-        const buyerStarted = await withPatience('buyer handshake started', 60_000, 500, async () => {
-          const role = await handshakeRole(buyerPage);
-          return { done: role !== 'other', value: role, detail: role };
-        });
-        if (buyerStarted === 'initiator') await sleep(8_000);
+        await waitForReceiverPut(networkLog, 'buyer', DROP_BUYER_A_PREFIX);
+        await waitForHandshakeOfferPut(networkLog, 'buyer', DROP_BUYER_A_PREFIX);
+
         await sellerPage.bringToFront();
         await forcePageVisible(sellerPage);
         await openOrderThread(sellerPage, sellerSeat.keypair, created.title, 'seller');
         failingStep = 'handshake_ready';
-        await waitUntilHandshakeReady(buyerPage, sellerPage, sellerSeat.keypair, created.title, networkLog);
+        await waitUntilHandshakeReady(
+          buyerPage,
+          sellerPage,
+          buyerSeat.keypair,
+          sellerSeat.keypair,
+          created.title,
+          networkLog,
+        );
 
         failingStep = 'buyer_send';
         await buyerPage.bringToFront();
