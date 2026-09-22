@@ -8,7 +8,7 @@ import { DropClaimPanel } from './DropClaimPanel';
 const SELLER = 's'.repeat(52);
 const BUYER = 'b'.repeat(52);
 const authState = vi.hoisted(() => ({
-  currentUserPubky: BUYER as string | null,
+  currentUserPubky: 'b'.repeat(52) as string | null,
   setShowSignInDialog: vi.fn(),
 }));
 
