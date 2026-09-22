@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommerceSellerReputationOverview } from '@/application/commerce/commerce';
 import { CAPABILITIES } from '@/config/app';
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { createCommerceListingFixture, createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel, toCommerceShopModel } from '@/test/fixtures/commerce/listing-models';
-import { createListingProjectionFixture } from '@/test/fixtures/commerce/projections';
-import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { createOrderFixture } from '@/test/fixtures/commerce/orders';
+import { createListingProjectionFixture } from '@/test/fixtures/commerce/projections';
 import { MarketplaceListing } from './MarketplaceListing';
 
 const cartAdd = vi.hoisted(() => vi.fn());

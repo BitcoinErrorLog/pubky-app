@@ -56,6 +56,7 @@ import { HttpStatusCode } from '@/libs/http/http.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
 import { reportMarketplaceNotificationInvalidTypes } from './marketplace-notification-diagnostics';
 import {
+  listingHasSellerReserveAuthority,
   type MarketplaceBidHistory,
   marketplaceBidHistorySchema,
   type MarketplaceDropReadyCheck,
@@ -79,7 +80,6 @@ import {
   marketplaceSellerDropSchema,
   type MarketplaceSellerListingProjection,
   marketplaceSellerListingProjectionSchema,
-  listingHasSellerReserveAuthority,
   parseMarketplaceNotificationEntries,
   stripSellerReserveAuthorityFields,
 } from './marketplace-projections';
