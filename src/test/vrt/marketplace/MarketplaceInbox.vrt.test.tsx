@@ -63,7 +63,7 @@ function encryptedConversationFixture(buyer: string) {
 const search = vi.hoisted(() => ({ params: new URLSearchParams() }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => '/marketplace/messages',
   useSearchParams: () => search.params,
 }));

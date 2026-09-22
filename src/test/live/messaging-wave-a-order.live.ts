@@ -305,7 +305,10 @@ async function handshakeRole(page: Page): Promise<'initiator' | 'responder' | 'r
 async function closeOrderThread(page: Page): Promise<void> {
   const close = page.getByRole('button', { name: 'Close' });
   if ((await close.count()) === 0) return;
-  await close.first().click().catch(() => undefined);
+  await close
+    .first()
+    .click()
+    .catch(() => undefined);
   await page
     .locator('[data-surface="marketplace-encrypted-conversation"]')
     .waitFor({ state: 'hidden', timeout: 10_000 })
