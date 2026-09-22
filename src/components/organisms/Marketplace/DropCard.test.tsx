@@ -45,4 +45,12 @@ describe('DropCard', () => {
     expect(screen.getByText('Start time passed · indexed')).toBeInTheDocument();
     expect(screen.queryByText('Starts in 2 hours')).not.toBeInTheDocument();
   });
+
+  it('renders the owner fallback in secondary-foreground so 14px body text meets contrast on the card', () => {
+    render(<DropCard entry={entry} bucket="live" />);
+
+    const owner = screen.getByText('owner-pu…');
+    expect(owner).toHaveClass('text-secondary-foreground');
+    expect(owner).not.toHaveClass('text-muted-foreground');
+  });
 });
