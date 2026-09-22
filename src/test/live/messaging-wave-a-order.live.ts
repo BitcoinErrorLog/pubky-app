@@ -624,11 +624,26 @@ async function completeOnboardingIfNeeded(page: Page): Promise<void> {
 async function signInWithEncryptedFile(page: Page, seat: Seat): Promise<void> {
   await page.goto(`${shopUrl}/sign-in`, { waitUntil: 'domcontentloaded', timeout: 180_000 });
   await page.locator('#restore-encrypted-file-btn').click();
-  await page.locator('#encrypted-file-input').setInputFiles(seat.pkarrPath);
+  const fileInput = page.locator('#encrypted-file-input');
+  await fileInput.waitFor({ state: 'attached', timeout: 30_000 });
+  await fileInput.setInputFiles(seat.pkarrPath);
+  await page.locator('#restore-password').waitFor({ state: 'visible', timeout: 30_000 });
   await page.locator('#restore-password').fill(seat.passphrase);
-  await page.locator('#encrypted-file-restore-btn').click();
-  await page.waitForURL((url) => !url.pathname.includes('/sign-in'), { timeout: 180_000 });
-  await completeOnboardingIfNeeded(page);
+  const restore = page.locator('#encrypted-file-restore-btn');
+  try {
+    await withPatience('encrypted restore enabled', 20_000, 250, async () => ({
+      done: await restore.isEnabled(),
+      value: true,
+    }));
+    await Promise.all([
+      page.waitForURL((url) => !url.pathname.includes('/sign-in'), { timeout: 180_000 }),
+      restore.click({ force: true }),
+    ]);
+    await completeOnboardingIfNeeded(page);
+  } catch (error) {
+    await capturePage(page, `${seat.role}-restore`);
+    throw error;
+  }
 }
 
 async function waitForListingOnOrders(
