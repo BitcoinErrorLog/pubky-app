@@ -107,7 +107,8 @@ describe('inventory automations staging proof', () => {
     if (!MarketplaceInventorySessionService.getActiveSession()) {
       const inventoryFlow = MarketplaceInventorySessionService.beginInventorySessionFlow(sellerPubky);
       expect(inventoryFlow.authorizationUrl).toContain('marketplace-service');
-      expect(inventoryFlow.authorizationUrl).not.toContain('/:rw');
+      expect(inventoryFlow.authorizationUrl).toContain(INVENTORY_GRANT);
+      expect(inventoryFlow.authorizationUrl).not.toMatch(/(?:^|[?&,])caps=\/:rw(?:&|$)/);
       await new sdk.Pubky().signer(keypair).approveAuthRequest(inventoryFlow.authorizationUrl);
       const inventoryInfo = await inventoryFlow.awaitSession();
       expect(inventoryInfo.capabilities).toBe(INVENTORY_GRANT);

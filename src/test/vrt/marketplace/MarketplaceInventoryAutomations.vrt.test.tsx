@@ -2,14 +2,16 @@
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
-import { expectVrtSurface, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
 import { MarketplaceInventoryAutomations } from '@/templates/Marketplace/MarketplaceInventoryAutomations';
 import { MarketplaceInventoryOnceSecretDialog } from '@/organisms/Marketplace/MarketplaceInventoryOnceSecretDialog';
 import type { InventoryAutomationsLoad } from '@/application/commerce/inventory-automations';
 
-const SELLER = 'y'.repeat(52);
+const { SELLER } = vi.hoisted(() => ({
+  SELLER: 'y'.repeat(52),
+}));
 
 const view = vi.hoisted(() => ({
   isLoading: false,
@@ -118,11 +120,11 @@ describe('MarketplaceInventoryAutomations VRT', () => {
         },
       ],
     };
-    const screen = await renderForVRT(<MarketplaceInventoryAutomations />, {
+    await renderForVRT(<MarketplaceInventoryAutomations />, {
       viewport: VRT_VIEWPORT_DESKTOP,
       disableHover: true,
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+    await expect(expectVrtSurface('inventory-studio')).toMatchScreenshot(
       'inventory-automations-list-desktop',
       VRT_DENSE_CHROME_SCREENSHOT,
     );
@@ -153,11 +155,11 @@ describe('MarketplaceInventoryAutomations VRT', () => {
         },
       ],
     };
-    const screen = await renderForVRT(<MarketplaceInventoryAutomations />, {
+    await renderForVRT(<MarketplaceInventoryAutomations />, {
       viewport: VRT_VIEWPORT_MOBILE,
       disableHover: true,
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+    await expect(expectVrtSurface('inventory-studio')).toMatchScreenshot(
       'inventory-automations-list-mobile',
       VRT_DENSE_CHROME_SCREENSHOT,
     );
