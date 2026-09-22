@@ -245,7 +245,12 @@ async function installStagingCorsBypass(context: BrowserContext): Promise<void> 
     (url) => url.protocol === 'https:' && url.origin !== new URL(shopOrigin()).origin,
     async (route) => {
       const request = route.request();
-      if (request.resourceType() === 'websocket') {
+      const accept = request.headers()['accept'] ?? '';
+      if (
+        request.resourceType() === 'websocket' ||
+        request.resourceType() === 'eventsource' ||
+        accept.includes('text/event-stream')
+      ) {
         await route.continue();
         return;
       }
@@ -264,20 +269,24 @@ async function installStagingCorsBypass(context: BrowserContext): Promise<void> 
         });
         return;
       }
-      const response = await route.fetch();
-      const headers = {
-        ...response.headers(),
-        'access-control-allow-origin': origin,
-        'access-control-allow-credentials': 'true',
-        'access-control-expose-headers': '*',
-      };
-      delete headers['content-encoding'];
-      delete headers['content-length'];
-      await route.fulfill({
-        status: response.status(),
-        headers,
-        body: await response.body(),
-      });
+      try {
+        const response = await route.fetch();
+        const headers = {
+          ...response.headers(),
+          'access-control-allow-origin': origin,
+          'access-control-allow-credentials': 'true',
+          'access-control-expose-headers': '*',
+        };
+        delete headers['content-encoding'];
+        delete headers['content-length'];
+        await route.fulfill({
+          status: response.status(),
+          headers,
+          body: await response.body(),
+        });
+      } catch {
+        await route.continue().catch(() => undefined);
+      }
     },
   );
 }
@@ -767,8 +776,23 @@ async function openOrderThread(page: Page, keypair: Keypair, listingTitle: strin
   }
   if ((await composer.count()) > 0) return;
   if ((await notEnrolled.count()) > 0) {
-    await capturePage(page, `${shotPrefix}-thread-not-enrolled`);
-    throw new Error(`${shotPrefix}: counterparty is not enrolled for encrypted messaging`);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await page.getByRole('button', { name: 'Close' }).click();
+      await sleep(2_000);
+      await card
+        .locator('[data-surface="marketplace-order-message-cta"]')
+        .getByRole('button', { name: 'Message about this order' })
+        .click();
+      await surface.waitFor({ state: 'visible', timeout: 30_000 });
+      if ((await composer.count()) > 0) return;
+      if ((await waiting.count()) > 0 || (await copyLink.count()) > 0 || (await enableCopy.count()) > 0) break;
+      if ((await notEnrolled.count()) === 0) break;
+    }
+    if ((await composer.count()) > 0) return;
+    if ((await notEnrolled.count()) > 0) {
+      await capturePage(page, `${shotPrefix}-thread-not-enrolled`);
+      throw new Error(`${shotPrefix}: counterparty is not enrolled for encrypted messaging`);
+    }
   }
   if ((await tryAgain.count()) > 0 && (await composer.count()) === 0) {
     await capturePage(page, `${shotPrefix}-thread-enable-error`);
@@ -847,8 +871,8 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
         await connectMarketplaceSession(buyerPage, buyerPersistedSession, created.title, 'buyer');
 
         failingStep = 'open_threads';
-        await openOrderThread(sellerPage, sellerSeat.keypair, created.title, 'seller');
         await openOrderThread(buyerPage, buyerSeat.keypair, created.title, 'buyer');
+        await openOrderThread(sellerPage, sellerSeat.keypair, created.title, 'seller');
 
         failingStep = 'buyer_send';
         await buyerPage.locator('#encrypted-message-body').fill(body);
