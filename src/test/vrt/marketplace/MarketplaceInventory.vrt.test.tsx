@@ -71,6 +71,27 @@ vi.mock('@/hooks/useMarketplaceInventoryGrantConnect/useMarketplaceInventoryGran
   }),
 }));
 
+vi.mock('@/hooks/useMarketplaceInventoryImport/useMarketplaceInventoryImport', () => ({
+  useMarketplaceInventoryImport: () => ({
+    scene: 'upload',
+    step: 1,
+    fileName: undefined,
+    message: undefined,
+    counts: undefined,
+    progress: undefined,
+    busy: false,
+    reset: () => {},
+    planFile: async () => undefined,
+    publish: async () => undefined,
+    resume: async () => undefined,
+    confirmConflict: async () => undefined,
+    discardConflict: async () => undefined,
+    downloadResult: async () => undefined,
+    exportListings: async () => undefined,
+    exportOrders: async () => undefined,
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
   useMarketplaceCartCount: () => 0,
 }));

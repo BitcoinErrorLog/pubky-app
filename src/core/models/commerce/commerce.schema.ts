@@ -647,3 +647,44 @@ export interface CommerceShippingPresetModelSchema {
 }
 
 export const commerceShippingPresetTableSchema = '&id, owner_id, updated_at, [owner_id+updated_at]';
+
+export const COMMERCE_IMPORT_TABLE_NAMES = [
+  'commerce_import_manifests',
+  'commerce_import_rows',
+  'commerce_import_mappings',
+] as const;
+
+export const IMPORT_MANIFEST_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Dexie host for SDK `ManifestStore` summaries. Rows live in `commerce_import_rows`. */
+export interface CommerceImportManifestModelSchema {
+  id: string;
+  seller_id: string;
+  version: number;
+  created_at: number;
+  summary_json: string;
+}
+
+export const commerceImportManifestTableSchema = '&id, seller_id, created_at, version';
+
+export interface CommerceImportRowModelSchema {
+  manifestId: string;
+  rowIdentity: string;
+  seller_id: string;
+  listingId: string;
+  planned_json: string;
+  payload_json: string;
+  checkpoint: string;
+  updated_at: number;
+}
+
+export const commerceImportRowTableSchema =
+  '[manifestId+rowIdentity], manifestId, seller_id, listingId, checkpoint, updated_at';
+
+export interface CommerceImportMappingModelSchema {
+  seller_id: string;
+  mapping_json: string;
+  updated_at: number;
+}
+
+export const commerceImportMappingTableSchema = '&seller_id, updated_at';

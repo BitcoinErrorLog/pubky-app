@@ -2994,6 +2994,12 @@ export class CommerceApplication {
     return url;
   }
 
+  /** GET→merge→PUT for Inventory Studio import. Does not go through commitUpsertListing. */
+  static async putPublicListingForImport(record: CommerceListingRecord): Promise<void> {
+    const url = CommerceRecordNormalizer.listingUri(record.ownerPubky, record.listingId);
+    await this.putVerifiedPublicListing(record, url);
+  }
+
   static async getMarketplaceMediaOwnerHomeserver(ownerPubky: string): Promise<string | null> {
     return await MarketplaceMediaService.getOwnerHomeserver(ownerPubky);
   }

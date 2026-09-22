@@ -1,5 +1,6 @@
 import { CommerceApplication, type CommerceCheckoutFulfillmentInput } from '@/application/commerce/commerce';
 import { CommerceInventoryApplication, type InventoryBoardRow } from '@/application/commerce/inventory';
+import { CommerceInventoryImportApplication } from '@/application/commerce/inventory-import';
 import { TagKind } from '@/application/tag/tag.types';
 import {
   COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS,
@@ -308,6 +309,49 @@ export class CommerceController {
 
   static async retryInventorySync(sellerPubky: string, listingId: string) {
     return await CommerceInventoryApplication.retrySync(sellerPubky, listingId);
+  }
+
+  static inventoryImportAuth(sellerPubky: string) {
+    return CommerceInventoryImportApplication.authStatus(sellerPubky);
+  }
+
+  static async planInventoryImport(
+    sellerPubky: string,
+    file: Parameters<CommerceInventoryImportApplication['planFile']>[0],
+  ) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).planFile(file);
+  }
+
+  static async dryRunInventoryImport(sellerPubky: string, manifestId: string) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).dryRun(manifestId);
+  }
+
+  static async publishInventoryImport(sellerPubky: string, manifestId: string) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).publish(manifestId);
+  }
+
+  static async resumeInventoryImport(sellerPubky: string, manifestId: string) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).resume(manifestId);
+  }
+
+  static async confirmInventoryImportConflict(sellerPubky: string, manifestId: string, listingId: string) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).confirmConflict(manifestId, listingId);
+  }
+
+  static async discardInventoryImportConflict(sellerPubky: string, manifestId: string, listingId: string) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).discardConflict(manifestId, listingId);
+  }
+
+  static async exportInventoryListingsCsv(sellerPubky: string) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).exportListingsCsv();
+  }
+
+  static async exportInventoryOrdersJson(sellerPubky: string) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).exportOrdersJson();
+  }
+
+  static async inventoryImportResultCsv(sellerPubky: string, manifestId: string) {
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).resultCsv(manifestId);
   }
 
   /** True while getActiveSession still considers the bearer inside its margin. */
