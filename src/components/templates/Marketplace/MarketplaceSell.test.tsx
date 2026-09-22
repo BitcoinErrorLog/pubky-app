@@ -42,6 +42,12 @@ const createListing = vi.hoisted(() => ({
   submitResult: 'seller:boots_01' as string | null,
 }));
 
+const paymentGate = vi.hoisted(() => ({
+  isDurable: false,
+  ready: true,
+  reason: null as 'unsigned' | 'no-method' | 'unverified' | null,
+}));
+
 vi.mock('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing')>();
@@ -94,15 +100,24 @@ vi.mock('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing', async
         seededAuctionAsFixedPrice: false,
         submit: vi.fn(async () => createListing.submitResult),
         reset: vi.fn(),
+        publishBlocked: null,
+        publishGuardReady: true,
       };
     },
   };
 });
 
+vi.mock('@/hooks/useSellerPaymentMethodGate/useSellerPaymentMethodGate', () => ({
+  useSellerPaymentMethodGate: () => paymentGate,
+}));
+
 describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
   beforeEach(() => {
     routerPush.mockClear();
     createListing.submitResult = 'seller:boots_01';
+    paymentGate.isDurable = false;
+    paymentGate.ready = true;
+    paymentGate.reason = null;
   });
 
   it('routes to the public listing page after publishing a shipped listing', async () => {
@@ -129,5 +144,43 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
         `${getMarketplaceListingEditRoute('seller', 'boots_01')}#listing-section-shipping`,
       );
     });
+  });
+});
+
+describe('MarketplaceSell payment-method entrance', () => {
+  beforeEach(() => {
+    paymentGate.isDurable = true;
+    paymentGate.ready = true;
+    paymentGate.reason = null;
+  });
+
+  it('shows the payment interstitial and no listing fields when unconfigured', () => {
+    paymentGate.reason = 'no-method';
+    render(<MarketplaceSell />);
+
+    expect(screen.getByRole('heading', { name: 'Set up how you get paid first' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Publish listing' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Payment settings' })).toHaveAttribute(
+      'href',
+      '/marketplace/settings?returnTo=%2Fmarketplace%2Fsell',
+    );
+  });
+
+  it('renders the listing composer once a payment method is configured', () => {
+    render(<MarketplaceSell />);
+
+    expect(screen.queryByRole('heading', { name: 'Set up how you get paid first' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeInTheDocument();
+  });
+
+  it('hides listing fields while payment settings are still being checked', () => {
+    paymentGate.ready = false;
+    render(<MarketplaceSell />);
+
+    expect(screen.getByText('Checking payment settings…')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Payment settings' })).not.toBeInTheDocument();
   });
 });

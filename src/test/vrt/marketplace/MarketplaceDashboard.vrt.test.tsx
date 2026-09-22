@@ -99,6 +99,10 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/dashboard',
 }));
 
+vi.mock('@/hooks/useSellerPaymentMethodGate/useSellerPaymentMethodGate', () => ({
+  useSellerPaymentMethodGate: () => ({ isDurable: false, ready: true, reason: null }),
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: 'y'.repeat(52) }),
 }));

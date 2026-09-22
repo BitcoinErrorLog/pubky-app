@@ -55,6 +55,7 @@ type LocksConnectView = {
 type MarketplaceGetPaidSettingsProps = {
   /** Step 1 of the bitcoin method, owned by the template (no session needed). */
   locksConnect: LocksConnectView;
+  onSaved?: (config: SellerPaymentConfigOwnView) => void;
 };
 
 type PaykitSetupStatus = 'idle' | 'error' | 'mismatch' | 'verifying' | 'timeout';
@@ -126,7 +127,7 @@ function MethodCard({
  * settle into the seller's own processor accounts. This marketplace never
  * receives funds on any rail.
  */
-export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidSettingsProps) {
+export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: MarketplaceGetPaidSettingsProps) {
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const payments = useMarketplaceSellerPaymentConfig();
@@ -227,7 +228,10 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
 
   const onSave = async () => {
     const saved = await payments.save({ bitcoinEnabled, stripePaymentLink, stripeRestrictedKey, paypalMerchantEmail });
-    if (saved) setStripeRestrictedKey('');
+    if (saved) {
+      setStripeRestrictedKey('');
+      onSaved?.(saved);
+    }
   };
 
   const onStartClaim = () => {
