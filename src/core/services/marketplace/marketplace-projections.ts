@@ -128,16 +128,84 @@ export const marketplaceListingProjectionSchema = z.preprocess(
   reserveFreeProjectionInputSchema.pipe(marketplaceListingProjectionBaseSchema),
 );
 
+/**
+ * Seller-only reserve authority keys. Ended auctions and listings that never
+ * wrote a reserve still include these as null/0/absent; they must never leak
+ * into the public listing projection (`.passthrough()` would otherwise keep them).
+ */
+export const MARKETPLACE_SELLER_RESERVE_AUTHORITY_KEYS = [
+  'reservePrice',
+  'reserve_price',
+  'reserveMet',
+  'reserve_met',
+  'reserveRecordRevision',
+  'reserve_record_revision',
+  'lastReserveCommandId',
+  'last_reserve_command_id',
+] as const;
+
+const sellerReserveAuthorityKeys = new Set<string>(MARKETPLACE_SELLER_RESERVE_AUTHORITY_KEYS);
+
+export function listingHasSellerReserveAuthority(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const record = raw as Record<string, unknown>;
+  return MARKETPLACE_SELLER_RESERVE_AUTHORITY_KEYS.some((key) => key in record);
+}
+
+export function stripSellerReserveAuthorityFields(input: unknown): unknown {
+  if (Array.isArray(input)) return input.map(stripSellerReserveAuthorityFields);
+  if (input === null || typeof input !== 'object') return input;
+  return Object.fromEntries(
+    Object.entries(input as Record<string, unknown>)
+      .filter(([key]) => !sellerReserveAuthorityKeys.has(key))
+      .map(([key, value]) => [key, stripSellerReserveAuthorityFields(value)]),
+  );
+}
+
+/** Service sold/unsold/cancelled plus the Shop's `ended` label on listing projections. */
+export const ENDED_AUCTION_PROJECTION_STATUSES = ['sold', 'unsold', 'cancelled', 'ended'] as const;
+
+export function isEndedAuctionProjectionStatus(status: unknown): boolean {
+  return typeof status === 'string' && (ENDED_AUCTION_PROJECTION_STATUSES as readonly string[]).includes(status);
+}
+
+const marketplaceSellerListingProjectionObjectSchema = marketplaceListingProjectionBaseSchema
+  .extend({
+    reservePrice: marketplaceMoneySchema.nullable().optional(),
+    reserveMet: z.boolean().optional(),
+    reserveRecordRevision: z.number().int().nonnegative().nullable().optional(),
+    lastReserveCommandId: z.uuid().nullable().optional(),
+  })
+  .passthrough()
+  .superRefine((value, context) => {
+    const status = value.auction && typeof value.auction === 'object' ? value.auction.status : undefined;
+    if (isEndedAuctionProjectionStatus(status)) return;
+    if (typeof value.reserveMet !== 'boolean') {
+      context.addIssue({
+        code: 'custom',
+        path: ['reserveMet'],
+        message: 'Live seller listing projections require reserveMet',
+      });
+    }
+    if (value.reserveRecordRevision == null || value.reserveRecordRevision < 1) {
+      context.addIssue({
+        code: 'custom',
+        path: ['reserveRecordRevision'],
+        message: 'Live seller listing projections require a positive reserveRecordRevision',
+      });
+    }
+    if (value.lastReserveCommandId == null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['lastReserveCommandId'],
+        message: 'Live seller listing projections require lastReserveCommandId',
+      });
+    }
+  });
+
 export const marketplaceSellerListingProjectionSchema = z.preprocess(
   normalizeViewerBid,
-  marketplaceListingProjectionBaseSchema
-    .extend({
-      reservePrice: marketplaceMoneySchema.nullable(),
-      reserveMet: z.boolean(),
-      reserveRecordRevision: z.number().int().positive(),
-      lastReserveCommandId: z.uuid(),
-    })
-    .passthrough(),
+  marketplaceSellerListingProjectionObjectSchema,
 );
 
 /**
