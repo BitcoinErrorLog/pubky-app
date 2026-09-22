@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, LockKeyhole, MessageCircle } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
+import { APP_ROUTES, MARKETPLACE_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -66,14 +66,29 @@ export function MarketplaceInbox() {
   );
 }
 
+function useConsumedConversationQuery(currentUserPubky: string | null | undefined) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const capturedValues = useRef<string[] | null>(null);
+  if (capturedValues.current === null) {
+    capturedValues.current = searchParams.getAll('conversation');
+  }
+
+  useEffect(() => {
+    if (searchParams.getAll('conversation').length === 0) return;
+    router.replace(MARKETPLACE_ROUTES.MESSAGES);
+  }, [router, searchParams]);
+
+  return resolveMarketplaceConversationQuery({
+    values: capturedValues.current,
+    currentUserPubky,
+  });
+}
+
 function EncryptedInbox() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const inbox = useEncryptedInbox();
-  const searchParams = useSearchParams();
-  const query = resolveMarketplaceConversationQuery({
-    values: searchParams.getAll('conversation'),
-    currentUserPubky,
-  });
+  const query = useConsumedConversationQuery(currentUserPubky);
   const reportedRejection = useRef(false);
 
   useEffect(() => {
@@ -240,11 +255,7 @@ function EncryptedConversationRow({
 function SandboxInbox() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { conversations, isLoading, error, isSandbox } = useMarketplaceInbox();
-  const searchParams = useSearchParams();
-  const query = resolveMarketplaceConversationQuery({
-    values: searchParams.getAll('conversation'),
-    currentUserPubky,
-  });
+  const query = useConsumedConversationQuery(currentUserPubky);
   const reportedRejection = useRef(false);
 
   useEffect(() => {

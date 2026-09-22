@@ -12,6 +12,7 @@ const LISTING_ID = '0033GVVN22HJ0FYQGZZS8R2BFC';
 const CONVERSATION_ID = buildMarketplaceConversationAggregateId(SELLER, BUYER, LISTING_ID);
 
 const search = vi.hoisted(() => ({ params: new URLSearchParams() }));
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 const auth = vi.hoisted(() => ({ currentUserPubky: 'b'.repeat(52) }));
 const config = vi.hoisted(() => ({ mode: 'transaction-service' as string }));
 const encryptedView = vi.hoisted(() => ({
@@ -22,7 +23,7 @@ const encryptedView = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => router,
   usePathname: () => '/marketplace/messages',
   useSearchParams: () => search.params,
 }));
@@ -98,6 +99,8 @@ vi.mock('@/organisms/Marketplace/MarketplaceSectionNav', () => ({
 describe('MarketplaceInbox conversation query', () => {
   beforeEach(() => {
     search.params = new URLSearchParams();
+    router.push.mockReset();
+    router.replace.mockReset();
     auth.currentUserPubky = BUYER;
     config.mode = 'transaction-service';
     encryptedView.status = 'ready';
@@ -141,6 +144,18 @@ describe('MarketplaceInbox conversation query', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(document.querySelector('[data-surface="marketplace-encrypted-conversation"]')).toBeTruthy();
     expect(screen.queryByText(MESSAGING_COPY.deepLinkInvalid)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith('/marketplace/messages');
+    });
+  });
+
+  it('strips conversation= from the address bar after consuming the first searchParams read', async () => {
+    search.params = new URLSearchParams(`conversation=${CONVERSATION_ID}`);
+    render(<MarketplaceInbox />);
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith('/marketplace/messages');
+    });
+    expect(router.replace.mock.calls.some((call) => String(call[0]).includes('conversation='))).toBe(false);
   });
 
   it('marks a received message unread from Dexie last_read_at only', async () => {

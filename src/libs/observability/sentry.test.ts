@@ -826,6 +826,35 @@ describe('Sentry PII scrubbing', () => {
       email: '[redacted: sensitive field]',
     });
   });
+
+  it('strips Wave A conversation= ids and redacts underscore-glued z32 pubkys', () => {
+    const seller = TEST_PUBKY;
+    const buyer = 'o'.repeat(52);
+    const listingId = '0033GVVN22HJ0FYQGZZS8R2BFC';
+    const conversationId = `conversation:${seller}_${buyer}_${listingId}`;
+    const href = `https://shop.pubky.app/marketplace/messages?conversation=${encodeURIComponent(conversationId)}`;
+
+    const event = runBeforeSend(
+      asOpaque<Sentry.ErrorEvent>({
+        message: conversationId,
+        request: {
+          url: href,
+          query_string: `conversation=${encodeURIComponent(conversationId)}`,
+        },
+      }),
+    );
+
+    const serialized = JSON.stringify(event);
+    expect(event.request?.url).toBe('https://shop.pubky.app/marketplace/messages');
+    expect(event.request?.query_string).toBe('');
+    expect(event.message).not.toContain(seller);
+    expect(event.message).not.toContain(buyer);
+    expect(event.message).toContain('[redacted: pubky identifier]');
+    expect(serialized).not.toContain('conversation=');
+    expect(serialized).not.toContain(seller);
+    expect(serialized).not.toContain(buyer);
+    expect(serialized).not.toContain(conversationId);
+  });
 });
 
 describe('Sentry tracing hooks wired into init base', () => {
