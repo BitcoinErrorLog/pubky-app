@@ -37,7 +37,9 @@ const draftFixture = vi.hoisted(() => ({
     },
   },
   created_at: 1_000,
-  updated_at: 2_000,
+  // VRT_FROZEN_NOW_MS - 3 * MINUTE_MS. Duplicated here because vi.hoisted
+  // cannot read imported bindings.
+  updated_at: Date.UTC(2026, 0, 1, 12, 0, 0) - 3 * 60_000,
 }));
 
 interface MockMediaItem {
@@ -337,6 +339,9 @@ describe('Marketplace sell studio — visual regression', () => {
         throw new Error('The restore prompt has not rendered yet.');
       }
     });
+    expect(screen.container.querySelector('[data-surface="listing-draft-restore-prompt"]')?.textContent).toContain(
+      'Resume your draft from 3 min ago?',
+    );
     await expect(expectVrtSurface('listing-draft-restore-prompt')).toMatchScreenshot('sell-draft-restore-prompt-desktop');
   });
 
@@ -346,7 +351,14 @@ describe('Marketplace sell studio — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
     await resumeAutosavedDraft(screen);
-    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-draft-restored-desktop');
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('[data-surface="listing-draft-restored"]')) {
+        throw new Error('The restored-draft banner has not rendered yet.');
+      }
+    });
+    const banner = screen.container.querySelector('[data-surface="listing-draft-restored"]');
+    expect(banner?.textContent).toContain('including photos saved on it.');
+    await expect(expectVrtSurface('listing-draft-restored')).toMatchScreenshot('sell-draft-restored-desktop');
   });
 
   it('renders the seller-private auction reserve at desktop viewport', async () => {
