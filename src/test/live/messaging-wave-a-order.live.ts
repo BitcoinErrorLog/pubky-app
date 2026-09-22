@@ -21,7 +21,7 @@ const NEXUS_URL = process.env.MARKETPLACE_NEXUS_URL ?? 'https://nexus.staging.pu
 const TRAIN_SEAT_DIR =
   process.env.WAVE_A_TRAIN_SEAT_DIR ?? '/Volumes/t7/vibes-dev/.evidence/train-2026-09-22-am/part-c/staging-seat';
 const DROP_IDENTITIES_FILE =
-  process.env.MARKETPLACE_STAGING_DROP_IDENTITIES_FILE ?? '/Users/johncarvalho/work/.staging-drop-identities.json';
+  process.env.WAVE_A_DROP_IDENTITIES_FILE ?? '/Users/johncarvalho/work/.staging-drop-identities.json';
 const EVIDENCE_DIR = process.env.MESSAGING_WAVE_A_EVIDENCE_DIR ?? '/Volumes/t7/vibes-dev/.evidence/messaging-wave-a';
 const LIVE_SEATS_DIR = path.join(EVIDENCE_DIR, 'live-seats');
 const PROOF_PATH = process.env.MESSAGING_WAVE_A_PROOF_PATH ?? path.join(EVIDENCE_DIR, 'shop-send-see-proof.txt');
@@ -86,7 +86,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function hexToBytes(hex: string): Uint8Array {
+function hexToBytes(hex: string, label: string): Uint8Array {
+  if (typeof hex !== 'string' || !/^[0-9a-fA-F]{64}$/.test(hex)) {
+    throw new Error(`${label} is not a 64-char hex secret`);
+  }
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return bytes;
@@ -425,11 +428,13 @@ async function createDurableOrder(): Promise<{
   expect(existsSync(path.join(TRAIN_SEAT_DIR, 'identities.json')), 'train identities.json').toBe(true);
   expect(existsSync(DROP_IDENTITIES_FILE), 'drop identities file').toBe(true);
   const train = JSON.parse(readFileSync(path.join(TRAIN_SEAT_DIR, 'identities.json'), 'utf8')) as {
-    seller: string;
+    seller?: unknown;
   };
-  const drop = JSON.parse(readFileSync(DROP_IDENTITIES_FILE, 'utf8')) as { buyerA: string };
-  const sellerKeypair = Keypair.fromSecret(hexToBytes(train.seller));
-  const buyerKeypair = Keypair.fromSecret(hexToBytes(drop.buyerA));
+  const drop = JSON.parse(readFileSync(DROP_IDENTITIES_FILE, 'utf8')) as { buyerA?: unknown; buyerB?: unknown };
+  expect(typeof train.seller, `train identities keys=${Object.keys(train).join(',')}`).toBe('string');
+  expect(typeof drop.buyerA, `drop identities keys=${Object.keys(drop).join(',')}`).toBe('string');
+  const sellerKeypair = Keypair.fromSecret(hexToBytes(String(train.seller), 'train.seller'));
+  const buyerKeypair = Keypair.fromSecret(hexToBytes(String(drop.buyerA), 'drop.buyerA'));
   sellerSeat = mintRecoverySeat('seller', sellerKeypair);
   buyerSeat = mintRecoverySeat('buyer', buyerKeypair);
   expect(sellerSeat.pubky.startsWith(TRAIN_SELLER_PREFIX), 'train seller prefix').toBe(true);
