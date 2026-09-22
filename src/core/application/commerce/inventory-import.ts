@@ -11,7 +11,12 @@ import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
-import { DexieManifestStore } from '@/services/marketplace/marketplace-import-store';
+import {
+  DexieManifestStore,
+  type HostImportCheckpoint,
+  type HostPlannedImportRow,
+  type InventoryManifestStore,
+} from '@/services/marketplace/marketplace-import-store';
 import { inventoryCapabilityCovers } from '@/services/marketplace/marketplace-inventory-grant';
 import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
@@ -19,10 +24,8 @@ import {
   type CanonicalCsvRow,
   type CurrentImportItem,
   type DryRunCounts,
-  type ImportCheckpoint,
   type ImportManifest,
   MarketplaceShopClientService,
-  type PlannedImportRow,
   PubkyShopError,
   type SdkResult,
   type SyncManyEnvelope,
@@ -63,10 +66,10 @@ export type InventoryImportPublishResult =
 
 export type InventoryImportHost = {
   readonly sellerPubky: string;
-  readonly store: DexieManifestStore;
+  readonly store: InventoryManifestStore;
   planFile: (
     file: Parameters<typeof MarketplaceShopClientService.planBrowserFile>[0],
-    store: DexieManifestStore,
+    store: InventoryManifestStore,
     currentItems: Readonly<Record<string, CurrentImportItem>>,
   ) => Promise<SdkResult<{ manifestId: string; rowCount: number }>>;
   putListing: (record: CommerceListingRecord) => Promise<void>;
@@ -81,7 +84,7 @@ function asObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function resumeNext(checkpoint: ImportCheckpoint): 'publish' | 'reconcile_publish' | 'sync_service' | 'none' {
+function resumeNext(checkpoint: HostImportCheckpoint): 'publish' | 'reconcile_publish' | 'sync_service' | 'none' {
   if (checkpoint === 'planned') return 'publish';
   if (checkpoint === 'publishing') return 'reconcile_publish';
   if (checkpoint === 'published_unsynced') return 'sync_service';
@@ -165,7 +168,10 @@ export class CommerceInventoryImportApplication {
     };
   }
 
-  static forSeller(sellerPubky: string, overrides: Partial<InventoryImportHost> = {}): CommerceInventoryImportApplication {
+  static forSeller(
+    sellerPubky: string,
+    overrides: Partial<InventoryImportHost> = {},
+  ): CommerceInventoryImportApplication {
     return new CommerceInventoryImportApplication(this.createHost(sellerPubky, overrides));
   }
 
@@ -178,7 +184,11 @@ export class CommerceInventoryImportApplication {
     const currentItems = await this.host.currentItems();
     const planned = await this.host.planFile(file, this.host.store, currentItems);
     if (!planned.ok) {
-      return { status: 'parse-failed', message: MarketplaceShopClientService.formatPlanFailure(planned.error), puts: 0 };
+      return {
+        status: 'parse-failed',
+        message: MarketplaceShopClientService.formatPlanFailure(planned.error),
+        puts: 0,
+      };
     }
     const manifest = await this.host.store.load(planned.value.manifestId);
     if (!manifest) {
@@ -258,9 +268,7 @@ export class CommerceInventoryImportApplication {
       synced,
       failed,
       mixed: mixed || conflictListingId !== null,
-      ...(mixed || conflictListingId
-        ? { message: conflictListingId ? IMPORT_CONFLICT_COPY : IMPORT_MIXED_COPY }
-        : {}),
+      ...(mixed || conflictListingId ? { message: conflictListingId ? IMPORT_CONFLICT_COPY : IMPORT_MIXED_COPY } : {}),
     };
   }
 
@@ -340,8 +348,8 @@ export class CommerceInventoryImportApplication {
     return `${lines.join('\n')}\n`;
   }
 
-  private groups(rows: readonly PlannedImportRow[]): Map<string, PlannedImportRow[]> {
-    const groups = new Map<string, PlannedImportRow[]>();
+  private groups(rows: readonly HostPlannedImportRow[]): Map<string, HostPlannedImportRow[]> {
+    const groups = new Map<string, HostPlannedImportRow[]>();
     for (const row of rows) {
       const current = groups.get(row.listingId) ?? [];
       current.push(row);
@@ -353,8 +361,10 @@ export class CommerceInventoryImportApplication {
   private async publishGroup(
     manifestId: string,
     listingId: string,
-    group: readonly PlannedImportRow[],
-  ): Promise<{ status: 'ok' } | { status: 'conflict'; listingId: string; message: string } | { status: 'error'; message: string }> {
+    group: readonly HostPlannedImportRow[],
+  ): Promise<
+    { status: 'ok' } | { status: 'conflict'; listingId: string; message: string } | { status: 'error'; message: string }
+  > {
     const reconcile = group.some((row) => resumeNext(row.checkpoint) === 'reconcile_publish');
     const url = CommerceRecordNormalizer.listingUri(this.host.sellerPubky, listingId);
     if (reconcile) {
@@ -403,7 +413,11 @@ export class CommerceInventoryImportApplication {
   private async syncPending(
     manifestId: string,
     listings: readonly SyncManyListing[],
-  ): Promise<{ status: 'ok'; synced: number; failed: number } | { status: 'rate-limited'; message: string } | { status: 'error'; message: string }> {
+  ): Promise<
+    | { status: 'ok'; synced: number; failed: number }
+    | { status: 'rate-limited'; message: string }
+    | { status: 'error'; message: string }
+  > {
     let synced = 0;
     let failed = 0;
     for (const chunk of MarketplaceShopClientService.chunkSyncMany(listings)) {
@@ -423,7 +437,7 @@ export class CommerceInventoryImportApplication {
           await this.checkpointGroup(manifestId, listing.listing_id, 'complete');
           synced += 1;
         } else {
-          await this.checkpointGroup(manifestId, listing.listing_id, 'failed');
+          // Leave published_unsynced so resume retries sync without a second PUT.
           failed += 1;
         }
       }
@@ -431,7 +445,11 @@ export class CommerceInventoryImportApplication {
     return { status: 'ok', synced, failed };
   }
 
-  private async checkpointGroup(manifestId: string, listingId: string, checkpoint: ImportCheckpoint): Promise<void> {
+  private async checkpointGroup(
+    manifestId: string,
+    listingId: string,
+    checkpoint: HostImportCheckpoint,
+  ): Promise<void> {
     for (;;) {
       const manifest = await this.host.store.load(manifestId);
       if (!manifest) return;
@@ -440,7 +458,7 @@ export class CommerceInventoryImportApplication {
       const hop = nextAllowedCheckpoint(row.checkpoint, checkpoint);
       if (hop === null) return;
       const result = await MarketplaceShopClientService.checkpointRow(
-        this.host.store as never,
+        this.host.store,
         manifestId,
         manifest.manifestVersion,
         row.rowIdentity,
@@ -451,7 +469,7 @@ export class CommerceInventoryImportApplication {
   }
 }
 
-const CHECKPOINT_HOPS: Readonly<Record<ImportCheckpoint, readonly ImportCheckpoint[]>> = {
+const CHECKPOINT_HOPS: Readonly<Record<HostImportCheckpoint, readonly HostImportCheckpoint[]>> = {
   planned: ['publishing', 'conflict', 'failed'],
   publishing: ['published_unsynced', 'conflict', 'failed'],
   published_unsynced: ['complete', 'conflict', 'failed'],
@@ -460,7 +478,7 @@ const CHECKPOINT_HOPS: Readonly<Record<ImportCheckpoint, readonly ImportCheckpoi
   failed: ['publishing', 'conflict'],
 };
 
-function nextAllowedCheckpoint(from: ImportCheckpoint, target: ImportCheckpoint): ImportCheckpoint | null {
+function nextAllowedCheckpoint(from: HostImportCheckpoint, target: HostImportCheckpoint): HostImportCheckpoint | null {
   const allowed = CHECKPOINT_HOPS[from];
   if (allowed.includes(target)) return target;
   if (target === 'published_unsynced' && allowed.includes('publishing')) return 'publishing';

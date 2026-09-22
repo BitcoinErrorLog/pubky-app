@@ -1,8 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AppDatabase } from '@/database/franky/franky';
+import { AppDatabase, db } from '@/database/franky/franky';
 import { clearDatabase } from '@/database/franky/franky.helpers';
-import { db } from '@/database/franky/franky';
 import { COMMERCE_IMPORT_TABLE_NAMES } from '@/models/commerce/commerce.schema';
 
 describe('Inventory Studio Dexie import tables', () => {

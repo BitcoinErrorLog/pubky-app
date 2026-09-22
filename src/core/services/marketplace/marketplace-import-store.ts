@@ -9,13 +9,7 @@ import {
 export type HostImportAction = 'create' | 'update' | 'end' | 'unchanged' | 'conflict';
 
 /** Structural SDK `ImportCheckpoint`. */
-export type HostImportCheckpoint =
-  | 'planned'
-  | 'publishing'
-  | 'published_unsynced'
-  | 'complete'
-  | 'conflict'
-  | 'failed';
+export type HostImportCheckpoint = 'planned' | 'publishing' | 'published_unsynced' | 'complete' | 'conflict' | 'failed';
 
 /** Structural SDK `PlannedImportRow`. */
 export type HostPlannedImportRow = {
@@ -86,12 +80,29 @@ type ImportDatabase = Pick<
   'commerce_import_manifests' | 'commerce_import_rows' | 'commerce_import_mappings' | 'transaction'
 >;
 
+/** Host-side ManifestStore plus payload persistence. No SDK types. */
+export type InventoryManifestStore = {
+  create(manifest: HostImportManifest): Promise<void>;
+  load(manifestId: string): Promise<HostImportManifest | null>;
+  compareAndSwap(
+    manifestId: string,
+    expectedVersion: number,
+    update: (manifest: HostImportManifest) => HostImportManifest,
+  ): Promise<HostImportManifest>;
+  persistPayloads(manifestId: string, payloads: ReadonlyMap<string, string>): Promise<void>;
+  getPayloadJson(manifestId: string, rowIdentity: string): Promise<string | null>;
+  listProgress(manifestId: string): Promise<readonly CommerceImportRowModelSchema[]>;
+  pruneExpired(now?: number): Promise<void>;
+  getMapping(): Promise<Record<string, string> | null>;
+  putMapping(mapping: Record<string, string>): Promise<void>;
+};
+
 /**
  * Dexie host for the SDK browser planner. Structural `ManifestStore`:
  * `create` / `load` / `compareAndSwap`. Throws `Error('manifest_conflict')`,
  * never an SDK error type.
  */
-export class DexieManifestStore {
+export class DexieManifestStore implements InventoryManifestStore {
   constructor(
     private readonly sellerId: string,
     private readonly database: ImportDatabase = db,
@@ -170,9 +181,7 @@ export class DexieManifestStore {
         });
         await this.database.commerce_import_rows.where('manifestId').equals(manifestId).delete();
         await this.database.commerce_import_rows.bulkPut(
-          next.rows.map((row) =>
-            this.toRowRecord(manifestId, row, payloads.get(row.rowIdentity) ?? '', now),
-          ),
+          next.rows.map((row) => this.toRowRecord(manifestId, row, payloads.get(row.rowIdentity) ?? '', now)),
         );
         return cloneManifest(next);
       },

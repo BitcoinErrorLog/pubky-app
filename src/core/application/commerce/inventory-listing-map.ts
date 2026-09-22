@@ -10,6 +10,9 @@ import {
 } from '@/libs/commerce/marketplace-records';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 
+type ImportJsonPrimitive = string | number | boolean | null;
+export type ImportJsonValue = ImportJsonPrimitive | ImportJsonValue[] | { [key: string]: ImportJsonValue };
+
 export type CanonicalImportRow = {
   readonly recordUri: string;
   readonly sellerPubky: string;
@@ -21,33 +24,35 @@ export type CanonicalImportRow = {
   readonly state: string;
   readonly title: string;
   readonly description: string;
-  readonly taxonomy: unknown;
+  readonly taxonomy: ImportJsonValue;
   readonly category: string;
   readonly condition: string;
-  readonly tags: unknown;
+  readonly tags: ImportJsonValue;
   readonly amountMinor: number;
   readonly currency: string;
   readonly exponent: number;
   readonly variantQuantity: number;
   readonly variantEnabled: boolean;
-  readonly options: unknown;
-  readonly media: unknown;
-  readonly shippingOptions: unknown;
-  readonly returnPolicy: unknown;
-  readonly sale: unknown;
-  readonly externalRefs: unknown;
+  readonly options: ImportJsonValue;
+  readonly media: ImportJsonValue;
+  readonly shippingOptions: ImportJsonValue;
+  readonly returnPolicy: ImportJsonValue;
+  readonly sale: ImportJsonValue;
+  readonly externalRefs: ImportJsonValue;
   readonly extraFields: Readonly<Record<string, string>>;
   readonly sourceRow?: number;
 };
 
-export type ListingMapResult =
-  | { ok: true; record: CommerceListingRecord }
-  | { ok: false; message: string };
+export type ListingMapResult = { ok: true; record: CommerceListingRecord } | { ok: false; message: string };
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function asImportJson(value: unknown): ImportJsonValue {
+  return JSON.parse(JSON.stringify(value)) as ImportJsonValue;
 }
 
 function kebabCategory(value: string): string {
@@ -159,10 +164,7 @@ function fromRecordJson(row: CanonicalImportRow, ownerPubky: string): CommerceLi
 }
 
 /** Map one listing's canonical rows (variants) to a Shop `CommerceListingRecord`. */
-export function mapCanonicalRowsToListing(
-  rows: readonly CanonicalImportRow[],
-  ownerPubky: string,
-): ListingMapResult {
+export function mapCanonicalRowsToListing(rows: readonly CanonicalImportRow[], ownerPubky: string): ListingMapResult {
   if (rows.length === 0) {
     return { ok: false, message: 'No rows to map.' };
   }
@@ -221,10 +223,7 @@ export function mapCanonicalRowsToListing(
 export function listingToCanonicalRows(record: CommerceListingRecord): CanonicalImportRow[] {
   const recordUri = CommerceRecordNormalizer.listingUri(record.ownerPubky, record.listingId);
   const recordJson = JSON.stringify(record);
-  const unit =
-    record.sale.format === 'fixed_price'
-      ? record.sale.unitPrice
-      : record.sale.startingPrice;
+  const unit = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   return record.variants.map((variant, index) => ({
     recordUri,
     sellerPubky: record.ownerPubky,
@@ -236,25 +235,23 @@ export function listingToCanonicalRows(record: CommerceListingRecord): Canonical
     state: record.state,
     title: record.title,
     description: record.description,
-    taxonomy: { taxonomyVersion: record.taxonomyVersion },
+    taxonomy: asImportJson({ taxonomyVersion: record.taxonomyVersion }),
     category: record.categoryId,
     condition: record.condition,
-    tags: record.tags,
+    tags: asImportJson(record.tags),
     amountMinor: unit.amountMinor,
     currency: unit.currency,
     exponent: unit.exponent,
     variantQuantity: variant.quantity,
     variantEnabled: variant.enabled,
-    options: variant.options,
-    media: record.media,
-    shippingOptions: record.shippingOptions ?? [],
-    returnPolicy: {
+    options: asImportJson(variant.options),
+    media: asImportJson(record.media),
+    shippingOptions: asImportJson(record.shippingOptions ?? []),
+    returnPolicy: asImportJson({
       accepted: record.returnPolicy.acceptsReturns,
-      ...(record.returnPolicy.returnWindowDays !== undefined
-        ? { days: record.returnPolicy.returnWindowDays }
-        : {}),
-    },
-    sale: { format: record.sale.format },
+      ...(record.returnPolicy.returnWindowDays !== undefined ? { days: record.returnPolicy.returnWindowDays } : {}),
+    }),
+    sale: asImportJson({ format: record.sale.format }),
     externalRefs: {},
     extraFields: {
       record_json: recordJson,

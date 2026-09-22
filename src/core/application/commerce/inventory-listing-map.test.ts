@@ -1,5 +1,6 @@
-import { listingToCanonicalRows, mapCanonicalRowsToListing } from './inventory-listing-map';
+import { describe, expect, it } from 'vitest';
 import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
+import { listingToCanonicalRows, mapCanonicalRowsToListing } from './inventory-listing-map';
 
 describe('mapCanonicalRowsToListing', () => {
   it('prefers extraFields.record_json for a Shop-valid create', () => {

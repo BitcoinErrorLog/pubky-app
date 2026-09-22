@@ -134,7 +134,7 @@ export function useMarketplaceInventoryImport(sellerPubky: string | null) {
   const exportListings = useCallback(async () => {
     if (!sellerPubky) return;
     const bytes = await CommerceController.exportInventoryListingsCsv(sellerPubky);
-    const blob = new Blob([bytes], { type: 'text/csv' });
+    const blob = new Blob([new Uint8Array(bytes)], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

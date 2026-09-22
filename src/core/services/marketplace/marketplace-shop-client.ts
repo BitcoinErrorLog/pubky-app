@@ -1,44 +1,44 @@
 import {
-  type CanonicalCsvRow,
-  type CheckpointImportResult,
-  type CurrentImportItem,
-  type DryRunCounts,
-  type ImportCheckpoint,
-  type ImportManifest,
-  type ManifestStore,
-  type PlannedImportRow,
-  type ResumeTask,
-  type SdkResult,
-  type SyncManyClassification,
-  type SyncManyEnvelope,
-  type SyncManyListing,
   browserFileSource,
+  type CanonicalCsvRow,
   canonicalCsvRowIdentity,
+  type CheckpointImportResult,
   checkpointImportRow,
   chunkSyncManyListings,
   classifySyncManyItem,
+  type CurrentImportItem,
   DEFAULT_CSV_LIMITS,
   DEFAULT_JSON_LIMITS,
+  type DryRunCounts,
   dryRunCounts,
   exportCanonicalCsv,
-  listingIdentity,
+  type ImportCheckpoint,
+  type ImportManifest,
   type InventoryAdjustmentEnvelope,
   type InventoryAdjustRequest,
   type InventoryProjection,
+  listingIdentity,
   type LosslessJsonObject,
+  type ManifestStore,
   normalizedCsvRowHash,
   parseBoundedJson,
   parseCanonicalCsvStream,
   planImport,
   planImportStream,
+  type PlannedImportRow,
   PubkyShopClient,
   PubkyShopError,
+  type ResumeTask,
   resumeTasks,
+  type SdkResult,
   streamResumeTasks,
   SYNC_MANY_LIMIT,
+  type SyncManyClassification,
+  type SyncManyEnvelope,
+  type SyncManyListing,
 } from '@bitcoinerrorlog/pubky-shop';
 import { getMarketplaceUrl } from '@/config/commerce';
-import { DexieManifestStore } from '@/services/marketplace/marketplace-import-store';
+import type { InventoryManifestStore } from '@/services/marketplace/marketplace-import-store';
 
 /**
  * The only Shop module that imports `@bitcoinerrorlog/pubky-shop`. Components
@@ -131,8 +131,7 @@ export class MarketplaceShopClientService {
 
   static isRateLimited(error: PubkyShopError): boolean {
     return (
-      error.details.status === 429 ||
-      (error.code === 'service_error' && error.details.serviceCode === 'rate_limited')
+      error.details.status === 429 || (error.code === 'service_error' && error.details.serviceCode === 'rate_limited')
     );
   }
 
@@ -236,14 +235,21 @@ export class MarketplaceShopClientService {
   }
 
   static async checkpointRow(
-    store: ManifestStore,
+    store: InventoryManifestStore,
     manifestId: string,
     expectedManifestVersion: number,
     rowIdentity: string,
     checkpoint: ImportCheckpoint,
     failureCode?: PlannedImportRow['failureCode'],
   ): Promise<SdkResult<CheckpointImportResult>> {
-    return checkpointImportRow(store, manifestId, expectedManifestVersion, rowIdentity, checkpoint, failureCode);
+    return checkpointImportRow(
+      store as unknown as ManifestStore,
+      manifestId,
+      expectedManifestVersion,
+      rowIdentity,
+      checkpoint,
+      failureCode,
+    );
   }
 
   /**
@@ -253,7 +259,7 @@ export class MarketplaceShopClientService {
    */
   static async planBrowserFile(
     file: ShopBrowserFile,
-    store: DexieManifestStore,
+    store: InventoryManifestStore,
     currentItems: Readonly<Record<string, CurrentImportItem>> = {},
   ): Promise<SdkResult<PlannedBrowserFile>> {
     const manifestStore = store as unknown as ManifestStore;

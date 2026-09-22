@@ -1,21 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CommerceInventoryImportApplication, IMPORT_PARSE_FAIL_COPY } from '@/application/commerce/inventory-import';
 import { listingToCanonicalRows } from '@/application/commerce/inventory-listing-map';
-import {
-  CommerceInventoryImportApplication,
-  IMPORT_PARSE_FAIL_COPY,
-} from '@/application/commerce/inventory-import';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import type { DexieManifestStore, HostImportManifest, HostPlannedImportRow } from '@/services/marketplace/marketplace-import-store';
+import type { HostImportManifest, InventoryManifestStore } from '@/services/marketplace/marketplace-import-store';
 import {
   type CanonicalCsvRow,
   DEFAULT_JSON_LIMITS,
   MarketplaceShopClientService,
   type ShopBrowserFile,
   SYNC_MANY_LIMIT,
+  type SyncManyEnvelope,
 } from '@/services/marketplace/marketplace-shop-client';
 import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
+import { asOpaque } from '@/test-utils/type-assertions';
 
 const PUBKY = 'y'.repeat(52);
 
@@ -50,7 +49,7 @@ vi.mock('@/services/marketplace/marketplace-inventory-grant', () => ({
   inventoryCapabilityCovers: () => true,
 }));
 
-class MemoryImportStore {
+class MemoryImportStore implements InventoryManifestStore {
   manifests = new Map<string, HostImportManifest>();
   payloads = new Map<string, string>();
 
@@ -84,17 +83,17 @@ class MemoryImportStore {
     return this.payloads.get(`${manifestId}:${rowIdentity}`) ?? null;
   }
 
-  async listProgress(): Promise<never[]> {
+  async listProgress(_manifestId: string) {
     return [];
   }
 
   async pruneExpired(): Promise<void> {}
 
-  async getMapping(): Promise<null> {
+  async getMapping(): Promise<Record<string, string> | null> {
     return null;
   }
 
-  async putMapping(): Promise<void> {}
+  async putMapping(_mapping: Record<string, string>): Promise<void> {}
 }
 
 class BytesFile implements ShopBrowserFile {
@@ -123,13 +122,13 @@ class BytesFile implements ShopBrowserFile {
 
   async arrayBuffer(): Promise<ArrayBuffer> {
     this.arrayBufferCalls += 1;
-    return this.bytes.buffer.slice(this.bytes.byteOffset, this.bytes.byteOffset + this.bytes.byteLength);
+    return this.bytes.slice().buffer;
   }
 
   slice(start = 0, end = this.bytes.byteLength): { arrayBuffer: () => Promise<ArrayBuffer> } {
     const part = this.bytes.slice(start, end);
     return {
-      arrayBuffer: async () => part.buffer.slice(part.byteOffset, part.byteOffset + part.byteLength),
+      arrayBuffer: async () => part.slice().buffer,
     };
   }
 }
@@ -142,6 +141,20 @@ function canonicalRow(listingId: string, overrides: Partial<CanonicalCsvRow> = {
 
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
+}
+
+function syncOk(results: Array<{ listing_id: string; status: number }>): {
+  readonly ok: true;
+  readonly value: SyncManyEnvelope;
+} {
+  return {
+    ok: true,
+    value: asOpaque<SyncManyEnvelope>({
+      schema_version: BigInt(1),
+      kind: 'listing.sync_many',
+      results,
+    }),
+  };
 }
 
 describe('MarketplaceShopClientService import helpers', () => {
@@ -168,8 +181,13 @@ describe('MarketplaceShopClientService import helpers', () => {
   });
 
   it('does not call arrayBuffer for an oversize JSON file', async () => {
-    const store = new MemoryImportStore() as unknown as DexieManifestStore;
-    const file = new BytesFile(utf8('{"rows":[]}'), 'listings.json', 'application/json', DEFAULT_JSON_LIMITS.maxBytes + 1);
+    const store = new MemoryImportStore();
+    const file = new BytesFile(
+      utf8('{"rows":[]}'),
+      'listings.json',
+      'application/json',
+      DEFAULT_JSON_LIMITS.maxBytes + 1,
+    );
     const planned = await MarketplaceShopClientService.planBrowserFile(file, store);
     expect(planned.ok).toBe(false);
     expect(file.arrayBufferCalls).toBe(0);
@@ -182,7 +200,7 @@ describe('MarketplaceShopClientService import helpers', () => {
     const store = new MemoryImportStore();
     const row = canonicalRow('boots_01');
     const file = new BytesFile(utf8(JSON.stringify([row])), 'listings.json', 'application/json');
-    const planned = await MarketplaceShopClientService.planBrowserFile(file, store as unknown as DexieManifestStore);
+    const planned = await MarketplaceShopClientService.planBrowserFile(file, store);
     expect(planned.ok).toBe(true);
     if (!planned.ok) return;
     const manifest = await store.load(planned.value.manifestId);
@@ -209,7 +227,7 @@ describe('CommerceInventoryImportApplication', () => {
   function app(syncResults: Array<{ listing_id: string; status: number }>[] = []) {
     let syncIndex = 0;
     return CommerceInventoryImportApplication.forSeller(PUBKY, {
-      store: store as unknown as DexieManifestStore,
+      store,
       currentItems: async () => ({}),
       putListing: async (record) => {
         puts.push(record.listingId);
@@ -217,12 +235,10 @@ describe('CommerceInventoryImportApplication', () => {
       listingExists: async () => false,
       syncMany: async (listings) => {
         syncCalls.push([...listings]);
-        const items = syncResults[syncIndex] ?? listings.map((listing) => ({ listing_id: listing.listing_id, status: 200 }));
+        const items =
+          syncResults[syncIndex] ?? listings.map((listing) => ({ listing_id: listing.listing_id, status: 200 }));
         syncIndex += 1;
-        return {
-          ok: true,
-          value: { schema_version: 1n, kind: 'listing.sync_many', results: items },
-        };
+        return syncOk(items);
       },
     });
   }
@@ -272,7 +288,7 @@ describe('CommerceInventoryImportApplication', () => {
 
   it('checkpoints conflict on CAS 409 and does not overwrite', async () => {
     const importer = CommerceInventoryImportApplication.forSeller(PUBKY, {
-      store: store as unknown as DexieManifestStore,
+      store,
       currentItems: async () => ({}),
       putListing: async () => {
         throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed.', {
@@ -281,10 +297,7 @@ describe('CommerceInventoryImportApplication', () => {
         });
       },
       listingExists: async () => false,
-      syncMany: async () => ({
-        ok: true,
-        value: { schema_version: 1n, kind: 'listing.sync_many', results: [] },
-      }),
+      syncMany: async () => syncOk([]),
     });
     const planned = await importer.planFile(
       new BytesFile(utf8(JSON.stringify([canonicalRow('boots_01')])), 'one.json', 'application/json'),
@@ -297,12 +310,8 @@ describe('CommerceInventoryImportApplication', () => {
 
   it('plans 250 JSON rows', async () => {
     const rows = Array.from({ length: 250 }, (_, index) => canonicalRow(`item_${index}`));
-    const planned = await app().planFile(
-      new BytesFile(utf8(JSON.stringify(rows)), 'bulk.json', 'application/json'),
-    );
+    const planned = await app().planFile(new BytesFile(utf8(JSON.stringify(rows)), 'bulk.json', 'application/json'));
     expect(planned.status).toBe('planned');
     if (planned.status === 'planned') expect(planned.rowCount).toBe(250);
   });
 });
-
-export type { HostPlannedImportRow };
