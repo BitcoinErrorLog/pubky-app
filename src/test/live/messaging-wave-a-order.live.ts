@@ -240,25 +240,117 @@ function activateServiceSession(session: ServiceSession): void {
 }
 
 function keepDocumentVisible(): void {
-  Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get: () => false });
-  Object.defineProperty(Document.prototype, 'visibilityState', {
-    configurable: true,
-    get: () => 'visible',
-  });
+  const hidden = () => false;
+  const visibilityState = () => 'visible';
+  const apply = () => {
+    for (const target of [Document.prototype, document]) {
+      try {
+        Object.defineProperty(target, 'hidden', { configurable: true, enumerable: true, get: hidden });
+        Object.defineProperty(target, 'visibilityState', {
+          configurable: true,
+          enumerable: true,
+          get: visibilityState,
+        });
+      } catch {
+        // Chromium may pin a non-configurable instance accessor; the interval retries.
+      }
+    }
+  };
+  apply();
+  setInterval(apply, 400);
+  document.addEventListener('visibilitychange', apply, true);
 }
 
-async function pumpHandshake(buyerPage: Page, sellerPage: Page): Promise<void> {
-  const initiator = 'Waiting for them to open Messages';
-  const deadline = Date.now() + 45_000;
-  while (Date.now() < deadline) {
-    const buyerWaiting = (await buyerPage.getByText(initiator).count()) > 0;
-    const sellerWaiting = (await sellerPage.getByText(initiator).count()) > 0;
-    if (!buyerWaiting || !sellerWaiting) return;
-    await buyerPage.bringToFront();
-    await sleep(1_000);
-    await sellerPage.bringToFront();
+async function forcePageVisible(page: Page): Promise<void> {
+  await page
+    .evaluate(() => {
+      const hidden = () => false;
+      const visibilityState = () => 'visible';
+      try {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: hidden });
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: visibilityState });
+      } catch {
+        // ignore
+      }
+      document.dispatchEvent(new Event('visibilitychange'));
+    })
+    .catch(() => undefined);
+}
+
+function handshakeCopy(page: Page) {
+  const surface = page.locator('[data-surface="marketplace-encrypted-conversation"]');
+  return {
+    initiator: surface.getByText('Waiting for them to open Messages'),
+    responder: surface.getByText('Still opening this conversation'),
+    composer: surface.locator('#encrypted-message-body'),
+  };
+}
+
+async function handshakeRole(page: Page): Promise<'initiator' | 'responder' | 'ready' | 'other'> {
+  const copy = handshakeCopy(page);
+  if ((await copy.initiator.count()) > 0) return 'initiator';
+  if ((await copy.responder.count()) > 0) return 'responder';
+  if ((await copy.composer.count()) > 0) return 'ready';
+  return 'other';
+}
+
+async function reopenOrderThread(page: Page, keypair: Keypair, listingTitle: string, shotPrefix: string): Promise<void> {
+  const close = page.getByRole('button', { name: 'Close' });
+  if ((await close.count()) > 0) {
+    await close.first().click().catch(() => undefined);
     await sleep(1_000);
   }
+  await openOrderThread(page, keypair, listingTitle, shotPrefix);
+}
+
+async function waitUntilHandshakeReady(
+  buyerPage: Page,
+  sellerPage: Page,
+  sellerKeypair: Keypair,
+  listingTitle: string,
+  networkLog: string[],
+): Promise<void> {
+  const deadline = Date.now() + 180_000;
+  let lastSellerReopen = Date.now();
+  while (Date.now() < deadline) {
+    await buyerPage.bringToFront();
+    await forcePageVisible(buyerPage);
+    await sellerPage.bringToFront();
+    await forcePageVisible(sellerPage);
+    const buyerRole = await handshakeRole(buyerPage);
+    const sellerRole = await handshakeRole(sellerPage);
+    if (buyerRole === 'ready' && sellerRole === 'ready') return;
+    if (buyerRole === 'initiator' && sellerRole === 'initiator' && Date.now() - lastSellerReopen > 12_000) {
+      await sellerPage.bringToFront();
+      await reopenOrderThread(sellerPage, sellerKeypair, listingTitle, 'seller-reopen');
+      lastSellerReopen = Date.now();
+    }
+    await sleep(1_500);
+  }
+  writeFileSync(path.join(EVIDENCE_DIR, 'handshake-network.log'), `${networkLog.join('\n')}\n`);
+  await capturePage(buyerPage, 'buyer-handshake-stuck');
+  await capturePage(sellerPage, 'seller-handshake-stuck');
+  throw new Error(
+    `encrypted link never reached ready (buyer=${await handshakeRole(buyerPage)} seller=${await handshakeRole(sellerPage)})`,
+  );
+}
+
+function attachNetworkLog(context: BrowserContext, role: string, lines: string[]): void {
+  context.on('response', (response) => {
+    const request = response.request();
+    if (request.resourceType() !== 'xhr' && request.resourceType() !== 'fetch') return;
+    let hostname = '';
+    let pathname = '';
+    try {
+      const url = new URL(request.url());
+      hostname = url.hostname;
+      pathname = url.pathname;
+    } catch {
+      return;
+    }
+    if (!/pubky|homeserver|pkarr|staging-api/.test(`${hostname}${pathname}`)) return;
+    lines.push(`${role} ${request.method()} ${hostname}${pathname} ${response.status()}`);
+  });
 }
 
 async function installStagingCorsBypass(context: BrowserContext): Promise<void> {
@@ -268,16 +360,17 @@ async function installStagingCorsBypass(context: BrowserContext): Promise<void> 
     async (route) => {
       const request = route.request();
       const accept = request.headers()['accept'] ?? '';
-      if (
-        request.resourceType() === 'websocket' ||
-        request.resourceType() === 'eventsource' ||
-        accept.includes('text/event-stream')
-      ) {
+      const type = request.resourceType();
+      if (type === 'websocket' || type === 'eventsource' || accept.includes('text/event-stream')) {
+        await route.continue();
+        return;
+      }
+      if (type === 'image' || type === 'font' || type === 'stylesheet' || type === 'media') {
         await route.continue();
         return;
       }
       const origin = shopOrigin();
-      const allowHeaders = request.headers()['access-control-request-headers'] ?? 'authorization,content-type';
+      const allowHeaders = request.headers()['access-control-request-headers'] ?? 'authorization,content-type,pubky-host';
       if (request.method() === 'OPTIONS') {
         await route.fulfill({
           status: 204,
@@ -293,18 +386,15 @@ async function installStagingCorsBypass(context: BrowserContext): Promise<void> 
       }
       try {
         const response = await route.fetch();
-        const headers = {
-          ...response.headers(),
-          'access-control-allow-origin': origin,
-          'access-control-allow-credentials': 'true',
-          'access-control-expose-headers': '*',
-        };
-        delete headers['content-encoding'];
-        delete headers['content-length'];
+        const headers = { ...response.headers() };
         await route.fulfill({
-          status: response.status(),
-          headers,
-          body: await response.body(),
+          response,
+          headers: {
+            ...headers,
+            'access-control-allow-origin': origin,
+            'access-control-allow-credentials': 'true',
+            'access-control-expose-headers': Object.keys(headers).join(', ') || '*',
+          },
         });
       } catch {
         await route.continue().catch(() => undefined);
@@ -882,6 +972,9 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
       await installStagingCorsBypass(buyerContext);
       await sellerContext.addInitScript(keepDocumentVisible);
       await buyerContext.addInitScript(keepDocumentVisible);
+      const networkLog: string[] = [];
+      attachNetworkLog(sellerContext, 'seller', networkLog);
+      attachNetworkLog(buyerContext, 'buyer', networkLog);
       await sellerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: shopUrl });
       await buyerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: shopUrl });
       const sellerPage = await sellerContext.newPage();
@@ -896,14 +989,22 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
 
         failingStep = 'open_threads';
         await buyerPage.bringToFront();
+        await forcePageVisible(buyerPage);
         await openOrderThread(buyerPage, buyerSeat.keypair, created.title, 'buyer');
-        await sleep(5_000);
+        const buyerStarted = await withPatience('buyer handshake started', 60_000, 500, async () => {
+          const role = await handshakeRole(buyerPage);
+          return { done: role !== 'other', value: role, detail: role };
+        });
+        if (buyerStarted === 'initiator') await sleep(8_000);
         await sellerPage.bringToFront();
+        await forcePageVisible(sellerPage);
         await openOrderThread(sellerPage, sellerSeat.keypair, created.title, 'seller');
-        await pumpHandshake(buyerPage, sellerPage);
+        failingStep = 'handshake_ready';
+        await waitUntilHandshakeReady(buyerPage, sellerPage, sellerSeat.keypair, created.title, networkLog);
 
         failingStep = 'buyer_send';
         await buyerPage.bringToFront();
+        await forcePageVisible(buyerPage);
         await buyerPage.locator('#encrypted-message-body').fill(body);
         await buyerPage.getByRole('button', { name: /^Send/ }).click();
         await buyerPage
@@ -919,16 +1020,20 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
         const seeDeadline = Date.now() + 90_000;
         while (Date.now() < seeDeadline && (await seen.count()) === 0) {
           await sellerPage.bringToFront();
+          await forcePageVisible(sellerPage);
           await sleep(1_000);
           await buyerPage.bringToFront();
+          await forcePageVisible(buyerPage);
           await sleep(500);
         }
         if ((await seen.count()) === 0) {
+          writeFileSync(path.join(EVIDENCE_DIR, 'handshake-network.log'), `${networkLog.join('\n')}\n`);
           await capturePage(sellerPage, 'seller-see-missing');
           throw new Error('seller never saw the buyer message');
         }
         await sellerPage.bringToFront();
         await capturePage(sellerPage, 'seller-see');
+        writeFileSync(path.join(EVIDENCE_DIR, 'handshake-network.log'), `${networkLog.join('\n')}\n`);
 
         const buyerSurface = await buyerPage
           .locator('[data-surface="marketplace-encrypted-conversation"]')
