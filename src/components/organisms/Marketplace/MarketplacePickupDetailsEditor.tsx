@@ -19,8 +19,8 @@ import {
 } from '@/hooks/usePickupDetailsForm/usePickupDetailsForm';
 import { PICKUP_DETAILS_FORM_FIELDS } from '@/hooks/usePickupDetailsForm/usePickupDetailsForm.types';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
-import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
 
 const WEEKDAY_OPTIONS = [
   { value: 'mon', label: 'Mondays' },

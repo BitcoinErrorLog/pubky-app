@@ -1,5 +1,3 @@
-// Intentional import order — browser-mode mocks rely on stable aliases.
-/* eslint-disable simple-import-sort/imports */
 import { useForm } from 'react-hook-form';
 import { describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
