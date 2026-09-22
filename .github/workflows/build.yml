@@ -129,6 +129,7 @@ jobs:
           path: next-build-artifact
 
       - name: Place .next
+        shell: bash
         run: |
           set -euo pipefail
           ls -la next-build-artifact | head
