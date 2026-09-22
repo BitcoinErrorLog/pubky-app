@@ -165,7 +165,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
             <Typography as="h2" className="line-clamp-2 text-base leading-6 font-semibold text-foreground">
               {listing.title}
             </Typography>
-            <Typography as="p" className="truncate text-sm text-muted-foreground">
+            <Typography as="p" className="truncate text-sm text-secondary-foreground">
               {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
             </Typography>
             {isReserved && (

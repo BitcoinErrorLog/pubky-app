@@ -20,11 +20,12 @@ const SELLER_PUBKY = 'y'.repeat(52);
 
 const BASE_URL = (process.env.LAUNCH_E2E_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
 const SERVICE_URL = process.env.LAUNCH_E2E_SERVICE_URL ?? 'https://staging-api.pubky.app';
-const NEXUS_URL = (
-  process.env.PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL ??
-  process.env.PUBKY_RUNTIME_NEXUS_URL ??
-  'https://nexusd-production-7108.up.railway.app'
-).replace(/\/$/, '');
+// Nexus host comes from the CI wrapper (`LAUNCH_E2E_NEXUS_URL`). Do not read
+// PUBKY_RUNTIME_* here — eslint forbids those keys outside runtime-config.
+const NEXUS_URL = (process.env.LAUNCH_E2E_NEXUS_URL ?? 'https://nexusd-production-7108.up.railway.app').replace(
+  /\/$/,
+  '',
+);
 const PUBKY_RE = /^[a-z0-9]{52}$/i;
 const LISTING_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
@@ -73,9 +74,14 @@ async function waitForJoinPubky(page) {
 
 async function runAxe(page, pageId) {
   await page.addScriptTag({ path: AXE_PATH });
-  const report = await page.evaluate(async () => {
+  // Guest Join Pubky (and any other modal) dims the catalog behind it. axe.run(document)
+  // then flags those dimmed cards as color-contrast failures. Scan the open dialog.
+  const dialogVisible = (await page.locator('[role="dialog"]:visible').count()) > 0;
+  const report = await page.evaluate(async (scanDialog) => {
     const axe = window.axe;
-    const result = await axe.run(document, { resultTypes: ['violations'] });
+    const dialog = document.querySelector('[role="dialog"]');
+    const context = scanDialog && dialog ? dialog : document;
+    const result = await axe.run(context, { resultTypes: ['violations'] });
     return result.violations.map((violation) => ({
       id: violation.id,
       impact: violation.impact,
@@ -86,7 +92,7 @@ async function runAxe(page, pageId) {
         failureSummary: String(node.failureSummary ?? '').slice(0, 240),
       })),
     }));
-  });
+  }, dialogVisible);
   const blocking = report.filter((item) => item.impact === 'critical' || item.impact === 'serious');
   if (blocking.length > 0) {
     record(

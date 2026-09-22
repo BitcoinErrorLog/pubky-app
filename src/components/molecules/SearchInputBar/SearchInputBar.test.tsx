@@ -131,7 +131,8 @@ describe('SearchInputBar', () => {
 
       const input = screen.getByRole('textbox');
       expect(input).toHaveAttribute('aria-label', 'Search input');
-      expect(input).toHaveAttribute('aria-autocomplete', 'list');
+      expect(input).not.toHaveAttribute('aria-autocomplete');
+      expect(input).not.toHaveAttribute('aria-expanded');
     });
 
     it('renders input with aria-controls when suggestions visible', () => {
@@ -227,18 +228,14 @@ describe('SearchInputBar', () => {
   });
 
   describe('Accessibility', () => {
-    it('sets aria-expanded to true when expanded', () => {
-      render(<SearchInputBar {...defaultProps} isExpanded={true} />);
+    it('does not put combobox attributes on a textbox (suggestions are buttons, not a listbox)', () => {
+      render(<SearchInputBar {...defaultProps} isExpanded={true} suggestionsId="search-suggestions" />);
 
       const input = screen.getByRole('textbox');
-      expect(input).toHaveAttribute('aria-expanded', 'true');
-    });
-
-    it('sets aria-expanded to false when not expanded', () => {
-      render(<SearchInputBar {...defaultProps} isExpanded={false} />);
-
-      const input = screen.getByRole('textbox');
-      expect(input).toHaveAttribute('aria-expanded', 'false');
+      expect(input).not.toHaveAttribute('aria-expanded');
+      expect(input).not.toHaveAttribute('aria-autocomplete');
+      expect(input).toHaveAttribute('aria-controls', 'search-suggestions');
+      expect(input).toHaveAttribute('aria-haspopup', 'dialog');
     });
   });
 

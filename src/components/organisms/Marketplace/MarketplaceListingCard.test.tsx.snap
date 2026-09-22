@@ -135,7 +135,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
           35mm rangefinder camera
         </h2>
         <p
-          class="font-medium truncate text-sm text-muted-foreground"
+          class="font-medium truncate text-sm text-secondary-foreground"
           data-testid="typography"
         >
           Proof of Film
@@ -322,7 +322,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
           Vintage leather boots
         </h2>
         <p
-          class="font-medium truncate text-sm text-muted-foreground"
+          class="font-medium truncate text-sm text-secondary-foreground"
           data-testid="typography"
         >
           Satoshi Vintage

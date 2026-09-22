@@ -10,8 +10,6 @@ exports[`SearchInput > SearchInput - Snapshots > matches snapshot - default stat
     data-testid="search-input-bar"
   >
     <input
-      aria-autocomplete="list"
-      aria-expanded="false"
       aria-label="Search input"
       placeholder="Search"
       type="text"
@@ -35,9 +33,7 @@ exports[`SearchInput > SearchInput - Snapshots > matches snapshot - focused with
     style="background: linear-gradient(180deg, rgb(5, 5, 10) 0%, rgba(5, 5, 10, 0.5) 100%);"
   >
     <input
-      aria-autocomplete="list"
       aria-controls="search-suggestions"
-      aria-expanded="true"
       aria-label="Search input"
       placeholder="Search"
       type="text"
@@ -101,8 +97,6 @@ exports[`SearchInput > SearchInput - Snapshots > matches snapshot - with active 
       </span>
     </div>
     <input
-      aria-autocomplete="list"
-      aria-expanded="false"
       aria-label="Search input"
       placeholder=""
       type="text"

@@ -26,6 +26,8 @@ export PUBKY_RUNTIME_MARKETPLACE_URL="${PUBKY_RUNTIME_MARKETPLACE_URL:-https://s
 # Official social Nexus does not serve v0/stream/listings; staging Shop points
 # commerce index reads at the dedicated marketplace-indexing Nexus.
 export PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL="${PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL:-https://nexusd-production-7108.up.railway.app}"
+# Chromium runner must not read PUBKY_RUNTIME_*; pass the commerce index as LAUNCH_E2E_NEXUS_URL.
+export LAUNCH_E2E_NEXUS_URL="${LAUNCH_E2E_NEXUS_URL:-$PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL}"
 
 if [[ ! -d .next || ! -f .next/BUILD_ID ]]; then
   echo "Missing .next — this script reuses a production build and must not run next build."

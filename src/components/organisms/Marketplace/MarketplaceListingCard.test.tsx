@@ -58,6 +58,14 @@ describe('MarketplaceListingCard', () => {
     );
   });
 
+  it('renders the shop name in secondary-foreground so 14px body text meets contrast on the card', () => {
+    render(<MarketplaceListingCard listing={catalogItem()} shopName="Satoshi Vintage" />);
+
+    const shop = screen.getByText('Satoshi Vintage');
+    expect(shop).toHaveClass('text-secondary-foreground');
+    expect(shop).not.toHaveClass('text-muted-foreground');
+  });
+
   it('renders the seller rating aggregate when the catalog projection carries reviews', () => {
     const listing = catalogItemFromCatalogEntry(
       createCommerceCatalogEntryFixture({ reputation: { avg: 4.6, count: 17, verifiedCount: 11 } }),
