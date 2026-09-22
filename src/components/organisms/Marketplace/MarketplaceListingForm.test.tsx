@@ -1001,6 +1001,13 @@ describe('MarketplaceListingForm - Snapshots', () => {
   it('matches the physical listing form snapshot', async () => {
     const { container } = render(<FormHarness />);
     await screen.findByRole('combobox', { name: 'Fulfillment' });
+    // Fulfillment is on the first paint while pickupAvailable is still
+    // null, so the combobox exists under the pickup-capability skeleton.
+    // The committed snapshot is the settled form (capability on, no
+    // skeleton). Wait for that world; do not refresh the baseline.
+    await waitFor(() => {
+      expect(screen.queryByTestId('pickup-capability-skeleton')).not.toBeInTheDocument();
+    });
     expect(container.firstChild).toMatchSnapshot();
   });
 });

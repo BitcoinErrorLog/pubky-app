@@ -599,7 +599,7 @@ function ListingThumbnail({ mediaUrls, title }: { mediaUrls: readonly string[]; 
           alt={`${title} thumbnail`}
           fill
           sizes="40px"
-          className="absolute inset-0 object-cover"
+          className="absolute inset-0 object-cover object-center"
           onError={() => setFailed(true)}
         />
       </div>

@@ -36,7 +36,7 @@ export interface ShopProfileCardProps {
 
 const VARIANT = {
   full: {
-    banner: 'h-28 w-full object-cover sm:h-40',
+    banner: 'h-28 w-full object-cover object-center sm:h-40',
     bannerFallback: 'h-28 bg-linear-to-r from-brand/40 via-purple-500/20 to-cyan-500/20 sm:h-40',
     content: 'flex flex-col gap-4 p-6 sm:flex-row sm:items-end sm:justify-between',
     avatarLift: '-mt-16',
@@ -53,7 +53,7 @@ const VARIANT = {
   mini: {
     // Smaller than `full` so the My Shop editor stays the primary surface:
     // banner h-20/sm:h-28, avatar size-16, tighter type — not a second shop page.
-    banner: 'h-20 w-full object-cover sm:h-28',
+    banner: 'h-20 w-full object-cover object-center sm:h-28',
     bannerFallback: 'h-20 bg-linear-to-r from-brand/40 via-purple-500/20 to-cyan-500/20 sm:h-28',
     content: 'p-5',
     avatarLift: '-mt-12',
@@ -112,7 +112,12 @@ export function ShopProfileCard({
           <div className={tokens.avatar}>
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- homeserver media and object URLs bypass Next image optimization
-              <img src={avatarUrl} alt={avatarAlt} className="size-full object-cover" onError={onAvatarError} />
+              <img
+                src={avatarUrl}
+                alt={avatarAlt}
+                className="size-full object-cover object-center"
+                onError={onAvatarError}
+              />
             ) : (
               <Store className={tokens.storeIcon} aria-hidden="true" />
             )}

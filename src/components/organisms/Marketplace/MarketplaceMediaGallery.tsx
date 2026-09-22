@@ -19,6 +19,11 @@ export interface MarketplaceMediaGalleryProps {
  * The listing detail page's media area: a main viewer plus a thumbnail strip
  * when the record carries more than one viewable media item.
  *
+ * Photos crop to fill the reserved frame (`object-cover` / `object-center`).
+ * There is no lightbox on this surface; contain would letterbox portrait
+ * shots against the page background. A per-image focal point can later
+ * replace the centered `object-position` without changing the frame.
+ *
  * Media URIs come from the owner-signed record (`record.media[].url`,
  * `pubky://.../marketplace/v1/media/<id>`) and resolve to the homeserver's
  * public HTTPS read URL via `resolveMarketplaceMediaUrl`. Items that do not
@@ -55,7 +60,7 @@ export function MarketplaceMediaGallery({ media, saleFormat, auctionPhase = 'liv
               controls
               playsInline
               aria-label={selected.item.altText}
-              className="absolute inset-0 size-full object-contain"
+              className="absolute inset-0 size-full object-cover object-center"
               onError={() => markFailed(selected.item.id)}
             />
           ) : (
@@ -65,7 +70,7 @@ export function MarketplaceMediaGallery({ media, saleFormat, auctionPhase = 'liv
               alt={selected.item.altText}
               fill
               sizes="(max-width: 1024px) 100vw, 720px"
-              className="absolute inset-0 object-contain"
+              className="absolute inset-0 size-full object-cover object-center"
               onError={() => markFailed(selected.item.id)}
             />
           )
@@ -103,7 +108,7 @@ export function MarketplaceMediaGallery({ media, saleFormat, auctionPhase = 'liv
                   alt={item.altText}
                   fill
                   sizes="64px"
-                  className="object-cover"
+                  className="object-cover object-center"
                   onError={() => markFailed(item.id)}
                 />
               )}
