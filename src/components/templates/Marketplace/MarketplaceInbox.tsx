@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, LockKeyhole, MessageCircle } from 'lucide-react';
-import { APP_ROUTES, MARKETPLACE_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -69,10 +69,7 @@ export function MarketplaceInbox() {
 function useConsumedConversationQuery(currentUserPubky: string | null | undefined) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const capturedValues = useRef<string[] | null>(null);
-  if (capturedValues.current === null) {
-    capturedValues.current = searchParams.getAll('conversation');
-  }
+  const [capturedValues] = useState(() => searchParams.getAll('conversation'));
 
   useEffect(() => {
     if (searchParams.getAll('conversation').length === 0) return;
@@ -80,7 +77,7 @@ function useConsumedConversationQuery(currentUserPubky: string | null | undefine
   }, [router, searchParams]);
 
   return resolveMarketplaceConversationQuery({
-    values: capturedValues.current,
+    values: capturedValues,
     currentUserPubky,
   });
 }
