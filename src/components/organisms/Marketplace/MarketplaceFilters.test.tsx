@@ -83,6 +83,16 @@ describe('MarketplaceFilters', () => {
     expect(useCommerceStore.getState().categoryId).toBe('fashion');
   });
 
+  it('does not put aria-current on category menuitems', async () => {
+    const user = userEvent.setup();
+    render(<MarketplaceFilters resultCount={8} />);
+
+    await user.click(screen.getByRole('button', { name: 'Category' }));
+    const allCategories = screen.getByRole('menuitem', { name: /All Categories/ });
+    expect(allCategories).not.toHaveAttribute('aria-current');
+    expect(allCategories).toHaveAttribute('data-selected', 'true');
+  });
+
   it('clears attribute filters when the category changes', () => {
     useCommerceStore.getState().setCategoryId('fashion');
     useCommerceStore.getState().setAttributeFilter('size', 'L');

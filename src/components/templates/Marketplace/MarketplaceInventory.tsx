@@ -83,7 +83,7 @@ export function MarketplaceInventory() {
           )}
         </div>
 
-        <div data-surface="inventory-studio" data-testid="inventory-studio">
+        <div data-surface="inventory-studio" data-testid="inventory-studio" data-load-status={board.load.status}>
           {board.isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : board.load.status === 'durable-unavailable' ? (

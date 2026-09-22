@@ -83,7 +83,7 @@ export function DialogSignIn() {
             </Container>
 
             <Container className="px-6">
-              <Button asChild variant="secondary" className="w-full gap-2 font-bold">
+              <Button asChild variant="secondary" className="w-full gap-2 font-bold text-foreground">
                 <Link href={AUTH_ROUTES.SIGN_IN} onClick={handleClose}>
                   <ArrowRight className="size-4" />
                   {'Sign In'}

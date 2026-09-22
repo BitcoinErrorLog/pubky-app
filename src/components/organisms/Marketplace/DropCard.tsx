@@ -89,7 +89,7 @@ export function DropCard({
             <Typography as="h2" className="line-clamp-2 text-base leading-6 font-semibold text-foreground">
               {entry.title}
             </Typography>
-            <Typography as="p" className="truncate text-sm text-muted-foreground">
+            <Typography as="p" className="truncate text-sm text-secondary-foreground">
               {`${entry.owner_id.slice(0, 8)}…`}
             </Typography>
           </div>
@@ -106,7 +106,7 @@ export function DropCard({
             />
           )}
           <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
-            <Typography as="span" className="text-xs text-muted-foreground">
+            <Typography as="span" className="text-xs text-secondary-foreground">
               Open to confirm service state
             </Typography>
             {entry.total_quantity != null && <Badge variant="secondary">{entry.total_quantity} editions</Badge>}
