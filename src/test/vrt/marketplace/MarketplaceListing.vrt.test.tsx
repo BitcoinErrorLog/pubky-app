@@ -568,7 +568,7 @@ describe('Marketplace listing detail — visual regression', () => {
     });
 
     const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
-      viewport: VRT_VIEWPORT_DESKTOP,
+      viewport: { width: 1440, height: 1800 },
     });
     await expect(screen.getByRole('button', { name: 'Sign in to buy' })).toBeVisible();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-logged-out-desktop');
@@ -585,7 +585,7 @@ describe('Marketplace listing detail — visual regression', () => {
     });
 
     const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
-      viewport: VRT_VIEWPORT_MOBILE,
+      viewport: { width: 390, height: 1800 },
     });
     await expect(screen.getByRole('button', { name: 'Sign in to buy' })).toBeVisible();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
