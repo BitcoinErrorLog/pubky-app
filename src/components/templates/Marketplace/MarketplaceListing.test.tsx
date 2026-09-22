@@ -57,6 +57,7 @@ vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () 
     // Mirrors the hook's single decision: full grant iff the homeserver
     // grant is narrow (the flag defaults on under tests).
     requestsFullGrant: !view.hasFullHomeserverGrant,
+    requestsGrantReconnect: false,
     start: vi.fn(),
     cancel: vi.fn(),
     copyAuthUrl: vi.fn(async () => {}),

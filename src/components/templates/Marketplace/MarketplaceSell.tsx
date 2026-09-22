@@ -16,12 +16,14 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCreateMarketplaceListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
 import { CREATE_MARKETPLACE_LISTING_FIELDS } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export function MarketplaceSell() {
@@ -55,6 +57,11 @@ export function MarketplaceSell() {
 
   const submit = async () => {
     if (isDurableCommerceMode(getCommerceAdapterMode()) && !useCommerceStore.getState().marketplaceSession) {
+      const pubky = useAuthStore.getState().currentUserPubky;
+      if (pubky && CommerceController.restorePersistedMarketplaceSession(pubky)) {
+        await publish();
+        return;
+      }
       setPublishAfterSession(true);
       return;
     }
