@@ -46,7 +46,7 @@ const draftFixture = vi.hoisted(() => ({
 interface MockMediaItem {
   key: string;
   kind: 'new';
-  file: File | null;
+  file: File;
   previewUrl: string;
   altText: string;
 }
@@ -134,21 +134,14 @@ vi.mock('@/stores/auth/auth.store', () => ({
 }));
 
 vi.mock('@/stores/commerce/commerce.store', () => ({
-  useCommerceStore: Object.assign(
-    createZustandLikeHook({
-      marketplaceSession: {
-        pubky: 'y'.repeat(52),
-        capabilities: '/pub/pubky.app/:rw',
-        expiresAt: '2026-09-14T00:00:00.000Z',
-        issuedAt: '2026-09-13T00:00:00.000Z',
-      },
-    }),
-    {
-      getState: () => ({
-        marketplaceSession: view.marketplaceSession,
-      }),
+  // Both the hook selector (publish guards) and getState() (Sell.submit) must
+  // read the live view. A frozen snapshot would keep hasMarketplaceSession
+  // true after a grant-expiry scene sets view.marketplaceSession = null.
+  useCommerceStore: createZustandLikeHook({
+    get marketplaceSession() {
+      return view.marketplaceSession;
     },
-  ),
+  }),
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
@@ -216,7 +209,13 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 function photoItem(key: string, altText: string): MockMediaItem {
-  return { key, kind: 'new', file: null, previewUrl: PREVIEW_DATA_URL, altText };
+  return {
+    key,
+    kind: 'new',
+    file: new File([new Uint8Array([1, 2, 3, 4])], `${key}.png`, { type: 'image/png' }),
+    previewUrl: PREVIEW_DATA_URL,
+    altText,
+  };
 }
 
 async function resumeAutosavedDraft(
@@ -665,8 +664,29 @@ describe('Marketplace sell studio — visual regression', () => {
     sellerPaymentConfig.mockImplementation(() => Promise.resolve(paidSellerPaymentConfig));
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (screen.container.querySelector('[data-surface="listing-payment-setup"]')) {
+        throw new Error('Payment interstitial is still covering the composer.');
+      }
+    });
     await resumeAutosavedDraft(screen);
-    await screen.getByRole('button', { name: 'Publish listing' }).click();
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('[data-surface="seller-publish-blocked"]')) {
+        throw new Error('The session publish guard has not rendered yet.');
+      }
+      const connect = [...screen.container.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('Connect marketplace session'),
+      );
+      if (!connect) {
+        throw new Error('The session-connect control has not rendered yet.');
+      }
+    });
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeDisabled();
+    const connect = [...screen.container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Connect marketplace session'),
+    );
+    expect(connect).toBeDefined();
+    await connect!.click();
     await vi.waitFor(() => {
       if (!screen.container.textContent?.includes('The approval expired before it was completed. Try again.')) {
         throw new Error('The grant expiry copy has not rendered yet.');
