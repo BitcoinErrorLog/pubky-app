@@ -450,20 +450,50 @@ async function cancelAndRestock(orderId: string, buyer: Seat): Promise<string> {
   return after?.state ?? 'unknown';
 }
 
-async function approveClipboardAuth(page: Page, keypair: Keypair): Promise<void> {
-  const copy = page.getByLabel('Copy authorization link');
-  await copy.waitFor({ state: 'visible', timeout: 60_000 });
-  await page.waitForFunction(
-    () => {
-      const element = document.querySelector('[aria-label="Copy authorization link"]');
-      return element instanceof HTMLButtonElement && !element.disabled;
-    },
-    undefined,
-    { timeout: 60_000 },
-  );
+async function capturePage(page: Page, name: string): Promise<void> {
+  mkdirSync(SHOT_DIR, { recursive: true });
+  await page.screenshot({ path: path.join(SHOT_DIR, `${name}.png`), fullPage: true });
+  writeFileSync(path.join(SHOT_DIR, `${name}.html`), await page.content());
+  writeFileSync(path.join(SHOT_DIR, `${name}.txt`), await page.locator('body').innerText());
+}
+
+async function installAuthUrlCapture(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const world = window as unknown as { __waveACopied?: string };
+    const clipboard = navigator.clipboard as Clipboard & { __waveAPatched?: boolean };
+    if (!clipboard || clipboard.__waveAPatched) return;
+    const original = clipboard.writeText.bind(clipboard);
+    clipboard.writeText = async (text: string) => {
+      world.__waveACopied = text;
+      try {
+        await original(text);
+      } catch {
+        // Headless Chromium often rejects writeText; the captured value is the proof URL.
+      }
+    };
+    clipboard.__waveAPatched = true;
+  });
+}
+
+async function approveSignerUrl(page: Page, keypair: Keypair): Promise<void> {
+  await page.bringToFront();
+  await installAuthUrlCapture(page);
+  await page.evaluate(() => {
+    (window as unknown as { __waveACopied?: string }).__waveACopied = '';
+  });
+  await page.getByText('Waiting for approval on your signer…').waitFor({ state: 'visible', timeout: 60_000 });
+  const copy = page.getByRole('button', { name: 'Copy link' });
+  await copy.waitFor({ state: 'visible', timeout: 30_000 });
+  await withPatience('Copy link enabled', 30_000, 250, async () => ({
+    done: await copy.isEnabled(),
+    value: true,
+  }));
   await copy.click();
-  const authorizationUrl = await page.evaluate(async () => navigator.clipboard.readText());
-  expect(authorizationUrl.length, 'authorization URL copied').toBeGreaterThan(8);
+  const authorizationUrl = await withPatience('authorization URL capture', 15_000, 250, async () => {
+    const value = await page.evaluate(() => (window as unknown as { __waveACopied?: string }).__waveACopied ?? '');
+    return { done: value.startsWith('pubkyauth://'), value, detail: `len=${value.length}` };
+  });
+  expect(authorizationUrl.startsWith('pubkyauth://'), 'copied URL must be a pubkyauth deeplink').toBe(true);
   await new Pubky().signer(keypair).approveAuthRequest(authorizationUrl);
 }
 
@@ -476,29 +506,76 @@ async function signInWithEncryptedFile(page: Page, seat: Seat): Promise<void> {
   await page.waitForURL((url) => !url.pathname.includes('/sign-in'), { timeout: 180_000 });
 }
 
-async function connectMarketplaceSession(page: Page, keypair: Keypair, listingTitle: string): Promise<void> {
+async function waitForListingOnOrders(
+  page: Page,
+  keypair: Keypair,
+  listingTitle: string,
+  shotPrefix: string,
+): Promise<void> {
+  const listing = page.getByText(`${listingTitle} × 1`);
+  const allTab = page.getByRole('tab', { name: /^All / });
+  const approve = page.getByRole('button', { name: 'Approve in Pubky Ring' });
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if ((await listing.count()) > 0) return;
+    if ((await allTab.count()) > 0) {
+      await allTab.click();
+      if ((await listing.count()) > 0) return;
+    }
+    if (attempt > 0 && (await approve.count()) > 0 && (await allTab.count()) === 0) {
+      await approve.click();
+      await approveSignerUrl(page, keypair);
+    }
+    if (attempt < 7) {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
+      await sleep(2_000);
+    }
+  }
+  await capturePage(page, `${shotPrefix}-orders-missing`);
+  throw new Error(`Orders page never showed listing title after session (${shotPrefix})`);
+}
+
+async function connectMarketplaceSession(
+  page: Page,
+  keypair: Keypair,
+  listingTitle: string,
+  shotPrefix: string,
+): Promise<void> {
   await page.goto(`${shopUrl}/marketplace/orders`, { waitUntil: 'domcontentloaded', timeout: 180_000 });
   const approve = page.getByRole('button', { name: 'Approve in Pubky Ring' });
+  const listing = page.getByText(`${listingTitle} × 1`);
   const allTab = page.getByRole('tab', { name: /^All / });
+  const empty = page.getByRole('heading', { name: 'No orders yet' });
   try {
     await Promise.race([
+      listing.waitFor({ state: 'visible', timeout: 45_000 }),
       allTab.waitFor({ state: 'visible', timeout: 45_000 }),
+      empty.waitFor({ state: 'visible', timeout: 45_000 }),
       approve.waitFor({ state: 'visible', timeout: 45_000 }),
     ]);
   } catch {
-    await page.screenshot({ path: path.join(SHOT_DIR, 'orders-missing.png'), fullPage: true });
-    throw new Error('Orders page showed neither the All tab nor the marketplace session card');
+    await capturePage(page, `${shotPrefix}-orders-boot`);
+    throw new Error(`${shotPrefix}: orders page showed neither session card, empty state, nor the listing`);
   }
-  if ((await approve.count()) > 0 && (await allTab.count()) === 0) {
+  if ((await listing.count()) > 0) return;
+  if ((await approve.count()) > 0) {
     await approve.click();
-    await approveClipboardAuth(page, keypair);
-    await allTab.waitFor({ state: 'visible', timeout: 90_000 });
+    try {
+      await approveSignerUrl(page, keypair);
+      await Promise.race([
+        listing.waitFor({ state: 'visible', timeout: 90_000 }),
+        allTab.waitFor({ state: 'visible', timeout: 90_000 }),
+        empty.waitFor({ state: 'visible', timeout: 90_000 }),
+        page.getByText('Purchases approved').waitFor({ state: 'visible', timeout: 90_000 }),
+      ]);
+    } catch (error) {
+      await capturePage(page, `${shotPrefix}-session-after`);
+      throw error;
+    }
   }
-  await allTab.click();
-  await page.getByText(`${listingTitle} × 1`).waitFor({ state: 'visible', timeout: 60_000 });
+  await waitForListingOnOrders(page, keypair, listingTitle, shotPrefix);
 }
 
-async function openOrderThread(page: Page, keypair: Keypair, listingTitle: string): Promise<void> {
+async function openOrderThread(page: Page, keypair: Keypair, listingTitle: string, shotPrefix: string): Promise<void> {
   const card = page
     .locator('div')
     .filter({ hasText: `${listingTitle} × 1` })
@@ -511,14 +588,19 @@ async function openOrderThread(page: Page, keypair: Keypair, listingTitle: strin
   const surface = page.locator('[data-surface="marketplace-encrypted-conversation"]');
   await surface.waitFor({ state: 'visible', timeout: 30_000 });
   const composer = page.locator('#encrypted-message-body');
-  const enableCopy = page.getByLabel('Copy authorization link');
+  const waiting = page.getByText('Waiting for approval on your signer…');
   await Promise.race([
     composer.waitFor({ state: 'visible', timeout: 60_000 }),
-    enableCopy.waitFor({ state: 'visible', timeout: 60_000 }),
+    waiting.waitFor({ state: 'visible', timeout: 60_000 }),
   ]);
   if ((await composer.count()) > 0) return;
-  await approveClipboardAuth(page, keypair);
-  await composer.waitFor({ state: 'visible', timeout: 90_000 });
+  try {
+    await approveSignerUrl(page, keypair);
+    await composer.waitFor({ state: 'visible', timeout: 90_000 });
+  } catch (error) {
+    await capturePage(page, `${shotPrefix}-thread-enable`);
+    throw error;
+  }
 }
 
 describe('Wave A Chromium Shop: buyer send, seller see', () => {
@@ -551,10 +633,11 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
 
       failingStep = 'chromium_restore';
       const body = `wave-a-shop-${Date.now()}`;
-      const sellerContext: BrowserContext = await browser.newContext();
-      const buyerContext: BrowserContext = await browser.newContext();
-      await sellerContext.grantPermissions(['clipboard-read', 'clipboard-write']);
-      await buyerContext.grantPermissions(['clipboard-read', 'clipboard-write']);
+      const contextOptions = { permissions: ['clipboard-read', 'clipboard-write'] as const };
+      const sellerContext: BrowserContext = await browser.newContext(contextOptions);
+      const buyerContext: BrowserContext = await browser.newContext(contextOptions);
+      await sellerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: shopUrl });
+      await buyerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: shopUrl });
       const sellerPage = await sellerContext.newPage();
       const buyerPage = await buyerContext.newPage();
 
@@ -562,24 +645,29 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
         await signInWithEncryptedFile(sellerPage, sellerSeat);
         await signInWithEncryptedFile(buyerPage, buyerSeat);
         failingStep = 'marketplace_session';
-        await connectMarketplaceSession(sellerPage, sellerSeat.keypair, created.title);
-        await connectMarketplaceSession(buyerPage, buyerSeat.keypair, created.title);
+        await connectMarketplaceSession(sellerPage, sellerSeat.keypair, created.title, 'seller');
+        await connectMarketplaceSession(buyerPage, buyerSeat.keypair, created.title, 'buyer');
 
         failingStep = 'open_threads';
-        await openOrderThread(sellerPage, sellerSeat.keypair, created.title);
-        await openOrderThread(buyerPage, buyerSeat.keypair, created.title);
+        await openOrderThread(sellerPage, sellerSeat.keypair, created.title, 'seller');
+        await openOrderThread(buyerPage, buyerSeat.keypair, created.title, 'buyer');
 
         failingStep = 'buyer_send';
         await buyerPage.locator('#encrypted-message-body').fill(body);
         await buyerPage.getByRole('button', { name: 'Send' }).click();
-        await buyerPage.screenshot({ path: path.join(SHOT_DIR, 'buyer-send.png'), fullPage: true });
+        await capturePage(buyerPage, 'buyer-send');
 
         failingStep = 'seller_see';
-        await sellerPage
-          .locator('[data-surface="marketplace-encrypted-conversation"]')
-          .filter({ hasText: body })
-          .waitFor({ state: 'visible', timeout: 90_000 });
-        await sellerPage.screenshot({ path: path.join(SHOT_DIR, 'seller-see.png'), fullPage: true });
+        try {
+          await sellerPage
+            .locator('[data-surface="marketplace-encrypted-conversation"]')
+            .filter({ hasText: body })
+            .waitFor({ state: 'visible', timeout: 90_000 });
+        } catch (error) {
+          await capturePage(sellerPage, 'seller-see-missing');
+          throw error;
+        }
+        await capturePage(sellerPage, 'seller-see');
 
         const buyerSurface = await buyerPage
           .locator('[data-surface="marketplace-encrypted-conversation"]')
