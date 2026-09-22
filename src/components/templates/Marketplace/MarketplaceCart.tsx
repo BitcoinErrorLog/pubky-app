@@ -33,6 +33,7 @@ import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
+import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
@@ -403,14 +404,7 @@ export function MarketplaceCart() {
                     {MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE}
                   </Typography>
                   <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
-                  <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
-                  <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <ControlledInputField name="city" control={checkout.form.control} label="City" />
-                    <ControlledInputField name="region" control={checkout.form.control} label="Region" />
-                    <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
-                    <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
-                  </div>
+                  <MarketplaceAddressFields control={checkout.form.control} setValue={checkout.form.setValue} />
                   {checkout.selectedAddressId === null && (
                     <div className="grid gap-3 rounded-xl border bg-card/60 p-3">
                       <Controller

@@ -26,6 +26,7 @@ import {
 } from '@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook.types';
 import type { CommerceDeliveryAddressModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
+import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 
 export function MarketplaceAddressSettings() {
@@ -114,14 +115,7 @@ export function MarketplaceAddressSettings() {
               </Typography>
               <ControlledInputField name="label" control={form.control} label="Label" placeholder="Home" />
               <ControlledInputField name="name" control={form.control} label="Recipient" />
-              <ControlledInputField name="line1" control={form.control} label="Address line 1" />
-              <ControlledInputField name="line2" control={form.control} label="Address line 2" />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ControlledInputField name="city" control={form.control} label="City" />
-                <ControlledInputField name="region" control={form.control} label="Region" />
-                <ControlledInputField name="postalCode" control={form.control} label="Postal code" />
-                <ControlledInputField name="countryCode" control={form.control} label="Country" />
-              </div>
+              <MarketplaceAddressFields control={form.control} setValue={form.setValue} />
               <div className="flex gap-2">
                 <Button className="rounded-full" onClick={() => void submit()}>
                   Save address

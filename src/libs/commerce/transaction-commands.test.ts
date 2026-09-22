@@ -448,4 +448,22 @@ describe('checkout.create fulfillment and address rules (§A2)', () => {
   it('keeps legacy checkouts valid: no line fulfillment plus an address', () => {
     expect(createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([shippingLine], true)).success).toBe(true);
   });
+
+  it('requires a US state and accepts a GB address with no region', () => {
+    const withoutState = checkoutCommand([shippingLine], true);
+    withoutState.payload.deliveryAddress = { ...address, region: '' };
+    expect(createMarketplaceCheckoutCommandSchema.safeParse(withoutState).success).toBe(false);
+
+    const gb = checkoutCommand([shippingLine], true);
+    gb.payload.deliveryAddress = {
+      name: 'Ada',
+      line1: '10 Downing Street',
+      line2: '',
+      city: 'London',
+      region: '',
+      postalCode: 'SW1A 2AA',
+      countryCode: 'GB',
+    };
+    expect(createMarketplaceCheckoutCommandSchema.safeParse(gb).success).toBe(true);
+  });
 });

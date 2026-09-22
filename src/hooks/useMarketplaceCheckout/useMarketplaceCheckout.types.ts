@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { refinePostalAddressFields } from '@/libs/commerce/postal-address';
 
 /**
  * The checkout form (local pickup design §A2): the delivery address is
@@ -39,12 +40,7 @@ export const marketplaceCheckoutSchema = z
       if (!data.city) {
         context.addIssue({ code: 'custom', path: ['city'], message: 'City is required.' });
       }
-      if (!data.region) {
-        context.addIssue({ code: 'custom', path: ['region'], message: 'Region is required.' });
-      }
-      if (!data.postalCode) {
-        context.addIssue({ code: 'custom', path: ['postalCode'], message: 'Postal code is required.' });
-      }
+      refinePostalAddressFields(data, context);
       if (!/^[A-Za-z]{2}$/.test(data.countryCode)) {
         context.addIssue({ code: 'custom', path: ['countryCode'], message: 'Use a two-letter country code.' });
       }
