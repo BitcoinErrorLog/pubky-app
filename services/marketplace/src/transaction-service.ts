@@ -128,7 +128,7 @@ const pickupLocationSchema = z.union([
       line1: z.string().trim().min(1).max(200),
       line2: z.string().trim().max(200).default(''),
       city: z.string().trim().min(1).max(100),
-      region: z.string().trim().min(1).max(100),
+      region: z.string().trim().max(100),
       postalCode: z.string().trim().min(1).max(32),
       countryCode: z.string().regex(/^[A-Z]{2}$/),
     })

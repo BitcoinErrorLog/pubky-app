@@ -24,6 +24,7 @@ interface InputFieldProps {
   loadingIcon?: ReactNode;
   status?: 'default' | 'success' | 'error';
   onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
   onBlur?: (e: React.FocusEvent<HTMLInputElement>) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void;
@@ -34,6 +35,13 @@ interface InputFieldProps {
   size?: 'sm' | 'md' | 'lg';
   dataCy?: string;
   inputClassName?: React.HTMLAttributes<HTMLInputElement>['className'];
+  autoComplete?: string;
+  role?: React.AriaRole;
+  'aria-expanded'?: boolean;
+  'aria-controls'?: string;
+  'aria-activedescendant'?: string;
+  'aria-autocomplete'?: 'none' | 'inline' | 'list' | 'both';
+  'aria-haspopup'?: React.AriaAttributes['aria-haspopup'];
 }
 export function InputField({
   id,
@@ -52,6 +60,7 @@ export function InputField({
   loadingIcon,
   status = 'default',
   onChange,
+  onFocus,
   onBlur,
   onKeyDown,
   onPaste,
@@ -62,6 +71,13 @@ export function InputField({
   size = 'md',
   dataCy,
   inputClassName,
+  autoComplete,
+  role,
+  'aria-expanded': ariaExpanded,
+  'aria-controls': ariaControls,
+  'aria-activedescendant': ariaActiveDescendant,
+  'aria-autocomplete': ariaAutocomplete,
+  'aria-haspopup': ariaHasPopup,
 }: InputFieldProps) {
   const resolvedLoadingText = loadingText ?? 'Loading...';
   const containerClasses = variant === 'dashed' && 'border-dashed';
@@ -118,10 +134,18 @@ export function InputField({
           readOnly={readOnly}
           onClick={onClick}
           onChange={onChange}
+          onFocus={onFocus}
           onBlur={onBlur}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           maxLength={maxLength}
+          autoComplete={autoComplete}
+          role={role}
+          aria-expanded={ariaExpanded}
+          aria-controls={ariaControls}
+          aria-activedescendant={ariaActiveDescendant}
+          aria-autocomplete={ariaAutocomplete}
+          aria-haspopup={ariaHasPopup}
           aria-invalid={status === 'error'}
           aria-describedby={message && id ? `${id}-message` : undefined}
           data-cy={dataCy}

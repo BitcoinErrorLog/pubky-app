@@ -28,6 +28,7 @@ const VRT_BUYER = vi.hoisted(() => 'b'.repeat(52));
 const view = vi.hoisted(() => ({
   drop: {} as Record<string, unknown>,
   claim: {} as Record<string, unknown>,
+  currentUserPubky: VRT_BUYER as string | null,
 }));
 const shopFollow = vi.hoisted(() => ({
   toggle: vi.fn(),
@@ -70,7 +71,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: VRT_BUYER }),
+  useAuthStore: createMarketplaceVrtAuthStore({ getCurrentUserPubky: () => view.currentUserPubky }),
 }));
 
 vi.mock('@/stores/commerce/commerce.store', () => ({
@@ -147,6 +148,7 @@ function makeProjection(overrides: Record<string, unknown> = {}) {
 }
 
 function setDropView(overrides: Record<string, unknown>) {
+  view.currentUserPubky = VRT_BUYER;
   view.drop = {
     record: makeRecord(),
     recordError: null,
@@ -279,5 +281,31 @@ describe('Marketplace drop page — visual regression', () => {
     setClaimView();
     const screen = await renderDropPage();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-unregistered-desktop');
+  });
+
+  it('renders the logged-out live claim path at desktop viewport', async () => {
+    setDropView({
+      projection: makeProjection({ state: 'live', startsAt: STARTED_AT, remaining: 12 }),
+      displayState: 'live',
+      readyCheck: null,
+    });
+    view.currentUserPubky = null;
+    setClaimView({ needsSession: true, addresses: [], claimAddress: null });
+    const screen = await renderDropPage();
+    await expect(screen.getByRole('button', { name: 'Sign in to buy' })).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-logged-out-desktop');
+  });
+
+  it('renders the logged-out live claim path at mobile viewport', async () => {
+    setDropView({
+      projection: makeProjection({ state: 'live', startsAt: STARTED_AT, remaining: 12 }),
+      displayState: 'live',
+      readyCheck: null,
+    });
+    view.currentUserPubky = null;
+    setClaimView({ needsSession: true, addresses: [], claimAddress: null });
+    const screen = await renderDropPage(VRT_VIEWPORT_DROP_MOBILE);
+    await expect(screen.getByRole('button', { name: 'Sign in to buy' })).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-logged-out-mobile');
   });
 });

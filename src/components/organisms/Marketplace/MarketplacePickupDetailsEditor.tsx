@@ -20,6 +20,7 @@ import {
 import { PICKUP_DETAILS_FORM_FIELDS } from '@/hooks/usePickupDetailsForm/usePickupDetailsForm.types';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
 
 const WEEKDAY_OPTIONS = [
   { value: 'mon', label: 'Mondays' },
@@ -193,7 +194,7 @@ export const MarketplacePickupDetailsEditor = forwardRef<
           disabled={disabled || editor.isSaving}
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4">
           <ControlledInputField
             name={PICKUP_DETAILS_FORM_FIELDS.NAME}
             control={editor.form.control}
@@ -201,41 +202,9 @@ export const MarketplacePickupDetailsEditor = forwardRef<
             placeholder="Front desk, Studio 4"
             disabled={disabled || editor.isSaving}
           />
-          <ControlledInputField
-            name={PICKUP_DETAILS_FORM_FIELDS.LINE1}
+          <MarketplaceAddressFields
             control={editor.form.control}
-            label="Address line 1"
-            disabled={disabled || editor.isSaving}
-          />
-          <ControlledInputField
-            name={PICKUP_DETAILS_FORM_FIELDS.LINE2}
-            control={editor.form.control}
-            label="Address line 2 (optional)"
-            disabled={disabled || editor.isSaving}
-          />
-          <ControlledInputField
-            name={PICKUP_DETAILS_FORM_FIELDS.CITY}
-            control={editor.form.control}
-            label="City"
-            disabled={disabled || editor.isSaving}
-          />
-          <ControlledInputField
-            name={PICKUP_DETAILS_FORM_FIELDS.REGION}
-            control={editor.form.control}
-            label="Region"
-            disabled={disabled || editor.isSaving}
-          />
-          <ControlledInputField
-            name={PICKUP_DETAILS_FORM_FIELDS.POSTAL_CODE}
-            control={editor.form.control}
-            label="Postal code"
-            disabled={disabled || editor.isSaving}
-          />
-          <ControlledInputField
-            name={PICKUP_DETAILS_FORM_FIELDS.COUNTRY_CODE}
-            control={editor.form.control}
-            label="Country"
-            placeholder="US"
+            setValue={editor.form.setValue}
             disabled={disabled || editor.isSaving}
           />
         </div>

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { commerceDeliveryAddressValueSchema } from './postal-address';
 
 // -----------------------------------------------------------------------------
 // Local pickup — Wave 7 safe subset (docs/ecommerce/local-pickup-design.md
@@ -72,18 +73,8 @@ export const pickupAvailabilitySchema = z
   })
   .strict();
 
-/** A full pickup address; field limits mirror the service's `DeliveryAddress` validation exactly. */
-export const pickupAddressSchema = z
-  .object({
-    name: z.string().trim().min(1).max(100),
-    line1: z.string().trim().min(1).max(200),
-    line2: z.string().trim().max(200),
-    city: z.string().trim().min(1).max(100),
-    region: z.string().trim().min(1).max(100),
-    postalCode: z.string().trim().min(1).max(32),
-    countryCode: z.string().regex(/^[A-Z]{2}$/, 'Expected an ISO 3166-1 alpha-2 country code'),
-  })
-  .strict();
+/** A full pickup address; field limits follow the shared postal-address table. */
+export const pickupAddressSchema = commerceDeliveryAddressValueSchema;
 
 /**
  * The seller-authored pickup details (§A1): a full address OR a free-text

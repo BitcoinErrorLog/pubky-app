@@ -27,7 +27,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getLocksUrl } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceSellerPaymentConfig } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
-import { stripeProcessingMode } from '@/libs/commerce/payment-methods';
+import { type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
@@ -55,6 +55,7 @@ type LocksConnectView = {
 type MarketplaceGetPaidSettingsProps = {
   /** Step 1 of the bitcoin method, owned by the template (no session needed). */
   locksConnect: LocksConnectView;
+  onSaved?: (config: SellerPaymentConfigOwnView) => void;
 };
 
 type PaykitSetupStatus = 'idle' | 'error' | 'mismatch' | 'verifying' | 'timeout';
@@ -62,6 +63,8 @@ type PaykitSetupStatus = 'idle' | 'error' | 'mismatch' | 'verifying' | 'timeout'
 const PAYKIT_SETUP_TIMEOUT_MS = 6 * 60 * 1_000;
 const PAYKIT_SETUP_EXPLANATION =
   'Scan the code with Bitkit, or open this page on your phone and tap Open in Bitkit. Bitkit 2.5 or newer is required.';
+const PAYKIT_RING_IDENTITY_HELPER =
+  'Your Shop identity must live in Bitkit. Signed up with Pubky Ring? Create a new Shop account by scanning the sign-up QR with Bitkit — Ring import is coming to Bitkit.';
 
 function createPaykitSetupState(): string {
   const bytes = new Uint8Array(16);
@@ -126,7 +129,7 @@ function MethodCard({
  * settle into the seller's own processor accounts. This marketplace never
  * receives funds on any rail.
  */
-export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidSettingsProps) {
+export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: MarketplaceGetPaidSettingsProps) {
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const payments = useMarketplaceSellerPaymentConfig();
@@ -227,7 +230,10 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
 
   const onSave = async () => {
     const saved = await payments.save({ bitcoinEnabled, stripePaymentLink, stripeRestrictedKey, paypalMerchantEmail });
-    if (saved) setStripeRestrictedKey('');
+    if (saved) {
+      setStripeRestrictedKey('');
+      onSaved?.(saved);
+    }
   };
 
   const onStartClaim = () => {
@@ -259,10 +265,6 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
 
   const paypalStatus = derivePaypalStatus(payments.config);
   const stripeStatus = deriveStripeStatus(payments.config);
-  const stripeMode = stripeProcessingMode({
-    paymentLink: stripePaymentLink,
-    restrictedKey: stripeRestrictedKey,
-  });
   const bitcoinStatus = deriveBitcoinStatus({
     connectedCreator: locksConnect.connectedCreator,
     accountClaimed: payments.accountClaimed,
@@ -396,21 +398,6 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
                     </Button>
                   </>
                 )}
-                {stripeMode === 'test' && (
-                  <Badge variant="outline" data-testid="stripe-processing-mode">
-                    Stripe test mode
-                  </Badge>
-                )}
-                {stripeMode === 'live' && (
-                  <Badge variant="secondary" data-testid="stripe-processing-mode">
-                    Stripe live mode
-                  </Badge>
-                )}
-                {stripeMode === 'mixed' && (
-                  <Badge variant="destructive" data-testid="stripe-processing-mode">
-                    Test and live mixed
-                  </Badge>
-                )}
               </div>
             </div>
             {saveButton}
@@ -473,6 +460,9 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
               Open the setup in Bitkit and approve it there. Payments settle to your own bitcoin wallet — your spending
               keys never leave it.
             </Typography>
+            <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+              {PAYKIT_RING_IDENTITY_HELPER}
+            </Typography>
             {payments.accountClaimed === true && (
               <Typography as="p" className="mt-2 flex items-center gap-2 text-sm text-brand">
                 <CheckCircle2 className="size-4" />
@@ -518,7 +508,7 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
               </CollapsibleTrigger>
               <CollapsibleContent className="grid gap-3 rounded-xl border p-4 text-sm text-muted-foreground data-[state=closed]:hidden">
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  Pubky Ring displays the exact creator capability grant. No identity secret enters Pubky App.
+                  No identity secret enters this app.
                 </Typography>
                 <Typography as="p" className="text-sm text-muted-foreground">
                   Bitkit sends a watch-only BIP84 account claim directly to Paykit Server. Spending keys remain in the
@@ -579,6 +569,9 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
           </DialogHeader>
           <Typography as="p" className="text-sm text-muted-foreground">
             {PAYKIT_SETUP_EXPLANATION}
+          </Typography>
+          <Typography as="p" className="text-sm text-muted-foreground">
+            {PAYKIT_RING_IDENTITY_HELPER}
           </Typography>
           {paykitSetupUrl && (
             <iframe

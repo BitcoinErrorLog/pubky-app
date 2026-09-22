@@ -6,6 +6,7 @@ import {
   type MarketplacePickupRefusal,
   pickupDetailsSchema,
 } from './pickup';
+import { commerceDeliveryAddressValueSchema } from './postal-address';
 import {
   commerceEntityIdSchema,
   commercePositiveMoneySchema,
@@ -219,17 +220,7 @@ export const offerCheckoutCommandSchema = createCommerceCommandSchema(
       listingRecordSha256: z.string().min(1),
       variantId: z.string().min(1),
       quantity: z.number().int().positive(),
-      deliveryAddress: z
-        .object({
-          name: z.string().trim().min(1).max(100),
-          line1: z.string().trim().min(1).max(200),
-          line2: z.string().trim().max(200),
-          city: z.string().trim().min(1).max(100),
-          region: z.string().trim().min(1).max(100),
-          postalCode: z.string().trim().min(1).max(32),
-          countryCode: z.string().regex(/^[A-Z]{2}$/),
-        })
-        .strict(),
+      deliveryAddress: commerceDeliveryAddressValueSchema,
       guaranteePolicyVersion: z.literal(1),
     })
     .strict(),
@@ -300,18 +291,7 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
       // absent when every group is pickup — a pickup-only checkout that
       // PRESENTS an address is rejected, so a buggy or malicious client
       // cannot smuggle one into storage (§A2).
-      deliveryAddress: z
-        .object({
-          name: z.string().trim().min(1).max(100),
-          line1: z.string().trim().min(1).max(200),
-          line2: z.string().trim().max(200),
-          city: z.string().trim().min(1).max(100),
-          region: z.string().trim().min(1).max(100),
-          postalCode: z.string().trim().min(1).max(32),
-          countryCode: z.string().regex(/^[A-Z]{2}$/),
-        })
-        .strict()
-        .optional(),
+      deliveryAddress: commerceDeliveryAddressValueSchema.optional(),
       guaranteePolicyVersion: z.literal(1),
     })
     .strict()

@@ -384,12 +384,13 @@ describe('SignInContent', () => {
     expect(button).toBeDisabled();
   });
 
-  it('renders the exact CAPABILITIES string beside the QR', async () => {
+  it('does not print requested capability paths beside the QR', async () => {
     const { CAPABILITIES } = await import('@/config/app');
     await act(async () => {
       render(<SignInContent />);
     });
-    expect(screen.getByText(CAPABILITIES)).toBeInTheDocument();
+    expect(screen.queryByText(CAPABILITIES)).not.toBeInTheDocument();
+    expect(screen.queryByText(/compare it before approving/i)).not.toBeInTheDocument();
   });
 
   it('renders content cards with column layout', async () => {
