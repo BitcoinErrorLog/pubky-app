@@ -58,7 +58,17 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/award-checkout',
 }));
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
-  ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
+  ContentLayout: ({
+    children,
+    classNameWrapperContent,
+  }: {
+    children: React.ReactNode;
+    classNameWrapperContent?: string;
+  }) => (
+    <main data-testid="award-checkout-layout" className={classNameWrapperContent}>
+      {children}
+    </main>
+  ),
 }));
 vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
   useMarketplaceOffers: () => ({ offers: state.offers, refresh: state.refresh }),
@@ -118,6 +128,10 @@ describe('MarketplaceAwardCheckout', () => {
     expect(screen.getByText(/Checkout window closes/)).toBeInTheDocument();
     expect(screen.queryByText('$10.00')).not.toBeInTheDocument();
     expect(screen.queryByText(/discount/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('award-checkout-layout')).toHaveClass('max-w-7xl');
+    expect(screen.getByRole('link', { name: 'Orders' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Activity/ })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Seller studio' })).toBeVisible();
   });
 
   it('mounts the pay button only after the address live query resolves', async () => {

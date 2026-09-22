@@ -73,10 +73,24 @@ function isPlainObject(value: object): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
+/**
+ * Drop `conversation=` from a URL or query string. Wave A listing thread ids
+ * put two pubkys plus a listing id in the address bar; they must not reach Sentry.
+ */
+export function stripConversationQueryParam(value: string): string {
+  if (!value.toLowerCase().includes('conversation=')) return value;
+
+  const stripped = value.replace(/(?:[?&]|^)conversation=[^&#]*/gi, (match) =>
+    match.startsWith('?') || match.startsWith('&') ? match[0] : '',
+  );
+
+  return stripped.replace(/\?&+/g, '?').replace(/&&+/g, '&').replace(/\?#/g, '#').replace(/[?&]$/g, '');
+}
+
 function scrubSensitiveStringPatterns(value: string): string {
   if (value.length > SENTRY_REDACTION_MAX_STRING_LENGTH) return SENTRY_LIMIT_REDACTED;
 
-  const scrubbed = value
+  const scrubbed = stripConversationQueryParam(value)
     .replace(PUBKY_URI_PATTERN, PUBKY_REDACTED)
     .replace(PUBKY_HTTP_HOST_PATTERN, PUBKY_REDACTED)
     .replace(PUBKY_COMPACT_URI_PATTERN, PUBKY_REDACTED)
@@ -85,6 +99,22 @@ function scrubSensitiveStringPatterns(value: string): string {
     .replace(PHONE_PATTERN, PHONE_REDACTED);
 
   return scrubbed;
+}
+
+function scrubRequestConversationQuery(request: Sentry.ErrorEvent['request'] | TransactionEvent['request']): void {
+  if (!request) return;
+  if (typeof request.url === 'string') {
+    request.url = stripConversationQueryParam(request.url);
+  }
+  const queryString = request.query_string;
+  if (typeof queryString === 'string') {
+    request.query_string = stripConversationQueryParam(queryString);
+  } else if (queryString && typeof queryString === 'object' && !Array.isArray(queryString)) {
+    const record = queryString as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      if (key.toLowerCase() === 'conversation') delete record[key];
+    }
+  }
 }
 
 function getEndpointPath(endpoint: unknown): string | null {
@@ -395,6 +425,7 @@ export function scrubSensitiveData(event: Sentry.ErrorEvent, hint?: Sentry.Event
 
     if (event.request) {
       event.request = sanitizeForSentryHook(event.request, state) as Sentry.ErrorEvent['request'];
+      scrubRequestConversationQuery(event.request);
     }
 
     if (event.user) {
@@ -447,6 +478,7 @@ export function scrubTransactionEvent(event: TransactionEvent): TransactionEvent
 
     if (event.request) {
       event.request = sanitizeForSentryHook(event.request, state) as typeof event.request;
+      scrubRequestConversationQuery(event.request);
     }
 
     if (event.breadcrumbs) {

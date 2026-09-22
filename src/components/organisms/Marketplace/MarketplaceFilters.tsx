@@ -64,7 +64,7 @@ const FILTER_TRIGGER_CLASS = cn(
 const CATEGORY_MENU_CLASS =
   'w-64 max-h-[min(70vh,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto border-border bg-background p-3';
 const CATEGORY_ITEM_CLASS =
-  'gap-2 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-white/8 hover:text-white focus:bg-white/8 focus:text-white data-[highlighted]:bg-white/8 data-[highlighted]:text-white data-[state=open]:bg-white/8 data-[state=open]:text-white data-[state=checked]:bg-white/8 data-[state=checked]:text-white aria-[current=true]:bg-white/8 aria-[current=true]:text-white';
+  'gap-2 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-white/8 hover:text-white focus:bg-white/8 focus:text-white data-[highlighted]:bg-white/8 data-[highlighted]:text-white data-[state=open]:bg-white/8 data-[state=open]:text-white data-[state=checked]:bg-white/8 data-[state=checked]:text-white data-[selected=true]:bg-white/8 data-[selected=true]:text-white';
 
 const FILTER_MENU_CLASS = cn(
   CATEGORY_MENU_CLASS,
@@ -321,7 +321,7 @@ function MarketplaceCategoryNavigation({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className={CATEGORY_MENU_CLASS}>
         <DropdownMenuItem
-          aria-current={!categoryId ? 'true' : undefined}
+          data-selected={!categoryId ? 'true' : undefined}
           className={CATEGORY_ITEM_CLASS}
           onSelect={() => onSelect(null)}
         >
@@ -358,7 +358,7 @@ function CategoryMenuItems({
       return (
         <DropdownMenuItem
           key={node.id}
-          aria-current={selected ? 'true' : undefined}
+          data-selected={selected ? 'true' : undefined}
           className={CATEGORY_ITEM_CLASS}
           onSelect={() => onSelect(node.id)}
         >
@@ -368,13 +368,13 @@ function CategoryMenuItems({
     }
     return (
       <DropdownMenuSub key={node.id}>
-        <DropdownMenuSubTrigger aria-current={selected ? 'true' : undefined} className={CATEGORY_ITEM_CLASS}>
+        <DropdownMenuSubTrigger data-selected={selected ? 'true' : undefined} className={CATEGORY_ITEM_CLASS}>
           {content}
         </DropdownMenuSubTrigger>
         <DropdownMenuPortal>
           <DropdownMenuSubContent className={CATEGORY_MENU_CLASS} sideOffset={6} collisionPadding={8}>
             <DropdownMenuItem
-              aria-current={selected ? 'true' : undefined}
+              data-selected={selected ? 'true' : undefined}
               className={CATEGORY_ITEM_CLASS}
               onSelect={() => onSelect(node.id)}
             >

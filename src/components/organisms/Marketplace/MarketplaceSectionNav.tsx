@@ -65,9 +65,9 @@ export function MarketplaceSectionNav({
       aria-label="Marketplace sections"
       data-testid="marketplace-section-nav"
       data-surface="marketplace-section-nav"
-      className={cn('mb-6 w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}
+      className={cn('mb-6 w-full', className)}
     >
-      <div className="flex w-full min-w-max">
+      <div className="flex w-full flex-wrap">
         {ITEMS.map(({ label, href, icon: Icon, badge, activePrefixes }) => {
           const prefixes = activePrefixes ?? [href];
           const active =

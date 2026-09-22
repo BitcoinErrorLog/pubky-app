@@ -8,28 +8,21 @@ import type {
   ConversationThreadItem,
   UseEncryptedConversationReturn,
 } from '@/hooks/useEncryptedConversation/useEncryptedConversation.types';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { cn } from '@/libs/utils/utils';
 
 /**
- * The shared thread + composer of one end-to-end-encrypted conversation:
- * message bubbles from device-local history, queued-but-not-yet-sent bubbles
- * (honestly labeled "Queued", cancellable, never shown as sent), the live
- * byte-budget composer, and the honest storage disclosure. Used by the
- * marketplace listing conversation dialog and the general DM conversation
- * page — both ride the same Encrypted Link transport, so the body is one
- * component with the context-specific copy passed in. The composer is always
- * available: while the handshake is pending, sends queue device-locally and
- * deliver automatically once the link is ready.
+ * Shared thread + composer for Encrypted Link conversations. Queued bubbles
+ * stay labeled Queued (never sent). The composer is always available: while
+ * the handshake is pending, sends queue device-locally.
  */
 export function EncryptedConversationBody({
   conversation,
-  counterpartyLabel,
   composerPlaceholder = 'Is this still available?',
-  emptyPrompt = 'Ask about condition, shipping, or item details. Do not share payment credentials.',
+  emptyPrompt = MESSAGING_COPY.listingEmptyThread,
   children,
 }: {
   conversation: UseEncryptedConversationReturn;
-  counterpartyLabel: string;
   composerPlaceholder?: string;
   emptyPrompt?: string;
   children?: ReactNode;
@@ -49,7 +42,7 @@ export function EncryptedConversationBody({
           )
         ) : (
           <Typography as="p" className="py-8 text-center text-sm text-muted-foreground">
-            {emptyPrompt || `No messages yet with ${counterpartyLabel}.`}
+            {emptyPrompt}
           </Typography>
         )}
       </div>
@@ -68,14 +61,11 @@ export function EncryptedConversationBody({
           placeholder={composerPlaceholder}
           className="w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-1"
         />
-        <Typography
-          as="p"
-          overrideDefaults
-          aria-live="polite"
-          className={cn('text-right text-xs', overBudget ? 'text-destructive' : 'text-muted-foreground')}
-        >
-          {conversation.draftBytes} / {conversation.bodyBudgetBytes} bytes
-        </Typography>
+        {overBudget ? (
+          <Typography as="p" overrideDefaults aria-live="polite" className="text-sm text-destructive">
+            {MESSAGING_COPY.composerOverLimit}
+          </Typography>
+        ) : null}
       </div>
 
       {conversation.sendError && (
@@ -86,7 +76,7 @@ export function EncryptedConversationBody({
 
       <div className="flex items-center justify-between gap-3">
         <Typography as="p" overrideDefaults className="text-xs text-muted-foreground">
-          No attachments here: one encrypted message is capped at 1,000 bytes, too small for images.
+          {MESSAGING_COPY.noAttachments}
         </Typography>
         <Button
           className="rounded-full"
@@ -98,11 +88,6 @@ export function EncryptedConversationBody({
           {conversation.isSending ? 'Sending…' : 'Send'}
         </Button>
       </div>
-
-      <Typography as="p" overrideDefaults className="text-xs text-muted-foreground">
-        Messages travel as ciphertext; no service operator can read them. History and the local encryption keys live
-        only in this browser — clearing site data deletes them, and no other device can show this conversation.
-      </Typography>
     </>
   );
 }
@@ -125,12 +110,6 @@ function SentThreadBubble({ item }: { item: Extract<ConversationThreadItem, { de
   );
 }
 
-/**
- * A message queued on this device, NOT yet sent: muted bubble, an explicit
- * "Queued" label (with a retry note once a flush attempt actually failed),
- * and a cancel affordance. When the flush delivers it, the real sent record
- * replaces this bubble — it never silently turns into a sent style.
- */
 function QueuedThreadBubble({
   item,
   onCancel,
@@ -147,7 +126,7 @@ function QueuedThreadBubble({
           </Typography>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{item.queued.last_error !== null ? 'Queued — last attempt failed, will retry' : 'Queued'}</span>
+          <span>{MESSAGING_COPY.queued}</span>
           <button
             type="button"
             aria-label="Cancel queued message"

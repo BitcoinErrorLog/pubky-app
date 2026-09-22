@@ -2,61 +2,79 @@
 
 exports[`QrCodeSlot - Snapshots > matches snapshot for a non-default size 1`] = `
 <div>
-  <svg
-    class=""
-    data-testid="qrcode-svg"
-    data-value="auth-url"
-    height="220"
-    width="220"
-  />
-  <img
-    alt="Pubky Ring"
-    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
-    data-testid="next-image"
-    height="60"
-    src="/images/ring-logo.svg"
-    width="60"
-  />
+  <span
+    class="contents"
+    data-auth-url="auth-url"
+    data-testid="qr-auth-url"
+  >
+    <svg
+      class=""
+      data-testid="qrcode-svg"
+      data-value="auth-url"
+      height="220"
+      width="220"
+    />
+    <img
+      alt="Pubky Ring"
+      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+      data-testid="next-image"
+      height="60"
+      src="/images/ring-logo.svg"
+      width="60"
+    />
+  </span>
 </div>
 `;
 
 exports[`QrCodeSlot - Snapshots > matches snapshot for active QR with hover effect 1`] = `
 <div>
-  <svg
-    class="transition-opacity group-hover:opacity-90 group-active:opacity-80"
-    data-testid="qrcode-svg"
-    data-value="auth-url"
-    height="176"
-    width="176"
-  />
-  <img
-    alt="Pubky Ring"
-    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity group-hover:opacity-90 group-active:opacity-80"
-    data-testid="next-image"
-    height="48"
-    src="/images/ring-logo.svg"
-    width="48"
-  />
+  <span
+    class="contents"
+    data-auth-url="auth-url"
+    data-testid="qr-auth-url"
+  >
+    <svg
+      class="transition-opacity group-hover:opacity-90 group-active:opacity-80"
+      data-testid="qrcode-svg"
+      data-value="auth-url"
+      height="176"
+      width="176"
+    />
+    <img
+      alt="Pubky Ring"
+      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity group-hover:opacity-90 group-active:opacity-80"
+      data-testid="next-image"
+      height="48"
+      src="/images/ring-logo.svg"
+      width="48"
+    />
+  </span>
 </div>
 `;
 
 exports[`QrCodeSlot - Snapshots > matches snapshot for active QR without hover effect 1`] = `
 <div>
-  <svg
-    class=""
-    data-testid="qrcode-svg"
-    data-value="auth-url"
-    height="176"
-    width="176"
-  />
-  <img
-    alt="Pubky Ring"
-    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
-    data-testid="next-image"
-    height="48"
-    src="/images/ring-logo.svg"
-    width="48"
-  />
+  <span
+    class="contents"
+    data-auth-url="auth-url"
+    data-testid="qr-auth-url"
+  >
+    <svg
+      class=""
+      data-testid="qrcode-svg"
+      data-value="auth-url"
+      height="176"
+      width="176"
+    />
+    <img
+      alt="Pubky Ring"
+      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+      data-testid="next-image"
+      height="48"
+      src="/images/ring-logo.svg"
+      width="48"
+    />
+  </span>
 </div>
 `;
 

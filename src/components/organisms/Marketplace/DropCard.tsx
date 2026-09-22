@@ -96,7 +96,7 @@ export function DropCard({
             </Typography>
           </div>
           <div className="space-y-1">
-            <Typography as="p" className="truncate text-base text-muted-foreground">
+            <Typography as="p" className="truncate text-base text-secondary-foreground">
               {shopName ?? `${entry.owner_id.slice(0, 8)}…`}
             </Typography>
           </div>
@@ -110,7 +110,7 @@ export function DropCard({
             />
           )}
           <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
-            <Typography as="span" className="text-xs text-muted-foreground">
+            <Typography as="span" className="text-xs text-secondary-foreground">
               View drop
             </Typography>
             {entry.total_quantity != null && (

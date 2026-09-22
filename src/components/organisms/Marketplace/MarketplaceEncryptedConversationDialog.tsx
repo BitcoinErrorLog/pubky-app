@@ -1,33 +1,22 @@
 'use client';
 
 import { type ReactNode, useState } from 'react';
-import { LockKeyhole, ShieldAlert } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
-import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useEncryptedConversation } from '@/hooks/useEncryptedConversation/useEncryptedConversation';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
+import { marketplaceCounterpartyLabel, MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceMessagingEnablePanel } from './MarketplaceMessagingEnableDialog';
 
 /**
- * Provenance of the vendored encrypted transport (pinned commit, checksums,
- * proof coverage, known limitations). Linked from the E2EE label so the
- * "experiment-grade" claim is auditable, not decorative. Exported for the
- * general messages surfaces, which ride the same transport.
- */
-export const PAYKIT_WASM_PROVENANCE_URL =
-  'https://github.com/BitcoinErrorLog/pubky-app/blob/marketplace/pr22-messaging/docs/ecommerce/paykit-wasm-provenance.md';
-
-/**
- * One end-to-end-encrypted listing conversation (durable commerce modes).
- * Every state shown maps to a real transport fact — see
- * `useEncryptedConversation` for the state semantics. Attachments are NOT
- * offered here: one encrypted message is capped at 1000 bytes including its
- * envelope, which forbids inline images; the encrypted-blob pattern the
- * protocol intends for attachments is future work.
+ * One listing conversation on Encrypted Links. Attachments are not offered:
+ * durable chat is text-only in this phase.
  */
 export function MarketplaceEncryptedConversationDialog({
   sellerPubky,
@@ -35,17 +24,28 @@ export function MarketplaceEncryptedConversationDialog({
   listingId,
   counterpartyPubky,
   trigger,
+  defaultOpen = false,
+  showListingDisclosure = false,
 }: {
   sellerPubky: string;
   buyerPubky: string;
   listingId: string;
   counterpartyPubky: string;
   trigger: ReactNode;
+  defaultOpen?: boolean;
+  showListingDisclosure?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const { requireAuth } = useRequireAuth();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const conversation = useEncryptedConversation(sellerPubky, buyerPubky, listingId, open);
-  const counterpartyLabel = `${counterpartyPubky.slice(0, 10)}…`;
+  const { userDetails } = useUserDetails(counterpartyPubky);
+  const counterpartyLabel = marketplaceCounterpartyLabel({
+    profileName: userDetails?.name,
+    counterpartyIsSeller: counterpartyPubky === sellerPubky,
+  });
+  const notEnrolledCopy =
+    currentUserPubky === sellerPubky ? MESSAGING_COPY.notEnrolledBuyer : MESSAGING_COPY.notEnrolledSeller;
 
   return (
     <Dialog
@@ -59,18 +59,16 @@ export function MarketplaceEncryptedConversationDialog({
       }}
     >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="border-border bg-popover sm:max-w-xl">
+      <DialogContent className="border-border bg-popover sm:max-w-xl" data-surface="marketplace-encrypted-conversation">
         <DialogHeader>
-          <DialogTitle>Listing conversation</DialogTitle>
+          <DialogTitle>{counterpartyLabel}</DialogTitle>
         </DialogHeader>
 
-        <Typography as="p" className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
-          <LockKeyhole className="size-3.5 shrink-0" aria-hidden />
-          End-to-end encrypted · history stored on this device ·{' '}
-          <Link href={PAYKIT_WASM_PROVENANCE_URL} target="_blank" rel="noreferrer" className="underline">
-            experiment-grade transport
-          </Link>
-        </Typography>
+        {showListingDisclosure ? (
+          <Typography as="p" className="text-sm text-muted-foreground">
+            {MESSAGING_COPY.listingDisclosure}
+          </Typography>
+        ) : null}
 
         {conversation.status === 'loading' && <Skeleton className="h-40 w-full" />}
 
@@ -85,41 +83,36 @@ export function MarketplaceEncryptedConversationDialog({
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center">
             <ShieldAlert className="size-8 text-muted-foreground" aria-hidden />
             <Typography as="p" className="text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">{counterpartyLabel}</span> hasn&apos;t enabled encrypted
-              messaging yet. Nothing can be delivered to them until they do — this app will not pretend otherwise.
+              {notEnrolledCopy}
             </Typography>
           </div>
         )}
 
         {conversation.status === 'handshaking-initiator' && (
-          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel}>
+          <EncryptedConversationBody conversation={conversation}>
             <Typography
               as="p"
               role="status"
               className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
             >
-              Their messenger hasn&apos;t responded yet — messages you send are queued on this device and deliver
-              automatically when it does.
+              {MESSAGING_COPY.handshakeInitiator}
             </Typography>
           </EncryptedConversationBody>
         )}
 
         {conversation.status === 'handshaking-responder' && (
-          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel}>
+          <EncryptedConversationBody conversation={conversation}>
             <Typography
               as="p"
               role="status"
               className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
             >
-              Still securing this conversation — messages you send are queued on this device and deliver automatically
-              once the encrypted handshake completes.
+              {MESSAGING_COPY.handshakeResponder}
             </Typography>
           </EncryptedConversationBody>
         )}
 
-        {conversation.status === 'ready' && (
-          <EncryptedConversationBody conversation={conversation} counterpartyLabel={counterpartyLabel} />
-        )}
+        {conversation.status === 'ready' && <EncryptedConversationBody conversation={conversation} />}
 
         {conversation.status === 'error' && (
           <div className="grid gap-3">
@@ -127,7 +120,7 @@ export function MarketplaceEncryptedConversationDialog({
               {conversation.errorMessage}
             </div>
             <Button className="w-fit rounded-full" onClick={conversation.refresh}>
-              Try again
+              {MESSAGING_COPY.inboxRetry}
             </Button>
           </div>
         )}

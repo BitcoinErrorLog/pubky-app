@@ -30,12 +30,13 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { getAuctionPhase } from '@/libs/commerce/auction-phase';
-import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
+import { CHECKOUT_HOLD_COPY, findViewerPendingHoldOrder } from '@/libs/commerce/checkout-hold';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
@@ -88,6 +89,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const negotiation = useMarketplaceProjection(sellerPubky, listingId);
   const sellerReputation = useSellerReputation(sellerPubky);
   const cart = useMarketplaceCart();
+  const orders = useMarketplaceOrders();
   const measurementSystem = useMeasurementSystem();
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
 
@@ -208,6 +210,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   );
   const isDurable = isDurableCommerceMode(adapterMode);
   const projectionIsReserved = isDurable && negotiation.projection?.state === 'reserved';
+  const viewerHoldOrder = projectionIsReserved
+    ? findViewerPendingHoldOrder(orders.orders, aggregateId, currentUserPubky)
+    : null;
   const projectionIsSoldOut =
     negotiation.projection !== null &&
     (negotiation.projection.state === 'sold' ||
@@ -248,7 +253,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
       : isOwner
         ? 'You cannot buy your own listing'
         : projectionIsReserved
-          ? 'Held by another buyer'
+          ? viewerHoldOrder
+            ? CHECKOUT_HOLD_COPY.heldForYouCta
+            : 'Held by another buyer'
           : isSoldOut
             ? 'Sold out'
             : isPurchasable
@@ -420,26 +427,43 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 </div>
               ) : (
                 <>
-                  <Button
-                    size="default"
-                    className="w-fit rounded-full"
-                    disabled={
-                      availabilityNeedsSession
-                        ? isOwner || adapterMode === 'unavailable'
-                        : isOwner ||
-                          adapterMode === 'unavailable' ||
-                          !isPurchasable ||
-                          !availabilityReady ||
-                          isSoldOut ||
-                          projectionIsReserved ||
-                          !selectedVariant ||
-                          selectedVariant.quantity === 0
-                    }
-                    onClick={availabilityNeedsSession ? beginPurchaseAuth : addSelectedVariantToCart}
-                  >
-                    <ShoppingCart className="mr-2 size-4" />
-                    {purchaseCtaLabel}
-                  </Button>
+                  {viewerHoldOrder ? (
+                    <Button asChild size="default" className="w-fit rounded-full">
+                      <Link
+                        href={`${MARKETPLACE_ROUTES.ORDERS}#${viewerHoldOrder.orderId}`}
+                        overrideDefaults
+                        data-cy="marketplace-listing-held-for-you"
+                      >
+                        {CHECKOUT_HOLD_COPY.heldForYouCta}
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      size="default"
+                      className="w-fit rounded-full"
+                      disabled={
+                        availabilityNeedsSession
+                          ? isOwner || adapterMode === 'unavailable'
+                          : isOwner ||
+                            adapterMode === 'unavailable' ||
+                            !isPurchasable ||
+                            !availabilityReady ||
+                            isSoldOut ||
+                            projectionIsReserved ||
+                            !selectedVariant ||
+                            selectedVariant.quantity === 0
+                      }
+                      onClick={availabilityNeedsSession ? beginPurchaseAuth : addSelectedVariantToCart}
+                    >
+                      <ShoppingCart className="mr-2 size-4" />
+                      {purchaseCtaLabel}
+                    </Button>
+                  )}
+                  {projectionIsReserved && !viewerHoldOrder && (
+                    <Typography as="p" className="w-full text-sm text-muted-foreground">
+                      {CHECKOUT_HOLD_COPY.listingReserved}
+                    </Typography>
+                  )}
                   {record.sale.acceptsOffers && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
@@ -450,6 +474,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       onSessionRequired={revealSessionRequired}
                       onAccepted={negotiation.refresh}
                       isOwner={isOwner}
+                      holdDisabled={projectionIsReserved}
+                      holdLabel={
+                        viewerHoldOrder ? CHECKOUT_HOLD_COPY.heldForYouCta : CHECKOUT_HOLD_COPY.heldWhileAnotherPays
+                      }
                     />
                   )}
                 </>
@@ -471,11 +499,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </Button>
               <MarketplaceListingSavePicker sellerPubky={record.ownerPubky} listingId={record.listingId} />
             </div>
-            {record.sale.format === 'fixed_price' && projectionIsReserved && (
-              <Typography as="p" className="text-sm text-muted-foreground">
-                {CHECKOUT_HOLD_COPY.listingReserved}
-              </Typography>
-            )}
             {adapterMode === 'unavailable' && (
               <Typography as="p" className="text-center text-sm text-muted-foreground">
                 Transactions are disabled in this deployment.

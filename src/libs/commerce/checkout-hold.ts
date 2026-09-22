@@ -7,6 +7,8 @@ export const UNBOUND_BACK_CANCEL_REASON = 'Released hold before choosing a payme
 export const CHECKOUT_HOLD_COPY = {
   listingReserved:
     'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
+  heldForYouCta: 'Held for you · view your order',
+  heldWhileAnotherPays: 'Held while another buyer pays',
   expiredNoLateMoney: 'Payment window elapsed. The item is available again.',
   lateCompleteBuyer:
     'Your payment arrived after the hold window. The item was still available, so this order is now paid.',
@@ -73,4 +75,38 @@ export function refundRequiredSellerCopy(paymentMethod: string | null | undefine
 
 export function refundRequiredCopyForRole(isBuyer: boolean, paymentMethod: string | null | undefined): string {
   return isBuyer ? CHECKOUT_HOLD_COPY.refundRequiredBuyer : refundRequiredSellerCopy(paymentMethod);
+}
+
+type ViewerHoldOrderLine = {
+  listingAggregateId: string;
+};
+
+type ViewerHoldOrder = {
+  id: string;
+  buyerPubky: string;
+  state: string;
+  lines: readonly ViewerHoldOrderLine[];
+};
+
+type ViewerHoldOrderView = {
+  order: ViewerHoldOrder;
+};
+
+/**
+ * Match a reserved listing to the viewer's own pending-payment order.
+ * Compare `order.buyerPubky` to the authenticated pubky — never a session id.
+ */
+export function findViewerPendingHoldOrder(
+  orders: readonly ViewerHoldOrderView[],
+  listingAggregateId: string,
+  viewerPubky: string | null | undefined,
+): { orderId: string } | null {
+  if (!viewerPubky) return null;
+  for (const { order } of orders) {
+    if (order.buyerPubky !== viewerPubky) continue;
+    if (order.state !== 'pending_payment') continue;
+    if (!order.lines.some((line) => line.listingAggregateId === listingAggregateId)) continue;
+    return { orderId: order.id };
+  }
+  return null;
 }

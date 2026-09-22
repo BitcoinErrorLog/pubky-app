@@ -47,14 +47,16 @@ describe('MarketplaceSectionNav', () => {
     expect(screen.getAllByRole('link').every((link) => !link.hasAttribute('aria-current'))).toBe(true);
   });
 
-  it('keeps the last item reachable when activity badges widen the row', () => {
+  it('wraps the section row instead of cropping the last item', () => {
     state.activityCount = 12;
     render(<MarketplaceSectionNav />);
 
     const nav = screen.getByTestId('marketplace-section-nav');
-    expect(nav).toHaveClass('overflow-x-auto');
-    expect(nav.firstElementChild).toHaveClass('min-w-max');
-    expect(screen.getByRole('link', { name: 'Seller studio' })).toHaveClass('shrink-0');
+    expect(nav).not.toHaveClass('overflow-x-auto');
+    expect(nav.firstElementChild).toHaveClass('flex-wrap');
+    expect(nav.firstElementChild).not.toHaveClass('min-w-max');
+    expect(screen.getByRole('link', { name: /Activity/ })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Seller studio' })).toBeVisible();
     expect(screen.getByTestId('marketplace-section-nav-activity-badge')).toHaveTextContent('12');
   });
 

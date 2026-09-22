@@ -4,13 +4,18 @@ on:
   merge_group:
   push:
     branches:
+      - 'release/**'
+      - main
       - master
-      - dev
   pull_request:
     branches:
       - '**' # Run on PRs targeting any branch
   # Enable manual trigger
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -86,3 +91,78 @@ jobs:
           done
 
           echo "Production server is ready."
+
+      - name: Upload Next build for launch-e2e
+        if: github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/shop-')
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: |
+            .next
+            !.next/cache
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  launch-e2e:
+    name: launch-e2e
+    needs: build
+    if: github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/shop-')
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.60.0-noble
+      options: --user 1001
+    # Subset ceiling is 8 min; first-run timeout is 2× that until a median exists.
+    timeout-minutes: 16
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download Next build
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+          path: next-build-artifact
+
+      - name: Place .next
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la next-build-artifact | head
+          if [ -d next-build-artifact/.next ]; then
+            mv next-build-artifact/.next .next
+          elif [ -f next-build-artifact/BUILD_ID ]; then
+            mv next-build-artifact .next
+          else
+            echo "Unexpected next-build artifact layout"
+            find next-build-artifact -maxdepth 3 | head -80
+            exit 1
+          fi
+          test -f .next/BUILD_ID
+          echo "BUILD_ID=$(cat .next/BUILD_ID)"
+
+      - name: Run launch-critical Chromium suite
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+          LAUNCH_E2E_BASE_URL: http://127.0.0.1:3000
+          LAUNCH_E2E_SERVICE_URL: https://staging-api.pubky.app
+          LAUNCH_E2E_SELLER_SECRET_HEX: ${{ secrets.LAUNCH_E2E_SELLER_SECRET_HEX }}
+        run: bash scripts/ci-launch-e2e.sh
+
+      - name: Upload launch-e2e log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-e2e-log
+          path: launch-e2e-results.json
+          if-no-files-found: ignore
+          retention-days: 7

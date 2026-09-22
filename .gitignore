@@ -91,3 +91,6 @@ public/sw.js.map
 # Failure screenshots from the live messaging browser suite (debug artifacts, never baselines)
 src/test/live/__screenshots__/
 .live-out/
+
+# Launch-critical Chromium runner output
+/launch-e2e-results.json

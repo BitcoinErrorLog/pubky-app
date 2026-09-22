@@ -171,24 +171,24 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
                 <MarketplaceCardPrice money={hasLiveBid ? bid.currentPrice : listing.price} />
               </Typography>
               {isAuction && (
-                <Typography as="span" className="text-xs text-muted-foreground">
+                <Typography as="span" className="text-xs text-secondary-foreground">
                   {hasLiveBid ? 'Current bid' : 'Starting bid'}
                 </Typography>
               )}
               {hasLiveBid && (
-                <Typography as="span" className="text-xs text-muted-foreground">
+                <Typography as="span" className="text-xs text-secondary-foreground">
                   {bid.bidCount} {bid.bidCount === 1 ? 'bid' : 'bids'}
                 </Typography>
               )}
             </div>
             {listing.auction?.buyNowPrice && (
-              <Typography as="p" className="text-xs text-muted-foreground">
+              <Typography as="p" className="text-xs text-secondary-foreground">
                 {`Buy now ${formatCommerceMoney(listing.auction.buyNowPrice)}`}
               </Typography>
             )}
           </div>
           <div className="space-y-1">
-            <Typography as="p" className="truncate text-base text-muted-foreground">
+            <Typography as="p" className="truncate text-base text-secondary-foreground">
               {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
             </Typography>
             {listing.reputation !== null && listing.reputation.count > 0 ? (
@@ -199,25 +199,25 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
                 size="sm"
               />
             ) : (
-              <Typography as="p" className="text-xs text-muted-foreground">
+              <Typography as="p" className="text-xs text-secondary-foreground">
                 No rating yet
               </Typography>
             )}
             {isReserved && (
-              <Typography as="p" className="text-xs text-muted-foreground">
+              <Typography as="p" className="text-xs text-secondary-foreground">
                 {CHECKOUT_HOLD_COPY.listingReserved}
               </Typography>
             )}
           </div>
           <CardTopAttributes listing={listing} />
           <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
-            <div className="flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <Typography as="span" className="text-xs text-muted-foreground">
+            <div className="flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-xs text-secondary-foreground">
+              <Typography as="span" className="text-xs text-secondary-foreground">
                 {formatCommerceCondition(listing.condition)}
               </Typography>
             </div>
             <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
-              <Typography as="span" className="text-right text-xs text-muted-foreground">
+              <Typography as="span" className="text-right text-xs text-secondary-foreground">
                 {[listing.location.region, listing.location.countryCode].filter(Boolean).join(', ')}
               </Typography>
               <MarketplaceFulfillmentBadge methods={listing.fulfillmentMethods} className="shrink-0" />
@@ -247,7 +247,7 @@ function CardTopAttributes({ listing }: { listing: MarketplaceCatalogItem }) {
     .slice(0, 2);
   if (parts.length === 0) return null;
   return (
-    <Typography as="p" className="truncate text-xs text-muted-foreground" data-cy="marketplace-card-attributes">
+    <Typography as="p" className="truncate text-xs text-secondary-foreground" data-cy="marketplace-card-attributes">
       {parts.join(' · ')}
     </Typography>
   );

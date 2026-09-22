@@ -9,6 +9,7 @@ import {
   type InventoryBoardRow,
   planInventoryAdjust,
 } from './inventory';
+import capturedUnavailableExport from './unavailable-listing-export.fixture.json';
 
 const PUBKY = 'y'.repeat(52);
 const TOKEN = 'A'.repeat(43);
@@ -232,6 +233,61 @@ describe('CommerceInventoryApplication', () => {
       expect.anything(),
       `listing:${PUBKY}_boots`,
     );
+  });
+
+  it('renders an unavailable export row from projection without a homeserver record', async () => {
+    expect(capturedUnavailableExport.record_status).toBe('unavailable');
+    expect(capturedUnavailableExport).not.toHaveProperty('record');
+    expect(capturedUnavailableExport).not.toHaveProperty('record_bytes_base64');
+    expect(capturedUnavailableExport).not.toHaveProperty('record_sha256');
+    vi.mocked(MarketplaceShopClientService.listSellerListings).mockResolvedValue({
+      ok: true,
+      value: {
+        kind: 'seller_listing_export',
+        listings: [capturedUnavailableExport],
+      },
+    });
+    vi.mocked(MarketplaceShopClientService.getInventoryProjection).mockResolvedValue({
+      ok: true,
+      value: {
+        schema_version: BigInt(1),
+        kind: 'inventory_projection',
+        aggregate_id: capturedUnavailableExport.projection.aggregate_id,
+        seller_pubky: PUBKY,
+        listing_id: capturedUnavailableExport.projection.listing_id,
+        server_revision: BigInt(1),
+        stock: {
+          authority: 'listing_total',
+          available: BigInt(1),
+          reserved: BigInt(0),
+          sold: BigInt(0),
+          total: BigInt(1),
+        },
+      },
+    } as Awaited<ReturnType<typeof MarketplaceShopClientService.getInventoryProjection>>);
+
+    await expect(CommerceInventoryApplication.loadBoard(PUBKY)).resolves.toEqual({
+      status: 'ready',
+      rows: [
+        {
+          listingId: '0789dcfe82644b8bbdd3e559d0015356',
+          sellerPubky: PUBKY,
+          aggregateId: capturedUnavailableExport.projection.aggregate_id,
+          title: 'Cutover test — do not buy — Locks 1A proof',
+          thumbUrl: null,
+          state: 'available',
+          format: 'fixed_price',
+          dropId: null,
+          available: 1,
+          reserved: 0,
+          sold: 0,
+          total: 1,
+          serverRevision: 1,
+          sync: 'synced',
+          recordStatus: 'unavailable',
+        },
+      ],
+    });
   });
 
   it('does not treat 409 as a grant miss', async () => {

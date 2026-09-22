@@ -155,4 +155,20 @@ describe('MarketplaceOfferDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(useAuthStore.getState().showSignInDialog).toBe(true);
   });
+
+  it('disables the trigger with hold copy while another buyer pays', () => {
+    render(
+      <MarketplaceOfferDialog
+        aggregateId="listing:x"
+        expectedRevision={1}
+        priceAsset={USD_ASSET}
+        holdDisabled
+        holdLabel="Held while another buyer pays"
+        onAccepted={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Held while another buyer pays' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
+  });
 });

@@ -1,6 +1,7 @@
 import { Inter_Tight } from 'next/font/google';
 import Script from 'next/script';
 import { Container } from '@/atoms/Container/Container';
+import { PLAUSIBLE_QUERYLESS_PAGE_BOOTSTRAP } from '@/libs/observability/plausible-page-url';
 import {
   getPlausibleDomain,
   getPlausibleScriptUrl,
@@ -36,15 +37,21 @@ export function RootContainer({ children }: RootContainerProps) {
         */}
         <script id="pubky-runtime-config" dangerouslySetInnerHTML={{ __html: serializeRuntimeConfig() }} />
         {plausibleDomain && plausibleScriptUrl && (
-          <Script
-            data-domain={plausibleDomain}
-            src={plausibleScriptUrl}
-            strategy="afterInteractive"
-            // Plausible's pageview-props script extension reads `event-*` attributes off the
-            // script tag and attaches them as custom properties to every pageview. The app is
-            // US-English only; the constant keeps dashboard continuity for the locale prop.
-            {...{ 'event-locale': 'en-US' }}
-          />
+          <>
+            <script
+              id="pubky-plausible-page-url"
+              dangerouslySetInnerHTML={{ __html: PLAUSIBLE_QUERYLESS_PAGE_BOOTSTRAP }}
+            />
+            <Script
+              data-domain={plausibleDomain}
+              src={plausibleScriptUrl}
+              strategy="afterInteractive"
+              // Plausible's pageview-props script extension reads `event-*` attributes off the
+              // script tag and attaches them as custom properties to every pageview. The app is
+              // US-English only; the constant keeps dashboard continuity for the locale prop.
+              {...{ 'event-locale': 'en-US' }}
+            />
+          </>
         )}
         <PageContainer>{children}</PageContainer>
       </Container>
