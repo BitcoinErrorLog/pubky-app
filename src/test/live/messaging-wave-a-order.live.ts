@@ -239,6 +239,28 @@ function activateServiceSession(session: ServiceSession): void {
   (modules.MarketplaceSessionService as unknown as { session: ServiceSession | null }).session = session;
 }
 
+function keepDocumentVisible(): void {
+  Object.defineProperty(Document.prototype, 'hidden', { configurable: true, get: () => false });
+  Object.defineProperty(Document.prototype, 'visibilityState', {
+    configurable: true,
+    get: () => 'visible',
+  });
+}
+
+async function pumpHandshake(buyerPage: Page, sellerPage: Page): Promise<void> {
+  const initiator = 'Waiting for them to open Messages';
+  const deadline = Date.now() + 45_000;
+  while (Date.now() < deadline) {
+    const buyerWaiting = (await buyerPage.getByText(initiator).count()) > 0;
+    const sellerWaiting = (await sellerPage.getByText(initiator).count()) > 0;
+    if (!buyerWaiting || !sellerWaiting) return;
+    await buyerPage.bringToFront();
+    await sleep(1_000);
+    await sellerPage.bringToFront();
+    await sleep(1_000);
+  }
+}
+
 async function installStagingCorsBypass(context: BrowserContext): Promise<void> {
   const shopOrigin = () => shopUrl || `http://127.0.0.1:${SHOP_PORT}`;
   await context.route(
@@ -858,6 +880,8 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
       });
       await installStagingCorsBypass(sellerContext);
       await installStagingCorsBypass(buyerContext);
+      await sellerContext.addInitScript(keepDocumentVisible);
+      await buyerContext.addInitScript(keepDocumentVisible);
       await sellerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: shopUrl });
       await buyerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: shopUrl });
       const sellerPage = await sellerContext.newPage();
@@ -871,24 +895,39 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
         await connectMarketplaceSession(buyerPage, buyerPersistedSession, created.title, 'buyer');
 
         failingStep = 'open_threads';
+        await buyerPage.bringToFront();
         await openOrderThread(buyerPage, buyerSeat.keypair, created.title, 'buyer');
+        await sleep(5_000);
+        await sellerPage.bringToFront();
         await openOrderThread(sellerPage, sellerSeat.keypair, created.title, 'seller');
+        await pumpHandshake(buyerPage, sellerPage);
 
         failingStep = 'buyer_send';
+        await buyerPage.bringToFront();
         await buyerPage.locator('#encrypted-message-body').fill(body);
-        await buyerPage.getByRole('button', { name: 'Send' }).click();
+        await buyerPage.getByRole('button', { name: /^Send/ }).click();
+        await buyerPage
+          .locator('[data-surface="marketplace-encrypted-conversation"]')
+          .getByText(body)
+          .waitFor({ state: 'visible', timeout: 30_000 });
         await capturePage(buyerPage, 'buyer-send');
 
         failingStep = 'seller_see';
-        try {
-          await sellerPage
-            .locator('[data-surface="marketplace-encrypted-conversation"]')
-            .filter({ hasText: body })
-            .waitFor({ state: 'visible', timeout: 90_000 });
-        } catch (error) {
-          await capturePage(sellerPage, 'seller-see-missing');
-          throw error;
+        const seen = sellerPage
+          .locator('[data-surface="marketplace-encrypted-conversation"]')
+          .filter({ hasText: body });
+        const seeDeadline = Date.now() + 90_000;
+        while (Date.now() < seeDeadline && (await seen.count()) === 0) {
+          await sellerPage.bringToFront();
+          await sleep(1_000);
+          await buyerPage.bringToFront();
+          await sleep(500);
         }
+        if ((await seen.count()) === 0) {
+          await capturePage(sellerPage, 'seller-see-missing');
+          throw new Error('seller never saw the buyer message');
+        }
+        await sellerPage.bringToFront();
         await capturePage(sellerPage, 'seller-see');
 
         const buyerSurface = await buyerPage
