@@ -51,7 +51,7 @@ describe('MarketplaceListingCard', () => {
     expect(screen.getByRole('heading', { name: 'Vintage leather boots' })).toBeInTheDocument();
     expect(screen.getByText('$125.00')).toBeInTheDocument();
     expect(screen.getByText('Satoshi Vintage')).toBeInTheDocument();
-    expect(screen.getByText('New seller')).toBeInTheDocument();
+    expect(screen.getByText('No rating yet')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View Vintage leather boots' })).toHaveAttribute(
       'href',
       `/marketplace/listing/${listing.sellerId}/${listing.listingId}`,
@@ -65,9 +65,11 @@ describe('MarketplaceListingCard', () => {
 
     render(<MarketplaceListingCard listing={listing} shopName="Satoshi Vintage" />);
 
-    expect(screen.getByRole('img', { name: 'Rated 4.6 out of 5 from 17 reviews' })).toBeInTheDocument();
-    expect(screen.getByText('(17)')).toBeInTheDocument();
-    expect(screen.queryByText('New seller')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: 'Rated 4.6 out of 5 from 17 reviews, 11 verified purchases' }),
+    ).toBeInTheDocument();
+    expect(screen.getByTitle('17 reviews')).toBeInTheDocument();
+    expect(screen.queryByText('No rating yet')).not.toBeInTheDocument();
   });
 
   it('labels the auction price as a starting bid instead of claiming a current price', () => {

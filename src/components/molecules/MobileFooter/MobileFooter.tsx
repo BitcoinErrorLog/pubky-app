@@ -219,23 +219,14 @@ export function MobileFooter({ className }: MobileFooterProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="end" sideOffset={12} className="w-72 p-2">
               <DropdownMenuItem asChild>
-                <Link href={APP_ROUTES.MESSAGES} className="gap-4 px-4 py-3 text-lg">
-                  <MessageCircle className="size-6" />
-                  <span className="flex-1">Messages</span>
-                  {unreadMessages > 0 && (
-                    <span className="text-brand">{unreadMessages > 21 ? '21+' : unreadMessages}</span>
-                  )}
+                <Link href={PROFILE_ROUTES.PROFILE_PAGE} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <UserRound className="size-5 shrink-0" aria-hidden="true" />
+                  Profile
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href={SETTINGS_ROUTES.ACCOUNT} className="gap-4 px-4 py-3 text-lg">
-                  <Settings className="size-6" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href={APP_ROUTES.PROFILE} className="gap-4 px-4 py-3 text-lg">
-                  <Bell className="size-6" />
+                <Link href={APP_ROUTES.PROFILE} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <Bell className="size-5 shrink-0" aria-hidden="true" />
                   <span className="flex-1">Notifications</span>
                   {unreadNotifications > 0 && (
                     <span className="text-brand">{unreadNotifications > 21 ? '21+' : unreadNotifications}</span>
@@ -243,15 +234,24 @@ export function MobileFooter({ className }: MobileFooterProps) {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href={PROFILE_ROUTES.PROFILE_PAGE} className="gap-4 px-4 py-3 text-lg">
-                  <UserRound className="size-6" />
-                  Profile
+                <Link href={APP_ROUTES.MESSAGES} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <MessageCircle className="size-5 shrink-0" aria-hidden="true" />
+                  <span className="flex-1">Messages</span>
+                  {unreadMessages > 0 && (
+                    <span className="text-brand">{unreadMessages > 21 ? '21+' : unreadMessages}</span>
+                  )}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href={PROFILE_ROUTES.POSTS} className="gap-4 px-4 py-3 text-lg">
-                  <FileText className="size-6" />
+                <Link href={PROFILE_ROUTES.POSTS} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <FileText className="size-5 shrink-0" aria-hidden="true" />
                   My posts
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={SETTINGS_ROUTES.ACCOUNT} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <Settings className="size-5 shrink-0" aria-hidden="true" />
+                  Settings
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuContent>

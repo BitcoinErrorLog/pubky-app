@@ -77,8 +77,7 @@ export function DropMissionControl({ dropId }: DropMissionControlProps) {
           <Card className="border-dashed py-5">
             <CardContent className="px-5">
               <Typography as="p" className="text-sm text-muted-foreground">
-                Drops require the durable transaction service — server time is the feature. This mode has none, so there
-                is no drop state to show.
+                Drop management is unavailable here.
               </Typography>
             </CardContent>
           </Card>
@@ -104,13 +103,13 @@ function DropMissionControlUnregistered({ ownDrop }: { ownDrop: UseOwnDropResult
         <div className="flex items-center gap-2">
           <Badge variant="outline">Unregistered</Badge>
           <Typography as="p" className="text-sm font-semibold">
-            The service has no aggregate for this drop.
+            This drop is not ready to launch.
           </Typography>
         </div>
         <Typography as="p" className="text-sm text-muted-foreground">
           {ownDrop.record
-            ? 'The record is on your homeserver, but the transaction service has not registered it — nothing is scheduled or enforced until it does.'
-            : 'Neither the service aggregate nor the homeserver record could be read. If you deleted the record, this drop no longer exists.'}
+            ? 'Your announcement is saved, but launch setup is incomplete. The schedule and stock limits are not active yet.'
+            : 'This drop could not be loaded. It may have been deleted.'}
         </Typography>
         {ownDrop.record && (
           <Button
@@ -229,7 +228,7 @@ function DropMissionControlPanel({ ownDrop, drop }: { ownDrop: UseOwnDropResult;
 function DropMissionControlStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
+      <dt className="text-[11px] leading-4 font-medium tracking-[1.2px] text-muted-foreground uppercase">{label}</dt>
       <dd className="text-2xl font-semibold tabular-nums">{value}</dd>
     </div>
   );

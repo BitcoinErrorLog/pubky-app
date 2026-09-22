@@ -55,7 +55,7 @@ export function MarketplaceInventory() {
             Inventory
           </Heading>
           <Typography as="p" className="mt-3 max-w-2xl text-muted-foreground">
-            Available, reserved, and sold counts from the transaction service. Reserved is not available to sell.
+            Track available, reserved, and sold stock. Reserved items are not available to sell.
           </Typography>
         </div>
 
@@ -66,7 +66,7 @@ export function MarketplaceInventory() {
             <Card className="border-dashed py-5">
               <CardContent className="flex flex-col gap-2 px-5">
                 <Typography as="p" className="font-semibold">
-                  Inventory Studio requires the durable transaction service.
+                  Inventory management is unavailable here.
                 </Typography>
                 <Typography as="p" className="text-sm text-muted-foreground">
                   Sandbox mode cannot honestly show reserved and sold counts from the service.

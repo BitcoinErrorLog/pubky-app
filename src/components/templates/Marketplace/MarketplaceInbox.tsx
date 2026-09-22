@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, LockKeyhole, MessageCircle } from 'lucide-react';
+import { LockKeyhole, MessageCircle } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import { Button } from '@/atoms/Button/Button';
@@ -34,14 +34,6 @@ export function MarketplaceInbox() {
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
         <MarketplaceSectionNav />
-        <Link
-          href={APP_ROUTES.MARKETPLACE}
-          overrideDefaults
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Marketplace
-        </Link>
         <div>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
             Messages
@@ -89,7 +81,7 @@ function EncryptedInbox() {
           </div>
           <Typography as="p" className="text-sm text-muted-foreground">
             {inbox.receiverProvisioned
-              ? 'The messaging session could not be resumed automatically — your sign-in may predate the messaging grant, or the homeserver no longer accepts its session. Approve a fresh connection in Pubky Ring to send and receive; your stored history below stays readable either way.'
+              ? 'Reconnect in Pubky Ring to send and receive messages. You can still read your saved message history below.'
               : 'Marketplace messages are end-to-end encrypted and activate automatically for sign-ins made with the current grant. Your sign-in predates the messaging grant, so a one-time Pubky Ring approval is needed to grant the Paykit message tree and publish your encrypted-messaging address so others can reach you.'}
           </Typography>
           <MarketplaceMessagingEnableDialog reconnect={inbox.receiverProvisioned} onEnabled={inbox.refresh} />
@@ -185,12 +177,7 @@ function SandboxInbox() {
   const { conversations, isLoading, error, isSandbox } = useMarketplaceInbox();
 
   if (!isSandbox) {
-    return (
-      <EmptyState
-        title="Messaging is not available"
-        body="This deployment mode has no messaging backend, so there is nothing real to show here."
-      />
-    );
+    return <EmptyState title="Messaging is not available" body="Messaging is unavailable here." />;
   }
 
   if (isLoading) return <Skeleton className="h-32 w-full" />;

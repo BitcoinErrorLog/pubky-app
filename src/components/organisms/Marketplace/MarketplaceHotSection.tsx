@@ -78,7 +78,10 @@ function MarketplaceHotModule({
     <section aria-label={`Marketplace: ${heading}`} className="flex flex-col gap-2">
       <div className="flex items-end justify-between gap-2">
         <div className="flex flex-col">
-          <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+          <Typography
+            as="span"
+            className="text-[11px] leading-4 font-medium tracking-[1.2px] text-muted-foreground uppercase"
+          >
             Marketplace
           </Typography>
           <Heading level={5} size="lg" className="font-light text-muted-foreground">

@@ -22,7 +22,6 @@ import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismiss
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
-import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropCard } from '@/organisms/Marketplace/DropCard';
@@ -69,7 +68,6 @@ export function Marketplace({
   const layout = useCommerceStore((state) => state.layout);
   const catalog = useMarketplaceCatalog(initialListings, initialShops);
   const { shopsBySeller, adapterMode, listings, facetPool, countryFacetPool } = catalog;
-  const isStaging = getDeployEnv() === 'staging';
   const listingCards = listings.map((listing) => ({ kind: 'listing' as const, listing }));
   const dropCards = uniqueDropCards(visibleDrops.map((drop) => ({ kind: 'drop' as const, ...drop })));
   const catalogListingCards = saleFormat === 'drops' ? [] : listingCards;
@@ -132,20 +130,14 @@ export function Marketplace({
       showRightSidebar={false}
       showLeftMobileButton={false}
       showRightMobileButton={false}
+      hasGradientBackground={false}
       className="marketplace-surface pb-28 lg:pb-16"
       classNameWrapperContent="max-w-7xl overflow-visible lg:overflow-visible"
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6">
-        <MarketplaceSectionNav onNavigate={(href) => requireAuth(() => router.push(href))} />
-        {isStaging && (
-          <Typography
-            as="p"
-            role="note"
-            className="-mt-4 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-200"
-          >
-            Staging environment — test rails, no real funds move
-          </Typography>
-        )}
+        <div className="sticky top-24 z-(--z-sticky-header) bg-background after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-16 after:bg-linear-to-b after:from-background/80 after:to-transparent after:content-[''] lg:top-(--header-offset-main)">
+          <MarketplaceSectionNav className="mb-0" onNavigate={(href) => requireAuth(() => router.push(href))} />
+        </div>
         {shouldShowPromo && (
           <section
             aria-label="Marketplace promo"
@@ -282,6 +274,7 @@ export function Marketplace({
                   <DropCard
                     key={`drop:${card.entry.owner_id}:${card.entry.id}`}
                     entry={card.entry}
+                    shopName={shopsBySeller.get(card.entry.owner_id)?.name}
                     bucket={card.bucket}
                     layout={layout}
                     index={index}

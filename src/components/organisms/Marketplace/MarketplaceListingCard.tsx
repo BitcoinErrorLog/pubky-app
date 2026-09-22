@@ -119,7 +119,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
               alt={listing.title}
               fill
               sizes="(max-width: 640px) 50vw, 300px"
-              className="absolute inset-0 object-cover object-center"
+              className="absolute inset-0 object-cover object-center transition-transform duration-300 ease-out motion-safe:group-hover:scale-120 motion-reduce:transition-none"
               onError={() => setMediaFailed(true)}
             />
           )}
@@ -162,26 +162,19 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
 
         <CardContent className="flex min-w-0 flex-1 flex-col gap-3 p-4">
           <div className="space-y-1">
-            <Typography as="h2" className="line-clamp-2 text-base leading-6 font-semibold text-foreground">
+            <Typography as="h2" className="line-clamp-2 text-base leading-6 font-bold text-foreground">
               {listing.title}
             </Typography>
-            <Typography as="p" className="truncate text-sm text-muted-foreground">
-              {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
-            </Typography>
-            {isReserved && (
-              <Typography as="p" className="text-xs text-muted-foreground">
-                {CHECKOUT_HOLD_COPY.listingReserved}
-              </Typography>
-            )}
-          </div>
-          <div className="space-y-1">
-            <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-              {isAuction ? (hasLiveBid ? 'Current bid' : 'Starting bid') : 'Price'}
-            </Typography>
+
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <Typography as="p" className="text-xl leading-7 font-semibold text-brand">
+              <Typography as="p" className="text-xl leading-7 font-bold text-brand">
                 <MarketplaceCardPrice money={hasLiveBid ? bid.currentPrice : listing.price} />
               </Typography>
+              {isAuction && (
+                <Typography as="span" className="text-xs text-muted-foreground">
+                  {hasLiveBid ? 'Current bid' : 'Starting bid'}
+                </Typography>
+              )}
               {hasLiveBid && (
                 <Typography as="span" className="text-xs text-muted-foreground">
                   {bid.bidCount} {bid.bidCount === 1 ? 'bid' : 'bids'}
@@ -194,30 +187,41 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
               </Typography>
             )}
           </div>
-          <div>
-            <MarketplaceFulfillmentBadge methods={listing.fulfillmentMethods} />
+          <div className="space-y-1">
+            <Typography as="p" className="truncate text-base text-muted-foreground">
+              {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
+            </Typography>
+            {listing.reputation !== null && listing.reputation.count > 0 ? (
+              <MarketplaceStarRating
+                rating={listing.reputation.avg}
+                count={listing.reputation.count}
+                verifiedCount={listing.reputation.verifiedCount}
+                size="sm"
+              />
+            ) : (
+              <Typography as="p" className="text-xs text-muted-foreground">
+                No rating yet
+              </Typography>
+            )}
+            {isReserved && (
+              <Typography as="p" className="text-xs text-muted-foreground">
+                {CHECKOUT_HOLD_COPY.listingReserved}
+              </Typography>
+            )}
           </div>
-          {listing.reputation !== null && listing.reputation.count > 0 ? (
-            <MarketplaceStarRating
-              rating={listing.reputation.avg}
-              count={listing.reputation.count}
-              verifiedCount={listing.reputation.verifiedCount}
-              size="sm"
-            />
-          ) : (
-            <Typography as="p" className="text-xs text-muted-foreground">
-              New seller
-            </Typography>
-          )}
           <CardTopAttributes listing={listing} />
-          <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
-            <Typography as="span" className="text-xs text-muted-foreground">
-              {formatCommerceCondition(listing.condition)}
-            </Typography>
-            <Typography as="span" className="text-xs text-muted-foreground">
-              {listing.location.region ? `${listing.location.region}, ` : ''}
-              {listing.location.countryCode}
-            </Typography>
+          <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
+            <div className="flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <Typography as="span" className="text-xs text-muted-foreground">
+                {formatCommerceCondition(listing.condition)}
+              </Typography>
+            </div>
+            <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
+              <Typography as="span" className="text-right text-xs text-muted-foreground">
+                {[listing.location.region, listing.location.countryCode].filter(Boolean).join(', ')}
+              </Typography>
+              <MarketplaceFulfillmentBadge methods={listing.fulfillmentMethods} className="shrink-0" />
+            </div>
           </div>
         </CardContent>
       </Card>

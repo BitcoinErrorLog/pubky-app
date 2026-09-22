@@ -42,7 +42,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
       </svg>
       <img
         alt="35mm rangefinder camera"
-        class="h-auto max-w-full absolute inset-0 object-cover object-center"
+        class="h-auto max-w-full absolute inset-0 object-cover object-center transition-transform duration-300 ease-out motion-safe:group-hover:scale-120 motion-reduce:transition-none"
         data-nimg="fill"
         decoding="async"
         loading="lazy"
@@ -129,38 +129,28 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
         class="space-y-1"
       >
         <h2
-          class="line-clamp-2 text-base leading-6 font-semibold text-foreground"
+          class="line-clamp-2 text-base leading-6 font-bold text-foreground"
           data-testid="typography"
         >
           35mm rangefinder camera
         </h2>
-        <p
-          class="font-medium truncate text-sm text-muted-foreground"
-          data-testid="typography"
-        >
-          Proof of Film
-        </p>
-      </div>
-      <div
-        class="space-y-1"
-      >
-        <span
-          class="text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
-          data-testid="typography"
-        >
-          Starting bid
-        </span>
         <div
           class="flex flex-wrap items-baseline gap-x-2 gap-y-1"
         >
           <p
-            class="text-xl leading-7 font-semibold text-brand"
+            class="text-xl leading-7 font-bold text-brand"
             data-testid="typography"
           >
             <span>
               $45.00
             </span>
           </p>
+          <span
+            class="font-medium text-xs text-muted-foreground"
+            data-testid="typography"
+          >
+            Starting bid
+          </span>
         </div>
         <p
           class="font-medium text-xs text-muted-foreground"
@@ -169,37 +159,52 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
           Buy now $125.00
         </p>
       </div>
-      <div>
-        <div
-          class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90"
-          data-slot="badge"
-          data-variant="secondary"
-        >
-          Shipping
-        </div>
-      </div>
-      <p
-        class="font-medium text-xs text-muted-foreground"
-        data-testid="typography"
-      >
-        New seller
-      </p>
       <div
-        class="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3"
+        class="space-y-1"
       >
-        <span
+        <p
+          class="font-medium truncate text-base text-muted-foreground"
+          data-testid="typography"
+        >
+          Proof of Film
+        </p>
+        <p
           class="font-medium text-xs text-muted-foreground"
           data-testid="typography"
         >
-          Excellent
-        </span>
-        <span
-          class="font-medium text-xs text-muted-foreground"
-          data-testid="typography"
+          No rating yet
+        </p>
+      </div>
+      <div
+        class="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3"
+      >
+        <div
+          class="flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground"
         >
-          NY, 
-          US
-        </span>
+          <span
+            class="font-medium text-xs text-muted-foreground"
+            data-testid="typography"
+          >
+            Excellent
+          </span>
+        </div>
+        <div
+          class="ml-auto flex min-w-0 items-center justify-end gap-2"
+        >
+          <span
+            class="font-medium text-right text-xs text-muted-foreground"
+            data-testid="typography"
+          >
+            NY, US
+          </span>
+          <div
+            class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90 shrink-0"
+            data-slot="badge"
+            data-variant="secondary"
+          >
+            Shipping
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -252,7 +257,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
       </svg>
       <img
         alt="Vintage leather boots"
-        class="h-auto max-w-full absolute inset-0 object-cover object-center"
+        class="h-auto max-w-full absolute inset-0 object-cover object-center transition-transform duration-300 ease-out motion-safe:group-hover:scale-120 motion-reduce:transition-none"
         data-nimg="fill"
         decoding="async"
         loading="lazy"
@@ -316,32 +321,16 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
         class="space-y-1"
       >
         <h2
-          class="line-clamp-2 text-base leading-6 font-semibold text-foreground"
+          class="line-clamp-2 text-base leading-6 font-bold text-foreground"
           data-testid="typography"
         >
           Vintage leather boots
         </h2>
-        <p
-          class="font-medium truncate text-sm text-muted-foreground"
-          data-testid="typography"
-        >
-          Satoshi Vintage
-        </p>
-      </div>
-      <div
-        class="space-y-1"
-      >
-        <span
-          class="text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
-          data-testid="typography"
-        >
-          Price
-        </span>
         <div
           class="flex flex-wrap items-baseline gap-x-2 gap-y-1"
         >
           <p
-            class="text-xl leading-7 font-semibold text-brand"
+            class="text-xl leading-7 font-bold text-brand"
             data-testid="typography"
           >
             <span>
@@ -350,36 +339,52 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
           </p>
         </div>
       </div>
-      <div>
-        <div
-          class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90"
-          data-slot="badge"
-          data-variant="secondary"
-        >
-          Shipping
-        </div>
-      </div>
-      <p
-        class="font-medium text-xs text-muted-foreground"
-        data-testid="typography"
-      >
-        New seller
-      </p>
       <div
-        class="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3"
+        class="space-y-1"
       >
-        <span
+        <p
+          class="font-medium truncate text-base text-muted-foreground"
+          data-testid="typography"
+        >
+          Satoshi Vintage
+        </p>
+        <p
           class="font-medium text-xs text-muted-foreground"
           data-testid="typography"
         >
-          Good
-        </span>
-        <span
-          class="font-medium text-xs text-muted-foreground"
-          data-testid="typography"
+          No rating yet
+        </p>
+      </div>
+      <div
+        class="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3"
+      >
+        <div
+          class="flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground"
         >
-          US
-        </span>
+          <span
+            class="font-medium text-xs text-muted-foreground"
+            data-testid="typography"
+          >
+            Good
+          </span>
+        </div>
+        <div
+          class="ml-auto flex min-w-0 items-center justify-end gap-2"
+        >
+          <span
+            class="font-medium text-right text-xs text-muted-foreground"
+            data-testid="typography"
+          >
+            US
+          </span>
+          <div
+            class="inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90 shrink-0"
+            data-slot="badge"
+            data-variant="secondary"
+          >
+            Shipping
+          </div>
+        </div>
       </div>
     </div>
   </div>

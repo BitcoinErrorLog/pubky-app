@@ -15,9 +15,9 @@ import type { CommerceLayout } from '@/stores/commerce/commerce.types';
 import { DropCountdown } from './DropCountdown';
 
 const BUCKET_BADGES: Record<DropStreamBucket, string> = {
-  upcoming: 'Upcoming · indexed',
-  live: 'Start time passed · indexed',
-  ended: 'End time passed · indexed',
+  upcoming: 'Upcoming',
+  live: 'Start time passed',
+  ended: 'End time passed',
 };
 
 /**
@@ -32,11 +32,13 @@ export function DropCard({
   bucket,
   layout = 'grid',
   index = 0,
+  shopName,
 }: {
   entry: NexusDropStreamEntry;
   bucket: DropStreamBucket;
   layout?: CommerceLayout;
   index?: number;
+  shopName?: string;
 }) {
   const [mediaFailed, setMediaFailed] = useState(false);
   const [hoverRotation, setHoverRotation] = useState(0);
@@ -75,7 +77,7 @@ export function DropCard({
               alt={entry.title}
               fill
               sizes="(max-width: 640px) 50vw, 300px"
-              className="absolute inset-0 object-cover object-center"
+              className="absolute inset-0 object-cover object-center transition-transform duration-300 ease-out motion-safe:group-hover:scale-120 motion-reduce:transition-none"
               onError={() => setMediaFailed(true)}
             />
           )}
@@ -83,19 +85,21 @@ export function DropCard({
             <CalendarClock aria-hidden="true" className="size-3" />
             Drop
           </Badge>
+          <Badge className="absolute right-3 bottom-3 bg-background/85 text-foreground shadow-sm backdrop-blur-md">
+            {BUCKET_BADGES[bucket]}
+          </Badge>
         </div>
         <CardContent className="flex min-w-0 flex-1 flex-col gap-3 p-4">
           <div className="space-y-1">
-            <Typography as="h2" className="line-clamp-2 text-base leading-6 font-semibold text-foreground">
+            <Typography as="h2" className="line-clamp-2 text-base leading-6 font-bold text-foreground">
               {entry.title}
             </Typography>
-            <Typography as="p" className="truncate text-sm text-muted-foreground">
-              {`${entry.owner_id.slice(0, 8)}…`}
+          </div>
+          <div className="space-y-1">
+            <Typography as="p" className="truncate text-base text-muted-foreground">
+              {shopName ?? `${entry.owner_id.slice(0, 8)}…`}
             </Typography>
           </div>
-          <Badge variant={bucket === 'live' ? 'default' : 'secondary'} className="w-fit">
-            {BUCKET_BADGES[bucket]}
-          </Badge>
           {bucket === 'upcoming' && (
             <DropCountdown
               startsAt={entry.starts_at}
@@ -107,9 +111,13 @@ export function DropCard({
           )}
           <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
             <Typography as="span" className="text-xs text-muted-foreground">
-              Open to confirm service state
+              View drop
             </Typography>
-            {entry.total_quantity != null && <Badge variant="secondary">{entry.total_quantity} editions</Badge>}
+            {entry.total_quantity != null && (
+              <Badge variant="secondary" className="ml-auto shrink-0">
+                {entry.total_quantity} {entry.total_quantity === 1 ? 'edition' : 'editions'}
+              </Badge>
+            )}
           </div>
         </CardContent>
       </Card>

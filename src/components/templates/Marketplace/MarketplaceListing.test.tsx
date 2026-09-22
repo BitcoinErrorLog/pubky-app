@@ -27,7 +27,13 @@ const view = vi.hoisted(() => ({
   hasFullHomeserverGrant: false,
 }));
 
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({ useMarketplaceCartCount: () => 0 }));
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 0,
+}));
+
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/marketplace/listing/seller/item',
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -190,13 +196,50 @@ describe('MarketplaceListing', () => {
 
     renderListing();
 
-    expect(screen.getByText('Sold by')).toBeInTheDocument();
+    expect(screen.queryByText('Sold by')).not.toBeInTheDocument();
     expect(screen.getByText('Satoshi Vintage')).toBeInTheDocument();
-    expect(screen.getByText('New seller · no reviews yet')).toBeInTheDocument();
+    expect(screen.getByText('No rating yet')).toBeInTheDocument();
     expect(screen.queryByText(/Shop opened/)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View shop' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Message seller' })).toBeInTheDocument();
-    expect(screen.getByText('Shipping: Ground shipping $8.99')).toBeInTheDocument();
+    expect(screen.getByText('Shipping: $8.99')).toHaveAttribute('data-slot', 'badge');
+    expect(screen.queryByText('Shipping: Ground shipping $8.99')).not.toBeInTheDocument();
+  });
+
+  it.each(['flat', 'free'] as const)('labels %s zero-cost shipping as free', (pricing) => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['physical'],
+        shippingOptions: [
+          {
+            id: 'shipping',
+            label: 'Seller shipping',
+            ...(pricing === 'flat'
+              ? { pricing: 'flat' as const, price: { amountMinor: 0, currency: 'USD', exponent: 2 } }
+              : { pricing: 'free' as const }),
+            estimatedMinDays: 3,
+            estimatedMaxDays: 5,
+          },
+        ],
+      }),
+    );
+    renderListing();
+    expect(screen.getByText('Shipping: Free')).toHaveAttribute('data-slot', 'badge');
+    expect(screen.queryByText('Shipping: $0.00')).not.toBeInTheDocument();
+  });
+
+  it('describes pickup without promising shipping and keeps purchase ahead of details', () => {
+    view.listing = toCommerceListingModel(createCommerceListingFixture({ fulfillmentMethods: ['pickup'] }));
+    renderListing();
+    expect(screen.getByText('Local pickup only')).toBeInTheDocument();
+    expect(screen.getByText('Pickup location')).toBeInTheDocument();
+    expect(screen.queryByText('Ships from')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Shipping: calculated/)).not.toBeInTheDocument();
+    const purchase = screen.getByRole('button', { name: /Add to cart/ });
+    expect(
+      purchase.compareDocumentPosition(screen.getByRole('heading', { name: 'Item specifics' })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('falls back to the seller pubky when no shop record exists', () => {
@@ -204,7 +247,7 @@ describe('MarketplaceListing', () => {
     const listing = renderListing();
 
     expect(screen.getByText(`${listing.seller_id.slice(0, 10)}…`)).toBeInTheDocument();
-    expect(screen.getByText('New seller · no reviews yet')).toBeInTheDocument();
+    expect(screen.getByText('No rating yet')).toBeInTheDocument();
     expect(screen.queryByText('Shop opened Aug 2026')).not.toBeInTheDocument();
   });
 
@@ -225,9 +268,11 @@ describe('MarketplaceListing', () => {
 
     renderListing();
 
-    expect(screen.getByRole('img', { name: 'Rated 4.7 out of 5 from 12 reviews' })).toBeInTheDocument();
-    expect(screen.getByText('(12)')).toBeInTheDocument();
-    expect(screen.queryByText('New seller · no reviews yet')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: 'Rated 4.7 out of 5 from 12 reviews, 9 verified purchases' }),
+    ).toBeInTheDocument();
+    expect(screen.getByTitle('12 reviews')).toBeInTheDocument();
+    expect(screen.queryByText('No rating yet')).not.toBeInTheDocument();
   });
 
   it('requires a marketplace session before showing availability', async () => {

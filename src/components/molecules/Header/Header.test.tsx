@@ -261,7 +261,7 @@ describe('Header Components', () => {
       expect(container).toHaveClass('custom-class');
     });
 
-    it('uses a denser fade on marketplace routes so scrolled tabs stay behind the header', () => {
+    it('uses a solid background on marketplace routes', () => {
       vi.mocked(usePathname).mockReturnValue('/marketplace');
       render(
         <HeaderContainer>
@@ -270,8 +270,8 @@ describe('Header Components', () => {
       );
 
       const container = screen.getByRole('banner');
-      expect(container).toHaveClass('from-90%');
-      expect(container).not.toHaveClass('from-50%');
+      expect(container).toHaveClass('bg-background');
+      expect(container).not.toHaveClass('bg-linear-to-b');
     });
   });
 
@@ -504,15 +504,15 @@ describe('Header Components', () => {
       expect(collectionsButton).not.toHaveClass('bg-white/5');
     });
 
-    it('shows the Collections NEW treatment before dismissal', () => {
+    it('does not highlight Collections as new before dismissal', () => {
       collectionsDiscoveryMock.showCollectionsNew = true;
 
       render(<HeaderNavigationButtons avatarName="TU" />);
 
       const collectionsButton = document.querySelector('.lucide-library')?.closest('button');
-      expect(collectionsButton).toHaveClass('border-brand', 'text-brand');
-      expect(screen.getByRole('button', { name: 'Collections, New' })).toBeInTheDocument();
-      expect(screen.getByText('New')).toBeInTheDocument();
+      expect(collectionsButton).not.toHaveClass('border-brand', 'text-brand');
+      expect(screen.getByRole('button', { name: 'Collections' })).toBeInTheDocument();
+      expect(screen.queryByText('New')).not.toBeInTheDocument();
     });
 
     it('marks Collections discovery seen when clicking the Collections nav link', () => {

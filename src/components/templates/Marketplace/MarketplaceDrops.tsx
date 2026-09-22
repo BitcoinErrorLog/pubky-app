@@ -21,8 +21,7 @@ const SECTION_TITLES: Record<DropStreamBucket, string> = {
 
 const SECTION_ORDER: DropStreamBucket[] = ['live', 'upcoming', 'ended'];
 
-export const DROPS_INDEX_CAVEAT =
-  'Timed, limited releases listed by the discovery index. Open a drop to confirm its current state with the transaction service before claiming.';
+export const DROPS_INDEX_CAVEAT = 'Discover timed, limited releases. Open a drop to check availability.';
 
 /**
  * The drops calendar (drops design, "Discovery and hype surfaces"): indexed
@@ -70,7 +69,7 @@ export function MarketplaceDrops() {
           <EmptyState
             icon={<CalendarClock className="mb-3 size-10 text-muted-foreground" />}
             title="Drops are not available here"
-            body="Drops need the durable transaction service — server time is the feature. This deployment runs without it, so there is no drop schedule to show, simulated or otherwise."
+            body="Drops are unavailable here."
           />
         ) : isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -108,8 +108,8 @@ export function DropStudioComposer({ studio }: DropStudioComposerProps) {
           Listings in this drop
         </Typography>
         <Typography as="p" className="text-sm text-muted-foreground">
-          A drop bundles up to {DROP_MAX_LISTINGS} of your published listings. Each one must be registered with the
-          transaction service before launch — the service is what enforces the clock and the caps.
+          A drop bundles up to {DROP_MAX_LISTINGS} of your published listings. Each listing must be ready to sell before
+          launch.
         </Typography>
         {studio.catalog === 'loading' ? (
           <Card className="border-dashed py-4">

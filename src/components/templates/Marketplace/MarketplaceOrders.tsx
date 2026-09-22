@@ -1,8 +1,8 @@
 'use client';
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ExternalLink, ReceiptText } from 'lucide-react';
-import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
+import { ExternalLink, ReceiptText } from 'lucide-react';
+import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -97,22 +97,14 @@ export function MarketplaceOrders() {
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6" data-surface="marketplace-orders">
         <MarketplaceSectionNav />
-        <Link
-          href={APP_ROUTES.MARKETPLACE}
-          overrideDefaults
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Marketplace
-        </Link>
         <div>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
             Orders
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
             {isSandbox
-              ? 'Buyer and seller timelines with sandbox payment facts.'
-              : 'Buyer and seller timelines from the durable transaction service.'}
+              ? 'Track your simulated purchases and sales. No real funds move.'
+              : 'Track your purchases and sales.'}
           </Typography>
         </div>
 
@@ -123,8 +115,7 @@ export function MarketplaceOrders() {
               Order timelines are not available here
             </Heading>
             <Typography as="p" className="mt-2 max-w-lg text-sm text-muted-foreground">
-              This deployment runs no marketplace transaction backend — neither the sandbox nor the durable transaction
-              service — so there is no order history to show, simulated or otherwise.
+              Order history is unavailable here.
             </Typography>
           </div>
         ) : isLoading ? (

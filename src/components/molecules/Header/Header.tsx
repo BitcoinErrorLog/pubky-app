@@ -31,16 +31,15 @@ export interface HeaderContainerProps {
 }
 export const HeaderContainer = ({ children, className, classNameNav }: HeaderContainerProps) => {
   const pathname = usePathname();
-  const marketplaceChrome =
+  const isMarketplace =
     pathname === APP_ROUTES.MARKETPLACE || Boolean(pathname?.startsWith(`${APP_ROUTES.MARKETPLACE}/`));
   return (
     <Container
       overrideDefaults
       as="header"
       className={cn(
-        'pointer-events-none sticky top-0 z-(--z-sticky-header) w-full bg-linear-to-b from-(--background)',
-        marketplaceChrome ? 'from-90%' : 'from-50%',
-        'to-transparent p-0 sm:py-6',
+        'pointer-events-none sticky top-0 z-(--z-sticky-header) w-full p-0 sm:py-6',
+        isMarketplace ? 'bg-background' : 'bg-linear-to-b from-(--background) from-50% to-transparent',
         className,
       )}
     >
@@ -258,7 +257,7 @@ export function HeaderNavigationButtons({
   className,
 }: HeaderNavigationButtonsProps) {
   const pathname = usePathname();
-  const { showCollectionsNew, markCollectionsNavSeen } = useCollectionsNavDiscovery();
+  const { markCollectionsNavSeen } = useCollectionsNavDiscovery();
   // Honest badge: conversations on THIS device whose last received message
   // postdates the local read checkpoint — never a server-claimed count.
   const unreadMessages = useMessagesUnread();
@@ -280,8 +279,6 @@ export function HeaderNavigationButtons({
             isActive={isNavItemActive(pathname, item)}
             dataCy={item.dataCy}
             isFeedRoute={item.isFeedRoute}
-            showNew={isCollectionsItem && showCollectionsNew}
-            newLabel={'New'}
             badgeCount={isMessagesItem ? unreadMessages : isMarketplaceItem ? marketplaceCartCount : 0}
             badgeLabel={isMarketplaceItem ? 'items in cart' : 'unread'}
           />
