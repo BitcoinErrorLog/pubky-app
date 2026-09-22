@@ -96,10 +96,10 @@ function MarketplaceCartCheckout() {
   const award: MarketplaceOfferAward | undefined = offer?.award;
   const offerEligible = Boolean(
     offer &&
-      award &&
-      award.state === 'active' &&
-      offer.buyerPubky === currentUserPubky &&
-      isMarketplaceAwardCheckoutEligible(award),
+    award &&
+    award.state === 'active' &&
+    offer.buyerPubky === currentUserPubky &&
+    isMarketplaceAwardCheckoutEligible(award),
   );
 
   useEffect(() => {
@@ -192,8 +192,7 @@ function MarketplaceCartCheckout() {
       ? award.listing.sellerPubky
       : [...new Set(checkoutItems.map((item) => item.listing.record.ownerPubky))].join('|');
   const isPaying = isOfferCheckout ? offerPay.isSubmitting : checkout.isPaying;
-  const listingRoute =
-    award && getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
+  const listingRoute = award && getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
   const backHref =
     isDropCheckout && dropSeller && dropId ? getMarketplaceDropRoute(dropSeller, dropId) : MARKETPLACE_ROUTES.CART;
   const backLabel = isDropCheckout ? 'Back to drop' : 'Back to cart';

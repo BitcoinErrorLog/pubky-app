@@ -728,4 +728,3 @@ describe('MarketplaceCheckout drop-claim path', () => {
     expect(screen.getByLabelText('Recipient')).toBeInTheDocument();
   });
 });
-

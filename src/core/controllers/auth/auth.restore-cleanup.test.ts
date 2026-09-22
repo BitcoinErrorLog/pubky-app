@@ -90,9 +90,7 @@ const EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES = ['commerce_delivery_addresses'] a
 
 const sorted = (values: Iterable<string>) => [...values].sort();
 const EXPECTED_TABLE_COUNT =
-  EXPECTED_PUBLIC_CACHE_TABLES.length +
-  EXPECTED_PRIVATE_TABLES.length +
-  EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES.length;
+  EXPECTED_PUBLIC_CACHE_TABLES.length + EXPECTED_PRIVATE_TABLES.length + EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES.length;
 
 async function seedEveryTable(): Promise<void> {
   for (const table of db.tables) {
