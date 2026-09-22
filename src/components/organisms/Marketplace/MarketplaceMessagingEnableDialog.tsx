@@ -6,7 +6,6 @@ import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceMessagingEnable } from '@/hooks/useMarketplaceMessagingEnable/useMarketplaceMessagingEnable';
-import { PAYKIT_MESSAGING_CAPABILITY } from '@/libs/commerce/messaging-contracts';
 import { Logger } from '@/libs/logger/logger';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -65,15 +64,7 @@ export function MarketplaceMessagingEnablePanel({
   return (
     <div className="grid gap-4">
       <Typography as="p" className="text-sm text-muted-foreground">
-        Messaging normally needs no extra approval: a sign-in made with the current grant already covers messaging and
-        connects automatically — if that were your case, you would never see this step. You are seeing it because this
-        sign-in predates the combined grant (its session has no messaging scope) or the homeserver no longer accepts its
-        session. Approving once with your signer (Pubky Ring) grants this app a homeserver session scoped to{' '}
-        <code className="rounded bg-secondary px-1 py-0.5 text-xs">{PAYKIT_MESSAGING_CAPABILITY}</code> — the Paykit
-        tree where encrypted-message data lives, plus the app&apos;s own storage scope (the homeserver keeps one session
-        per browser, so this approval also carries your normal posting and publishing access). Your identity key never
-        enters this browser; message encryption uses a separate key generated and kept on this device. After this
-        one-time approval, messaging resumes automatically on this device until the session expires or you sign out.
+        {reconnect ? 'Reconnect encrypted messaging for this device.' : 'Approve encrypted messaging for this device.'}
       </Typography>
 
       {enable.status === 'error' ? (

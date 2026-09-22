@@ -58,10 +58,11 @@ vi.mock('@/hooks/useMarketplaceLocksPayment/useMarketplaceLocksPayment', () => (
   }),
 }));
 
-// The money notice is gated on the deploy environment. Each scene names its
-// environment: locks-paykit scenes run on production (real rails — the
-// real-money notice is truthful there); transaction-service scenes run on
-// staging (test rails — no real funds move). Sandbox scenes render no notice.
+// Staging amber is gated on the deploy environment. Each scene names its
+// environment: locks-paykit scenes run on production (no amber money
+// notice; awaiting payment shows muted hold copy); transaction-service
+// scenes run on staging (test rails — no real funds move). Sandbox scenes
+// render no notice.
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
   return { ...actual, getDeployEnv: () => view.deployEnv };

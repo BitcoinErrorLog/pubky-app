@@ -50,7 +50,7 @@ export function MarketplacePaymentSettings() {
             How you get paid
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            Every method pays the seller directly — this marketplace never holds funds.
+            Set up the methods buyers can use at checkout.
           </Typography>
         </div>
 
@@ -141,11 +141,6 @@ export function MarketplacePaymentSettings() {
             </div>
           </CardContent>
         </Card>
-
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-          Locks and Paykit Server are pre-production. Do not use this prototype to protect valuable content or real
-          funds without an independent security and operational review.
-        </div>
       </Container>
     </ContentLayout>
   );

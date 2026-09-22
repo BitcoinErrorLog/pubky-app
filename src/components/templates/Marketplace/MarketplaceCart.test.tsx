@@ -253,30 +253,31 @@ describe('MarketplaceCart', () => {
   });
 
   it.each(['transaction-service', 'locks-paykit', 'unavailable'] as const)(
-    'shows the fail-closed real-money notice in %s mode and the interim address copy',
+    'shows muted seller-direct helper in %s production checkout, not an amber money warning',
     (adapterMode) => {
       seededCart();
       view.adapterMode = adapterMode;
       view.hasMarketplaceSession = true;
+      view.deployEnv = 'production';
 
       render(<MarketplaceCart />);
 
-      expect(screen.getAllByRole('note')).toHaveLength(1);
-      expect(screen.getByRole('note')).toHaveTextContent(
-        'Real money. Payments are final and go directly to the seller.',
-      );
+      expect(screen.queryByRole('note')).not.toBeInTheDocument();
+      expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
+      expect(screen.getByText('Paid directly to the seller.')).toBeInTheDocument();
       expect(screen.getByText(MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE)).toBeInTheDocument();
     },
   );
 
-  it('fails closed to the real-money notice for an unknown deploy environment', () => {
+  it('does not show a production money warning when the deploy environment is unknown', () => {
     seededCart();
     view.adapterMode = 'sandbox';
     view.deployEnv = undefined;
 
     render(<MarketplaceCart />);
 
-    expect(screen.getByRole('note')).toHaveTextContent('Real money. Payments are final and go directly to the seller.');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Real money/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Staging environment/)).not.toBeInTheDocument();
   });
 
@@ -289,6 +290,7 @@ describe('MarketplaceCart', () => {
 
     expect(screen.getByRole('note')).toHaveTextContent('Staging environment — test rails, no real funds move');
     expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Paid directly to the seller.')).not.toBeInTheDocument();
   });
 
   it.each([false, true])('renders truthful address copy exactly once with saved addresses=%s', (hasSavedAddress) => {

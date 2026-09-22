@@ -20,11 +20,12 @@ describe('checkout-hold copy', () => {
 
   it('renders unbound and bound holder copy with the deadline', () => {
     expect(holderUnboundCopy('2026-08-20T21:15:00.000Z')).toBe(
-      'This item is held for you until Aug 20, 2026, 9:15 PM UTC. Choose how to pay. Every method pays the seller directly.',
+      'The item is held for you until Aug 20, 2026, 9:15 PM UTC.',
     );
     expect(holderBoundCopy('2026-08-20T21:15:00.000Z')).toBe(
       'Pay by Aug 20, 2026, 9:15 PM UTC. If the window ends, the item restocks.',
     );
+    expect(holderUnboundCopy(null)).toBe('The item is held for you once a payment starts.');
   });
 
   it('detects late completion from paid plus leftover elapsed reason', () => {

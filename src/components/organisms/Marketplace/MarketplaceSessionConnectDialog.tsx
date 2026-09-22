@@ -5,7 +5,6 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
-import { CAPABILITIES } from '@/config/app';
 import { useMarketplaceSessionConnect } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect';
 import { Logger } from '@/libs/logger/logger';
 import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
@@ -89,29 +88,8 @@ export function MarketplaceSessionConnectDialog({
         </DialogHeader>
 
         <Typography as="p" className="text-sm text-muted-foreground">
-          {grantFlowEnabled
-            ? 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
-            : requestsFullGrant
-              ? 'Approving with Pubky Ring signs you in to Shop with the full permission list and lets this marketplace place orders, bids, and offers as you. Nothing is charged until you pay.'
-              : 'Approving with Pubky Ring lets this marketplace place orders, bids, and offers as you. Nothing is charged until you pay. The approval stays on this device across tabs and restarts until it expires or you sign out.'}
+          {requestsFullGrant && !grantFlowEnabled ? 'Sign in to Pubky Shop.' : 'Approve purchases for this device.'}
         </Typography>
-        <Typography as="p" className="text-sm text-muted-foreground">
-          {grantFlowEnabled
-            ? 'Your signer will show an empty permission list. This approval proves identity to the marketplace service and does not change homeserver access.'
-            : requestsFullGrant
-              ? 'Ring will show the full permission list — that is correct. This is the first Shop-scoped approval; it was not covered by signing in on pubky.app.'
-              : 'Ring will show an empty permission list — that is correct. This approval only proves your identity to the marketplace service; it grants no read or write access to anything on your homeserver.'}
-        </Typography>
-        {requestsFullGrant && !grantFlowEnabled && (
-          <div className="rounded-md border border-border bg-muted/40 p-3">
-            <code className="block font-sans text-xs break-all" data-cy="session-connect-requested-capabilities">
-              {CAPABILITIES}
-            </code>
-            <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-              Pubky Ring will show this exact permission list — compare it before approving.
-            </Typography>
-          </div>
-        )}
 
         {['error', 'mismatch', 'expired', 'cancelled'].includes(session.status) ? (
           <div className="grid gap-3">

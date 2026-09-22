@@ -518,7 +518,7 @@ export function MarketplaceGetPaidSettings({ locksConnect }: MarketplaceGetPaidS
               </CollapsibleTrigger>
               <CollapsibleContent className="grid gap-3 rounded-xl border p-4 text-sm text-muted-foreground data-[state=closed]:hidden">
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  Pubky Ring displays the exact creator capability grant. No identity secret enters Pubky App.
+                  No identity secret enters this app.
                 </Typography>
                 <Typography as="p" className="text-sm text-muted-foreground">
                   Bitkit sends a watch-only BIP84 account claim directly to Paykit Server. Spending keys remain in the
