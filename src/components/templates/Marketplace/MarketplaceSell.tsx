@@ -16,20 +16,26 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCreateMarketplaceListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
 import { CREATE_MARKETPLACE_LISTING_FIELDS } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
+import { useSellerPaymentMethodGate } from '@/hooks/useSellerPaymentMethodGate/useSellerPaymentMethodGate';
 import { listingDraftResumePrompt, listingDraftTitleLabel } from '@/libs/commerce/listing-drafts';
+import { ListingComposerPaymentInterstitial } from '@/molecules/Marketplace/ListingComposerPaymentInterstitial';
+import { ListingPublishGuardNotice } from '@/molecules/Marketplace/ListingPublishGuardNotice';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
-import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export function MarketplaceSell() {
   const router = useRouter();
   const listing = useCreateMarketplaceListing();
+  const paymentGate = useSellerPaymentMethodGate();
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishAfterSession, setPublishAfterSession] = useState(false);
+  const blockComposer = paymentGate.isDurable && (!paymentGate.ready || paymentGate.reason === 'no-method');
 
   const publish = async () => {
     setIsPublishing(true);
@@ -57,6 +63,11 @@ export function MarketplaceSell() {
   const submit = async () => {
     if (isDurableCommerceMode(getCommerceAdapterMode()) && !useCommerceStore.getState().marketplaceSession) {
       await listing.flushDraft();
+      const pubky = useAuthStore.getState().currentUserPubky;
+      if (pubky && CommerceController.restorePersistedMarketplaceSession(pubky)) {
+        await publish();
+        return;
+      }
       setPublishAfterSession(true);
       return;
     }
@@ -126,117 +137,115 @@ export function MarketplaceSell() {
           </div>
         )}
 
-        {listing.pendingRestore && (
-          <div
-            role="status"
-            data-surface="listing-draft-restore-prompt"
-            className="flex flex-col gap-3 rounded-xl border border-brand/30 bg-brand/5 p-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="flex items-start gap-3">
-              <History className="mt-0.5 size-5 shrink-0 text-brand" />
-              <div>
-                <Typography as="p" className="font-semibold">
-                  {listingDraftResumePrompt(listing.pendingRestore.updatedAt, Date.now())}
-                </Typography>
-                <Typography as="p" className="text-sm text-muted-foreground">
-                  {listingDraftTitleLabel(listing.pendingRestore.title)}
-                  {listing.pendingRestore.extraCount > 0
-                    ? ` · ${listing.pendingRestore.extraCount} more in Seller studio`
-                    : ''}
-                </Typography>
+        {blockComposer ? (
+          <ListingComposerPaymentInterstitial checking={!paymentGate.ready} />
+        ) : (
+          <>
+            {listing.pendingRestore && (
+              <div
+                role="status"
+                data-surface="listing-draft-restore-prompt"
+                className="flex flex-col gap-3 rounded-xl border border-brand/30 bg-brand/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-start gap-3">
+                  <History className="mt-0.5 size-5 shrink-0 text-brand" />
+                  <div>
+                    <Typography as="p" className="font-semibold">
+                      {listingDraftResumePrompt(listing.pendingRestore.updatedAt, Date.now())}
+                    </Typography>
+                    <Typography as="p" className="text-sm text-muted-foreground">
+                      {listingDraftTitleLabel(listing.pendingRestore.title)}
+                      {listing.pendingRestore.extraCount > 0
+                        ? ` · ${listing.pendingRestore.extraCount} more in Seller studio`
+                        : ''}
+                    </Typography>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button className="rounded-full" size="sm" onClick={listing.resumeDraft}>
+                    Resume
+                  </Button>
+                  <Button variant="secondary" size="sm" className="rounded-full" onClick={listing.reset}>
+                    Discard
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Button className="rounded-full" size="sm" onClick={listing.resumeDraft}>
-                Resume
-              </Button>
-              <Button variant="secondary" size="sm" className="rounded-full" onClick={listing.reset}>
-                Discard
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {listing.restoredDraft && !listing.pendingRestore && (
-          <div
-            role="status"
-            data-surface="listing-draft-restored"
-            className="flex flex-col gap-3 rounded-xl border border-brand/30 bg-brand/5 p-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="flex items-start gap-3">
-              <History className="mt-0.5 size-5 shrink-0 text-brand" />
-              <div>
-                <Typography as="p" className="font-semibold">
-                  {listing.seededFromTitle ? `Draft created from ${listing.seededFromTitle}` : 'Draft restored'}
-                </Typography>
-                <Typography as="p" className="text-sm text-muted-foreground">
-                  {listing.seededFromTitle
-                    ? [
-                        listing.seededAuctionAsFixedPrice ? 'Auction listings are copied as fixed price.' : null,
-                        'Photos were not copied from the published listing.',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')
-                    : 'We loaded your unfinished listing from this device, including photos saved on it.'}
-                </Typography>
-              </div>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="shrink-0 rounded-full"
-              disabled={isPublishing}
-              onClick={listing.reset}
-            >
-              Discard draft and start fresh
-            </Button>
-          </div>
-        )}
-
-        {listing.publishBlocked && (
-          <div
-            role="alert"
-            data-surface="seller-publish-blocked"
-            className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
-          >
-            <Typography as="p" className="font-semibold">
-              {listing.publishBlocked === 'no-method'
-                ? 'Configure a payment method before publishing'
-                : 'We could not verify your payment settings. Reconnect your session and try again.'}
-            </Typography>
-            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-              {listing.publishBlocked === 'no-method'
-                ? 'Buyers cannot pay for a published listing until you add at least one payment method.'
-                : 'Your payment settings could not be checked against the marketplace service.'}
-            </Typography>
-            {listing.publishBlocked === 'no-method' ? (
-              <Button asChild variant="link" className="mt-2 h-auto p-0">
-                <Link href={MARKETPLACE_ROUTES.SETTINGS} overrideDefaults>
-                  Payment settings
-                </Link>
-              </Button>
-            ) : (
-              <MarketplaceSessionRequiredCard />
             )}
-          </div>
-        )}
 
-        <MarketplaceListingForm
-          form={listing.form}
-          media={listing.media}
-          onSubmit={submit}
-          isPublishing={isPublishing}
-          initialActiveSectionId={listing.activeSectionId}
-          onActiveSectionChange={listing.setActiveSectionId}
-        />
-        {publishAfterSession && (
-          <MarketplaceSessionConnectDialog
-            autoOpen
-            onConnected={async () => {
-              setPublishAfterSession(false);
-              await publish();
-            }}
-          />
+            {listing.restoredDraft && !listing.pendingRestore && (
+              <div
+                role="status"
+                data-surface="listing-draft-restored"
+                className="flex flex-col gap-3 rounded-xl border border-brand/30 bg-brand/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-start gap-3">
+                  <History className="mt-0.5 size-5 shrink-0 text-brand" />
+                  <div>
+                    <Typography as="p" className="font-semibold">
+                      {listing.seededFromTitle ? `Draft created from ${listing.seededFromTitle}` : 'Draft restored'}
+                    </Typography>
+                    <Typography as="p" className="text-sm text-muted-foreground">
+                      {listing.seededFromTitle
+                        ? [
+                            listing.seededAuctionAsFixedPrice ? 'Auction listings are copied as fixed price.' : null,
+                            'Photos were not copied from the published listing.',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')
+                        : 'We loaded your unfinished listing from this device, including photos saved on it.'}
+                    </Typography>
+                  </div>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="shrink-0 rounded-full"
+                  disabled={isPublishing}
+                  onClick={listing.reset}
+                >
+                  Discard draft and start fresh
+                </Button>
+              </div>
+            )}
+
+            {listing.publishBlocked && (
+              <ListingPublishGuardNotice
+                reason={listing.publishBlocked}
+                surface="seller-publish-blocked"
+                density="banner"
+                returnTo={MARKETPLACE_ROUTES.SELL}
+                onSessionConnected={async () => {
+                  setPublishAfterSession(false);
+                  await publish();
+                }}
+              />
+            )}
+
+            <MarketplaceListingForm
+              form={listing.form}
+              media={listing.media}
+              onSubmit={submit}
+              isPublishing={isPublishing}
+              initialActiveSectionId={listing.activeSectionId}
+              onActiveSectionChange={listing.setActiveSectionId}
+              publishBlocked={listing.publishBlocked}
+              publishGuardReady={listing.publishGuardReady}
+              returnTo={MARKETPLACE_ROUTES.SELL}
+              onSessionConnected={async () => {
+                setPublishAfterSession(false);
+                await publish();
+              }}
+            />
+            {publishAfterSession && (
+              <MarketplaceSessionConnectDialog
+                autoOpen
+                onConnected={async () => {
+                  setPublishAfterSession(false);
+                  await publish();
+                }}
+              />
+            )}
+          </>
         )}
       </Container>
     </ContentLayout>

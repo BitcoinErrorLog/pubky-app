@@ -239,6 +239,19 @@ export class CommerceController {
     };
   }
 
+  /**
+   * Loads a still-valid persisted marketplace bearer into memory and the
+   * commerce store. Returns the public facts, or null when nothing valid is
+   * stored for this account. Seller Studio uses this so a reload does not
+   * open reconnect for a session that is already on the device.
+   */
+  static restorePersistedMarketplaceSession(pubky: string): MarketplaceSessionInfo | null {
+    const session = CommerceApplication.restoreMarketplaceSession(pubky);
+    if (!session) return null;
+    this.writeMarketplaceSessionStore(session);
+    return session;
+  }
+
   static hasFullHomeserverGrant(): boolean {
     return CommerceApplication.currentHomeserverGrantIsFull();
   }

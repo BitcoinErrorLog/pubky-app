@@ -33,6 +33,7 @@ import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
+import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
@@ -276,7 +277,7 @@ export function MarketplaceCart() {
                                       alt={item.listing.record.title}
                                       fill
                                       sizes="80px"
-                                      className="absolute inset-0 object-cover"
+                                      className="absolute inset-0 object-cover object-center"
                                     />
                                   )}
                                 </div>
@@ -403,14 +404,7 @@ export function MarketplaceCart() {
                     {MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE}
                   </Typography>
                   <ControlledInputField name="name" control={checkout.form.control} label="Recipient" />
-                  <ControlledInputField name="line1" control={checkout.form.control} label="Address line 1" />
-                  <ControlledInputField name="line2" control={checkout.form.control} label="Address line 2" />
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <ControlledInputField name="city" control={checkout.form.control} label="City" />
-                    <ControlledInputField name="region" control={checkout.form.control} label="Region" />
-                    <ControlledInputField name="postalCode" control={checkout.form.control} label="Postal code" />
-                    <ControlledInputField name="countryCode" control={checkout.form.control} label="Country" />
-                  </div>
+                  <MarketplaceAddressFields control={checkout.form.control} setValue={checkout.form.setValue} />
                   {checkout.selectedAddressId === null && (
                     <div className="grid gap-3 rounded-xl border bg-card/60 p-3">
                       <Controller
@@ -506,7 +500,7 @@ export function MarketplaceCart() {
                         This places {checkout.orderCount} orders — one per seller and delivery method.
                       </Typography>
                     )}
-                    {isStaging ? (
+                    {isStaging && (
                       <Typography
                         as="p"
                         role="note"
@@ -514,30 +508,25 @@ export function MarketplaceCart() {
                       >
                         Staging environment — test rails, no real funds move
                       </Typography>
-                    ) : (
-                      <Typography
-                        as="p"
-                        role="note"
-                        className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
-                      >
-                        Real money. Payments are final and go directly to the seller.
-                      </Typography>
                     )}
                     <Button
                       className="w-full rounded-full"
                       onClick={submit}
                       disabled={!canPlaceOrder}
-                      aria-describedby={!canPlaceOrder ? 'place-order-reason' : undefined}
+                      aria-describedby={!canPlaceOrder && !approvalNeeded ? 'place-order-reason' : undefined}
                     >
                       {isSandbox ? 'Place sandbox order' : 'Place order'}
                     </Button>
-                    {!canPlaceOrder && (
+                    {!isStaging && !isSandbox && (
+                      <Typography as="p" className="text-xs text-muted-foreground">
+                        Paid directly to the seller.
+                      </Typography>
+                    )}
+                    {!canPlaceOrder && !approvalNeeded && (
                       <Typography id="place-order-reason" as="p" className="text-xs text-muted-foreground">
-                        {approvalNeeded
-                          ? 'Approve purchases in Pubky Ring before placing the order.'
-                          : checkout.hasFulfillmentConflict
-                            ? "Some items can't be checked out together — see the note in your cart."
-                            : 'Fill in delivery details and accept the guarantee to place the order.'}
+                        {checkout.hasFulfillmentConflict
+                          ? "Some items can't be checked out together — see the note in your cart."
+                          : 'Fill in delivery details and accept the guarantee to place the order.'}
                       </Typography>
                     )}
                   </section>

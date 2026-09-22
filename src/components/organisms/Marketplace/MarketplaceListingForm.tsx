@@ -47,6 +47,11 @@ import {
   shippingFieldsToPresetInput,
 } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
 import { isListingDraftSectionId, type ListingDraftSectionId } from '@/libs/commerce/listing-drafts';
+import {
+  LISTING_PUBLISH_BLOCK_COPY,
+  LISTING_PUBLISH_GUARD_CHECKING,
+  type ListingPublishBlockReason,
+} from '@/libs/commerce/listing-publish-guards';
 import { PICKUP_NOTHING_PUBLISHED_TOAST, PICKUP_REVERT_FAILED_TOAST } from '@/libs/commerce/pickup';
 import { amountInputSchemaForAsset, amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
 import {
@@ -59,6 +64,7 @@ import {
 } from '@/libs/commerce/units';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
+import { ListingPublishGuardNotice } from '@/molecules/Marketplace/ListingPublishGuardNotice';
 import { RequiredToPublishSummary } from '@/molecules/Marketplace/RequiredToPublishSummary';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceCategoryPicker } from '@/organisms/Marketplace/MarketplaceCategoryPicker';
@@ -104,6 +110,17 @@ export interface MarketplaceListingFormProps {
   /** Restored wizard section from a listing draft (create mode). */
   initialActiveSectionId?: ListingDraftSectionId;
   onActiveSectionChange?: (sectionId: ListingDraftSectionId) => void;
+  /**
+   * Durable-mode publish handler guard (payment method, session, etc.). When
+   * set, Review is not complete and Publish stays disabled with the reason
+   * rendered next to the button.
+   */
+  publishBlocked?: ListingPublishBlockReason | null;
+  /** False while the durable publish guards are still being evaluated. */
+  publishGuardReady?: boolean;
+  onSessionConnected?: () => void | Promise<void>;
+  /** Composer path to resume after configuring a payment method. */
+  returnTo?: string;
 }
 
 export function MarketplaceListingForm({
@@ -117,6 +134,10 @@ export function MarketplaceListingForm({
   saleTermsLocked = false,
   initialActiveSectionId,
   onActiveSectionChange,
+  publishBlocked = null,
+  publishGuardReady = true,
+  returnTo,
+  onSessionConnected,
 }: MarketplaceListingFormProps) {
   const {
     items: mediaItems,
@@ -237,11 +258,14 @@ export function MarketplaceListingForm({
             ? `Listings support up to ${maxPhotos} photos.`
             : null;
   const photosReady = isListingMediaPublishReady(mediaItems);
-  const sectionStatuses = getListingSectionStatuses(formValues, mediaItems.length, photosReady);
   const publishMinimumMet = isCreateMarketplaceListingPublishReady(formValues, mediaItems.length) && photosReady;
+  const publishGuardsClear = publishGuardReady && publishBlocked == null;
+  const canPublish = publishMinimumMet && publishGuardsClear;
+  const sectionStatuses = getListingSectionStatuses(formValues, mediaItems.length, photosReady, publishGuardsClear);
   const remainingRequired = [
     ...createMarketplaceListingPublishChecklist(formValues, mediaItems.length),
     ...(mediaItems.length > 0 && !photosReady ? ['Photo descriptions'] : []),
+    ...(publishBlocked ? [LISTING_PUBLISH_BLOCK_COPY[publishBlocked].checklist] : []),
   ];
   const optionalLaterItems = getOptionalLaterItems(formValues);
   const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(
@@ -819,10 +843,37 @@ export function MarketplaceListingForm({
           <ReviewPublishChecklist
             remainingRequired={remainingRequired}
             optionalLaterItems={optionalLaterItems}
-            publishMinimumMet={publishMinimumMet}
-            onSelectRequired={(item) => navigateToSection(listingChecklistSection(item))}
+            publishMinimumMet={canPublish}
+            onSelectRequired={(item) => {
+              navigateToSection(listingChecklistSection(item));
+              const guard = document.getElementById('listing-publish-guard');
+              if (guard && typeof guard.focus === 'function' && isPublishGuardChecklistItem(item)) {
+                guard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                guard.focus({ preventScroll: true });
+              }
+            }}
           />
-          <Button type="submit" size="lg" className="w-full rounded-full" disabled={isPublishing || !publishMinimumMet}>
+          {!publishGuardReady ? (
+            <Typography id="listing-publish-guard" as="p" className="text-sm text-muted-foreground">
+              {LISTING_PUBLISH_GUARD_CHECKING}
+            </Typography>
+          ) : publishBlocked ? (
+            <ListingPublishGuardNotice
+              reason={publishBlocked}
+              surface="listing-publish-guard"
+              id="listing-publish-guard"
+              density="action"
+              returnTo={returnTo}
+              onSessionConnected={onSessionConnected}
+            />
+          ) : null}
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full rounded-full"
+            disabled={isPublishing || !canPublish}
+            aria-describedby={!publishGuardReady || publishBlocked ? 'listing-publish-guard' : undefined}
+          >
             {isEdit ? (isPublishing ? 'Saving…' : 'Save changes') : isPublishing ? 'Publishing…' : 'Publish listing'}
           </Button>
         </ListingFormSection>
@@ -1058,10 +1109,15 @@ function listingChecklistSection(item: string): ListingFormSectionId {
   return 'listing-section-review';
 }
 
+function isPublishGuardChecklistItem(item: string): boolean {
+  return Object.values(LISTING_PUBLISH_BLOCK_COPY).some((copy) => copy.checklist === item);
+}
+
 function getListingSectionStatuses(
   values: CreateMarketplaceListingData,
   photoCount: number,
   photosReady: boolean,
+  publishGuardsClear: boolean,
 ): Record<ListingFormSectionId, boolean> {
   const categoryResolved = Boolean(resolveCommerceCategory(values.categoryId));
   const priceValid = amountInputSchemaForAsset(assetForListingCurrency(values.currency)).safeParse(
@@ -1092,7 +1148,8 @@ function getListingSectionStatuses(
     'listing-section-item': itemComplete,
     'listing-section-price': priceValid && variantsValid,
     'listing-section-shipping': shippingComplete,
-    'listing-section-review': isCreateMarketplaceListingPublishReady(values, photoCount) && photosReady,
+    'listing-section-review':
+      isCreateMarketplaceListingPublishReady(values, photoCount) && photosReady && publishGuardsClear,
   };
 }
 
@@ -1260,7 +1317,7 @@ function ListingPhotoRow({
           // Plain <img>: previews are local object URLs or direct homeserver
           // reads, neither of which should go through Next image optimization.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.previewUrl} alt={item.altText || position} className="size-full object-cover" />
+          <img src={item.previewUrl} alt={item.altText || position} className="size-full object-cover object-center" />
         ) : (
           <span className="flex size-full items-center justify-center">
             <Film aria-hidden="true" className="size-8 text-muted-foreground" />

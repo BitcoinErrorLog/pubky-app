@@ -978,6 +978,52 @@ describe('MarketplaceTransactionService read projections', () => {
       });
     });
 
+    it('surfaces capability_required, method_unavailable, and CAS revision conflict as static copy', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(403, {
+          ok: false,
+          error: {
+            code: 'capability_required',
+            message: 'The session grant does not authorize inventory access.',
+          },
+        }),
+      );
+      await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'paypal')).rejects.toMatchObject({
+        message: 'This payment needs a marketplace grant. Approve access on your signer and try again.',
+        context: { serviceCode: 'capability_required' },
+      });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(409, {
+          ok: false,
+          error: {
+            code: 'INVALID_STATE',
+            message: 'The seller has no PayPal merchant email configured.',
+            reason: 'method_unavailable',
+          },
+        }),
+      );
+      await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'paypal')).rejects.toMatchObject({
+        message: 'The seller has not configured this payment method.',
+        context: { reason: 'method_unavailable', serviceCode: 'INVALID_STATE' },
+      });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(409, {
+          ok: false,
+          error: {
+            code: 'REVISION_CONFLICT',
+            message: 'The aggregate changed.',
+          },
+        }),
+      );
+      await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'paypal')).rejects.toMatchObject({
+        message: 'This payment changed since you loaded it. The latest state was reloaded — retry from there.',
+        context: { serviceCode: 'REVISION_CONFLICT' },
+      });
+    });
+
     it('maps payment-method reasons to static copy and never logs the server message', async () => {
       await establishSession();
       const echoed = 'rk_live_echoed_restricted_key_value';

@@ -485,6 +485,27 @@ describe('CommerceController', () => {
     });
   });
 
+  describe('restorePersistedMarketplaceSession', () => {
+    const session = {
+      pubky: COMMERCE_FIXTURE_SELLER,
+      capabilities: '',
+      expiresAt: '2026-08-22T00:00:00.000Z',
+      issuedAt: '2026-08-21T00:00:00.000Z',
+    };
+
+    it('mirrors a still-valid persisted session into the commerce store', () => {
+      vi.spyOn(CommerceApplication, 'restoreMarketplaceSession').mockReturnValue(session);
+      expect(CommerceController.restorePersistedMarketplaceSession(COMMERCE_FIXTURE_SELLER)).toEqual(session);
+      expect(useCommerceStore.getState().marketplaceSession).toEqual(session);
+    });
+
+    it('leaves the store empty when nothing valid is persisted', () => {
+      vi.spyOn(CommerceApplication, 'restoreMarketplaceSession').mockReturnValue(null);
+      expect(CommerceController.restorePersistedMarketplaceSession(COMMERCE_FIXTURE_SELLER)).toBeNull();
+      expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+    });
+  });
+
   describe('beginInventorySessionConnect', () => {
     const session = {
       pubky: COMMERCE_FIXTURE_SELLER,

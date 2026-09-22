@@ -28,8 +28,12 @@ import {
   serializeListingDraftMedia,
   takeListingDraftResumeId,
 } from '@/libs/commerce/listing-drafts';
+import {
+  evaluateDurableListingPublishGuards,
+  type ListingPublishBlockReason,
+  listingPublishBlockToast,
+} from '@/libs/commerce/listing-publish-guards';
 import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
-import { availablePaymentMethods } from '@/libs/commerce/payment-methods';
 import {
   amountInputFromMoney,
   amountInputToMoney,
@@ -47,6 +51,7 @@ import {
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
@@ -85,11 +90,13 @@ export interface UseCreateMarketplaceListingResult {
   reset: () => void;
   resumeDraft: () => void;
   flushDraft: () => Promise<void>;
-  publishBlocked: 'no-method' | 'unverified' | null;
+  publishBlocked: ListingPublishBlockReason | null;
+  publishGuardReady: boolean;
 }
 
 export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const measurementSystem = useMeasurementSystem();
   const media = useListingMediaManager();
   const [draftId, setDraftId] = useState(() => crypto.randomUUID().replaceAll('-', ''));
@@ -98,7 +105,9 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   const [activeSectionId, setActiveSectionId] = useState<ListingDraftSectionId>('listing-section-photos');
   const [seededFromTitle, setSeededFromTitle] = useState<string | null>(null);
   const [seededAuctionAsFixedPrice, setSeededAuctionAsFixedPrice] = useState(false);
-  const [publishBlocked, setPublishBlocked] = useState<'no-method' | 'unverified' | null>(null);
+  const durablePublish = isDurableCommerceMode(getCommerceAdapterMode());
+  const [publishBlocked, setPublishBlocked] = useState<ListingPublishBlockReason | null>(null);
+  const [publishGuardReady, setPublishGuardReady] = useState(!durablePublish);
   const draftReadyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingListingIdRef = useRef<string | null>(null);
@@ -157,11 +166,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   ]);
 
   const applyDraft = useCallback(
-    (row: {
-      listing_id: string;
-      data: { form?: unknown };
-      media_blobs?: Record<string, Blob>;
-    }) => {
+    (row: { listing_id: string; data: { form?: unknown }; media_blobs?: Record<string, Blob> }) => {
       const parsed = createMarketplaceListingDraftSchema.safeParse(row.data.form);
       if (!parsed.success) return false;
       setDraftId(row.listing_id);
@@ -238,7 +243,16 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [activeSectionId, currentUserPubky, draftId, mediaSignature, pendingRestore, seededAuctionAsFixedPrice, seededFromTitle, watchedValues]);
+  }, [
+    activeSectionId,
+    currentUserPubky,
+    draftId,
+    mediaSignature,
+    pendingRestore,
+    seededAuctionAsFixedPrice,
+    seededFromTitle,
+    watchedValues,
+  ]);
 
   useEffect(() => {
     const flush = () => {
@@ -255,24 +269,47 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     };
   }, []);
 
+  useEffect(() => {
+    if (!durablePublish) {
+      setPublishBlocked(null);
+      setPublishGuardReady(true);
+      return;
+    }
+    let active = true;
+    setPublishGuardReady(false);
+    void evaluateDurableListingPublishGuards({
+      ownerPubky: currentUserPubky,
+      hasMarketplaceSession: Boolean(marketplaceSession),
+      loadPaymentConfig: (pubky) => CommerceController.getSellerPaymentConfig(pubky),
+    }).then((reason) => {
+      if (!active) return;
+      setPublishBlocked(reason);
+      setPublishGuardReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [currentUserPubky, durablePublish, marketplaceSession]);
+
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky) return null;
     setPublishBlocked(null);
     await persistDraftRef.current();
-    let createdListingId: string | null = null;
 
-    if (isDurableCommerceMode(getCommerceAdapterMode())) {
-      try {
-        const paymentConfig = await CommerceController.getSellerPaymentConfig(currentUserPubky);
-        if (availablePaymentMethods(paymentConfig).length === 0) {
-          setPublishBlocked('no-method');
-          return null;
-        }
-      } catch {
-        setPublishBlocked('unverified');
+    if (durablePublish) {
+      const reason = await evaluateDurableListingPublishGuards({
+        ownerPubky: currentUserPubky,
+        hasMarketplaceSession: Boolean(marketplaceSession),
+        loadPaymentConfig: (pubky) => CommerceController.getSellerPaymentConfig(pubky),
+      });
+      if (reason) {
+        setPublishBlocked(reason);
+        toast(listingPublishBlockToast(reason));
         return null;
       }
     }
+
+    let createdListingId: string | null = null;
 
     await form.handleSubmit(async (data) => {
       const preparedMedia = await media.prepare(currentUserPubky);
@@ -356,6 +393,7 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     resumeDraft,
     flushDraft,
     publishBlocked,
+    publishGuardReady,
   };
 }
 

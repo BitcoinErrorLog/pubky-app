@@ -80,7 +80,7 @@ export function useMarketplaceSellerPaymentConfig() {
       stripePaymentLink: string;
       stripeRestrictedKey: string;
       paypalMerchantEmail: string;
-    }): Promise<boolean> => {
+    }): Promise<SellerPaymentConfigOwnView | false> => {
       const stripePaymentLink = input.stripePaymentLink.trim();
       const paypalMerchantEmail = input.paypalMerchantEmail.trim();
       const stripeRestrictedKey = input.stripeRestrictedKey.trim();
@@ -111,7 +111,7 @@ export function useMarketplaceSellerPaymentConfig() {
         });
         setConfig(saved);
         toast({ title: 'Payment settings saved' });
-        return true;
+        return saved;
       } catch (error) {
         Logger.error('Failed to save the payment configuration', { error });
         toast({

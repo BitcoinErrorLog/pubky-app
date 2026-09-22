@@ -49,6 +49,13 @@ export interface UseMarketplaceSessionConnectReturn {
    * flow that actually starts can never diverge.
    */
   requestsFullGrant: boolean;
+  /**
+   * True only while `start()` is running (or about to run) the reconnect
+   * grant. False for AuthToken bootstrap, including the BFF
+   * `shop_session_missing` / `shop_session_expired` fallback. The dialog
+   * must render this instead of re-reading the grant flag.
+   */
+  requestsGrantReconnect: boolean;
   /** Begins a fresh flow, cancelling any in-flight one. */
   start: () => void;
   /** Cancels the in-flight flow (frees it) and returns to `idle`. */

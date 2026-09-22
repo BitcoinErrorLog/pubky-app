@@ -448,7 +448,7 @@ function OfferThumbnail({ uri, title }: { uri: string | null; title: string }) {
     <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
       {mediaUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={mediaUrl} alt={`${title} thumbnail`} className="size-full object-cover" />
+        <img src={mediaUrl} alt={`${title} thumbnail`} className="size-full object-cover object-center" />
       ) : (
         <HandCoins className="size-5 text-muted-foreground" aria-hidden="true" />
       )}
