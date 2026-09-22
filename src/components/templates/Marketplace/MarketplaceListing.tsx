@@ -531,6 +531,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       onSessionRequired={revealSessionRequired}
                       onAccepted={negotiation.refresh}
                       isOwner={isOwner}
+                      holdDisabled={projectionIsReserved}
+                      holdLabel={
+                        viewerHoldOrder ? CHECKOUT_HOLD_COPY.heldForYouCta : CHECKOUT_HOLD_COPY.heldWhileAnotherPays
+                      }
                     />
                   )}
                 </>

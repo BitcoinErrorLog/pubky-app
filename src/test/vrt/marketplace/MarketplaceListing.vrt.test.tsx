@@ -158,7 +158,9 @@ const view = vi.hoisted(() => ({
   currentUserPubky: 'u'.repeat(52) as string | null,
   listingTags: [] as unknown[],
   needsSession: false,
-  orders: [] as Array<{ order: { id: string; buyerPubky: string; state: string; lines: Array<{ listingAggregateId: string }> } }>,
+  orders: [] as Array<{
+    order: { id: string; buyerPubky: string; state: string; lines: Array<{ listingAggregateId: string }> };
+  }>,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -628,9 +630,10 @@ describe('Marketplace listing detail — visual regression', () => {
     });
 
     const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
-      viewport: VRT_VIEWPORT_DESKTOP,
+      viewport: { width: 1440, height: 1800 },
     });
     await expect(screen.getByRole('link', { name: 'Held for you · view your order' })).toBeVisible();
+    await expect(screen.getByRole('button', { name: 'Held for you · view your order' })).toBeDisabled();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-held-for-you-desktop');
   });
 
@@ -655,11 +658,47 @@ describe('Marketplace listing detail — visual regression', () => {
     });
 
     const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
-      viewport: VRT_VIEWPORT_MOBILE,
+      viewport: { width: 390, height: 2200 },
     });
     await expect(screen.getByRole('link', { name: 'Held for you · view your order' })).toBeVisible();
+    await expect(screen.getByRole('button', { name: 'Held for you · view your order' })).toBeDisabled();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
       'listing-held-for-you-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('disables Make offer with hold copy while another buyer pays at desktop viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    await setView({
+      listing: fixedPriceListing,
+      adapterMode: 'transaction-service',
+      currentUserPubky: 'u'.repeat(52),
+      projection: { ...fixedPriceProjection, state: 'reserved', availableQuantity: 0, reservedQuantity: 1 },
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: { width: 1440, height: 1800 },
+    });
+    await expect(screen.getByRole('button', { name: 'Held while another buyer pays' })).toBeDisabled();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-held-another-desktop');
+  });
+
+  it('disables Make offer with hold copy while another buyer pays at mobile viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    await setView({
+      listing: fixedPriceListing,
+      adapterMode: 'transaction-service',
+      currentUserPubky: 'u'.repeat(52),
+      projection: { ...fixedPriceProjection, state: 'reserved', availableQuantity: 0, reservedQuantity: 1 },
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: { width: 390, height: 2200 },
+    });
+    await expect(screen.getByRole('button', { name: 'Held while another buyer pays' })).toBeDisabled();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'listing-held-another-mobile',
       VRT_DENSE_CHROME_SCREENSHOT,
     );
   });

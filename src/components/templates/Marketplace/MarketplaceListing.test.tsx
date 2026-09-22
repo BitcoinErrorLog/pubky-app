@@ -326,6 +326,8 @@ describe('MarketplaceListing', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sold out' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: CHECKOUT_HOLD_COPY.heldWhileAnotherPays })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
   });
 
   it('links Held for you to the viewer pending_payment order, not a session id', () => {
@@ -383,6 +385,7 @@ describe('MarketplaceListing', () => {
 
     const link = screen.getByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouCta });
     expect(link).toHaveAttribute('href', `/marketplace/orders#${ownHold.id}`);
+    expect(screen.getByRole('button', { name: CHECKOUT_HOLD_COPY.heldForYouCta })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Held by another buyer' })).not.toBeInTheDocument();
     expect(
       screen.queryByText(
