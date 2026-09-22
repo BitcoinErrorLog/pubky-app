@@ -6,6 +6,7 @@ import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceMessagingEnable } from '@/hooks/useMarketplaceMessagingEnable/useMarketplaceMessagingEnable';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { Logger } from '@/libs/logger/logger';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -38,8 +39,7 @@ export function MarketplaceMessagingEnablePanel({
   const enable = useMarketplaceMessagingEnable({
     onEnabled: () => {
       toast({
-        title: reconnect ? 'Encrypted messaging reconnected' : 'Encrypted messaging enabled',
-        description: 'The session stays active in this tab, survives reloads, and ends when the tab closes.',
+        title: reconnect ? MESSAGING_COPY.reconnectSuccess : MESSAGING_COPY.enableSuccess,
       });
       void onEnabled?.();
     },
@@ -64,7 +64,7 @@ export function MarketplaceMessagingEnablePanel({
   return (
     <div className="grid gap-4">
       <Typography as="p" className="text-sm text-muted-foreground">
-        {reconnect ? 'Reconnect encrypted messaging for this device.' : 'Approve encrypted messaging for this device.'}
+        {reconnect ? MESSAGING_COPY.reconnect : MESSAGING_COPY.enable}
       </Typography>
 
       {enable.status === 'error' ? (

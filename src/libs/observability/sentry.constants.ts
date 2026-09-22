@@ -9,7 +9,9 @@ export const SENTRY_REDACTION_MAX_DEPTH = 20;
 export const SENTRY_REDACTION_MAX_NODES = 1_000;
 export const SENTRY_REDACTION_MAX_STRING_LENGTH = 16_384;
 
-export const RAW_PUBKY_PATTERN = new RegExp(`\\b[${Z32_ALPHABET}]{52}\\b`, 'gi');
+// Lookaround on the z32 alphabet (not `\b`): `_` is a JS word character, so
+// `conversation:{seller52}_{buyer52}_{listingId}` would otherwise keep both pubkys.
+export const RAW_PUBKY_PATTERN = new RegExp(`(?<![${Z32_ALPHABET}])[${Z32_ALPHABET}]{52}(?![${Z32_ALPHABET}])`, 'gi');
 export const PUBKY_URI_PATTERN = /\bpubky:\/\/[^\s"'<>]+/gi;
 export const PUBKY_HTTP_HOST_PATTERN = /\bhttps?:\/\/_pubky\.[^\s"'<>]+/gi;
 export const PUBKY_COMPACT_URI_PATTERN = new RegExp(`\\bpubky[${Z32_ALPHABET}]{52}(?:\\/[^\\s"'<>]*)?`, 'gi');

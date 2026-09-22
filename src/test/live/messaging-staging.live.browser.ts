@@ -16,11 +16,17 @@
 // with saved identity secrets if tokens were already consumed.
 
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  marketplaceConversationHref,
+  reportRejectedConversationQuery,
+  resolveMarketplaceConversationQuery,
+} from '@/libs/commerce/marketplace-conversation-query';
 import { buildChatMessage, decodeChatMessage } from '@/libs/commerce/messaging-contracts';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
+import { Logger } from '@/libs/logger/logger';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { PaykitMessagingService, setPaykitWasmModuleForTests } from '@/services/paykit/paykit-messaging';
 
@@ -202,6 +208,34 @@ describe('encrypted marketplace messaging — live two-party proof on STAGING (p
 
     // --- Alice -> Bob chat message through the service ----------------------
     const conversationId = buildMarketplaceConversationAggregateId(bob.pubky, alice.pubky, LISTING_ID);
+    expect(
+      resolveMarketplaceConversationQuery({ values: [conversationId], currentUserPubky: alice.pubky }).status,
+    ).toBe('open');
+    expect(resolveMarketplaceConversationQuery({ values: [conversationId], currentUserPubky: bob.pubky }).status).toBe(
+      'open',
+    );
+    expect(
+      resolveMarketplaceConversationQuery({ values: ['not-a-conversation'], currentUserPubky: alice.pubky }).status,
+    ).toBe('invalid');
+    expect(
+      resolveMarketplaceConversationQuery({ values: [`dm:${bob.pubky}`], currentUserPubky: alice.pubky }).status,
+    ).toBe('invalid');
+    const hrefValues = new URL(
+      marketplaceConversationHref(conversationId),
+      'https://shop.pubky.app',
+    ).searchParams.getAll('conversation');
+    expect(resolveMarketplaceConversationQuery({ values: hrefValues, currentUserPubky: alice.pubky }).status).toBe(
+      'open',
+    );
+    const warn = vi.spyOn(Logger, 'warn');
+    reportRejectedConversationQuery();
+    const serializedWarn = JSON.stringify(warn.mock.calls);
+    expect(serializedWarn).toContain('invalid_conversation_query');
+    expect(serializedWarn).not.toContain(conversationId);
+    expect(serializedWarn).not.toContain(alice.pubky);
+    expect(serializedWarn).not.toContain(bob.pubky);
+    warn.mockRestore();
+
     const listingRef = buildMarketplaceListingAggregateId(bob.pubky, LISTING_ID);
     const sent = await PaykitMessagingService.sendChatMessage(alice.pubky, bob.pubky, {
       conversationId,

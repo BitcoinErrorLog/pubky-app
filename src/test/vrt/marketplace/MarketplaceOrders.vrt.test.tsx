@@ -268,6 +268,32 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/orders',
 }));
 
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({ requireAuth: <T,>(action: () => T) => action() }),
+}));
+
+vi.mock('@/hooks/useUserDetails/useUserDetails', () => ({
+  useUserDetails: () => ({ userDetails: null, isLoading: false }),
+}));
+
+vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
+  useEncryptedConversation: () => ({
+    status: 'ready',
+    errorMessage: null,
+    thread: [],
+    receiverProvisioned: false,
+    draft: '',
+    setDraft: vi.fn(),
+    bodyBudgetBytes: 620,
+    draftBytes: 0,
+    isSending: false,
+    sendError: null,
+    send: vi.fn(async () => 'queued'),
+    cancelQueued: vi.fn(async () => {}),
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock('@/stores/auth/auth.store', async () => ({
   useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: (await fixtures).buyer }),
 }));
@@ -525,5 +551,25 @@ describe('Marketplace orders — visual regression', () => {
     await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-no-backend-desktop');
     ordersState.adapterMode = 'sandbox';
+  });
+
+  it('renders the order message CTA at desktop viewport', async () => {
+    const { deliveryAssumed } = await fixtures;
+    ordersState.orders = deliveryAssumed;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-order-message-cta')).toMatchScreenshot('orders-message-cta-desktop');
+  });
+
+  it('renders the order message CTA at mobile viewport', async () => {
+    const { deliveryAssumed } = await fixtures;
+    ordersState.orders = deliveryAssumed;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(expectVrtSurface('marketplace-order-message-cta')).toMatchScreenshot('orders-message-cta-mobile');
   });
 });

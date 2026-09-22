@@ -9,10 +9,9 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useDmConversation } from '@/hooks/useDmConversation/useDmConversation';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
-import { formatPublicKey } from '@/libs/utils/utils';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
-import { PAYKIT_WASM_PROVENANCE_URL } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessagingEnablePanel } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
 import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -27,7 +26,7 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const conversation = useDmConversation(counterpartyPubky, Boolean(currentUserPubky));
   const { userDetails } = useUserDetails(counterpartyPubky);
-  const displayName = userDetails?.name || formatPublicKey({ key: counterpartyPubky });
+  const displayName = userDetails?.name?.trim() || 'Direct message';
 
   return (
     <ContentLayout
@@ -66,18 +65,12 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
             <Heading level={1} size="md" className="truncate">
               {displayName}
             </Heading>
-            <Typography as="p" overrideDefaults className="truncate text-xs text-muted-foreground">
-              {formatPublicKey({ key: counterpartyPubky })}
-            </Typography>
           </div>
         </div>
 
         <Typography as="p" className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
           <LockKeyhole className="size-3.5 shrink-0" aria-hidden />
-          End-to-end encrypted · history stored on this device ·{' '}
-          <Link href={PAYKIT_WASM_PROVENANCE_URL} target="_blank" rel="noreferrer" className="underline">
-            experiment-grade transport
-          </Link>
+          {MESSAGING_COPY.inboxSubtitleDurable}
         </Typography>
 
         {!currentUserPubky ? (
@@ -99,8 +92,7 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
               <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-8 text-center">
                 <ShieldAlert className="size-8 text-muted-foreground" aria-hidden />
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  <span className="font-semibold text-foreground">{displayName}</span> hasn&apos;t enabled encrypted
-                  messaging yet. Nothing can be delivered to them until they do — this app will not pretend otherwise.
+                  {MESSAGING_COPY.notEnrolledSeller}
                 </Typography>
               </div>
             )}
@@ -108,7 +100,6 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
             {conversation.status === 'handshaking-initiator' && (
               <EncryptedConversationBody
                 conversation={conversation}
-                counterpartyLabel={displayName}
                 composerPlaceholder={`Message ${displayName}`}
                 emptyPrompt=""
               >
@@ -117,8 +108,7 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
                   role="status"
                   className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
                 >
-                  Their messenger hasn&apos;t responded yet — messages you send are queued on this device and deliver
-                  automatically when it does.
+                  {MESSAGING_COPY.handshakeInitiator}
                 </Typography>
               </EncryptedConversationBody>
             )}
@@ -126,7 +116,6 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
             {conversation.status === 'handshaking-responder' && (
               <EncryptedConversationBody
                 conversation={conversation}
-                counterpartyLabel={displayName}
                 composerPlaceholder={`Message ${displayName}`}
                 emptyPrompt=""
               >
@@ -135,8 +124,7 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
                   role="status"
                   className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
                 >
-                  Still securing this conversation — messages you send are queued on this device and deliver
-                  automatically once the encrypted handshake completes.
+                  {MESSAGING_COPY.handshakeResponder}
                 </Typography>
               </EncryptedConversationBody>
             )}
@@ -144,7 +132,6 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
             {conversation.status === 'ready' && (
               <EncryptedConversationBody
                 conversation={conversation}
-                counterpartyLabel={displayName}
                 composerPlaceholder={`Message ${displayName}`}
                 emptyPrompt="Say hello. Messages are end-to-end encrypted; only the two of you can read them."
               />
@@ -156,7 +143,7 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
                   {conversation.errorMessage}
                 </div>
                 <Button className="w-fit rounded-full" onClick={conversation.refresh}>
-                  Try again
+                  {MESSAGING_COPY.inboxRetry}
                 </Button>
               </div>
             )}
