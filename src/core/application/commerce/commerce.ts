@@ -464,12 +464,18 @@ export class CommerceApplication {
     return await LocalCommerceService.getDraftsByOwner(ownerPubky);
   }
 
-  static async commitUpdateListingDraft(ownerPubky: string, listingId: string, form: CommerceJsonValue): Promise<void> {
+  static async commitUpdateListingDraft(
+    ownerPubky: string,
+    listingId: string,
+    form: CommerceJsonValue,
+    mediaBlobs: Record<string, Blob> = {},
+  ): Promise<void> {
     await LocalCommerceService.upsertDraft({
       ownerId: ownerPubky,
       listingId,
       data: { ownerPubky, listingId, form },
       now: Date.now(),
+      mediaBlobs,
     });
   }
 

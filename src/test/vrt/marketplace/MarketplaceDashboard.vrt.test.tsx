@@ -1,8 +1,8 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
-import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectVrtSurface, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceDashboard } from '@/templates/Marketplace/MarketplaceDashboard';
 
@@ -92,6 +92,7 @@ const view = vi.hoisted(() => ({
   actionNeeded: {} as unknown,
   isLoading: false,
   shop: null as unknown,
+  unfinishedDrafts: [] as Array<{ listingId: string; title: string; updatedAt: number; ageLabel: string }>,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -150,6 +151,10 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     actionNeeded: view.actionNeeded,
     updateListingState: vi.fn(async () => false),
     duplicateListing: vi.fn(async () => false),
+    hasUnsavedListingDraft: vi.fn(async () => null),
+    unfinishedDrafts: view.unfinishedDrafts,
+    discardListingDraft: vi.fn(async () => undefined),
+    resumeListingDraft: vi.fn(),
     exportCsv: () => 'listing_id,title,state,format,price_minor,currency,inventory',
   }),
 }));
@@ -159,6 +164,10 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('Marketplace seller dashboard — visual regression', () => {
+  beforeEach(() => {
+    view.unfinishedDrafts = [];
+  });
+
   it('renders populated metrics and inventory with row actions at desktop viewport', async () => {
     const { listings, populatedMetrics, populatedActionNeeded, shop } = await fixtures;
     view.listings = listings;
@@ -166,6 +175,7 @@ describe('Marketplace seller dashboard — visual regression', () => {
     view.actionNeeded = populatedActionNeeded;
     view.isLoading = false;
     view.shop = shop;
+    view.unfinishedDrafts = [];
 
     const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
@@ -239,5 +249,27 @@ describe('Marketplace seller dashboard — visual regression', () => {
       'dashboard-loading-desktop',
       VRT_DENSE_CHROME_SCREENSHOT,
     );
+  });
+
+  it('renders unfinished drafts when more than one is saved at desktop viewport', async () => {
+    const { listings, populatedMetrics, populatedActionNeeded, shop } = await fixtures;
+    view.listings = listings;
+    view.metrics = populatedMetrics;
+    view.actionNeeded = populatedActionNeeded;
+    view.isLoading = false;
+    view.shop = shop;
+    view.unfinishedDrafts = [
+      { listingId: 'draft_a', title: 'Vintage leather boots', updatedAt: 1, ageLabel: '3 min ago' },
+      { listingId: 'draft_b', title: 'Untitled listing', updatedAt: 2, ageLabel: '1 hour ago' },
+    ];
+
+    const screen = await renderForVRT(<MarketplaceDashboard />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('[data-surface="listing-drafts-list"]')) {
+        throw new Error('The unfinished drafts list has not rendered yet.');
+      }
+    });
+    await expect(expectVrtSurface('listing-drafts-list')).toMatchScreenshot('dashboard-unfinished-drafts-desktop');
+    view.unfinishedDrafts = [];
   });
 });

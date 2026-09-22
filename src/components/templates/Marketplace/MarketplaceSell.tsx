@@ -18,6 +18,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useCreateMarketplaceListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
 import { CREATE_MARKETPLACE_LISTING_FIELDS } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
+import { listingDraftResumePrompt, listingDraftTitleLabel } from '@/libs/commerce/listing-drafts';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
@@ -55,6 +56,7 @@ export function MarketplaceSell() {
 
   const submit = async () => {
     if (isDurableCommerceMode(getCommerceAdapterMode()) && !useCommerceStore.getState().marketplaceSession) {
+      await listing.flushDraft();
       setPublishAfterSession(true);
       return;
     }
@@ -124,7 +126,38 @@ export function MarketplaceSell() {
           </div>
         )}
 
-        {listing.restoredDraft && (
+        {listing.pendingRestore && (
+          <div
+            role="status"
+            data-surface="listing-draft-restore-prompt"
+            className="flex flex-col gap-3 rounded-xl border border-brand/30 bg-brand/5 p-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-start gap-3">
+              <History className="mt-0.5 size-5 shrink-0 text-brand" />
+              <div>
+                <Typography as="p" className="font-semibold">
+                  {listingDraftResumePrompt(listing.pendingRestore.updatedAt, Date.now())}
+                </Typography>
+                <Typography as="p" className="text-sm text-muted-foreground">
+                  {listingDraftTitleLabel(listing.pendingRestore.title)}
+                  {listing.pendingRestore.extraCount > 0
+                    ? ` · ${listing.pendingRestore.extraCount} more in Seller studio`
+                    : ''}
+                </Typography>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button className="rounded-full" size="sm" onClick={listing.resumeDraft}>
+                Resume
+              </Button>
+              <Button variant="secondary" size="sm" className="rounded-full" onClick={listing.reset}>
+                Discard
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {listing.restoredDraft && !listing.pendingRestore && (
           <div
             role="status"
             className="flex flex-col gap-3 rounded-xl border border-brand/30 bg-brand/5 p-4 sm:flex-row sm:items-center sm:justify-between"
@@ -139,11 +172,11 @@ export function MarketplaceSell() {
                   {listing.seededFromTitle
                     ? [
                         listing.seededAuctionAsFixedPrice ? 'Auction listings are copied as fixed price.' : null,
-                        'Photos were not copied — add them again before publishing.',
+                        'Photos were not copied from the published listing.',
                       ]
                         .filter(Boolean)
                         .join(' ')
-                    : 'We loaded your unfinished listing from this device. Photos are not part of drafts — add them again before publishing.'}
+                    : 'We loaded your unfinished listing from this device, including photos saved on it.'}
                 </Typography>
               </div>
             </div>
@@ -192,6 +225,8 @@ export function MarketplaceSell() {
           media={listing.media}
           onSubmit={submit}
           isPublishing={isPublishing}
+          initialActiveSectionId={listing.activeSectionId}
+          onActiveSectionChange={listing.setActiveSectionId}
         />
         {publishAfterSession && (
           <MarketplaceSessionConnectDialog

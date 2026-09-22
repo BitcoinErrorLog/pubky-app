@@ -1,4 +1,12 @@
 import { db } from '@/database/franky/franky';
+import {
+  decodeListingDraftBlobs,
+  encodeListingDraftBlobs,
+  listingDraftBlobBytes,
+  parseListingDraftMediaRefs,
+  planListingDraftBlobTrim,
+  planListingDraftEviction,
+} from '@/libs/commerce/listing-drafts';
 import type { CommerceListingRecord, CommerceShopRecord } from '@/libs/commerce/marketplace-records';
 import { DatabaseErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -786,11 +794,13 @@ export class LocalCommerceService {
   }
 
   static async getDraft(compositeListingId: string) {
-    return await CommerceListingDraftModel.findById(compositeListingId);
+    const draft = await CommerceListingDraftModel.findById(compositeListingId);
+    return draft ? this.hydrateDraftBlobs(draft) : draft;
   }
 
   static async getDraftsByOwner(ownerId: string): Promise<CommerceListingDraftModelSchema[]> {
-    return await CommerceListingDraftModel.findByOwner(ownerId);
+    const drafts = await CommerceListingDraftModel.findByOwner(ownerId);
+    return drafts.map((draft) => this.hydrateDraftBlobs(draft));
   }
 
   static async upsertDraft({
@@ -798,11 +808,13 @@ export class LocalCommerceService {
     listingId,
     data,
     now,
+    mediaBlobs = {},
   }: {
     ownerId: string;
     listingId: string;
     data: CommerceListingDraftData;
     now: number;
+    mediaBlobs?: Record<string, Blob>;
   }): Promise<void> {
     if (data.ownerPubky !== ownerId || data.listingId !== listingId) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Draft identity must match its account and listing.', {
@@ -816,13 +828,67 @@ export class LocalCommerceService {
     }
     const id = `${ownerId}:${listingId}`;
     const existing = await CommerceListingDraftModel.findById(id);
-    await CommerceListingDraftModel.upsert({
+    await this.writeDraftRow({
       id,
       owner_id: ownerId,
       listing_id: listingId,
       data,
       created_at: existing?.created_at ?? now,
       updated_at: now,
+      media_blobs: mediaBlobs,
+    });
+    await this.evictOwnerListingDrafts(ownerId, listingId);
+  }
+
+  private static hydrateDraftBlobs(draft: CommerceListingDraftModelSchema): CommerceListingDraftModelSchema {
+    return { ...draft, media_blobs: decodeListingDraftBlobs(draft.media_blobs) };
+  }
+
+  private static async writeDraftRow(draft: CommerceListingDraftModelSchema): Promise<void> {
+    await CommerceListingDraftModel.upsert({
+      ...draft,
+      media_blobs: (await encodeListingDraftBlobs(
+        draft.media_blobs ?? {},
+      )) as CommerceListingDraftModelSchema['media_blobs'],
+    });
+  }
+
+  private static async evictOwnerListingDrafts(ownerId: string, keepListingId: string): Promise<void> {
+    const drafts = await this.getDraftsByOwner(ownerId);
+    const rows = drafts.map((draft) => ({
+      id: draft.id,
+      listing_id: draft.listing_id,
+      updated_at: draft.updated_at,
+      blobBytes: listingDraftBlobBytes(draft.media_blobs),
+      blobKeys: Object.keys(draft.media_blobs ?? {}),
+    }));
+    const { deleteIds } = planListingDraftEviction(rows, keepListingId);
+    await Promise.all(deleteIds.map((draftId) => this.deleteDraft(draftId)));
+
+    const remaining = await this.getDraftsByOwner(ownerId);
+    const keep = remaining.find((draft) => draft.listing_id === keepListingId);
+    if (!keep?.media_blobs || Object.keys(keep.media_blobs).length === 0) return;
+    const otherBytes = remaining
+      .filter((draft) => draft.listing_id !== keepListingId)
+      .reduce((sum, draft) => sum + listingDraftBlobBytes(draft.media_blobs), 0);
+    const dropKeys = planListingDraftBlobTrim(keep.media_blobs, otherBytes);
+    if (dropKeys.length === 0) return;
+    const drop = new Set(dropKeys);
+    const nextBlobs = Object.fromEntries(Object.entries(keep.media_blobs).filter(([key]) => !drop.has(key)));
+    const form = keep.data.form;
+    const nextForm =
+      form && typeof form === 'object' && !Array.isArray(form)
+        ? {
+            ...(form as Record<string, unknown>),
+            mediaRefs: parseListingDraftMediaRefs((form as Record<string, unknown>).mediaRefs).filter(
+              (ref) => ref.kind === 'existing' || !drop.has(ref.key),
+            ),
+          }
+        : form;
+    await this.writeDraftRow({
+      ...keep,
+      data: { ...keep.data, form: nextForm as CommerceListingDraftData['form'] },
+      media_blobs: nextBlobs,
     });
   }
 

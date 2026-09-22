@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm } from 'react-hook-form';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -40,6 +40,39 @@ vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
 const createListing = vi.hoisted(() => ({
   fulfillment: 'shipping' as CreateMarketplaceListingData['fulfillment'],
   submitResult: 'seller:boots_01' as string | null,
+  adapterMode: 'sandbox' as 'sandbox' | 'transaction-service',
+  marketplaceSession: {
+    pubky: 'y'.repeat(52),
+    capabilities: '/pub/pubky.app/:rw',
+    expiresAt: '2026-09-14T00:00:00.000Z',
+    issuedAt: '2026-09-13T00:00:00.000Z',
+  } as object | null,
+  pendingRestore: null as { listingId: string; updatedAt: number; title: string; extraCount: number } | null,
+  restoredDraft: false,
+  submit: vi.fn(async () => createListing.submitResult),
+  flushDraft: vi.fn(async () => undefined),
+  resumeDraft: vi.fn(),
+  reset: vi.fn(),
+}));
+
+vi.mock('@/config/commerce', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/config/commerce')>();
+  return { ...actual, getCommerceAdapterMode: () => createListing.adapterMode };
+});
+
+vi.mock('@/stores/commerce/commerce.store', () => ({
+  useCommerceStore: {
+    getState: () => ({ marketplaceSession: createListing.marketplaceSession }),
+  },
+}));
+
+vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
+  MarketplaceSessionConnectDialog: ({ autoOpen }: { autoOpen?: boolean }) =>
+    autoOpen ? (
+      <div role="dialog" aria-label="Approve purchases">
+        The approval expired before it was completed. Try again.
+      </div>
+    ) : null,
 }));
 
 vi.mock('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing', async (importOriginal) => {
@@ -85,15 +118,22 @@ vi.mock('@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing', async
           moveItem: vi.fn(),
           setAltText: vi.fn(),
           seed: vi.fn(),
+          restore: vi.fn(),
           reset: vi.fn(),
           prepare: vi.fn(),
         } satisfies UseListingMediaManagerResult,
         draftId: 'draft-1',
-        restoredDraft: false,
+        restoredDraft: createListing.restoredDraft,
+        pendingRestore: createListing.pendingRestore,
+        activeSectionId: 'listing-section-photos',
+        setActiveSectionId: vi.fn(),
         seededFromTitle: null,
         seededAuctionAsFixedPrice: false,
-        submit: vi.fn(async () => createListing.submitResult),
-        reset: vi.fn(),
+        submit: createListing.submit,
+        reset: createListing.reset,
+        resumeDraft: createListing.resumeDraft,
+        flushDraft: createListing.flushDraft,
+        publishBlocked: null,
       };
     },
   };
@@ -103,6 +143,20 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
   beforeEach(() => {
     routerPush.mockClear();
     createListing.submitResult = 'seller:boots_01';
+    createListing.adapterMode = 'sandbox';
+    createListing.marketplaceSession = {
+      pubky: 'y'.repeat(52),
+      capabilities: '/pub/pubky.app/:rw',
+      expiresAt: '2026-09-14T00:00:00.000Z',
+      issuedAt: '2026-09-13T00:00:00.000Z',
+    };
+    createListing.pendingRestore = null;
+    createListing.restoredDraft = false;
+    createListing.submit.mockClear();
+    createListing.flushDraft.mockClear();
+    createListing.resumeDraft.mockClear();
+    createListing.reset.mockClear();
+    createListing.submit.mockImplementation(async () => createListing.submitResult);
   });
 
   it('routes to the public listing page after publishing a shipped listing', async () => {
@@ -129,5 +183,41 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
         `${getMarketplaceListingEditRoute('seller', 'boots_01')}#listing-section-shipping`,
       );
     });
+  });
+
+  it('asks to resume a stored draft instead of silently hydrating', () => {
+    createListing.pendingRestore = {
+      listingId: 'draftlisting01',
+      updatedAt: Date.parse('2026-09-22T07:00:00.000Z'),
+      title: 'Vintage leather boots',
+      extraCount: 1,
+    };
+    render(<MarketplaceSell />);
+
+    expect(screen.getByRole('status')).toHaveAttribute('data-surface', 'listing-draft-restore-prompt');
+    expect(screen.getByText('Vintage leather boots · 1 more in Seller studio')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    expect(createListing.resumeDraft).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(createListing.reset).toHaveBeenCalledOnce();
+  });
+
+  it('flushes the draft and keeps the composer when the grant dialog reports approval expired', async () => {
+    createListing.adapterMode = 'transaction-service';
+    createListing.marketplaceSession = null;
+    const user = userEvent.setup();
+    render(<MarketplaceSell />);
+
+    await user.click(screen.getByRole('button', { name: 'Publish listing' }));
+
+    await vi.waitFor(() => {
+      expect(createListing.flushDraft).toHaveBeenCalledOnce();
+    });
+    expect(createListing.submit).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Approve purchases' })).toHaveTextContent(
+      'The approval expired before it was completed. Try again.',
+    );
+    expect(screen.getByRole('heading', { name: 'Create a listing' })).toBeInTheDocument();
+    expect(createListing.reset).not.toHaveBeenCalled();
   });
 });

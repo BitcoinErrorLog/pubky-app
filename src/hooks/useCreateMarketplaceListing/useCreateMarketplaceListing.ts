@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
@@ -8,12 +8,26 @@ import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce
 import { commerceAttributeFieldsFor } from '@/config/taxonomy/taxonomy';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
+  type ListingMediaItem,
   type ListingMediaRecord,
   type PrepareListingMediaResult,
   useListingMediaManager,
   type UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
+import {
+  contentfulListingDrafts,
+  hydrateListingDraftMedia,
+  isListingDraftSectionId,
+  LISTING_DRAFT_AUTOSAVE_MS,
+  listingDraftFormRecord,
+  listingDraftHasUserContent,
+  type ListingDraftMediaInput,
+  type ListingDraftSectionId,
+  parseListingDraftMediaRefs,
+  serializeListingDraftMedia,
+  takeListingDraftResumeId,
+} from '@/libs/commerce/listing-drafts';
 import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
 import { availablePaymentMethods } from '@/libs/commerce/payment-methods';
 import {
@@ -45,6 +59,13 @@ import {
   listingAttributeFormField,
 } from './useCreateMarketplaceListing.types';
 
+export interface ListingDraftRestorePrompt {
+  listingId: string;
+  updatedAt: number;
+  title: string;
+  extraCount: number;
+}
+
 export interface UseCreateMarketplaceListingResult {
   form: UseFormReturn<CreateMarketplaceListingData>;
   media: UseListingMediaManagerResult;
@@ -52,12 +73,18 @@ export interface UseCreateMarketplaceListingResult {
   draftId: string;
   /** True when the form was hydrated from a locally autosaved draft. */
   restoredDraft: boolean;
+  /** Contentful draft waiting on Resume / Discard. Null after a choice or a one-shot resume. */
+  pendingRestore: ListingDraftRestorePrompt | null;
+  activeSectionId: ListingDraftSectionId;
+  setActiveSectionId: (sectionId: ListingDraftSectionId) => void;
   /** Source listing title when this draft was seeded by Duplicate. */
   seededFromTitle: string | null;
   /** True when Duplicate copied an auction as a fixed-price draft. */
   seededAuctionAsFixedPrice: boolean;
   submit: () => Promise<string | null>;
   reset: () => void;
+  resumeDraft: () => void;
+  flushDraft: () => Promise<void>;
   publishBlocked: 'no-method' | 'unverified' | null;
 }
 
@@ -67,18 +94,41 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   const media = useListingMediaManager();
   const [draftId, setDraftId] = useState(() => crypto.randomUUID().replaceAll('-', ''));
   const [restoredDraft, setRestoredDraft] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<ListingDraftRestorePrompt | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<ListingDraftSectionId>('listing-section-photos');
   const [seededFromTitle, setSeededFromTitle] = useState<string | null>(null);
   const [seededAuctionAsFixedPrice, setSeededAuctionAsFixedPrice] = useState(false);
   const [publishBlocked, setPublishBlocked] = useState<'no-method' | 'unverified' | null>(null);
   const draftReadyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingListingIdRef = useRef<string | null>(null);
+  const pendingRestoreRef = useRef<ListingDraftRestorePrompt | null>(null);
+  const draftIdRef = useRef(draftId);
+  const seededFromTitleRef = useRef(seededFromTitle);
+  const seededAuctionAsFixedPriceRef = useRef(seededAuctionAsFixedPrice);
+  const activeSectionIdRef = useRef(activeSectionId);
+  const mediaItemsRef = useRef(media.items);
+  const persistDraftRef = useRef<() => Promise<void>>(async () => undefined);
+  const restoreMediaRef = useRef(media.restore);
+  restoreMediaRef.current = media.restore;
   const form = useForm<CreateMarketplaceListingData>({
     resolver: zodResolver(createMarketplaceListingSchema),
     defaultValues: createMarketplaceListingDefaults,
     mode: 'onChange',
   });
   const watchedValues = useWatch({ control: form.control });
+  const mediaSignature = media.items
+    .map((item) =>
+      item.kind === 'new' ? `${item.key}:${item.file.size}:${item.altText}` : `${item.key}:${item.altText}`,
+    )
+    .join('|');
+
+  pendingRestoreRef.current = pendingRestore;
+  draftIdRef.current = draftId;
+  seededFromTitleRef.current = seededFromTitle;
+  seededAuctionAsFixedPriceRef.current = seededAuctionAsFixedPrice;
+  activeSectionIdRef.current = activeSectionId;
+  mediaItemsRef.current = media.items;
 
   // Adopt the preferred measurement system while the package fields are still
   // empty. Once something is typed (or a draft restored values), the form
@@ -106,20 +156,50 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     watchedValues.packageHeight,
   ]);
 
+  const applyDraft = useCallback(
+    (row: {
+      listing_id: string;
+      data: { form?: unknown };
+      media_blobs?: Record<string, Blob>;
+    }) => {
+      const parsed = createMarketplaceListingDraftSchema.safeParse(row.data.form);
+      if (!parsed.success) return false;
+      setDraftId(row.listing_id);
+      form.reset({ ...createMarketplaceListingDefaults, ...normalizeDraftForm(parsed.data) });
+      restoreMediaRef.current(
+        hydrateListingDraftMedia(parseListingDraftMediaRefs(parsed.data.mediaRefs), row.media_blobs),
+      );
+      if (isListingDraftSectionId(parsed.data.activeSectionId)) {
+        setActiveSectionId(parsed.data.activeSectionId);
+      }
+      setRestoredDraft(true);
+      setSeededFromTitle(parsed.data.seededFromTitle?.trim() ? parsed.data.seededFromTitle : null);
+      setSeededAuctionAsFixedPrice(parsed.data.seededAuctionAsFixedPrice === true);
+      setPendingRestore(null);
+      return true;
+    },
+    [form],
+  );
+
   useEffect(() => {
     if (!currentUserPubky) return;
     let active = true;
     CommerceController.getListingDrafts()
       .then((drafts) => {
         if (!active) return;
-        const latest = drafts[0];
-        const parsed = createMarketplaceListingDraftSchema.safeParse(latest?.data.form);
-        if (latest && parsed.success) {
-          setDraftId(latest.listing_id);
-          form.reset({ ...createMarketplaceListingDefaults, ...normalizeDraftForm(parsed.data) });
-          setRestoredDraft(true);
-          setSeededFromTitle(parsed.data.seededFromTitle?.trim() ? parsed.data.seededFromTitle : null);
-          setSeededAuctionAsFixedPrice(parsed.data.seededAuctionAsFixedPrice === true);
+        const contentful = contentfulListingDrafts(drafts);
+        const resumeId = takeListingDraftResumeId();
+        const targeted = resumeId ? contentful.find((draft) => draft.listing_id === resumeId) : undefined;
+        if (targeted) {
+          applyDraft(targeted);
+        } else if (contentful[0]) {
+          const formRecord = listingDraftFormRecord(contentful[0]);
+          setPendingRestore({
+            listingId: contentful[0].listing_id,
+            updatedAt: contentful[0].updated_at,
+            title: typeof formRecord?.title === 'string' ? formRecord.title.trim() : '',
+            extraCount: contentful.length - 1,
+          });
         }
         draftReadyRef.current = true;
       })
@@ -129,31 +209,56 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
     return () => {
       active = false;
     };
-  }, [currentUserPubky, form]);
+  }, [applyDraft, currentUserPubky]);
+
+  persistDraftRef.current = async () => {
+    if (!currentUserPubky) return;
+    if (!draftReadyRef.current) return;
+    if (pendingRestoreRef.current) return;
+    const serialized = JSON.parse(JSON.stringify(form.getValues())) as Record<string, unknown>;
+    const packed = serializeListingDraftMedia(listingDraftMediaInputs(mediaItemsRef.current));
+    serialized.mediaRefs = packed.mediaRefs;
+    serialized.activeSectionId = activeSectionIdRef.current;
+    if (seededFromTitleRef.current) {
+      serialized.seededFromTitle = seededFromTitleRef.current;
+      serialized.seededAuctionAsFixedPrice = seededAuctionAsFixedPriceRef.current;
+    }
+    if (!listingDraftHasUserContent(serialized)) return;
+    await CommerceController.commitUpdateListingDraft(draftIdRef.current, serialized, packed.mediaBlobs);
+  };
 
   useEffect(() => {
     if (!currentUserPubky) return;
     if (!draftReadyRef.current) return;
+    if (pendingRestore) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      const serialized = JSON.stringify(watchedValues);
-      if (serialized) {
-        const form = JSON.parse(serialized) as Record<string, unknown>;
-        if (seededFromTitle) {
-          form.seededFromTitle = seededFromTitle;
-          form.seededAuctionAsFixedPrice = seededAuctionAsFixedPrice;
-        }
-        void CommerceController.commitUpdateListingDraft(draftId, form);
-      }
-    }, 750);
+      void persistDraftRef.current();
+    }, LISTING_DRAFT_AUTOSAVE_MS);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [currentUserPubky, draftId, seededAuctionAsFixedPrice, seededFromTitle, watchedValues]);
+  }, [activeSectionId, currentUserPubky, draftId, mediaSignature, pendingRestore, seededAuctionAsFixedPrice, seededFromTitle, watchedValues]);
+
+  useEffect(() => {
+    const flush = () => {
+      void persistDraftRef.current();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   const submit = async (): Promise<string | null> => {
     if (!currentUserPubky) return null;
     setPublishBlocked(null);
+    await persistDraftRef.current();
     let createdListingId: string | null = null;
 
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
@@ -209,30 +314,65 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
   };
 
   const reset = () => {
+    const toDelete = pendingRestoreRef.current?.listingId ?? draftId;
     form.reset({ ...createMarketplaceListingDefaults, measurementSystem });
     media.reset();
     setRestoredDraft(false);
+    setPendingRestore(null);
+    setActiveSectionId('listing-section-photos');
     setSeededFromTitle(null);
     setSeededAuctionAsFixedPrice(false);
     setPublishBlocked(null);
     pendingListingIdRef.current = null;
     draftReadyRef.current = false;
-    void CommerceController.commitDeleteListingDraft(draftId);
+    void CommerceController.commitDeleteListingDraft(toDelete);
     setDraftId(crypto.randomUUID().replaceAll('-', ''));
     draftReadyRef.current = true;
   };
+
+  const resumeDraft = () => {
+    const pending = pendingRestoreRef.current;
+    if (!pending) return;
+    void CommerceController.getListingDrafts().then((drafts) => {
+      const match = drafts.find((draft) => draft.listing_id === pending.listingId);
+      if (match) applyDraft(match);
+    });
+  };
+
+  const flushDraft = () => persistDraftRef.current();
 
   return {
     form,
     media,
     draftId,
     restoredDraft,
+    pendingRestore,
+    activeSectionId,
+    setActiveSectionId,
     seededFromTitle,
     seededAuctionAsFixedPrice,
     submit,
     reset,
+    resumeDraft,
+    flushDraft,
     publishBlocked,
   };
+}
+
+function listingDraftMediaInputs(items: ListingMediaItem[]): ListingDraftMediaInput[] {
+  return items.map((item) =>
+    item.kind === 'existing'
+      ? { key: item.key, kind: 'existing', record: item.record, altText: item.altText }
+      : {
+          key: item.key,
+          kind: 'new',
+          file: item.file,
+          altText: item.altText,
+          name: item.file.name,
+          type: item.file.type,
+          lastModified: item.file.lastModified,
+        },
+  );
 }
 
 /**
@@ -254,6 +394,8 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
     fulfillment: draftFulfillment,
     seededFromTitle: _seededFromTitle,
     seededAuctionAsFixedPrice: _seededAuctionAsFixedPrice,
+    mediaRefs: _mediaRefs,
+    activeSectionId: _activeSectionId,
     ...draftForm
   } = draft;
   const normalized: Partial<CreateMarketplaceListingData> = { ...draftForm };

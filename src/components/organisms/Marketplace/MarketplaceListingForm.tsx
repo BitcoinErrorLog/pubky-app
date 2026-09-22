@@ -46,6 +46,7 @@ import {
   presetToShippingFields,
   shippingFieldsToPresetInput,
 } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
+import { isListingDraftSectionId, type ListingDraftSectionId } from '@/libs/commerce/listing-drafts';
 import { PICKUP_NOTHING_PUBLISHED_TOAST, PICKUP_REVERT_FAILED_TOAST } from '@/libs/commerce/pickup';
 import { amountInputSchemaForAsset, amountInputUnitLabel, assetForListingCurrency } from '@/libs/commerce/pricing';
 import {
@@ -100,6 +101,9 @@ export interface MarketplaceListingFormProps {
   mode?: 'create' | 'edit';
   /** True for auctions being edited: price and format were fixed at publish. */
   saleTermsLocked?: boolean;
+  /** Restored wizard section from a listing draft (create mode). */
+  initialActiveSectionId?: ListingDraftSectionId;
+  onActiveSectionChange?: (sectionId: ListingDraftSectionId) => void;
 }
 
 export function MarketplaceListingForm({
@@ -111,6 +115,8 @@ export function MarketplaceListingForm({
   listingId,
   mode = 'create',
   saleTermsLocked = false,
+  initialActiveSectionId,
+  onActiveSectionChange,
 }: MarketplaceListingFormProps) {
   const {
     items: mediaItems,
@@ -238,10 +244,20 @@ export function MarketplaceListingForm({
     ...(mediaItems.length > 0 && !photosReady ? ['Photo descriptions'] : []),
   ];
   const optionalLaterItems = getOptionalLaterItems(formValues);
-  const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(LISTING_FORM_SECTIONS[0].id);
+  const [activeSectionId, setActiveSectionId] = useState<ListingFormSectionId>(
+    initialActiveSectionId && isListingDraftSectionId(initialActiveSectionId)
+      ? initialActiveSectionId
+      : LISTING_FORM_SECTIONS[0].id,
+  );
+  useEffect(() => {
+    if (initialActiveSectionId && isListingDraftSectionId(initialActiveSectionId)) {
+      setActiveSectionId(initialActiveSectionId);
+    }
+  }, [initialActiveSectionId]);
   const activeSectionIndex = LISTING_FORM_SECTIONS.findIndex((section) => section.id === activeSectionId);
   const navigateToSection = (sectionId: ListingFormSectionId) => {
     setActiveSectionId(sectionId);
+    onActiveSectionChange?.(sectionId);
     const section = document.getElementById(sectionId);
     if (section && typeof section.scrollIntoView === 'function') {
       section.scrollIntoView({ behavior: 'smooth', block: 'start' });

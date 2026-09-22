@@ -163,4 +163,35 @@ describe('useListingMediaManager', () => {
     expect(prepared.uploads).toHaveLength(0);
     expect(prepared.media).toEqual([{ ...existing, altText: 'Better description' }]);
   });
+
+  it('rehydrates draft photos as new files with object-URL previews', () => {
+    const file = imageFile('restored.jpg');
+    const existing = {
+      id: 'image_01',
+      type: 'image' as const,
+      url: `pubky://${OWNER}/pub/pubky.app/marketplace/v1/media/image_01`,
+      contentHash: 'a'.repeat(64),
+      mimeType: 'image/jpeg',
+      byteSize: 3,
+      width: 1200,
+      height: 1600,
+      altText: 'Cover',
+    };
+    const { result } = renderHook(() => useListingMediaManager());
+
+    act(() =>
+      result.current.restore([
+        { key: 'new-1', kind: 'new', file, altText: 'Restored front' },
+        { key: existing.id, kind: 'existing', record: existing, altText: 'Cover cropped' },
+      ]),
+    );
+
+    expect(result.current.items).toHaveLength(2);
+    expect(result.current.items[0]).toMatchObject({
+      kind: 'new',
+      altText: 'Restored front',
+      previewUrl: 'blob:restored.jpg',
+    });
+    expect(result.current.items[1]).toMatchObject({ kind: 'existing', altText: 'Cover cropped' });
+  });
 });

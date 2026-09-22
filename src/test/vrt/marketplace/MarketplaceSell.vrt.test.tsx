@@ -54,6 +54,14 @@ const view = vi.hoisted(() => ({
   mediaItems: [] as unknown[],
   shippingPresets: [] as unknown[],
   pickupAvailable: false,
+  marketplaceSession: {
+    pubky: 'y'.repeat(52),
+    capabilities: '/pub/pubky.app/:rw',
+    expiresAt: '2026-09-14T00:00:00.000Z',
+    issuedAt: '2026-09-13T00:00:00.000Z',
+  } as object | null,
+  commitDeleteListingDraft: vi.fn(() => Promise.resolve()),
+  sessionErrorMessage: null as string | null,
 }));
 const sellerPaymentConfig = vi.hoisted(() =>
   vi.fn(() =>
@@ -113,12 +121,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 vi.mock('@/stores/commerce/commerce.store', () => ({
   useCommerceStore: {
     getState: () => ({
-      marketplaceSession: {
-        pubky: 'y'.repeat(52),
-        capabilities: '/pub/pubky.app/:rw',
-        expiresAt: '2026-09-14T00:00:00.000Z',
-        issuedAt: '2026-09-13T00:00:00.000Z',
-      },
+      marketplaceSession: view.marketplaceSession,
     }),
   },
 }));
@@ -128,7 +131,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     ...createMarketplaceVrtCommerceController(),
     getListingDrafts: () => Promise.resolve(view.drafts),
     commitUpdateListingDraft: () => Promise.resolve(),
-    commitDeleteListingDraft: () => Promise.resolve(),
+    commitDeleteListingDraft: (...args: unknown[]) => view.commitDeleteListingDraft(...args),
     commitCreateMedia: () => Promise.resolve(),
     commitUpsertListing: () => Promise.resolve(),
     getShippingPresets: () => Promise.resolve(view.shippingPresets),
@@ -138,6 +141,27 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     hasFullHomeserverGrant: () => true,
   },
 }));
+
+vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect')>();
+  return {
+    ...actual,
+    useMarketplaceSessionConnect: (options: { onConnected?: () => void } = {}) => {
+      if (!view.sessionErrorMessage) return actual.useMarketplaceSessionConnect(options);
+      return {
+        status: 'error' as const,
+        authorizationUrl: '',
+        errorMessage: view.sessionErrorMessage,
+        requestsFullGrant: false,
+        start: vi.fn(),
+        cancel: vi.fn(),
+        copyAuthUrl: vi.fn(async () => undefined),
+        openInRing: vi.fn(),
+        isOpeningRing: false,
+      };
+    },
+  };
+});
 
 vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/useListingMediaManager/useListingMediaManager')>();
@@ -154,6 +178,7 @@ vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', async (importOr
       moveItem: vi.fn(),
       setAltText: vi.fn(),
       seed: vi.fn(),
+      restore: vi.fn(),
       reset: vi.fn(),
       prepare: vi.fn(async () => ({ ok: false as const, reason: 'no-photos' as const })),
     }),
@@ -168,6 +193,22 @@ function photoItem(key: string, altText: string): MockMediaItem {
   return { key, kind: 'new', file: null, previewUrl: PREVIEW_DATA_URL, altText };
 }
 
+async function resumeAutosavedDraft(
+  screen: Awaited<ReturnType<typeof renderForVRT>>,
+  expectedTitle = draftFixture.data.form.title,
+) {
+  await vi.waitFor(() => {
+    if (!screen.queryByRole('button', { name: 'Resume' })) {
+      throw new Error('The resume prompt has not rendered yet.');
+    }
+  });
+  await screen.getByRole('button', { name: 'Resume' }).click();
+  await vi.waitFor(() => {
+    const input = screen.container.querySelector<HTMLInputElement>('#title');
+    if (input?.value !== expectedTitle) throw new Error('Draft has not populated the form yet.');
+  });
+}
+
 describe('Marketplace sell studio — visual regression', () => {
   beforeEach(() => {
     // The display store persists to localStorage, which browser-mode workers
@@ -177,6 +218,17 @@ describe('Marketplace sell studio — visual regression', () => {
     useMarketplaceDisplayStore.setState({ measurementSystem: 'imperial' });
     view.pickupAvailable = false;
     view.adapterMode = 'sandbox';
+    view.drafts = [];
+    view.mediaItems = [];
+    view.shippingPresets = [];
+    view.marketplaceSession = {
+      pubky: 'y'.repeat(52),
+      capabilities: '/pub/pubky.app/:rw',
+      expiresAt: '2026-09-14T00:00:00.000Z',
+      issuedAt: '2026-09-13T00:00:00.000Z',
+    };
+    view.sessionErrorMessage = null;
+    view.commitDeleteListingDraft.mockClear();
     sellerPaymentConfig.mockClear();
   });
 
@@ -246,6 +298,7 @@ describe('Marketplace sell studio — visual regression', () => {
     view.mediaItems = [photoItem('photo_front', 'Front view of the boots')];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
     await screen.getByRole('button', { name: 'Publish listing' }).click();
     await vi.waitFor(() => screen.getByText('Configure a payment method before publishing'));
     expect(sellerPaymentConfig).toHaveBeenCalledWith('y'.repeat(52));
@@ -264,6 +317,7 @@ describe('Marketplace sell studio — visual regression', () => {
     view.shippingPresets = presetFixtures;
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
     await vi.waitFor(() => {
       if (!screen.container.querySelector('#listing-shipping-preset')) {
         throw new Error('The preset picker has not rendered yet.');
@@ -273,17 +327,25 @@ describe('Marketplace sell studio — visual regression', () => {
     view.shippingPresets = [];
   });
 
-  it('renders the form with an autosaved draft restored at desktop viewport', async () => {
+  it('renders the restore prompt at desktop viewport', async () => {
     view.drafts = [draftFixture];
     view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
     await vi.waitFor(() => {
-      const input = screen.container.querySelector<HTMLInputElement>('#title');
-      if (input?.value !== draftFixture.data.form.title) throw new Error('Draft has not populated the form yet.');
+      if (!screen.container.querySelector('[data-surface="listing-draft-restore-prompt"]')) {
+        throw new Error('The restore prompt has not rendered yet.');
+      }
     });
-    // The restored-draft notice sits at the top; the populated fields prove
-    // hydration below the fold.
+    await expect(expectVrtSurface('listing-draft-restore-prompt')).toMatchScreenshot('sell-draft-restore-prompt-desktop');
+  });
+
+  it('renders the form with an autosaved draft restored at desktop viewport', async () => {
+    view.drafts = [draftFixture];
+    view.mediaItems = [];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
     await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-draft-restored-desktop');
   });
 
@@ -305,6 +367,7 @@ describe('Marketplace sell studio — visual regression', () => {
     view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
     await vi.waitFor(() => {
       const input = screen.container.querySelector<HTMLInputElement>('#reservePrice');
       if (input?.value !== '200.00') throw new Error('Private reserve has not populated the form yet.');
@@ -398,6 +461,7 @@ describe('Marketplace sell studio — visual regression', () => {
     view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
     await vi.waitFor(() => {
       if (!screen.container.querySelector('[data-cy="marketplace-listing-attributes"]')) {
         throw new Error('The item specifics block has not rendered yet.');
@@ -430,6 +494,7 @@ describe('Marketplace sell studio — visual regression', () => {
     view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen, 'Program-mode 35mm SLR');
     await vi.waitFor(() => {
       if (!screen.container.querySelector('#marketplace-attribute-model')) {
         throw new Error('The model field has not rendered yet.');
@@ -455,10 +520,7 @@ describe('Marketplace sell studio — visual regression', () => {
     view.mediaItems = [photoItem('photo_front', 'Front view of the boots')];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await vi.waitFor(() => {
-      const input = screen.container.querySelector<HTMLInputElement>('#title');
-      if (input?.value !== draftFixture.data.form.title) throw new Error('Draft has not populated the form yet.');
-    });
+    await resumeAutosavedDraft(screen);
     await vi.waitFor(() => {
       if (!screen.container.textContent?.includes('Description')) {
         throw new Error('The description checklist row has not rendered yet.');
@@ -483,10 +545,7 @@ describe('Marketplace sell studio — visual regression', () => {
     view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await vi.waitFor(() => {
-      const input = screen.container.querySelector<HTMLInputElement>('#title');
-      if (input?.value !== draftFixture.data.form.title) throw new Error('Draft has not populated the form yet.');
-    });
+    await resumeAutosavedDraft(screen);
     await vi.waitFor(() => {
       if (!screen.container.textContent?.includes('Publish first, then add your meeting point')) {
         throw new Error('The pickup-enabled studio copy has not rendered yet.');
@@ -505,5 +564,26 @@ describe('Marketplace sell studio — visual regression', () => {
     await expect(expectVrtSurface('listing-section-shipping')).toMatchScreenshot('sell-pickup-enabled-desktop');
     view.pickupAvailable = false;
     view.drafts = [];
+  });
+
+  it('keeps the restored draft when the grant dialog reports approval expired', async () => {
+    view.adapterMode = 'transaction-service';
+    view.marketplaceSession = null;
+    view.sessionErrorMessage = 'The approval expired before it was completed. Try again.';
+    view.drafts = [draftFixture];
+    view.mediaItems = [];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
+    await screen.getByRole('button', { name: 'Publish listing' }).click();
+    await vi.waitFor(() => {
+      if (!screen.container.textContent?.includes('The approval expired before it was completed. Try again.')) {
+        throw new Error('The grant expiry copy has not rendered yet.');
+      }
+    });
+    const input = screen.container.querySelector<HTMLInputElement>('#title');
+    expect(input?.value).toBe(draftFixture.data.form.title);
+    expect(view.commitDeleteListingDraft).not.toHaveBeenCalled();
+    expect(screen.container.querySelector('#title')).not.toBeNull();
   });
 });

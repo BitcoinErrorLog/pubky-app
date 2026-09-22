@@ -166,6 +166,12 @@ export interface CommerceListingDraftModelSchema {
   data: CommerceListingDraftData;
   created_at: number;
   updated_at: number;
+  /**
+   * Unindexed photo payload for unuploaded composer files. Callers see `Blob`s;
+   * Dexie stores `{ type, bytes: Uint8Array }` because nested `Blob` maps are
+   * dropped by Dexie's clone path. Not JSON. No extra index, no DB version bump.
+   */
+  media_blobs?: Record<string, Blob>;
 }
 
 export const commerceListingDraftTableSchema = '&id, owner_id, listing_id, updated_at, [owner_id+updated_at]';
