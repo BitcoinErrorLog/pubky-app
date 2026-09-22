@@ -276,7 +276,7 @@ export function MarketplaceCart() {
                                       alt={item.listing.record.title}
                                       fill
                                       sizes="80px"
-                                      className="absolute inset-0 object-cover"
+                                      className="absolute inset-0 object-cover object-center"
                                     />
                                   )}
                                 </div>

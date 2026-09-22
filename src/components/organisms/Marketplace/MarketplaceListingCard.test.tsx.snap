@@ -42,7 +42,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
       </svg>
       <img
         alt="35mm rangefinder camera"
-        class="h-auto max-w-full absolute inset-0 object-cover"
+        class="h-auto max-w-full absolute inset-0 object-cover object-center"
         data-nimg="fill"
         decoding="async"
         loading="lazy"
@@ -252,7 +252,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
       </svg>
       <img
         alt="Vintage leather boots"
-        class="h-auto max-w-full absolute inset-0 object-cover"
+        class="h-auto max-w-full absolute inset-0 object-cover object-center"
         data-nimg="fill"
         decoding="async"
         loading="lazy"

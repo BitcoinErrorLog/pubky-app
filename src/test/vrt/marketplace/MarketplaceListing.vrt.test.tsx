@@ -13,12 +13,13 @@ vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
     enabled ? { satUsd: 0.001, btcUsd: 100_000, lastUpdatedAt: new Date('2026-08-21T00:00:00Z') } : null,
 }));
 
-// Record media resolves to a deterministic data-URI image so the gallery
-// captures a REAL loaded image (main viewer + thumbnails) without any network
-// fetch — the fixture pubky:// URIs have no fetchable bytes in VRT.
+// Record media resolves to a deterministic portrait data-URI (8×16, orange
+// over teal) so the gallery captures a REAL loaded image without a network
+// fetch. The listing fixture declares 1200×1600; a square 8×8 made
+// object-cover vs object-contain indistinguishable in the reserved frame.
 const MEDIA_DATA_URL = vi.hoisted(
   () =>
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGN4UaKEFTEMLQkAgnNfgXMIh2kAAAAASUVORK5CYII=',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAQCAIAAACk6KkqAAAAGUlEQVR42mN4UaKEFTEMMQmtuf1Y0RCTAAByT7UBUCR7sgAAAABJRU5ErkJggg==',
 );
 
 vi.mock('@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl', async () => {
