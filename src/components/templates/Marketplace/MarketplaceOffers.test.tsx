@@ -176,7 +176,7 @@ describe('Marketplace offers UX', () => {
     await waitFor(() => expect(offerView.addAward).toHaveBeenCalledTimes(1));
     expect(offerView.addAward).toHaveBeenCalledWith(`${seller}:boots`, 'variant_42', 1, accepted.award?.id, 1);
     expect(offerView.push).toHaveBeenCalledWith(
-      '/marketplace/award-checkout?offer=018f47d2-6a27-7c23-b51e-000000000001',
+      '/marketplace/checkout?offer=018f47d2-6a27-7c23-b51e-000000000001',
     );
   });
 

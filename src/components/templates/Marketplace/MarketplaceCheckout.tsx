@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Banknote, Check, CreditCard, LoaderCircle, WalletCards } from 'lucide-react';
 import { Controller, useWatch } from 'react-hook-form';
-import { getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Checkbox } from '@/atoms/Checkbox/Checkbox';
@@ -18,14 +18,19 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceMode } from '@/config/commerce';
 import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isMarketplaceAwardCheckoutEligible } from '@/core/services/marketplace/marketplace-projections';
 import {
+  groupMarketplaceCartItems,
   type MarketplaceCartGroup,
+  type MarketplaceCartItem,
   marketplaceCartShippingTotals,
   useMarketplaceCart,
 } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceCheckout } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout';
 import { marketplaceCheckoutSchema } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types';
 import { useMarketplaceMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import { useMarketplaceOfferCheckout } from '@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout';
+import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import {
@@ -36,6 +41,7 @@ import {
   readCheckoutHashOrderId,
   reservedWhileYouPayCopy,
 } from '@/libs/commerce/checkout-phase';
+import { marketplaceOfferCheckoutFailureMessage } from '@/libs/commerce/failure-messages';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { availablePaymentMethods, type PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
@@ -47,6 +53,8 @@ import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceI
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import type { MarketplaceOfferAward } from '@/services/marketplace/marketplace';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceAwardCheckout } from './MarketplaceAwardCheckout';
 import { MarketplaceCartSkeleton } from './MarketplaceCart.skeleton';
 

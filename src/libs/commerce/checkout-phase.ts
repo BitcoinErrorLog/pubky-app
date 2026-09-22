@@ -25,6 +25,25 @@ export function getMarketplaceCheckoutRoute(orderId?: string | null): string {
   return orderId ? `${MARKETPLACE_ROUTES.CHECKOUT}#${orderId}` : MARKETPLACE_ROUTES.CHECKOUT;
 }
 
+export function getMarketplaceOfferCheckoutRoute(offerId?: string | null): string {
+  if (!offerId) return MARKETPLACE_ROUTES.CHECKOUT;
+  const params = new URLSearchParams({ offer: offerId });
+  return `${MARKETPLACE_ROUTES.CHECKOUT}?${params.toString()}`;
+}
+
+export function getMarketplaceDropCheckoutRoute(input: {
+  sellerPubky: string;
+  dropId: string;
+  listingId: string;
+}): string {
+  const params = new URLSearchParams({
+    seller: input.sellerPubky,
+    drop: input.dropId,
+    listing: input.listingId,
+  });
+  return `${MARKETPLACE_ROUTES.CHECKOUT}?${params.toString()}`;
+}
+
 export function isPendingPaymentState(state: string): boolean {
   return state === 'pending_payment';
 }

@@ -132,6 +132,8 @@ export function useMarketplaceCheckout(
   isPickupCapabilityLoading: boolean;
   /** The number of durable rows this checkout creates — one per (seller, fulfillment) group. */
   orderCount: number;
+  /** Persist a used or newly saved address after a successful create (offer or cart). */
+  rememberAddress: () => Promise<void>;
 } {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   // Connecting a session replaces this store object; the flag below clears so
@@ -543,5 +545,8 @@ export function useMarketplaceCheckout(
     hasFulfillmentConflict,
     isPickupCapabilityLoading: pickupAvailable === null,
     orderCount,
+    rememberAddress: async () => {
+      await persistAddressBookAfterOrder(form.getValues());
+    },
   };
 }

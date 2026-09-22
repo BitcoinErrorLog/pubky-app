@@ -70,7 +70,7 @@ describe('DropClaimPanel', () => {
   it('disables repeat claims and states the per-buyer limit at zero allowance', async () => {
     render(
       <DropClaimPanel
-        record={{ ownerPubky: SELLER, listingIds: ['listing1'] } as CommerceDropRecord}
+        record={{ ownerPubky: SELLER, dropId: 'vol1', listingIds: ['listing1'] } as CommerceDropRecord}
         claim={makeClaim()}
         remainingAllowance={0}
       />,
@@ -86,7 +86,7 @@ describe('DropClaimPanel', () => {
     const user = userEvent.setup();
     render(
       <DropClaimPanel
-        record={{ ownerPubky: SELLER, listingIds: ['listing1'] } as CommerceDropRecord}
+        record={{ ownerPubky: SELLER, dropId: 'vol1', listingIds: ['listing1'] } as CommerceDropRecord}
         claim={makeClaim()}
         remainingAllowance={2}
       />,
@@ -100,5 +100,19 @@ describe('DropClaimPanel', () => {
 
     await user.click(purchase);
     expect(authState.setShowSignInDialog).toHaveBeenCalledWith(true);
+  });
+
+  it('sends Claim one through the single Checkout screen', async () => {
+    render(
+      <DropClaimPanel
+        record={{ ownerPubky: SELLER, dropId: 'vol1', listingIds: ['listing1'] } as CommerceDropRecord}
+        claim={makeClaim()}
+        remainingAllowance={2}
+      />,
+    );
+
+    const claim = await screen.findByRole('link', { name: 'Claim one' });
+    expect(claim).toHaveAttribute('href', `/marketplace/checkout?seller=${SELLER}&drop=vol1&listing=listing1`);
+    expect(screen.queryByText(/No saved delivery address/)).not.toBeInTheDocument();
   });
 });

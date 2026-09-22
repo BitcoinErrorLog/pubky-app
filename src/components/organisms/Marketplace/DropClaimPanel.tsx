@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, LoaderCircle, Zap } from 'lucide-react';
-import { MARKETPLACE_ROUTES } from '@/app/routes';
+import { CheckCircle2, Zap } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
@@ -11,7 +10,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import type { UseMarketplaceDropClaimResult } from '@/hooks/useMarketplaceDropClaim/useMarketplaceDropClaim';
 import { useMarketplaceFirstMediaUrls } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
-import { getMarketplaceCheckoutRoute } from '@/libs/commerce/checkout-phase';
+import { getMarketplaceCheckoutRoute, getMarketplaceDropCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceDropRecord, CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -94,7 +93,6 @@ export function DropClaimPanel({
           {(listings ?? record.listingIds.map((listingId) => ({ listingId, record: null }))).map(
             ({ listingId, record: listing }, index) => {
               const compositeId = `${record.ownerPubky}:${listingId}`;
-              const isSubmitting = claim.submittingListingId === compositeId;
               const isClaimed = claim.claimedListingIds.has(compositeId);
               const claimDeadline = claim.claimDeadlines?.get(compositeId);
               const allowanceSpent = remainingAllowance === 0;
@@ -141,27 +139,24 @@ export function DropClaimPanel({
                         </Typography>
                       )}
                     </div>
+                  ) : isOwner || allowanceSpent ? (
+                    <Button size="sm" className="rounded-full" disabled>
+                      {allowanceSpent ? <CheckCircle2 className="mr-2 size-4" /> : <Zap className="mr-2 size-4" />}
+                      {isOwner ? 'You cannot claim from your own drop' : 'Per-buyer limit reached'}
+                    </Button>
                   ) : (
-                    <Button
-                      size="sm"
-                      className="rounded-full"
-                      disabled={isOwner || claim.submittingListingId !== null || allowanceSpent}
-                      onClick={() => void claim.claim(record.ownerPubky, listingId, remainingAllowance)}
-                    >
-                      {allowanceSpent ? (
-                        <CheckCircle2 className="mr-2 size-4" />
-                      ) : isSubmitting ? (
-                        <LoaderCircle className="mr-2 size-4 animate-spin" />
-                      ) : (
+                    <Button asChild size="sm" className="rounded-full">
+                      <Link
+                        href={getMarketplaceDropCheckoutRoute({
+                          sellerPubky: record.ownerPubky,
+                          dropId: record.dropId,
+                          listingId,
+                        })}
+                        overrideDefaults
+                      >
                         <Zap className="mr-2 size-4" />
-                      )}
-                      {isOwner
-                        ? 'You cannot claim from your own drop'
-                        : allowanceSpent
-                          ? 'Per-buyer limit reached'
-                          : isSubmitting
-                            ? 'Claiming…'
-                            : 'Claim one'}
+                        Claim one
+                      </Link>
                     </Button>
                   )}
                 </li>
@@ -178,15 +173,6 @@ export function DropClaimPanel({
       {remainingAllowance === 0 && currentUserPubky && (
         <Typography as="p" role="status" className="text-sm font-medium text-muted-foreground">
           You have reached this drop&apos;s per-buyer limit.
-        </Typography>
-      )}
-      {!claim.claimAddress && !claim.needsSession && currentUserPubky && (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          No saved delivery address yet — the claim sends one with the checkout.{' '}
-          <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults className="text-brand hover:underline">
-            Add one now
-          </Link>
-          .
         </Typography>
       )}
     </section>

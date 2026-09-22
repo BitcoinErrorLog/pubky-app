@@ -5,6 +5,8 @@ import {
   extractCheckoutOrderIds,
   formatRemainingMmSs,
   getMarketplaceCheckoutRoute,
+  getMarketplaceDropCheckoutRoute,
+  getMarketplaceOfferCheckoutRoute,
   intersectPaymentMethods,
   isAbandonedCheckout,
   isBuyerCheckoutInProgress,
@@ -25,6 +27,10 @@ describe('checkout-phase', () => {
     expect(getMarketplaceCheckoutRoute()).toBe(MARKETPLACE_ROUTES.CHECKOUT);
     expect(getMarketplaceCheckoutRoute('018f47d2-6a27-7c23-a49d-000000000001')).toBe(
       `${MARKETPLACE_ROUTES.CHECKOUT}#018f47d2-6a27-7c23-a49d-000000000001`,
+    );
+    expect(getMarketplaceOfferCheckoutRoute('offer-1')).toBe(`${MARKETPLACE_ROUTES.CHECKOUT}?offer=offer-1`);
+    expect(getMarketplaceDropCheckoutRoute({ sellerPubky: SELLER, dropId: 'vol1', listingId: 'boots' })).toBe(
+      `${MARKETPLACE_ROUTES.CHECKOUT}?seller=${SELLER}&drop=vol1&listing=boots`,
     );
   });
 

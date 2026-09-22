@@ -16,7 +16,7 @@ import {
 } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
-import { getMarketplaceCheckoutRoute } from '@/libs/commerce/checkout-phase';
+import { getMarketplaceCheckoutRoute, getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -102,7 +102,7 @@ export function MarketplaceCart() {
                             </Typography>
                           </div>
                           <Button asChild className="rounded-full">
-                            <Link href={`${MARKETPLACE_ROUTES.CHECKOUT}?offer=${item.awardId}`} overrideDefaults>
+                            <Link href={getMarketplaceOfferCheckoutRoute(item.awardId)} overrideDefaults>
                               Checkout
                             </Link>
                           </Button>

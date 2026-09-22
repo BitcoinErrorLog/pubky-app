@@ -18,6 +18,7 @@ import { isMarketplaceAwardCheckoutEligible } from '@/core/services/marketplace/
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
+import { getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { amountInputUnitLabel, isBitcoinAsset } from '@/libs/commerce/pricing';
@@ -219,7 +220,7 @@ export function MarketplaceOffers() {
                               award.id,
                               offer.revision,
                             );
-                            if (added) router.push(`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${offer.id}`);
+                            if (added) router.push(getMarketplaceOfferCheckoutRoute(offer.id));
                           }}
                         >
                           Buy for {formatCommerceMoney(offer.award.subtotal)} + shipping
