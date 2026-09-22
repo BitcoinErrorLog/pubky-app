@@ -6,6 +6,7 @@ import {
   type MarketplaceReceiptAttestation,
   marketplaceReceiptAttestationSchema,
 } from '@/libs/commerce/attestation';
+import { marketplacePaymentMethodReasonMessage } from '@/libs/commerce/failure-messages';
 import {
   sellerPaymentConfirmationSchema,
   sellerPaymentResolutionSchema,
@@ -81,37 +82,6 @@ import {
   parseMarketplaceNotificationEntries,
 } from './marketplace-projections';
 import { MarketplaceSessionService } from './marketplace-session';
-
-const PAYMENT_METHOD_FAILURE_MESSAGES: Record<string, string> = {
-  bitcoin_unavailable: 'Bitcoin payments are not available for this seller.',
-  currency_unsupported: 'This payment method does not support the order currency.',
-  hold_unavailable: 'The inventory hold for this order is no longer available.',
-  invalid_method: 'That payment method is not valid for this order.',
-  invalid_payment_link: 'The Stripe payment link is not valid.',
-  invalid_paypal_email: 'The PayPal merchant email is not valid.',
-  invalid_pubky: 'The seller identity on this payment configuration is not valid.',
-  invalid_restricted_key: 'The Stripe restricted key is not valid.',
-  invalid_transaction_ref: 'The payment reference is not valid.',
-  locks_managed: 'A Locks-correlated payment advances only by server-side verification.',
-  method_mismatch: 'The payment method does not match this order.',
-  method_unavailable: 'That payment method is not available.',
-  not_buyer: 'Only the buyer may bind the payment method.',
-  not_participant: 'Only a participant on this order can continue.',
-  not_seller: 'Only the seller can continue this payment step.',
-  order_not_found: 'The order was not found.',
-  order_not_pending: 'Only an order pending payment can bind a payment method.',
-  paykit_rejected: 'The Paykit server rejected the payment request.',
-  paykit_unavailable: 'The Paykit server is unavailable. Try again shortly.',
-  payment_method_already_bound: 'A payment method is already bound to this order.',
-  payment_not_awaiting: 'The payment is no longer awaiting a method.',
-  payments_disabled: 'Payments are disabled on this marketplace.',
-  seller_account_unclaimed: 'The seller has not claimed a Bitcoin account yet.',
-  sold_out: 'This listing no longer has enough inventory.',
-  stripe_key_invalid: 'Stripe rejected the seller payment key. The seller must update their payment settings.',
-  stripe_key_missing: 'This seller has not configured a Stripe key.',
-  stripe_unavailable: 'Stripe could not be reached. Try again shortly.',
-  unavailable: 'The payment method request was refused.',
-};
 
 /**
  * Command kinds the durable Rust service implements (its envelope contract
@@ -1106,15 +1076,11 @@ export class MarketplaceTransactionService {
       // A non-JSON failure body falls through to the generic parse error.
       return;
     }
-    throw Err.client(
-      ClientErrorCode.BAD_REQUEST,
-      PAYMENT_METHOD_FAILURE_MESSAGES[reason ?? ''] ?? PAYMENT_METHOD_FAILURE_MESSAGES.unavailable,
-      {
-        service: ErrorService.Marketplace,
-        operation,
-        context: { statusCode: response.status, reason },
-      },
-    );
+    throw Err.client(ClientErrorCode.BAD_REQUEST, marketplacePaymentMethodReasonMessage(reason), {
+      service: ErrorService.Marketplace,
+      operation,
+      context: { statusCode: response.status, reason },
+    });
   }
 
   private static parseOrderEnvelope(operation: string, raw: unknown): MarketplaceOrder {

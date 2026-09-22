@@ -978,6 +978,39 @@ describe('MarketplaceTransactionService read projections', () => {
       });
     });
 
+    it('surfaces live-test allow-list and amount-cap reasons as static copy', async () => {
+      await establishSession();
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(409, {
+          ok: false,
+          error: {
+            code: 'INVALID_STATE',
+            message: 'This seller is not on the live-test allow-list.',
+            reason: 'live_test_seller_not_allowlisted',
+          },
+        }),
+      );
+      await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'paypal')).rejects.toMatchObject({
+        message: 'This seller is not enabled for live payment tests.',
+        context: { reason: 'live_test_seller_not_allowlisted' },
+      });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(409, {
+          ok: false,
+          error: {
+            code: 'INVALID_STATE',
+            message: 'The order total exceeds the live-test amount cap.',
+            reason: 'live_test_amount_capped',
+          },
+        }),
+      );
+      await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'paypal')).rejects.toMatchObject({
+        message: 'This order exceeds the live-test payment cap of $1.00.',
+        context: { reason: 'live_test_amount_capped' },
+      });
+    });
+
     it('maps payment-method reasons to static copy and never logs the server message', async () => {
       await establishSession();
       const echoed = 'rk_live_echoed_restricted_key_value';

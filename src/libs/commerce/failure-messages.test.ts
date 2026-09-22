@@ -4,9 +4,12 @@ import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/er
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
+  MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES,
   marketplaceCheckoutRefusalMessage,
   marketplaceFailureMessage,
   marketplaceOfferCheckoutFailureMessage,
+  marketplacePaymentMethodFailureMessage,
+  marketplacePaymentMethodReasonMessage,
 } from './failure-messages';
 
 describe('marketplaceFailureMessage', () => {
@@ -111,6 +114,72 @@ describe('marketplaceCheckoutRefusalMessage', () => {
     expect(marketplaceCheckoutRefusalMessage('UNAUTHORIZED', 'A buyer cannot purchase their own listing.')).not.toBe(
       MARKETPLACE_FAILURE_MESSAGES.session,
     );
+  });
+});
+
+describe('marketplacePaymentMethodFailureMessage', () => {
+  it('maps a live-test allow-list refusal from context.reason', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL_PAYMENT_METHOD_WIRE',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: 'live_test_seller_not_allowlisted' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'The payment action could not be completed.')).toBe(
+      MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES.get('live_test_seller_not_allowlisted'),
+    );
+    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).not.toContain('SENTINEL');
+  });
+
+  it('maps a live-test amount cap refusal with the $1.00 limit', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL_PAYMENT_METHOD_WIRE',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: 'live_test_amount_capped' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).toBe(
+      'This order exceeds the live-test payment cap of $1.00.',
+    );
+  });
+
+  it('maps a missing payment method without copying the wire message', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL_PAYMENT_METHOD_WIRE',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: 'method_unavailable' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).toBe(
+      'The seller has not configured this payment method.',
+    );
+  });
+
+  it('keeps the action fallback when no payment-method reason is present', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.CONFLICT,
+      message: 'SENTINEL_ORDER_PAYMENT_ACTION',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'The payment action could not be completed.')).toBe(
+      'The payment action could not be completed.',
+    );
+  });
+
+  it('maps known reasons and ignores prototype keys', () => {
+    expect(marketplacePaymentMethodReasonMessage('live_test_seller_not_allowlisted')).toBe(
+      'This seller is not enabled for live payment tests.',
+    );
+    expect(marketplacePaymentMethodReasonMessage('constructor')).toBe('The payment method request was refused.');
+    expect(marketplacePaymentMethodReasonMessage(undefined)).toBe('The payment method request was refused.');
   });
 });
 

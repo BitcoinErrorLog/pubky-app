@@ -21,13 +21,14 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 vi.mock('@/molecules/Toaster/use-toast', () => ({ toast: vi.fn() }));
 vi.mock('@/libs/logger/logger', () => ({ Logger: { error: vi.fn(), warn: vi.fn() } }));
 
-const appError = (message: string) =>
+const appError = (message: string, reason?: string) =>
   new AppError({
     category: ErrorCategory.Client,
     code: ClientErrorCode.CONFLICT,
     message,
     service: ErrorService.Marketplace,
     operation: 'payment',
+    ...(reason ? { context: { reason, statusCode: 409 } } : {}),
   });
 
 describe('useMarketplaceOrderPayment', () => {
@@ -59,8 +60,32 @@ describe('useMarketplaceOrderPayment', () => {
     await act(async () => {
       await result.current.bind('bitcoin');
     });
-    const description = vi.mocked(toast).mock.calls.at(-1)?.[0]?.description;
-    expect(description).toBeTypeOf('string');
-    expect(description).not.toContain('SENTINEL_ORDER_PAYMENT_ACTION');
+    const toastCall = vi.mocked(toast).mock.calls.at(-1)?.[0];
+    expect(toastCall?.variant).toBe('error');
+    expect(toastCall?.description).toBeTypeOf('string');
+    expect(toastCall?.description).not.toContain('SENTINEL_ORDER_PAYMENT_ACTION');
+  });
+
+  it('surfaces the service live-test refusal reason on an error toast', async () => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: 'seller@example.com',
+    });
+    vi.mocked(CommerceController.bindPaymentMethod).mockRejectedValueOnce(
+      appError('SENTINEL_ORDER_PAYMENT_ACTION', 'live_test_seller_not_allowlisted'),
+    );
+    const { result } = renderHook(() =>
+      useMarketplaceOrderPayment({ order: createOrderFixture('paid'), enabled: true, onPaymentChanged: vi.fn() }),
+    );
+
+    await act(async () => {
+      await result.current.bind('paypal');
+    });
+    const toastCall = vi.mocked(toast).mock.calls.at(-1)?.[0];
+    expect(toastCall?.variant).toBe('error');
+    expect(toastCall?.description).toBe('This seller is not enabled for live payment tests.');
+    expect(toastCall?.description).not.toContain('SENTINEL');
   });
 });
