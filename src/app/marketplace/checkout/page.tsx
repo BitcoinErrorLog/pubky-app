@@ -1,13 +1,12 @@
 import { gatedMarketplaceMetadata } from '@/app/marketplace/gated-metadata';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
-import { MarketplaceAwardCheckout } from '@/templates/Marketplace/MarketplaceAwardCheckout';
+
+export { MarketplaceCheckout as default } from '@/templates/Marketplace/MarketplaceCheckout';
 
 export function generateMetadata() {
   return gatedMarketplaceMetadata(
     'Checkout | Pubky Marketplace',
-    'Review and pay the terms accepted for your marketplace offer.',
-    MARKETPLACE_ROUTES.AWARD_CHECKOUT,
+    'Pay for items in your Pubky Marketplace cart.',
+    MARKETPLACE_ROUTES.CHECKOUT,
   );
 }
-
-export default MarketplaceAwardCheckout;

@@ -8,15 +8,23 @@ import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { MarketplaceCartItem } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import {
+  BIND_FAIL_CANCEL_REASON,
+  listingAggregatesFromCheckoutLines,
+  resolveCreatedCheckoutOrderIds,
+} from '@/libs/commerce/checkout-phase';
+import {
   MARKETPLACE_FAILURE_MESSAGES,
   marketplaceCheckoutRefusalMessage,
   marketplaceErrorCode,
   marketplaceFailureMessage,
+  marketplacePaymentMethodFailureMessage,
 } from '@/libs/commerce/failure-messages';
 import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-records';
+import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
 import {
+  buildMarketplaceOrderAggregateId,
   classifyMarketplacePickupCommandRefusal,
   isMarketplaceRevisionConflict,
 } from '@/libs/commerce/transaction-commands';
@@ -24,6 +32,7 @@ import { AppError } from '@/libs/error/error';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { CommerceDeliveryAddressModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
+import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
@@ -82,12 +91,20 @@ function formMatchesAddress(
   });
 }
 
+export type MarketplacePayResult = {
+  ok: boolean;
+  orderIds: string[];
+  boundOrders: MarketplaceOrder[];
+};
+
 export function useMarketplaceCheckout(
   items: MarketplaceCartItem[],
   clearCart: () => Promise<void>,
 ): {
   form: UseFormReturn<MarketplaceCheckoutData>;
   submit: () => Promise<boolean>;
+  pay: (method: PaymentMethodKind | null) => Promise<MarketplacePayResult>;
+  isPaying: boolean;
   needsSession: boolean;
   sessionError: string | null;
   /** True when the store holds session facts and getActiveSession still accepts them. */
@@ -113,7 +130,7 @@ export function useMarketplaceCheckout(
   hasFulfillmentConflict: boolean;
   /** True while the deployment's pickup capability is still unknown. */
   isPickupCapabilityLoading: boolean;
-  /** The number of orders this checkout places — one per (seller, fulfillment) group. */
+  /** The number of durable rows this checkout creates — one per (seller, fulfillment) group. */
   orderCount: number;
 } {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
@@ -123,6 +140,7 @@ export function useMarketplaceCheckout(
   const hasActiveServiceSession = CommerceController.hasActiveMarketplaceSession();
   const [needsSession, setNeedsSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [isPaying, setIsPaying] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [pickupAvailable, setPickupAvailable] = useState<boolean | null>(null);
   const [choiceOverrides, setChoiceOverrides] = useState<Record<string, MarketplaceFulfillmentMethod>>({});
@@ -280,8 +298,153 @@ export function useMarketplaceCheckout(
     } catch {
       // The order already succeeded; failing to update the local address book
       // must not look like a failed checkout.
-      toast({ variant: 'error', description: 'The order was placed, but the address could not be saved.' });
+      toast({ variant: 'error', description: 'Checkout completed, but the address could not be saved.' });
     }
+  };
+
+  type CheckoutLine = {
+    listingAggregateId: string;
+    sellerPubky: string;
+    publishedFulfillmentMethods: MarketplaceFulfillmentMethod[];
+    expectedRevision: number;
+    quantity: number;
+    variantId?: string;
+    variantOptions?: Array<{ name: string; value: string }>;
+  };
+
+  const handleCheckoutError = (checkoutError: unknown) => {
+    if (isMarketplaceSessionRequiredError(checkoutError)) {
+      setNeedsSession(true);
+      setSessionError(MARKETPLACE_FAILURE_MESSAGES.session);
+      toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
+      return;
+    }
+    if (checkoutError instanceof AppError) {
+      toast({
+        variant: 'error',
+        description: marketplaceFailureMessage(
+          marketplaceErrorCode(checkoutError),
+          MARKETPLACE_FAILURE_MESSAGES.checkout,
+          checkoutError,
+        ),
+      });
+      return;
+    }
+    toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.checkout });
+  };
+
+  const createCheckout = async (
+    data: MarketplaceCheckoutData,
+  ): Promise<{ ok: true; result: unknown; lines: CheckoutLine[] } | { ok: false }> => {
+    const lines = await Promise.all(
+      items.map(async (item) => {
+        const record = item.listing.record;
+        let projection = await CommerceController.getMarketplaceListingProjection(record.ownerPubky, record.listingId);
+        if (!projection && isDurableCommerceMode(getCommerceAdapterMode())) {
+          projection = await syncLineProjection(record.ownerPubky, record.listingId);
+        }
+        if (!projection) return null;
+        const variant = record.variants.find(({ id }) => id === item.variantId);
+        const variantOptions = variant ? Object.entries(variant.options) : [];
+        return {
+          listingAggregateId: projection.aggregateId,
+          sellerPubky: record.ownerPubky,
+          publishedFulfillmentMethods: commerceListingFulfillmentMethods(record.fulfillmentMethods),
+          expectedRevision: projection.serverRevision,
+          quantity: item.quantity,
+          ...(variant ? { variantId: variant.id } : {}),
+          ...(variantOptions.length
+            ? { variantOptions: variantOptions.map(([name, value]) => ({ name, value })) }
+            : {}),
+        };
+      }),
+    );
+    if (lines.some((line) => line === null)) {
+      toast({
+        variant: 'error',
+        description:
+          'A listing in your cart could not be prepared for checkout. It may have been removed by the seller. Nothing was reserved.',
+      });
+      return { ok: false };
+    }
+    const fulfillmentChoiceBySeller: Record<string, MarketplaceFulfillmentMethod> = {};
+    for (const sellerPubky of optionsBySeller.keys()) {
+      const fulfillment = fulfillmentForSeller(sellerPubky);
+      if (fulfillment) fulfillmentChoiceBySeller[sellerPubky] = fulfillment;
+    }
+    const checkoutLines = lines.filter((line): line is CheckoutLine => line !== null);
+    const response = await CommerceController.commitCreateMarketplaceCheckout({
+      lines: checkoutLines,
+      fulfillmentChoiceBySeller,
+      ...(requiresDeliveryAddress
+        ? {
+            deliveryAddress: {
+              name: data.name,
+              line1: data.line1,
+              line2: data.line2,
+              city: data.city,
+              region: data.region,
+              postalCode: data.postalCode,
+              countryCode: data.countryCode.toUpperCase(),
+            },
+          }
+        : {}),
+    });
+    if (!response.ok) {
+      if (isMarketplaceRevisionConflict(response)) {
+        toast({
+          variant: 'error',
+          description: 'A listing changed while you were checking out. Review your cart and try again.',
+        });
+        return { ok: false };
+      }
+      const pickupRefusal = classifyMarketplacePickupCommandRefusal(response);
+      toast({
+        variant: 'error',
+        description: pickupRefusal
+          ? pickupRefusalFailureMessage(pickupRefusal)
+          : (marketplaceCheckoutRefusalMessage(response.error.code, response.error.message) ??
+            marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.checkout)),
+      });
+      return { ok: false };
+    }
+    return { ok: true, result: response.result, lines: checkoutLines };
+  };
+
+  const finishCreatedCheckout = async (data: MarketplaceCheckoutData) => {
+    if (requiresDeliveryAddress) await persistAddressBookAfterOrder(data);
+    try {
+      await clearCart();
+    } catch {
+      toast({ variant: 'error', description: 'Checkout completed, but your cart could not be cleared.' });
+    }
+  };
+
+  const cancelCreatedCheckouts = async (orderIds: string[]) => {
+    let listed: MarketplaceOrder[] = [];
+    try {
+      listed = await CommerceController.getMarketplaceOrders();
+    } catch {
+      listed = [];
+    }
+    await Promise.all(
+      orderIds.map(async (orderId) => {
+        const order = listed.find((candidate) => candidate.id === orderId);
+        try {
+          await CommerceController.executeMarketplaceCommand({
+            version: 1,
+            commandId: crypto.randomUUID(),
+            aggregateId: buildMarketplaceOrderAggregateId(orderId),
+            expectedRevision: order?.revision ?? 1,
+            issuedAt: new Date().toISOString(),
+            kind: 'order.cancel_request',
+            payload: { orderId, reason: BIND_FAIL_CANCEL_REASON },
+          });
+        } catch {
+          // Bind already failed; a leftover cancel miss expires on the hold clock.
+        }
+      }),
+    );
   };
 
   const submit = async (): Promise<boolean> => {
@@ -289,142 +452,84 @@ export function useMarketplaceCheckout(
     let succeeded = false;
     await form.handleSubmit(async (data) => {
       try {
-        const lines = await Promise.all(
-          items.map(async (item) => {
-            const record = item.listing.record;
-            let projection = await CommerceController.getMarketplaceListingProjection(
-              record.ownerPubky,
-              record.listingId,
-            );
-            // An unregistered line is healable by the buyer: one sync
-            // attempt per listing per submit, then one re-read, before the
-            // line is declared dead.
-            if (!projection && isDurableCommerceMode(getCommerceAdapterMode())) {
-              projection = await syncLineProjection(record.ownerPubky, record.listingId);
-            }
-            if (!projection) return null;
-            // Snapshot the chosen variant for fulfillment display: the id and
-            // its option dimensions ride the line as an ordered {name, value}
-            // array (safe through the wire-casing layer) and are echoed back
-            // on the order for packing slips and order rows.
-            const variant = record.variants.find(({ id }) => id === item.variantId);
-            const variantOptions = variant ? Object.entries(variant.options) : [];
-            return {
-              listingAggregateId: projection.aggregateId,
-              sellerPubky: record.ownerPubky,
-              publishedFulfillmentMethods: commerceListingFulfillmentMethods(record.fulfillmentMethods),
-              expectedRevision: projection.serverRevision,
-              quantity: item.quantity,
-              ...(variant ? { variantId: variant.id } : {}),
-              ...(variantOptions.length
-                ? { variantOptions: variantOptions.map(([name, value]) => ({ name, value })) }
-                : {}),
-            };
-          }),
-        );
-        if (lines.some((line) => line === null)) {
-          toast({
-            variant: 'error',
-            description:
-              'A listing in your cart could not be prepared for checkout. It may have been removed by the seller. Nothing was ordered.',
-          });
-          return;
-        }
-        // The fulfillment-aware checkout (§A2): one choice per seller group,
-        // the service splits one order per (seller, fulfillment), and the
-        // delivery address rides only when at least one group ships.
-        const fulfillmentChoiceBySeller: Record<string, MarketplaceFulfillmentMethod> = {};
-        for (const sellerPubky of optionsBySeller.keys()) {
-          const fulfillment = fulfillmentForSeller(sellerPubky);
-          if (fulfillment) fulfillmentChoiceBySeller[sellerPubky] = fulfillment;
-        }
-        const checkoutLines = lines.filter((line): line is NonNullable<typeof line> => line !== null);
-        const response = await CommerceController.commitCreateMarketplaceCheckout({
-          lines: checkoutLines,
-          fulfillmentChoiceBySeller,
-          ...(requiresDeliveryAddress
-            ? {
-                deliveryAddress: {
-                  name: data.name,
-                  line1: data.line1,
-                  line2: data.line2,
-                  city: data.city,
-                  region: data.region,
-                  postalCode: data.postalCode,
-                  countryCode: data.countryCode.toUpperCase(),
-                },
-              }
-            : {}),
-        });
-        if (!response.ok) {
-          if (isMarketplaceRevisionConflict(response)) {
-            // The revisions were read at submit time, so a conflict means a
-            // listing moved mid-checkout; the next submit re-reads them all.
-            toast({
-              variant: 'error',
-              description: 'A listing changed while you were checking out. Review your cart and place the order again.',
-            });
-            return;
-          }
-          const pickupRefusal = classifyMarketplacePickupCommandRefusal(response);
-          toast({
-            variant: 'error',
-            description: pickupRefusal
-              ? pickupRefusalFailureMessage(pickupRefusal)
-              : (marketplaceCheckoutRefusalMessage(response.error.code, response.error.message) ??
-                marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.checkout)),
-          });
-          return;
-        }
+        const created = await createCheckout(data);
+        if (!created.ok) return;
         succeeded = true;
-        const mode = getCommerceAdapterMode();
-        toast({
-          title: 'Order created',
-          description:
-            mode === 'sandbox'
-              ? 'Complete the sandbox payment to continue.'
-              : mode === 'locks-paykit'
-                ? 'Recorded by the transaction service. Open Orders to request the payment in your wallet.'
-                : 'Recorded by the transaction service. Payments are not enabled here, so it will stay awaiting payment.',
-        });
-        // The address book only learns an address that actually traveled —
-        // a pickup-only checkout sent none (§A2).
-        if (requiresDeliveryAddress) await persistAddressBookAfterOrder(data);
-        try {
-          await clearCart();
-        } catch {
-          toast({ variant: 'error', description: 'The order was placed, but your cart could not be cleared.' });
-        }
+        await finishCreatedCheckout(data);
       } catch (checkoutError) {
-        if (isMarketplaceSessionRequiredError(checkoutError)) {
-          // The projection reads and the checkout command both require the
-          // durable session; surface the reconnect affordance instead of a
-          // generic failure toast. The controller already cleared store+service.
-          setNeedsSession(true);
-          setSessionError(MARKETPLACE_FAILURE_MESSAGES.session);
-          toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.session });
-          return;
-        }
-        if (checkoutError instanceof AppError) {
-          toast({
-            variant: 'error',
-            description: marketplaceFailureMessage(
-              marketplaceErrorCode(checkoutError),
-              MARKETPLACE_FAILURE_MESSAGES.checkout,
-              checkoutError,
-            ),
-          });
-          return;
-        }
-        toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.checkout });
+        handleCheckoutError(checkoutError);
       }
     })();
     return succeeded;
   };
 
+  const pay = async (method: PaymentMethodKind | null): Promise<MarketplacePayResult> => {
+    const empty: MarketplacePayResult = { ok: false, orderIds: [], boundOrders: [] };
+    if (!items.length || isPaying) return empty;
+    let outcome = empty;
+    setIsPaying(true);
+    await form.handleSubmit(async (data) => {
+      let createdIds: string[] = [];
+      try {
+        const created = await createCheckout(data);
+        if (!created.ok) return;
+        let listed: MarketplaceOrder[] = [];
+        try {
+          listed = await CommerceController.getMarketplaceOrders();
+        } catch {
+          listed = [];
+        }
+        createdIds = resolveCreatedCheckoutOrderIds({
+          result: created.result,
+          orders: listed,
+          listingAggregateIds: listingAggregatesFromCheckoutLines(created.lines),
+          buyerPubky: currentUserPubky,
+        });
+        if (createdIds.length === 0) {
+          toast({ variant: 'error', description: MARKETPLACE_FAILURE_MESSAGES.checkout });
+          return;
+        }
+        const mode = getCommerceAdapterMode();
+        const skipBind = mode === 'sandbox' && method === null;
+        if (skipBind) {
+          await finishCreatedCheckout(data);
+          outcome = { ok: true, orderIds: createdIds, boundOrders: [] };
+          return;
+        }
+        if (!method) {
+          await cancelCreatedCheckouts(createdIds);
+          toast({ variant: 'error', description: 'Choose a payment method to pay.' });
+          return;
+        }
+        const boundOrders: MarketplaceOrder[] = [];
+        try {
+          for (const orderId of createdIds) {
+            boundOrders.push(await CommerceController.bindPaymentMethod(orderId, method));
+          }
+        } catch (bindError) {
+          await cancelCreatedCheckouts(createdIds);
+          toast({
+            variant: 'error',
+            description: marketplacePaymentMethodFailureMessage(bindError, MARKETPLACE_FAILURE_MESSAGES.checkout),
+          });
+          return;
+        }
+        await finishCreatedCheckout(data);
+        outcome = { ok: true, orderIds: createdIds, boundOrders };
+      } catch (checkoutError) {
+        if (createdIds.length > 0) await cancelCreatedCheckouts(createdIds);
+        handleCheckoutError(checkoutError);
+      }
+    })();
+    setIsPaying(false);
+    return outcome;
+  };
+
   return {
     form,
     submit,
+    pay,
+    isPaying,
     needsSession,
     sessionError,
     hasMarketplaceSession: marketplaceSession !== null && hasActiveServiceSession,
