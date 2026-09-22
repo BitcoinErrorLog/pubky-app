@@ -21,6 +21,7 @@ import { useMarketplaceMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarket
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { getAuctionPhase } from '@/libs/commerce/auction-phase';
 import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
@@ -67,6 +68,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const [nowMs, setNowMs] = useState(() => Date.now());
   const adapterMode = getCommerceAdapterMode();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const { requireAuth } = useRequireAuth();
   const isOwner = currentUserPubky === sellerPubky;
   const favorite = useCommerceFavorite(`${sellerPubky}:${listingId}`);
   const negotiation = useMarketplaceProjection(sellerPubky, listingId);
@@ -196,6 +198,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
           ? 'This listing was removed.'
           : null;
   const revealSessionRequired = () => setShowSessionRequired(true);
+  const beginPurchaseAuth = () => {
+    requireAuth(revealSessionRequired);
+  };
   const onSessionConnected = () => {
     setShowSessionRequired(false);
     void negotiation.refresh();
@@ -205,6 +210,21 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
     if (isOwner) return;
     void cart.add(`${record.ownerPubky}:${record.listingId}`, selectedVariant.id, 1);
   };
+  const purchaseCtaLabel = availabilityPending
+    ? 'Checking availability…'
+    : availabilityNeedsSession
+      ? currentUserPubky
+        ? 'Approve to buy'
+        : 'Sign in to buy'
+      : isOwner
+        ? 'You cannot buy your own listing'
+        : projectionIsReserved
+          ? 'Held by another buyer'
+          : isSoldOut
+            ? 'Sold out'
+            : isPurchasable
+              ? 'Add to cart'
+              : 'Unavailable';
 
   return (
     <ContentLayout
@@ -461,31 +481,21 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     size="lg"
                     className="flex-1 rounded-full"
                     disabled={
-                      isOwner ||
-                      adapterMode === 'unavailable' ||
-                      !isPurchasable ||
-                      !availabilityReady ||
-                      isSoldOut ||
-                      projectionIsReserved ||
-                      !selectedVariant ||
-                      selectedVariant.quantity === 0
+                      availabilityNeedsSession
+                        ? isOwner || adapterMode === 'unavailable'
+                        : isOwner ||
+                          adapterMode === 'unavailable' ||
+                          !isPurchasable ||
+                          !availabilityReady ||
+                          isSoldOut ||
+                          projectionIsReserved ||
+                          !selectedVariant ||
+                          selectedVariant.quantity === 0
                     }
-                    onClick={addSelectedVariantToCart}
+                    onClick={availabilityNeedsSession ? beginPurchaseAuth : addSelectedVariantToCart}
                   >
                     <ShoppingCart className="mr-2 size-4" />
-                    {availabilityPending
-                      ? 'Checking availability…'
-                      : availabilityNeedsSession
-                        ? 'Connect to see availability'
-                        : isOwner
-                          ? 'You cannot buy your own listing'
-                          : projectionIsReserved
-                            ? 'Held by another buyer'
-                            : isSoldOut
-                              ? 'Sold out'
-                              : isPurchasable
-                                ? 'Add to cart'
-                                : 'Unavailable'}
+                    {purchaseCtaLabel}
                   </Button>
                   {projectionIsReserved && (
                     <Typography as="p" className="w-full text-sm text-muted-foreground">
@@ -523,21 +533,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </Button>
               <MarketplaceListingSavePicker sellerPubky={record.ownerPubky} listingId={record.listingId} />
             </div>
-            {availabilityNeedsSession && (
-              <div className="flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-                <Typography as="p" className="text-sm text-amber-200">
-                  Connect to see availability before adding this item to your cart.
-                </Typography>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="w-fit rounded-full"
-                  onClick={revealSessionRequired}
-                >
-                  Connect to see availability
-                </Button>
-              </div>
-            )}
             {adapterMode === 'unavailable' && (
               <Typography as="p" className="text-center text-sm text-muted-foreground">
                 Transactions are disabled in this deployment.

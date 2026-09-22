@@ -145,6 +145,7 @@ describe('MarketplaceListing', () => {
     sellerReputation.value = { status: 'new_seller' };
     cartAdd.mockClear();
     projectionRefresh.mockClear();
+    authState.currentUserPubky = 'b'.repeat(52);
     authState.setShowSignInDialog.mockClear();
   });
 
@@ -235,20 +236,52 @@ describe('MarketplaceListing', () => {
 
     renderListing();
 
-    expect(screen.getAllByRole('button', { name: 'Connect to see availability' })[0]).toBeDisabled();
+    const purchase = screen.getByRole('button', { name: 'Approve to buy' });
+    expect(purchase).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Add to cart' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Connect to see availability before adding this item to your cart.')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Approve to buy' })).toHaveLength(1);
     expect(cartAdd).not.toHaveBeenCalled();
   });
 
-  it('offers the existing session connect affordance without claiming stock', async () => {
+  it('opens the Ring approval card from the single purchase button, without a duplicate callout', async () => {
     view.projection = null;
     view.projectionError = 'A marketplace session is required.';
     view.needsSession = true;
+    const user = userEvent.setup();
 
     renderListing();
 
-    expect(screen.getByText('Connect to see availability before adding this item to your cart.')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Connect to see availability' })).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: 'Approve to buy' }));
+
+    expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
+    expect(screen.queryByText('Connect to see availability before adding this item to your cart.')).not.toBeInTheDocument();
+  });
+
+  it('uses one Sign in to buy path when the viewer has no identity', async () => {
+    authState.currentUserPubky = null;
+    view.projection = null;
+    view.projectionError = 'A marketplace session is required.';
+    view.needsSession = true;
+    const user = userEvent.setup();
+
+    renderListing();
+
+    const purchase = screen.getByRole('button', { name: 'Sign in to buy' });
+    expect(purchase).toBeEnabled();
+    expect(screen.getAllByRole('button', { name: 'Sign in to buy' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Make offer' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Add to watchlist' })).toBeEnabled();
+    expect(screen.queryByText('Connect to see availability before adding this item to your cart.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await user.click(purchase);
+    expect(authState.setShowSignInDialog).toHaveBeenCalledWith(true);
+    expect(screen.queryByRole('heading', { name: 'Approve purchases in Pubky Ring' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Make offer' }));
+    expect(authState.setShowSignInDialog).toHaveBeenCalledTimes(2);
   });
 
   it('adds the selected variant to cart when the marketplace session is ready', async () => {

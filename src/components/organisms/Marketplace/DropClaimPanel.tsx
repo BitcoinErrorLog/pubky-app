@@ -10,8 +10,10 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { UseMarketplaceDropClaimResult } from '@/hooks/useMarketplaceDropClaim/useMarketplaceDropClaim';
 import { useMarketplaceFirstMediaUrls } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceDropRecord, CommerceListingRecord } from '@/libs/commerce/marketplace-records';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceIndicativePrice } from './MarketplaceIndicativePrice';
 import { MarketplaceSessionRequiredCard } from './MarketplaceSessionRequiredCard';
 
@@ -38,6 +40,8 @@ export function DropClaimPanel({
   remainingAllowance: number | null;
   isOwner?: boolean;
 }) {
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const { requireAuth } = useRequireAuth();
   const [listings, setListings] = useState<HydratedDropListing[] | null>(null);
 
   useEffect(() => {
@@ -79,6 +83,11 @@ export function DropClaimPanel({
       </Typography>
       {claim.needsSession && claim.sessionError ? (
         <MarketplaceSessionRequiredCard />
+      ) : !currentUserPubky ? (
+        <Button size="lg" className="w-fit rounded-full" onClick={() => requireAuth(() => undefined)}>
+          <Zap className="mr-2 size-4" />
+          Sign in to buy
+        </Button>
       ) : (
         <ul className="flex flex-col gap-3">
           {(listings ?? record.listingIds.map((listingId) => ({ listingId, record: null }))).map(
@@ -160,12 +169,12 @@ export function DropClaimPanel({
           {claim.failure}
         </Typography>
       )}
-      {remainingAllowance === 0 && (
+      {remainingAllowance === 0 && currentUserPubky && (
         <Typography as="p" role="status" className="text-sm font-medium text-muted-foreground">
           You have reached this drop&apos;s per-buyer limit.
         </Typography>
       )}
-      {!claim.claimAddress && !claim.needsSession && (
+      {!claim.claimAddress && !claim.needsSession && currentUserPubky && (
         <Typography as="p" className="text-sm text-muted-foreground">
           No saved delivery address yet — the claim sends one with the checkout.{' '}
           <Link href={MARKETPLACE_ROUTES.SETTINGS_ADDRESSES} overrideDefaults className="text-brand hover:underline">
