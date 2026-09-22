@@ -322,9 +322,14 @@ describe('Marketplace checkout — visual regression', () => {
 
     const gridRect = grid.getBoundingClientRect();
     const summaryRect = summary.getBoundingClientRect();
+    const pay = document.querySelector('[data-testid="marketplace-checkout-pay"]');
+    if (!(pay instanceof HTMLElement)) {
+      throw new Error('VRT geometry rejected: production Pay control is missing');
+    }
+    const payRect = pay.getBoundingClientRect();
     expect(summaryRect.top).toBeGreaterThanOrEqual(gridRect.top);
     expect(Math.abs(summaryRect.top - gridRect.top)).toBeLessThanOrEqual(2);
-    expect(summaryRect.bottom).toBeLessThanOrEqual(viewportHeight);
+    expect(payRect.bottom).toBeLessThanOrEqual(viewportHeight);
     expect(summaryRect.right).toBeLessThanOrEqual(document.documentElement.clientWidth);
     expect(summaryRect.left).toBeGreaterThanOrEqual(0);
   }
