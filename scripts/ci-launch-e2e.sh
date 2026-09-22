@@ -24,8 +24,9 @@ export PUBKY_RUNTIME_DEFAULT_HTTP_RELAY="${PUBKY_RUNTIME_DEFAULT_HTTP_RELAY:-htt
 export PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE="${PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE:-transaction-service}"
 export PUBKY_RUNTIME_MARKETPLACE_URL="${PUBKY_RUNTIME_MARKETPLACE_URL:-https://staging-api.pubky.app}"
 
-if [[ ! -d .next ]]; then
+if [[ ! -d .next || ! -f .next/BUILD_ID ]]; then
   echo "Missing .next — this script reuses a production build and must not run next build."
+  ls -la . next-build-artifact 2>/dev/null | head -80 || true
   exit 1
 fi
 

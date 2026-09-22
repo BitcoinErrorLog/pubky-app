@@ -126,7 +126,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: next-build
-          path: .
+          path: next-build-artifact
+
+      - name: Place .next
+        run: |
+          set -euo pipefail
+          ls -la next-build-artifact | head
+          if [ -d next-build-artifact/.next ]; then
+            mv next-build-artifact/.next .next
+          elif [ -f next-build-artifact/BUILD_ID ]; then
+            mv next-build-artifact .next
+          else
+            echo "Unexpected next-build artifact layout"
+            find next-build-artifact -maxdepth 3 | head -80
+            exit 1
+          fi
+          test -f .next/BUILD_ID
+          echo "BUILD_ID=$(cat .next/BUILD_ID)"
 
       - name: Run launch-critical Chromium suite
         env:
