@@ -116,7 +116,10 @@ export function isPublicHttpsWebhookUrl(value: string): boolean {
   }
   if (parsed.protocol !== 'https:') return false;
   if (parsed.username || parsed.password) return false;
-  const host = parsed.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+  const host = parsed.hostname
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
+    .toLowerCase();
   if (!host) return false;
   if (host === 'localhost' || host.endsWith('.localhost') || host === '0.0.0.0' || host === '::' || host === '::1') {
     return false;

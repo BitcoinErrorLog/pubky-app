@@ -61,6 +61,7 @@ const EXPECTED_PRIVATE_TABLES = [
   'commerce_import_manifests',
   'commerce_import_mappings',
   'commerce_import_rows',
+  'commerce_webhooks',
   'commerce_sync_jobs',
   'commerce_reviews',
   'commerce_review_responses',

@@ -66,8 +66,7 @@ describe('inventory automations staging proof', () => {
       MarketplaceShopClientService: (await import('@/services/marketplace/marketplace-shop-client'))
         .MarketplaceShopClientService,
       DexieWebhookStore: (await import('@/services/marketplace/marketplace-webhook-store')).DexieWebhookStore,
-      MarketplaceSessionService: (await import('@/services/marketplace/marketplace-session'))
-        .MarketplaceSessionService,
+      MarketplaceSessionService: (await import('@/services/marketplace/marketplace-session')).MarketplaceSessionService,
       MarketplaceInventorySessionService: (await import('@/services/marketplace/marketplace-inventory-session'))
         .MarketplaceInventorySessionService,
       HomeserverService: (await import('@/services/homeserver/homeserver')).HomeserverService,
