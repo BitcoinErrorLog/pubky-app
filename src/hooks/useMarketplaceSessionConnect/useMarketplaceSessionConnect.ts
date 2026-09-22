@@ -92,8 +92,80 @@ export function useMarketplaceSessionConnect(
     setIsOpeningRing(false);
     setErrorMessage(null);
 
-    if (grantFlowEnabled) {
-      const generation = generationRef.current;
+    const generation = generationRef.current;
+
+    const startAuthTokenConnect = () => {
+      let flow: ActiveFlow;
+      try {
+        flow = requestsFullGrant
+          ? AuthController.beginBridgedCommerceSessionFlow()
+          : CommerceController.beginMarketplaceSessionConnect();
+      } catch (error) {
+        Logger.error('Failed to start the marketplace session flow', { error });
+        setAuthorizationUrl('');
+        setErrorMessage(
+          marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.sessionStart),
+        );
+        setStatus('error');
+        return;
+      }
+
+      activeFlowRef.current = flow;
+      // A JOINED flow's approval lives on another surface (e.g. a sign-in in
+      // progress): that surface holds the only scannable URL, so this hook
+      // exposes the honest `joined` state — never `awaiting` with an empty URL
+      // (a blank, un-scannable QR with Copy/Open dead). The join still settles
+      // through the same awaitSession below.
+      if ('joined' in flow && flow.joined) {
+        setAuthorizationUrl('');
+        setStatus('joined');
+      } else {
+        setAuthorizationUrl(flow.authorizationUrl);
+        setStatus('awaiting');
+      }
+
+      flow
+        .awaitSession()
+        .then((session) => {
+          if (activeFlowRef.current !== flow) return;
+          activeFlowRef.current = null;
+          setAuthorizationUrl('');
+          setStatus('connected');
+          onConnectedRef.current?.(session);
+        })
+        .catch((error: unknown) => {
+          // A detached flow (cancelled or superseded) rejects as a side effect
+          // of being freed — that is control flow, not a failure to report.
+          if (activeFlowRef.current !== flow) return;
+          activeFlowRef.current = null;
+          // The CONTROLLER can also free this flow out from under the hook: a
+          // sign-in ceremony or a second start() anywhere supersedes it via
+          // `AuthController.cancelActiveAuthFlow`. The SDK canceled error that
+          // rejection carries is control flow too — the superseded flow ends
+          // idle, never error, and surfaces no toast.
+          if (
+            typeof error === 'object' &&
+            error !== null &&
+            'name' in error &&
+            (error as { name?: unknown }).name === AUTH_FLOW_CANCELED_ERROR_NAME
+          ) {
+            setAuthorizationUrl('');
+            setStatus('idle');
+            return;
+          }
+          Logger.error('Marketplace session flow failed', { error });
+          setAuthorizationUrl('');
+          setErrorMessage(
+            marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.sessionTimeout, error),
+          );
+          setStatus('error');
+        });
+    };
+
+    // Reconnect grant cannot mint a first session: BFF createFlow requires a
+    // paired cookie. A seller with no marketplace bearer must bootstrap via
+    // AuthToken instead of opening a grant that 401s locally as "expired".
+    if (grantFlowEnabled && MarketplaceSessionService.getActiveSession()) {
       setAuthorizationUrl('');
       setStatus('creating');
       void beginMarketplaceGrantFlow()
@@ -126,6 +198,7 @@ export function useMarketplaceSessionConnect(
               },
               expectedPubky,
             );
+            CommerceController.writeMarketplaceSessionStore(session);
             setStatus('connected');
             onConnectedRef.current?.(session);
             return;
@@ -139,78 +212,20 @@ export function useMarketplaceSessionConnect(
           if (generationRef.current !== generation) return;
           activeGrantFlowRef.current = null;
           setAuthorizationUrl('');
+          const code = error instanceof Error ? error.message : '';
+          if (code === 'shop_session_missing' || code === 'shop_session_expired') {
+            Logger.warn('Marketplace grant reconnect needs a session; starting AuthToken connect', { code });
+            startAuthTokenConnect();
+            return;
+          }
           Logger.error('Marketplace grant flow failed', { error });
-          setErrorMessage(MARKETPLACE_FAILURE_MESSAGES.sessionTimeout);
+          setErrorMessage(marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sessionStart));
           setStatus('error');
         });
       return;
     }
 
-    let flow: ActiveFlow;
-    try {
-      flow = requestsFullGrant
-        ? AuthController.beginBridgedCommerceSessionFlow()
-        : CommerceController.beginMarketplaceSessionConnect();
-    } catch (error) {
-      Logger.error('Failed to start the marketplace session flow', { error });
-      setAuthorizationUrl('');
-      setErrorMessage(
-        marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.sessionStart),
-      );
-      setStatus('error');
-      return;
-    }
-
-    activeFlowRef.current = flow;
-    // A JOINED flow's approval lives on another surface (e.g. a sign-in in
-    // progress): that surface holds the only scannable URL, so this hook
-    // exposes the honest `joined` state — never `awaiting` with an empty URL
-    // (a blank, un-scannable QR with Copy/Open dead). The join still settles
-    // through the same awaitSession below.
-    if ('joined' in flow && flow.joined) {
-      setAuthorizationUrl('');
-      setStatus('joined');
-    } else {
-      setAuthorizationUrl(flow.authorizationUrl);
-      setStatus('awaiting');
-    }
-
-    flow
-      .awaitSession()
-      .then((session) => {
-        if (activeFlowRef.current !== flow) return;
-        activeFlowRef.current = null;
-        setAuthorizationUrl('');
-        setStatus('connected');
-        onConnectedRef.current?.(session);
-      })
-      .catch((error: unknown) => {
-        // A detached flow (cancelled or superseded) rejects as a side effect
-        // of being freed — that is control flow, not a failure to report.
-        if (activeFlowRef.current !== flow) return;
-        activeFlowRef.current = null;
-        // The CONTROLLER can also free this flow out from under the hook: a
-        // sign-in ceremony or a second start() anywhere supersedes it via
-        // `AuthController.cancelActiveAuthFlow`. The SDK canceled error that
-        // rejection carries is control flow too — the superseded flow ends
-        // idle, never error, and surfaces no toast.
-        if (
-          typeof error === 'object' &&
-          error !== null &&
-          'name' in error &&
-          (error as { name?: unknown }).name === AUTH_FLOW_CANCELED_ERROR_NAME
-        ) {
-          setAuthorizationUrl('');
-          setStatus('idle');
-          return;
-        }
-        Logger.error('Marketplace session flow failed', { error });
-        setAuthorizationUrl('');
-        setErrorMessage(
-          marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.sessionTimeout, error),
-        );
-        setStatus('error');
-      });
+    startAuthTokenConnect();
   }, [detachActiveFlow, grantFlowEnabled, removeVisibilityHandler, requestsFullGrant]);
 
   const cancel = useCallback(() => {

@@ -32,6 +32,7 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   session: 'Your marketplace session expired. Reconnect and try again.',
   sessionTimeout: 'The approval expired before it was completed. Try again.',
   sessionStart: 'Could not start the marketplace session.',
+  sessionMissing: 'Connect a marketplace session to continue. This is a new session, not an expired approval.',
   soldOut: 'This drop is sold out.',
   listingSoldOut: 'This listing has sold out.',
   dropNotStarted: "This drop hasn't started yet.",
@@ -70,6 +71,9 @@ const CODE_MESSAGES: ReadonlyMap<string, string> = new Map([
   ['INVALID_RESPONSE', MARKETPLACE_FAILURE_MESSAGES.unavailable],
   ['SESSION_EXPIRED', MARKETPLACE_FAILURE_MESSAGES.session],
   ['UNAUTHORIZED', MARKETPLACE_FAILURE_MESSAGES.session],
+  ['shop_session_missing', MARKETPLACE_FAILURE_MESSAGES.sessionMissing],
+  ['shop_session_expired', MARKETPLACE_FAILURE_MESSAGES.sessionMissing],
+  ['flow_expired', MARKETPLACE_FAILURE_MESSAGES.sessionTimeout],
 ]);
 
 const DROP_REFUSAL_MESSAGES: ReadonlyMap<string, string> = new Map([

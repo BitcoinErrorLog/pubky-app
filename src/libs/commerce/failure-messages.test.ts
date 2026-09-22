@@ -17,8 +17,16 @@ describe('marketplaceFailureMessage', () => {
     }
   });
 
-  it('uses the static action fallback for unknown codes', () => {
-    expect(marketplaceFailureMessage('SERVER_PRIVATE_CODE', 'Could not place bid')).toBe('Could not place bid');
+  it('maps grant BFF session-missing codes to connect copy, not expiry copy', () => {
+    expect(marketplaceFailureMessage('shop_session_missing', MARKETPLACE_FAILURE_MESSAGES.sessionStart)).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.sessionMissing,
+    );
+    expect(marketplaceFailureMessage('shop_session_expired', MARKETPLACE_FAILURE_MESSAGES.sessionStart)).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.sessionMissing,
+    );
+    expect(marketplaceFailureMessage('flow_expired', MARKETPLACE_FAILURE_MESSAGES.sessionStart)).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.sessionTimeout,
+    );
   });
 
   it('does not expose prototype properties as messages', () => {
