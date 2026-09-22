@@ -11,6 +11,7 @@ PORT="${PORT:-3000}"
 BASE_URL="${LAUNCH_E2E_BASE_URL:-http://127.0.0.1:${PORT}}"
 export LAUNCH_E2E_BASE_URL="$BASE_URL"
 export LAUNCH_E2E_SERVICE_URL="${LAUNCH_E2E_SERVICE_URL:-https://staging-api.pubky.app}"
+export LAUNCH_E2E_REQUIRE_SELLER_BOARD="${LAUNCH_E2E_REQUIRE_SELLER_BOARD:-1}"
 if [[ -d /ms-playwright ]]; then
   export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"
 fi

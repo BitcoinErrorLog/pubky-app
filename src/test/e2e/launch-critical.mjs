@@ -6,8 +6,9 @@
  * here drives real Chromium against `next start`. The required gate reads a
  * committed Nexus fixture (via LAUNCH_E2E_NEXUS_URL), never live 7108.
  *
- * Inventory: guest canary is fail-closed on a board throw. Signed-in board
- * mount is opt-in via LAUNCH_E2E_REQUIRE_SELLER_BOARD=1 (follow-up).
+ * Inventory: signed-in seller board is the required Chromium canary
+ * (LAUNCH_E2E_REQUIRE_SELLER_BOARD defaults on). Guest Join remains the
+ * fallback when that flag is explicitly 0.
  */
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -25,7 +26,8 @@ const BASE_URL = (process.env.LAUNCH_E2E_BASE_URL ?? 'http://127.0.0.1:3000').re
 const SERVICE_URL = process.env.LAUNCH_E2E_SERVICE_URL ?? 'https://staging-api.pubky.app';
 const NEXUS_URL = (process.env.LAUNCH_E2E_NEXUS_URL ?? '').replace(/\/$/, '');
 const ALLOW_LIVE_NEXUS = process.env.LAUNCH_E2E_ALLOW_LIVE_NEXUS === '1';
-const REQUIRE_SELLER_BOARD = process.env.LAUNCH_E2E_REQUIRE_SELLER_BOARD === '1';
+const REQUIRE_SELLER_BOARD = process.env.LAUNCH_E2E_REQUIRE_SELLER_BOARD !== '0';
+const STUB_LISTING_ID = '2b81df4f390b40e5b0aedabb89e76fa0';
 
 const failures = [];
 const results = [];
@@ -155,6 +157,7 @@ async function runAxe(page, pageId) {
         })
         .join('; '),
     );
+    return;
   }
   record(
     `a11y:${pageId}`,
@@ -211,16 +214,84 @@ async function approveAuthRequest(secretHex, authorizationUrl) {
   await new sdk.Pubky().signer(keypair).approveAuthRequest(authorizationUrl);
 }
 
+async function waitForSignedIn(page, timeout = 45_000) {
+  await Promise.race([
+    page.getByText('Verifying account').waitFor({ state: 'visible', timeout }),
+    page.waitForURL((url) => url.pathname !== '/sign-in', { timeout, waitUntil: 'commit' }),
+    page.waitForFunction(
+      () => {
+        try {
+          const raw = localStorage.getItem('auth-store');
+          if (!raw) return false;
+          const parsed = JSON.parse(raw);
+          return Boolean(parsed?.state?.currentUserPubky || parsed?.currentUserPubky);
+        } catch {
+          return false;
+        }
+      },
+      { timeout },
+    ),
+  ]);
+}
+
+function isSellerSignedIn(pageUrl, authStoreRaw, verifyingVisible) {
+  if (verifyingVisible) return true;
+  try {
+    if (new URL(pageUrl).pathname !== '/sign-in') return true;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const parsed = JSON.parse(authStoreRaw || '');
+    return Boolean(parsed?.state?.currentUserPubky || parsed?.currentUserPubky);
+  } catch {
+    return false;
+  }
+}
+
 async function signInSeller(page, secretHex) {
   try {
     await closeJoinDialog(page);
     await gotoAndSettle(page, '/sign-in');
-    const authorizationUrl = await waitForAuthUrl(page);
+    const firstUrl = await waitForAuthUrl(page);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const authorizationUrl = await waitForAuthUrl(page).catch(() => firstUrl);
     await approveAuthRequest(secretHex, authorizationUrl);
-    await page.getByText('Verifying account').waitFor({ state: 'visible', timeout: 90_000 });
-    await page.waitForURL((url) => url.pathname !== '/sign-in', { timeout: 120_000, waitUntil: 'commit' });
-    record('inventory:seller-signin', true, `headless approve /sign-in → ${page.url()}`);
-    return true;
+    await waitForSignedIn(page);
+    let stillOnSignIn = new URL(page.url()).pathname === '/sign-in';
+    const verifyingVisible = await page
+      .getByText('Verifying account')
+      .isVisible()
+      .catch(() => false);
+    if (stillOnSignIn && !verifyingVisible) {
+      const retryUrl = await waitForAuthUrl(page);
+      if (retryUrl !== authorizationUrl) {
+        await approveAuthRequest(secretHex, retryUrl);
+        await waitForSignedIn(page, 30_000);
+      }
+    }
+    stillOnSignIn = new URL(page.url()).pathname === '/sign-in';
+    const authStoreRaw = await page.evaluate(() => {
+      try {
+        return localStorage.getItem('auth-store');
+      } catch {
+        return null;
+      }
+    });
+    const signedIn = isSellerSignedIn(
+      page.url(),
+      authStoreRaw,
+      await page
+        .getByText('Verifying account')
+        .isVisible()
+        .catch(() => false),
+    );
+    record(
+      'inventory:seller-signin',
+      signedIn,
+      signedIn ? `headless approve /sign-in → ${page.url()}` : `still on ${page.url()} after approve`,
+    );
+    return signedIn;
   } catch (error) {
     const snippet = (
       (await page
@@ -472,25 +543,88 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
     !transport && status !== 'error' && illegal.length === 0,
     bodyText || `status=${status}`,
   );
+  assert(
+    'inventory:list-seller-listings-ran',
+    boardOk,
+    boardOk ? `listSellerListings settled status=${status}` : `board did not reach ready/empty (status=${status})`,
+  );
+  await calibrateBindRevert(page);
   await runAxe(page, 'inventory');
+}
+
+async function calibrateBindRevert(page) {
+  const result = await page.evaluate(async () => {
+    const original = window.fetch;
+    const holder = {};
+    holder.fetch = original;
+    let unboundThrew = false;
+    try {
+      await holder.fetch('https://example.invalid/launch-e2e-bind-revert');
+    } catch (error) {
+      unboundThrew = /illegal invocation/i.test(String(error));
+    }
+    let boundOk = false;
+    try {
+      const bound = original.bind(window);
+      const response = await bound('data:application/json,{}');
+      boundOk = response.ok || response.status === 0 || response.type === 'opaque' || true;
+    } catch (error) {
+      boundOk = !/illegal invocation/i.test(String(error));
+    }
+    return { unboundThrew, boundOk };
+  });
+  assert(
+    'inventory:bind-revert-unbound-throws',
+    result.unboundThrew,
+    result.unboundThrew
+      ? 'Chromium throws Illegal invocation on method-call Window.fetch'
+      : 'unbound Window.fetch did not throw — calibration invalid',
+  );
+  assert(
+    'inventory:bind-revert-bound-ok',
+    result.boundOk,
+    result.boundOk ? 'bound Window.fetch is callable' : 'bound Window.fetch threw Illegal invocation',
+  );
 }
 
 async function installHomeserverListingFixture(page, canonicalListing, shop) {
   const listingId = canonicalListing.listingId;
-  await page.route(`**/pub/pubky.app/marketplace/v1/listings/${listingId}`, async (route) => {
+  const listingBody = JSON.stringify(canonicalListing);
+  const shopBody = JSON.stringify(shop);
+  const fulfillJson = async (route, body) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(canonicalListing),
+      body,
     });
+  };
+  await page.route(`**/*${listingId}*`, async (route) => {
+    const url = route.request().url();
+    if (url.includes(`/pub/pubky.app/marketplace/v1/listings/${listingId}`)) {
+      await fulfillJson(route, listingBody);
+      return;
+    }
+    await route.continue();
   });
-  await page.route('**/pub/pubky.app/marketplace/v1/shop.json', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(shop),
-    });
+  await page.route('**/pub/pubky.app/marketplace/v1/shop.json**', async (route) => {
+    await fulfillJson(route, shopBody);
   });
+  await page.addInitScript(
+    ({ listing, shopRecord, id }) => {
+      const original = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes(`/pub/pubky.app/marketplace/v1/listings/${id}`)) {
+          return new Response(listing, { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if (url.includes('/pub/pubky.app/marketplace/v1/shop.json')) {
+          return new Response(shopRecord, { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        return original(input, init);
+      };
+    },
+    { listing: listingBody, shopRecord: shopBody, id: listingId },
+  );
 }
 
 async function main() {
@@ -500,6 +634,9 @@ async function main() {
   const canonicalListing = JSON.parse(await readFile(CANONICAL_LISTING_PATH, 'utf8'));
   const shop = JSON.parse(await readFile(SHOP_FIXTURE_PATH, 'utf8'));
   const listingPath = fixture.listingPath ?? fixture.pages[1].path;
+  if (!listingPath.includes(STUB_LISTING_ID) || !canonicalListing.listingId.includes(STUB_LISTING_ID)) {
+    throw new Error(`required gate listingPath must be stub ${STUB_LISTING_ID}, got ${listingPath}`);
+  }
   const pageErrors = [];
 
   const browser = await chromium.launch({
@@ -536,8 +673,12 @@ async function main() {
     await runAxe(page, 'catalog');
 
     await gotoAndSettle(page, listingPath);
-    const onListing = /\/marketplace\/listing\//.test(page.url());
-    record('listing:open', onListing, onListing ? page.url() : `expected ${listingPath}, got ${page.url()}`);
+    const onListing = page.url().includes(STUB_LISTING_ID);
+    record(
+      'listing:open',
+      onListing,
+      onListing ? page.url() : `expected stub listing ${STUB_LISTING_ID}, got ${page.url()}`,
+    );
     if (onListing) {
       await exerciseListingCheckout(page);
     }

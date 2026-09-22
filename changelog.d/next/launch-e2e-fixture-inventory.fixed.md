@@ -1,1 +1,1 @@
-Required launch-e2e gate serves a committed Nexus fixture instead of live 7108. Inventory guest canary fails if the board route throws; signed-in seller board mount is a follow-up.
+Required launch-e2e gate serves a committed Nexus fixture instead of live 7108. Checkout hydrates stub listing 2b81df4f. Signed-in seller board with grant is the required Chromium canary so listSellerListings runs.
