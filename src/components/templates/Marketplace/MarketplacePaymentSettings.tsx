@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, SlidersHorizontal, Store } from 'lucide-react';
 import { APP_ROUTES, MARKETPLACE_ROUTES, readMarketplaceListingComposerReturnTo } from '@/app/routes';
-import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
@@ -100,9 +99,6 @@ export function MarketplacePaymentSettings() {
           {returnPath ? 'Back to listing' : 'Marketplace'}
         </Link>
         <div>
-          <Badge className="mb-4" data-testid="get-paid-integration-badge">
-            Seller-direct payouts
-          </Badge>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
             How you get paid
           </Heading>
