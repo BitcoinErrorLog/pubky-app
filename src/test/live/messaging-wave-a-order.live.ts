@@ -293,11 +293,16 @@ async function injectMarketplaceSession(page: Page, session: PersistedMarketplac
   );
 }
 
+async function publishAppProfile(pubky: string, name: string): Promise<void> {
+  const builder = new modules.specs.PubkySpecsBuilder(pubky);
+  const profile = builder.createUser(name, null, null, null, null);
+  await modules.CommerceHomeserverService.putJson(profile.meta.url, profile.user.toJson() as Record<string, unknown>);
+}
+
 async function publishShippingListing(sellerPubky: string, title: string): Promise<string> {
   const nowIso = new Date().toISOString();
+  await publishAppProfile(sellerPubky, 'Wave A train seller');
   const builder = new modules.specs.PubkySpecsBuilder(sellerPubky);
-  const profile = builder.createUser('Wave A train seller', null, null, null, null);
-  await modules.CommerceHomeserverService.putJson(profile.meta.url, profile.user.toJson() as Record<string, unknown>);
   const shop = builder.createShop({
     schemaVersion: 1,
     recordType: 'shop',
@@ -449,6 +454,7 @@ async function createDurableOrder(): Promise<{
 
   failingStep = 'buyer_homeserver';
   await signInHomeserver(buyerSeat.keypair, buyerSeat.pubky);
+  await publishAppProfile(buyerSeat.pubky, 'Wave A drop buyer');
   failingStep = 'buyer_marketplace_session';
   const buyerSession = await connectServiceSession(buyerSeat.keypair, buyerSeat.pubky);
   activateServiceSession(buyerSession);
@@ -589,6 +595,27 @@ async function approveSignerUrl(page: Page, keypair: Keypair): Promise<void> {
   throw new Error('signer approval did not hide Waiting for approval on your signer…');
 }
 
+async function completeOnboardingIfNeeded(page: Page): Promise<void> {
+  const form = page.getByTestId('create-profile-form');
+  const onOnboarding = page.url().includes('/onboarding/profile') || (await form.count()) > 0;
+  if (!onOnboarding) return;
+  const nameInput = page.locator('#profile-name-input');
+  await nameInput.waitFor({ state: 'visible', timeout: 30_000 });
+  if (!(await nameInput.inputValue()).trim()) {
+    await nameInput.fill('Wave A proof');
+  }
+  await page.getByRole('button', { name: 'Finish' }).click();
+  await page.waitForURL((url) => !url.pathname.includes('/onboarding/profile'), { timeout: 90_000 });
+  const explore = page.locator('#welcome-explore-pubky-btn');
+  const welcomeVisible = await explore
+    .waitFor({ state: 'visible', timeout: 8_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (welcomeVisible) {
+    await explore.click();
+  }
+}
+
 async function signInWithEncryptedFile(page: Page, seat: Seat): Promise<void> {
   await page.goto(`${shopUrl}/sign-in`, { waitUntil: 'domcontentloaded', timeout: 180_000 });
   await page.locator('#restore-encrypted-file-btn').click();
@@ -596,6 +623,7 @@ async function signInWithEncryptedFile(page: Page, seat: Seat): Promise<void> {
   await page.locator('#restore-password').fill(seat.passphrase);
   await page.locator('#encrypted-file-restore-btn').click();
   await page.waitForURL((url) => !url.pathname.includes('/sign-in'), { timeout: 180_000 });
+  await completeOnboardingIfNeeded(page);
 }
 
 async function waitForListingOnOrders(
@@ -635,6 +663,11 @@ async function connectMarketplaceSession(
 ): Promise<void> {
   await injectMarketplaceSession(page, persisted);
   await page.goto(`${shopUrl}/marketplace/orders`, { waitUntil: 'domcontentloaded', timeout: 180_000 });
+  await completeOnboardingIfNeeded(page);
+  if (!page.url().includes('/marketplace/orders')) {
+    await injectMarketplaceSession(page, persisted);
+    await page.goto(`${shopUrl}/marketplace/orders`, { waitUntil: 'domcontentloaded', timeout: 180_000 });
+  }
   const approve = page.getByRole('button', { name: 'Approve in Pubky Ring' });
   const listing = page.getByText(`${listingTitle} × 1`);
   const allTab = page.getByRole('tab', { name: /^All / });
