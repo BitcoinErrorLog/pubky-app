@@ -75,7 +75,7 @@ export function DropCard({
               alt={entry.title}
               fill
               sizes="(max-width: 640px) 50vw, 300px"
-              className="absolute inset-0 object-cover"
+              className="absolute inset-0 object-cover object-center"
               onError={() => setMediaFailed(true)}
             />
           )}

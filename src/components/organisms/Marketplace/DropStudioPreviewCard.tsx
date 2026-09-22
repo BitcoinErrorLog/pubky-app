@@ -43,7 +43,12 @@ export function DropStudioPreviewCard({
       <div className="relative aspect-[2/1] w-full bg-gradient-to-br from-brand/25 via-muted to-background">
         {showMedia && (
           // eslint-disable-next-line @next/next/no-img-element -- teaser media comes from arbitrary homeservers; next/image cannot optimize them.
-          <img src={mediaUrl} alt="" className="size-full object-cover" onError={() => setMediaFailed(true)} />
+          <img
+            src={mediaUrl}
+            alt=""
+            className="size-full object-cover object-center"
+            onError={() => setMediaFailed(true)}
+          />
         )}
         <Badge className="absolute top-3 left-3 bg-background/90 text-foreground">PREVIEW</Badge>
         <Badge variant="secondary" className="absolute top-3 right-3">

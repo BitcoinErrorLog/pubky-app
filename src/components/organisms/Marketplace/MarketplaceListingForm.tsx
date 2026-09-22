@@ -1244,7 +1244,7 @@ function ListingPhotoRow({
           // Plain <img>: previews are local object URLs or direct homeserver
           // reads, neither of which should go through Next image optimization.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.previewUrl} alt={item.altText || position} className="size-full object-cover" />
+          <img src={item.previewUrl} alt={item.altText || position} className="size-full object-cover object-center" />
         ) : (
           <span className="flex size-full items-center justify-center">
             <Film aria-hidden="true" className="size-8 text-muted-foreground" />
