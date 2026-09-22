@@ -66,7 +66,7 @@ export function QrCodeSlot({
   }
 
   return (
-    <>
+    <span data-testid="qr-auth-url" data-auth-url={url} className="contents">
       <QRCodeSVG value={url} size={size} className={cn(activeQrHasHoverEffect && HOVER_OPACITY)} />
       <Image
         src="/images/ring-logo.svg"
@@ -78,6 +78,6 @@ export function QrCodeSlot({
           activeQrHasHoverEffect && HOVER_OPACITY,
         )}
       />
-    </>
+    </span>
   );
 }

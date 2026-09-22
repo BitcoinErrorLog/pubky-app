@@ -135,7 +135,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
           35mm rangefinder camera
         </h2>
         <p
-          class="font-medium truncate text-sm text-muted-foreground"
+          class="font-medium truncate text-sm text-secondary-foreground"
           data-testid="typography"
         >
           Proof of Film
@@ -145,7 +145,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
         class="space-y-1"
       >
         <span
-          class="text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+          class="text-[10px] font-medium tracking-wide text-secondary-foreground uppercase"
           data-testid="typography"
         >
           Starting bid
@@ -163,7 +163,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
           </p>
         </div>
         <p
-          class="font-medium text-xs text-muted-foreground"
+          class="font-medium text-xs text-secondary-foreground"
           data-testid="typography"
         >
           Buy now $125.00
@@ -179,7 +179,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
         </div>
       </div>
       <p
-        class="font-medium text-xs text-muted-foreground"
+        class="font-medium text-xs text-secondary-foreground"
         data-testid="typography"
       >
         New seller
@@ -188,13 +188,13 @@ exports[`MarketplaceListingCard - Snapshots > matches the auction listing snapsh
         class="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3"
       >
         <span
-          class="font-medium text-xs text-muted-foreground"
+          class="font-medium text-xs text-secondary-foreground"
           data-testid="typography"
         >
           Excellent
         </span>
         <span
-          class="font-medium text-xs text-muted-foreground"
+          class="font-medium text-xs text-secondary-foreground"
           data-testid="typography"
         >
           NY, 
@@ -322,7 +322,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
           Vintage leather boots
         </h2>
         <p
-          class="font-medium truncate text-sm text-muted-foreground"
+          class="font-medium truncate text-sm text-secondary-foreground"
           data-testid="typography"
         >
           Satoshi Vintage
@@ -332,7 +332,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
         class="space-y-1"
       >
         <span
-          class="text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+          class="text-[10px] font-medium tracking-wide text-secondary-foreground uppercase"
           data-testid="typography"
         >
           Price
@@ -360,7 +360,7 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
         </div>
       </div>
       <p
-        class="font-medium text-xs text-muted-foreground"
+        class="font-medium text-xs text-secondary-foreground"
         data-testid="typography"
       >
         New seller
@@ -369,13 +369,13 @@ exports[`MarketplaceListingCard - Snapshots > matches the fixed-price listing sn
         class="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3"
       >
         <span
-          class="font-medium text-xs text-muted-foreground"
+          class="font-medium text-xs text-secondary-foreground"
           data-testid="typography"
         >
           Good
         </span>
         <span
-          class="font-medium text-xs text-muted-foreground"
+          class="font-medium text-xs text-secondary-foreground"
           data-testid="typography"
         >
           US

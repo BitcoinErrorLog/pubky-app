@@ -13,7 +13,6 @@ export function SearchInputBar({
   inputValue,
   isFocused,
   isReadOnly,
-  isExpanded,
   suggestionsId,
   inputRef,
   onTagRemove,
@@ -59,9 +58,7 @@ export function SearchInputBar({
         readOnly={isReadOnly}
         data-cy="header-search-input"
         aria-label={'Search input'}
-        aria-autocomplete="list"
         aria-controls={suggestionsId || undefined}
-        aria-expanded={isExpanded}
         aria-haspopup={suggestionsId ? 'dialog' : undefined}
         className={cn(
           'h-auto flex-1 border-none bg-transparent pr-0 text-base font-medium text-foreground md:text-base',

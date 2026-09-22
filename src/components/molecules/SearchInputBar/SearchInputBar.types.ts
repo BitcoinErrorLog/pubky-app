@@ -12,9 +12,9 @@ export interface SearchInputBarProps {
   isFocused: boolean;
   /** Whether the input is read-only (at max tags) */
   isReadOnly: boolean;
-  /** Whether suggestions popover is expanded */
+  /** Whether suggestions popover is expanded. Not applied as ARIA on the textbox. */
   isExpanded?: boolean;
-  /** ID of the suggestions listbox (for ARIA relationship) */
+  /** ID of the suggestions popover (for aria-controls) */
   suggestionsId?: string;
   /** Ref for the input element */
   inputRef?: RefObject<HTMLInputElement | null>;

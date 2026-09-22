@@ -58,20 +58,26 @@ exports[`SignInContent - Snapshots > matches snapshot for the QR sign-in layout 
           class="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
           type="button"
         >
-          <img
-            alt="Pubky Ring"
-            data-testid="next-image"
-            height="176"
-            src="/images/pubky-ring-qr-example.webp"
-            width="176"
-          />
-          <img
-            alt="Pubky Ring"
-            data-testid="next-image"
-            height="48"
-            src="/images/ring-logo.svg"
-            width="48"
-          />
+          <span
+            class="contents"
+            data-auth-url="mock-auth-url"
+            data-testid="qr-auth-url"
+          >
+            <img
+              alt="Pubky Ring"
+              data-testid="next-image"
+              height="176"
+              src="/images/pubky-ring-qr-example.webp"
+              width="176"
+            />
+            <img
+              alt="Pubky Ring"
+              data-testid="next-image"
+              height="48"
+              src="/images/ring-logo.svg"
+              width="48"
+            />
+          </span>
         </button>
       </div>
       <div

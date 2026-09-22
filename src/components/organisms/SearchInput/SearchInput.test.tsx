@@ -138,7 +138,6 @@ vi.mock('@/molecules/SearchInputBar/SearchInputBar', () => {
       inputValue,
       isFocused,
       isReadOnly,
-      isExpanded,
       suggestionsId,
       onTagRemove,
       onInputChange,
@@ -149,7 +148,6 @@ vi.mock('@/molecules/SearchInputBar/SearchInputBar', () => {
       inputValue: string;
       isFocused: boolean;
       isReadOnly: boolean;
-      isExpanded?: boolean;
       suggestionsId?: string;
       onTagRemove: (tag: string) => void;
       onInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -182,9 +180,7 @@ vi.mock('@/molecules/SearchInputBar/SearchInputBar', () => {
           onFocus={onFocus}
           readOnly={isReadOnly}
           aria-label="Search input"
-          aria-autocomplete="list"
           aria-controls={suggestionsId || undefined}
-          aria-expanded={isExpanded}
         />
         <svg data-testid="search-icon" />
       </div>
@@ -312,7 +308,8 @@ describe('SearchInput', () => {
 
       const input = screen.getByRole('textbox');
       expect(input).toHaveAttribute('aria-label', 'Search input');
-      expect(input).toHaveAttribute('aria-autocomplete', 'list');
+      expect(input).not.toHaveAttribute('aria-autocomplete');
+      expect(input).not.toHaveAttribute('aria-expanded');
     });
 
     it('renders placeholder text when no active tags', () => {

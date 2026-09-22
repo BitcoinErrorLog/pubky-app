@@ -1,0 +1,610 @@
+#!/usr/bin/env node
+/**
+ * Launch-critical Chromium suite against a running Next server.
+ *
+ * Node fetch cannot catch Window.fetch "Illegal invocation". Every journey
+ * here drives real Chromium against `next start`. The required gate reads a
+ * committed Nexus fixture (via LAUNCH_E2E_NEXUS_URL), never live 7108.
+ *
+ * Inventory: guest canary is fail-closed on a board throw. Signed-in board
+ * mount is opt-in via LAUNCH_E2E_REQUIRE_SELLER_BOARD=1 (follow-up).
+ */
+import { existsSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const FIXTURE_PATH = path.join(ROOT, 'src/test/e2e/fixtures/launch-critical.json');
+const CANONICAL_LISTING_PATH = path.join(ROOT, 'src/test/e2e/fixtures/nexus/canonical-listing.json');
+const SHOP_FIXTURE_PATH = path.join(ROOT, 'src/test/e2e/fixtures/nexus/shop.json');
+const DEFAULT_IDENTITIES_FILE = '/Users/johncarvalho/work/.staging-drop-identities.json';
+
+const BASE_URL = (process.env.LAUNCH_E2E_BASE_URL ?? 'http://127.0.0.1:3000').replace(/\/$/, '');
+const SERVICE_URL = process.env.LAUNCH_E2E_SERVICE_URL ?? 'https://staging-api.pubky.app';
+const NEXUS_URL = (process.env.LAUNCH_E2E_NEXUS_URL ?? '').replace(/\/$/, '');
+const ALLOW_LIVE_NEXUS = process.env.LAUNCH_E2E_ALLOW_LIVE_NEXUS === '1';
+const REQUIRE_SELLER_BOARD = process.env.LAUNCH_E2E_REQUIRE_SELLER_BOARD === '1';
+
+const failures = [];
+const results = [];
+
+function record(name, ok, detail) {
+  results.push({ name, ok, detail });
+  const mark = ok ? 'PASS' : 'FAIL';
+  console.log(`${mark}  ${name}${detail ? ` — ${detail}` : ''}`);
+  if (!ok) failures.push(`${name}: ${detail}`);
+}
+
+function assert(name, condition, detail) {
+  record(name, Boolean(condition), condition ? detail : detail || 'assertion failed');
+}
+
+function assertNotLiveNexus(url) {
+  if (ALLOW_LIVE_NEXUS) return;
+  if (!url) {
+    throw new Error('LAUNCH_E2E_NEXUS_URL is required; the required gate must point at the fixture stub');
+  }
+  if (/railway\.app|:7108\b|7108\.up\.railway/.test(url)) {
+    throw new Error(`required gate must not read live nexusd (${url})`);
+  }
+}
+
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return bytes;
+}
+
+async function loadSellerSecretHex() {
+  const fromEnv = process.env.LAUNCH_E2E_SELLER_SECRET_HEX?.trim() ?? '';
+  if (/^[0-9a-fA-F]{64}$/.test(fromEnv)) return fromEnv;
+  const identitiesFile = process.env.MARKETPLACE_STAGING_DROP_IDENTITIES_FILE || DEFAULT_IDENTITIES_FILE;
+  if (!existsSync(identitiesFile)) return null;
+  const saved = JSON.parse(await readFile(identitiesFile, 'utf8'));
+  const secret = saved.seller ?? saved.buyerA ?? null;
+  return typeof secret === 'string' && /^[0-9a-fA-F]{64}$/.test(secret) ? secret : null;
+}
+
+async function expectVisible(page, locator, name, timeout = 20_000) {
+  try {
+    await locator.waitFor({ state: 'visible', timeout });
+    record(name, true, await locator.first().evaluate((el) => el.tagName.toLowerCase()));
+    return true;
+  } catch (error) {
+    record(name, false, String(error).slice(0, 240));
+    return false;
+  }
+}
+
+async function closeJoinDialog(page) {
+  await page.keyboard.press('Escape').catch(() => undefined);
+  const close = page.locator('[data-testid="dialog-close"]');
+  if (await close.count()) {
+    await close
+      .first()
+      .click({ timeout: 5_000, force: true })
+      .catch(() => undefined);
+  }
+  await page
+    .locator('[role="dialog"]:visible')
+    .waitFor({ state: 'hidden', timeout: 5_000 })
+    .catch(() => undefined);
+}
+
+async function gotoAndSettle(page, pathname) {
+  const response = await page.goto(`${BASE_URL}${pathname}`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  return response;
+}
+
+async function waitForJoinPubky(page) {
+  const heading = page.getByRole('heading', { name: 'Join Pubky' });
+  return expectVisible(page, heading, 'join-pubky-dialog', 20_000);
+}
+
+async function runAxe(page, pageId) {
+  await page.addScriptTag({ path: path.join(ROOT, 'node_modules/axe-core/axe.min.js') });
+  const dialogVisible = (await page.locator('[role="dialog"]:visible').count()) > 0;
+  const report = await page.evaluate(async (scanDialog) => {
+    const axe = window.axe;
+    const dialog = document.querySelector('[role="dialog"]');
+    const context = scanDialog && dialog ? dialog : document;
+    const result = await axe.run(context, { resultTypes: ['violations'] });
+    return result.violations.map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      description: violation.description,
+      nodes: violation.nodes.map((node) => {
+        const data = [...(node.any ?? []), ...(node.all ?? [])]
+          .map((check) => check.data)
+          .find((entry) => entry && (entry.contrastRatio != null || entry.fgColor));
+        return {
+          target: node.target,
+          html: String(node.html ?? '').slice(0, 240),
+          failureSummary: String(node.failureSummary ?? '').slice(0, 240),
+          fgColor: data?.fgColor ?? null,
+          bgColor: data?.bgColor ?? null,
+          contrastRatio: data?.contrastRatio ?? null,
+          expectedContrastRatio: data?.expectedContrastRatio ?? null,
+          fontSize: data?.fontSize ?? null,
+          fontWeight: data?.fontWeight ?? null,
+        };
+      }),
+    }));
+  }, dialogVisible);
+
+  const blocking = report.filter((item) => item.impact === 'critical' || item.impact === 'serious');
+  if (blocking.length > 0) {
+    record(
+      `a11y:${pageId}`,
+      false,
+      blocking
+        .map((item) => {
+          const nodes = item.nodes
+            .slice(0, 24)
+            .map((node) => {
+              const pair =
+                node.fgColor && node.bgColor
+                  ? `${node.fgColor} on ${node.bgColor} ${node.contrastRatio ?? '?'}:${node.expectedContrastRatio ?? ''}`
+                  : '';
+              return `${node.target.join(' ')} :: ${node.html}${pair ? ` :: ${pair}` : ''}`;
+            })
+            .join(' | ');
+          return `${item.impact}:${item.id}×${item.nodes.length}${nodes ? ` ${nodes}` : ''}`;
+        })
+        .join('; '),
+    );
+  }
+  record(
+    `a11y:${pageId}`,
+    true,
+    report.length === 0 ? 'no violations' : `non-blocking ${report.map((item) => item.id).join(',')}`,
+  );
+}
+
+async function waitForListingReady(page) {
+  await page
+    .locator('[data-testid="marketplace-listing-skeleton"]')
+    .waitFor({ state: 'hidden', timeout: 20_000 })
+    .catch(() => undefined);
+}
+
+async function exerciseListingCheckout(page) {
+  await waitForListingReady(page);
+  const buy = page.getByRole('button', { name: 'Sign in to buy' });
+  const add = page.getByRole('button', { name: 'Add to cart' });
+  if (await buy.count()) {
+    await buy.first().click();
+    await waitForJoinPubky(page);
+    record('checkout:payment-step', true, 'Sign in to buy → Join Pubky');
+    await closeJoinDialog(page);
+  } else if (await add.count()) {
+    await add.first().click();
+    await waitForJoinPubky(page);
+    record('checkout:payment-step', true, 'Add to cart → Join Pubky');
+    await closeJoinDialog(page);
+  } else {
+    const unavailable = await page.getByRole('heading', { name: 'Listing unavailable' }).count();
+    record(
+      'checkout:payment-step',
+      false,
+      unavailable ? 'listing unavailable after Chromium navigation' : 'no Sign in to buy / Add to cart on listing',
+    );
+  }
+  await runAxe(page, 'listing');
+}
+
+async function waitForAuthUrl(page, timeout = 25_000) {
+  const slot = page.locator('[data-testid="qr-auth-url"][data-auth-url^="pubkyauth://"]').first();
+  await slot.waitFor({ state: 'attached', timeout });
+  const url = await slot.getAttribute('data-auth-url');
+  if (!url || !url.startsWith('pubkyauth://')) {
+    throw new Error('missing pubkyauth URL on QR slot');
+  }
+  return url;
+}
+
+async function approveAuthRequest(secretHex, authorizationUrl) {
+  const sdk = await import('@synonymdev/pubky');
+  const keypair = sdk.Keypair.fromSecret(hexToBytes(secretHex));
+  await new sdk.Pubky().signer(keypair).approveAuthRequest(authorizationUrl);
+}
+
+async function signInSeller(page, secretHex) {
+  try {
+    await closeJoinDialog(page);
+    await gotoAndSettle(page, '/sign-in');
+    const authorizationUrl = await waitForAuthUrl(page);
+    await approveAuthRequest(secretHex, authorizationUrl);
+    await page.getByText('Verifying account').waitFor({ state: 'visible', timeout: 90_000 });
+    await page.waitForURL((url) => url.pathname !== '/sign-in', { timeout: 120_000, waitUntil: 'commit' });
+    record('inventory:seller-signin', true, `headless approve /sign-in → ${page.url()}`);
+    return true;
+  } catch (error) {
+    const snippet = (
+      (await page
+        .locator('body')
+        .innerText()
+        .catch(() => '')) ?? ''
+    )
+      .replace(/\s+/g, ' ')
+      .slice(0, 180);
+    record('inventory:seller-signin', false, `${String(error).slice(0, 180)} :: ${snippet}`);
+    return false;
+  }
+}
+
+async function waitForBoardStatus(page, accepted, timeout = 45_000) {
+  await page
+    .waitForFunction(
+      (wanted) => {
+        const el = document.querySelector('[data-testid="inventory-studio"]');
+        const next = el?.getAttribute('data-load-status') ?? '';
+        return wanted.includes(next);
+      },
+      accepted,
+      { timeout },
+    )
+    .catch(() => undefined);
+  return (await page.locator('[data-testid="inventory-studio"]').getAttribute('data-load-status')) ?? '';
+}
+
+async function approveVisibleGrant(page, secretHex, label) {
+  const trigger = page.getByRole('button', { name: /Approve in (your Pubky signer|Pubky Ring)/i }).first();
+  if (!(await trigger.count())) return { opened: false };
+  const before = (await page.locator('[data-testid="inventory-studio"]').getAttribute('data-load-status')) ?? '';
+  await trigger.click({ force: true });
+  try {
+    await waitForAuthUrl(page);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const authorizationUrl = await waitForAuthUrl(page);
+    await approveAuthRequest(secretHex, authorizationUrl);
+    if (label === 'session') {
+      await page.waitForFunction(() => Boolean(localStorage.getItem('pubky.marketplace.session.v1')), {
+        timeout: 90_000,
+      });
+    }
+    const after = await waitForBoardStatus(page, ['grant-needed', 'ready', 'empty', 'error'], 90_000);
+    const moved = after !== before && ['grant-needed', 'ready', 'empty', 'error'].includes(after);
+    record(`inventory:${label}-approve`, moved, `status ${before} → ${after || 'missing'}`);
+    return { opened: true, ok: moved };
+  } catch (error) {
+    record(`inventory:${label}-approve`, false, String(error).slice(0, 240));
+    return { opened: true, ok: false };
+  }
+}
+
+function boardThrowDetail({ illegal, transport, status, bodyText, pageErrors }) {
+  const parts = [`status=${status || 'missing'}`, `illegal=${illegal.join(' | ') || 'none'}`, `transport=${transport}`];
+  if (pageErrors.length) parts.push(`pageerror=${pageErrors.slice(0, 2).join(' | ')}`);
+  if (bodyText) parts.push(bodyText.slice(0, 180));
+  return parts.join(' ');
+}
+
+async function collectBoardSignals(page, pageErrors, errorOffset) {
+  const studio = page.locator('[data-testid="inventory-studio"]');
+  await Promise.race([
+    studio.waitFor({ state: 'attached', timeout: 15_000 }),
+    page.getByRole('heading', { name: 'Join Pubky' }).waitFor({ state: 'visible', timeout: 15_000 }),
+    page.locator('nextjs-portal, [data-nextjs-dialog]').waitFor({ state: 'attached', timeout: 15_000 }),
+  ]).catch(() => undefined);
+
+  const slice = pageErrors.slice(errorOffset);
+  const illegal = slice.filter((message) => /illegal invocation/i.test(message));
+  const bodyText = (
+    (await page
+      .locator('body')
+      .innerText()
+      .catch(() => '')) ?? ''
+  )
+    .replace(/\s+/g, ' ')
+    .slice(0, 400);
+  const status = (await studio.getAttribute('data-load-status').catch(() => null)) ?? '';
+  const transport = /illegal invocation|transport_error|transport error/i.test(bodyText);
+  const nextCrash = (await page.locator('nextjs-portal, [data-nextjs-dialog]').count()) > 0;
+  const applicationError = /application error|this page could not be rendered/i.test(bodyText);
+  return {
+    studio,
+    illegal,
+    bodyText,
+    status,
+    transport,
+    nextCrash,
+    applicationError,
+    slice,
+    redirectedHome: new URL(page.url()).pathname === '/marketplace',
+    onInventory: new URL(page.url()).pathname === '/marketplace/dashboard/inventory',
+    joinVisible: await page
+      .getByRole('heading', { name: 'Join Pubky' })
+      .isVisible()
+      .catch(() => false),
+    boardMounted: (await studio.count()) > 0,
+  };
+}
+
+function boardThrew(signals) {
+  return (
+    signals.illegal.length > 0 ||
+    signals.transport ||
+    signals.status === 'error' ||
+    signals.nextCrash ||
+    signals.applicationError
+  );
+}
+
+async function probeInventoryGuest(page, pageErrors) {
+  const errorOffset = pageErrors.length;
+  const inventoryResponse = await gotoAndSettle(page, '/marketplace/dashboard/inventory');
+  assert(
+    'inventory:next-served',
+    inventoryResponse !== null && inventoryResponse.status() < 500,
+    `status ${inventoryResponse?.status()}`,
+  );
+
+  const signals = await collectBoardSignals(page, pageErrors, errorOffset);
+  if (boardThrew(signals) || inventoryResponse === null || inventoryResponse.status() >= 500) {
+    record(
+      'inventory:board-route',
+      false,
+      boardThrowDetail({
+        illegal: signals.illegal,
+        transport: signals.transport,
+        status: signals.status,
+        bodyText: signals.bodyText,
+        pageErrors: signals.slice,
+      }),
+    );
+    return;
+  }
+
+  const guestGate = signals.redirectedHome && signals.joinVisible && !signals.boardMounted;
+  const guestBoard = signals.boardMounted && (signals.status === 'unauthenticated' || signals.status === '');
+  if (guestGate || guestBoard) {
+    record(
+      'inventory:board-route',
+      true,
+      guestGate
+        ? 'guest Join Pubky gate (board is auth-only; no throw)'
+        : `guest board status=${signals.status || 'missing'} (no throw)`,
+    );
+    await closeJoinDialog(page);
+    return;
+  }
+
+  record(
+    'inventory:board-route',
+    false,
+    `unexpected inventory state path=${page.url()} status=${signals.status || 'missing'} board=${signals.boardMounted} join=${signals.joinVisible}`,
+  );
+}
+
+async function mountInventoryBoard(page, secretHex, pageErrors) {
+  const errorOffset = pageErrors.length;
+  const inventoryResponse = await gotoAndSettle(page, '/marketplace/dashboard/inventory');
+  assert(
+    'inventory:next-served',
+    inventoryResponse !== null && inventoryResponse.status() < 500,
+    `status ${inventoryResponse?.status()}`,
+  );
+
+  let signals = await collectBoardSignals(page, pageErrors, errorOffset);
+  if (boardThrew(signals)) {
+    record(
+      'inventory:board-route',
+      false,
+      boardThrowDetail({
+        illegal: signals.illegal,
+        transport: signals.transport,
+        status: signals.status,
+        bodyText: signals.bodyText,
+        pageErrors: signals.slice,
+      }),
+    );
+    return;
+  }
+
+  if (signals.redirectedHome || signals.status === 'unauthenticated') {
+    if (!(await signInSeller(page, secretHex))) return;
+    await gotoAndSettle(page, '/marketplace/dashboard/inventory');
+    signals = await collectBoardSignals(page, pageErrors, pageErrors.length);
+    if (boardThrew(signals)) {
+      record(
+        'inventory:board-route',
+        false,
+        boardThrowDetail({
+          illegal: signals.illegal,
+          transport: signals.transport,
+          status: signals.status,
+          bodyText: signals.bodyText,
+          pageErrors: signals.slice,
+        }),
+      );
+      return;
+    }
+  }
+
+  if (!signals.onInventory && new URL(page.url()).pathname !== '/marketplace/dashboard/inventory') {
+    record('inventory:board-route', false, `expected inventory path, got ${page.url()}`);
+    return;
+  }
+
+  const studio = page.locator('[data-testid="inventory-studio"]');
+  const mounted = await studio
+    .waitFor({ state: 'attached', timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!mounted) {
+    record('inventory:board-route', false, 'inventory-studio did not mount');
+    return;
+  }
+
+  const pending = ['unauthenticated', 'session-required', 'grant-needed', 'ready', 'empty', 'error'];
+  const settled = ['ready', 'empty', 'error'];
+  for (const label of ['session', 'grant']) {
+    const statusNow = await waitForBoardStatus(page, pending, 20_000);
+    if (settled.includes(statusNow)) break;
+    if (statusNow === 'unauthenticated') {
+      if (!(await signInSeller(page, secretHex))) return;
+      await gotoAndSettle(page, '/marketplace/dashboard/inventory');
+      continue;
+    }
+    const result = await approveVisibleGrant(page, secretHex, label);
+    if (result.opened && !result.ok) break;
+  }
+
+  const status = await waitForBoardStatus(page, settled);
+  const bodyText = ((await studio.textContent()) ?? '').slice(0, 400);
+  const transport = /illegal invocation|transport_error|transport error/i.test(bodyText);
+  const rows = await studio.locator('table tbody tr').count();
+  const empty = await page.getByRole('heading', { name: 'No inventory on the service yet' }).count();
+  const illegal = pageErrors.filter((message) => /illegal invocation/i.test(message));
+  const boardOk =
+    (status === 'ready' || status === 'empty') && !transport && illegal.length === 0 && (rows > 0 || empty > 0);
+
+  record(
+    'inventory:board-route',
+    boardOk,
+    `status=${status || 'missing'} rows=${rows} empty=${empty > 0} transport=${transport}`,
+  );
+  assert(
+    'inventory:no-transport-error',
+    !transport && status !== 'error' && illegal.length === 0,
+    bodyText || `status=${status}`,
+  );
+  await runAxe(page, 'inventory');
+}
+
+async function installHomeserverListingFixture(page, canonicalListing, shop) {
+  const listingId = canonicalListing.listingId;
+  await page.route(`**/pub/pubky.app/marketplace/v1/listings/${listingId}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(canonicalListing),
+    });
+  });
+  await page.route('**/pub/pubky.app/marketplace/v1/shop.json', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(shop),
+    });
+  });
+}
+
+async function main() {
+  assertNotLiveNexus(NEXUS_URL);
+
+  const fixture = JSON.parse(await readFile(FIXTURE_PATH, 'utf8'));
+  const canonicalListing = JSON.parse(await readFile(CANONICAL_LISTING_PATH, 'utf8'));
+  const shop = JSON.parse(await readFile(SHOP_FIXTURE_PATH, 'utf8'));
+  const listingPath = fixture.listingPath ?? fixture.pages[1].path;
+  const pageErrors = [];
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    locale: 'en-US',
+  });
+  const page = await context.newPage();
+  page.on('pageerror', (error) => {
+    pageErrors.push(String(error));
+    console.error('pageerror', error);
+  });
+
+  await installHomeserverListingFixture(page, canonicalListing, shop);
+
+  try {
+    const catalog = await gotoAndSettle(page, fixture.pages[0].path);
+    assert('catalog:http', catalog !== null && catalog.ok(), `status ${catalog?.status()}`);
+    await expectVisible(page, page.getByText(fixture.catalogHeading, { exact: false }), 'catalog:heading');
+    const sandbox = await page.getByText(fixture.forbiddenSandboxCopy).count();
+    assert('catalog:not-sandbox', sandbox === 0, sandbox === 0 ? 'staging adapter' : 'sandbox copy present');
+
+    const joinButton = page.getByTestId('header-explore-join-button');
+    if (await expectVisible(page, joinButton, 'sign-in:header-join')) {
+      await joinButton.click();
+      await waitForJoinPubky(page);
+      await closeJoinDialog(page);
+    }
+
+    await expectVisible(page, page.getByText(fixture.listingTitle, { exact: false }), 'catalog:fixture-title');
+    await runAxe(page, 'catalog');
+
+    await gotoAndSettle(page, listingPath);
+    const onListing = /\/marketplace\/listing\//.test(page.url());
+    record('listing:open', onListing, onListing ? page.url() : `expected ${listingPath}, got ${page.url()}`);
+    if (onListing) {
+      await exerciseListingCheckout(page);
+    }
+
+    await gotoAndSettle(page, fixture.pages[2].path);
+    await page.waitForURL((url) => url.pathname === '/marketplace', { timeout: 20_000 }).catch(() => undefined);
+    assert('cart:guest-redirect', new URL(page.url()).pathname === '/marketplace', page.url());
+    await waitForJoinPubky(page);
+    const placeOrder = await page.getByRole('button', { name: /Place .* order/i }).count();
+    assert('cart:no-sandbox-checkout', placeOrder === 0, 'guest cannot place an order');
+    await closeJoinDialog(page);
+
+    await gotoAndSettle(page, fixture.pages[3].path);
+    await page.waitForURL((url) => url.pathname === '/marketplace', { timeout: 20_000 }).catch(() => undefined);
+    assert('compose:guest-redirect', new URL(page.url()).pathname === '/marketplace', page.url());
+    await waitForJoinPubky(page);
+    const studio = await page.locator('[data-surface="seller-studio"]').count();
+    assert('compose:no-seller-studio', studio === 0, 'composer stays behind Join Pubky');
+    await closeJoinDialog(page);
+
+    if (REQUIRE_SELLER_BOARD) {
+      const secretHex = await loadSellerSecretHex();
+      if (!secretHex) {
+        record(
+          'inventory:board-route',
+          false,
+          'LAUNCH_E2E_SELLER_SECRET_HEX or staging identities file required to mount the board',
+        );
+      } else {
+        try {
+          await mountInventoryBoard(page, secretHex, pageErrors);
+        } catch (error) {
+          record('inventory:board-route', false, String(error).slice(0, 240));
+        }
+      }
+    } else {
+      try {
+        await probeInventoryGuest(page, pageErrors);
+      } catch (error) {
+        record('inventory:board-route', false, String(error).slice(0, 240));
+      }
+    }
+
+    const illegal = pageErrors.filter((message) => /illegal invocation/i.test(message));
+    assert('inventory:no-uncaught-illegal-invocation', illegal.length === 0, illegal.join(' | ') || 'none');
+  } finally {
+    const summary = {
+      baseUrl: BASE_URL,
+      serviceUrl: SERVICE_URL,
+      nexusUrl: NEXUS_URL,
+      fixture: path.relative(ROOT, FIXTURE_PATH),
+      listingPath,
+      sellerBoardRequired: REQUIRE_SELLER_BOARD,
+      results,
+      pageErrors,
+      failed: failures.length,
+    };
+    console.log(JSON.stringify(summary, null, 2));
+    const resultsPath = process.env.LAUNCH_E2E_RESULTS ?? path.join(ROOT, 'launch-e2e-results.json');
+    await writeFile(resultsPath, `${JSON.stringify(summary, null, 2)}\n`);
+    await context.close();
+    await browser.close();
+  }
+
+  if (failures.length > 0) {
+    process.exitCode = 1;
+  }
+}
+
+await main();
