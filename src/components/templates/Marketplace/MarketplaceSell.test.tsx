@@ -25,11 +25,9 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
-  MarketplaceSessionConnectDialog: ({
-    triggerLabel = 'Connect marketplace session',
-  }: {
-    triggerLabel?: string;
-  }) => <button type="button">{triggerLabel}</button>,
+  MarketplaceSessionConnectDialog: ({ triggerLabel = 'Connect marketplace session' }: { triggerLabel?: string }) => (
+    <button type="button">{triggerLabel}</button>
+  ),
 }));
 
 // Keep the deployment's pickup capability ON: the default sandbox mode reads
