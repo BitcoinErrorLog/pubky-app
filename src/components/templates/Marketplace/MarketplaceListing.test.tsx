@@ -14,7 +14,7 @@ const sellerReputation = vi.hoisted((): { value: CommerceSellerReputationOvervie
   value: { status: 'new_seller' as const },
 }));
 const authState = vi.hoisted(() => ({
-  currentUserPubky: 'b'.repeat(52),
+  currentUserPubky: 'b'.repeat(52) as string | null,
   setShowSignInDialog: vi.fn(),
 }));
 
