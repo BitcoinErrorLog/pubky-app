@@ -249,6 +249,11 @@ describe('matchesAllowedRoute', () => {
     expect(matchesAllowedRoute('/home/trending', APP_ROUTES.HOME, { restrictExploreSubRoutes: true })).toBe(false);
   });
 
+  it('covers Inventory Studio automations via the /marketplace allowed prefix', () => {
+    expect(MARKETPLACE_ROUTES.INVENTORY_AUTOMATIONS).toBe('/marketplace/dashboard/inventory/automations');
+    expect(matchesAllowedRoute(MARKETPLACE_ROUTES.INVENTORY_AUTOMATIONS, APP_ROUTES.MARKETPLACE)).toBe(true);
+  });
+
   it('keeps prefix matching for non-explore allowed routes when explore prefix restriction is enabled', () => {
     expect(
       matchesAllowedRoute('/onboarding/profile', ONBOARDING_ROUTES.PROFILE, { restrictExploreSubRoutes: true }),

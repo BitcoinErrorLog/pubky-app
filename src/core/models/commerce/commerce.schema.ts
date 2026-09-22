@@ -688,3 +688,20 @@ export interface CommerceImportMappingModelSchema {
 }
 
 export const commerceImportMappingTableSchema = '&seller_id, updated_at';
+
+export const COMMERCE_WEBHOOK_TABLE_NAMES = ['commerce_webhooks'] as const;
+
+export const INVENTORY_STUDIO_TABLE_NAMES = [...COMMERCE_IMPORT_TABLE_NAMES, ...COMMERCE_WEBHOOK_TABLE_NAMES] as const;
+
+/**
+ * Local copy of a seller webhook the service will not list (`GET /v1/webhooks`
+ * does not exist). `{id, url}` only — never the one-time secret.
+ */
+export interface CommerceWebhookModelSchema {
+  id: string;
+  seller_id: string;
+  url: string;
+  created_at: number;
+}
+
+export const commerceWebhookTableSchema = '&id, seller_id, created_at';

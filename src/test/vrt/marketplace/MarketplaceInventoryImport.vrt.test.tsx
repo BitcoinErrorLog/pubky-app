@@ -105,4 +105,87 @@ describe('MarketplaceInventoryImport VRT', () => {
       VRT_DENSE_CHROME_SCREENSHOT,
     );
   });
+
+  it('renders a dry-run with conflicts at desktop viewport', async () => {
+    const screen = await renderForVRT(
+      <main className="w-full py-6">
+        <MarketplaceInventoryImport
+          step={4}
+          scene="dry-run"
+          fileName="listings.csv"
+          counts={{ create: 1, update: 0, end: 0, unchanged: 0, conflict: 2 }}
+        />
+      </main>,
+      { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-import-dry-run-conflict-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders a dry-run with conflicts at mobile viewport', async () => {
+    const screen = await renderForVRT(
+      <main className="w-full py-6">
+        <MarketplaceInventoryImport
+          step={4}
+          scene="dry-run"
+          fileName="listings.csv"
+          counts={{ create: 1, update: 0, end: 0, unchanged: 0, conflict: 2 }}
+        />
+      </main>,
+      { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-import-dry-run-conflict-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders publish progress at mobile viewport', async () => {
+    const screen = await renderForVRT(
+      <main className="w-full py-6">
+        <MarketplaceInventoryImport step={5} scene="progress" progress={{ done: 2, total: 10 }} />
+      </main>,
+      { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-import-progress-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders a CAS conflict at mobile viewport', async () => {
+    const screen = await renderForVRT(
+      <main className="w-full py-6">
+        <MarketplaceInventoryImport
+          step={5}
+          scene="conflict"
+          message="This listing changed since the plan. Confirm or discard; it will not be overwritten."
+        />
+      </main>,
+      { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-import-conflict-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders a parse failure at mobile viewport', async () => {
+    const screen = await renderForVRT(
+      <main className="w-full py-6">
+        <MarketplaceInventoryImport
+          step={2}
+          scene="parse-fail"
+          message="This file could not be planned. Nothing was published."
+        />
+      </main>,
+      { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-import-parse-fail-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
 });
