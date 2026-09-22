@@ -133,7 +133,7 @@ describe('MarketplacePaymentStatusCard', () => {
   });
 
   it.each(['transaction-service', 'locks-paykit', 'unavailable'] as const)(
-    'shows the non-dismissible real-money notice in %s mode',
+    'does not show a production money warning in %s mode',
     (adapterMode) => {
       render(
         <MarketplacePaymentStatusCard
@@ -146,13 +146,14 @@ describe('MarketplacePaymentStatusCard', () => {
         />,
       );
 
-      const notice = screen.getByRole('note');
-      expect(notice).toHaveTextContent('Real money. Payments are final and go directly to the seller.');
-      expect(notice.querySelector('button')).not.toBeInTheDocument();
+      expect(screen.queryByRole('note')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Real money. Payments are final and go directly to the seller.'),
+      ).not.toBeInTheDocument();
     },
   );
 
-  it('shows the staging notice instead of the real-money notice on a staging deploy', () => {
+  it('shows the staging notice on a staging deploy', () => {
     runtime.deployEnv = 'staging';
     render(
       <MarketplacePaymentStatusCard
@@ -169,7 +170,7 @@ describe('MarketplacePaymentStatusCard', () => {
     expect(screen.queryByText(/Real money/)).not.toBeInTheDocument();
   });
 
-  it('fails closed to the real-money notice for an unknown deploy environment', () => {
+  it('does not show a production money warning when the deploy environment is unknown', () => {
     runtime.deployEnv = undefined;
     render(
       <MarketplacePaymentStatusCard
@@ -182,7 +183,8 @@ describe('MarketplacePaymentStatusCard', () => {
       />,
     );
 
-    expect(screen.getByRole('note')).toHaveTextContent('Real money. Payments are final and go directly to the seller.');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Real money/)).not.toBeInTheDocument();
   });
 
   it('shows the sandbox badge without any payment notice, even on a staging deploy', () => {
@@ -281,6 +283,8 @@ describe('MarketplacePaymentStatusCard', () => {
     expect(
       screen.getByText('Bitcoin is temporarily unavailable. Other payment methods are unaffected.'),
     ).toBeInTheDocument();
+    expect(screen.getByText('The item is held for you once a payment starts.')).toBeInTheDocument();
+    expect(screen.queryByText(/never holds funds/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Card \(Stripe\)/ })).toBeInTheDocument();
   });
 
@@ -347,6 +351,10 @@ describe('MarketplacePaymentStatusCard', () => {
     );
 
     expect(screen.getByText(holderUnboundCopy(holdExpiresAt))).toBeInTheDocument();
+    expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Choose how to pay/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pays the seller directly/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/never holds funds/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     await waitFor(() =>
       expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(

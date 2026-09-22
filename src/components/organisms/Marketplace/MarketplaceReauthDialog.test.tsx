@@ -21,13 +21,15 @@ vi.mock('@/hooks/useStepUpReauth/useStepUpReauth', () => ({
 }));
 
 describe('MarketplaceReauthDialog', () => {
-  it('renders the exact requested capability string beside the QR so the user can compare it with the signer', async () => {
+  it('asks for a sign-in in product language and does not print capability paths', async () => {
     render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
-    // Verbatim from the single CAPABILITIES constant — never a paraphrase.
-    expect(screen.getByText(CAPABILITIES)).toBeInTheDocument();
-    expect(screen.getByText(/Pubky Ring will show this exact permission list/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sign in again' })).toBeInTheDocument();
+    expect(screen.getByText('Sign in again for this device.')).toBeInTheDocument();
+    expect(screen.queryByText(CAPABILITIES)).not.toBeInTheDocument();
+    expect(screen.queryByText(/compare it before approving/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/permission list/i)).not.toBeInTheDocument();
   });
 });

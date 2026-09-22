@@ -78,6 +78,9 @@ describe('MarketplaceSessionConnectDialog', () => {
     expect(screen.getByLabelText('Copy authorization link')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /open in pubky ring/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy link/i })).toBeInTheDocument();
+    expect(screen.getByText('Sign in to Pubky Shop.')).toBeInTheDocument();
+    expect(screen.queryByText(/permission list/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/compare it before approving/i)).not.toBeInTheDocument();
   });
 
   it('uses reconnect copy only when the hook selected grant reconnect', () => {

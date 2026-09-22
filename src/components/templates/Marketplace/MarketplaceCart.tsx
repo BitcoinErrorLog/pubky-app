@@ -506,21 +506,13 @@ export function MarketplaceCart() {
                         This places {checkout.orderCount} orders — one per seller and delivery method.
                       </Typography>
                     )}
-                    {isStaging ? (
+                    {isStaging && (
                       <Typography
                         as="p"
                         role="note"
                         className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
                       >
                         Staging environment — test rails, no real funds move
-                      </Typography>
-                    ) : (
-                      <Typography
-                        as="p"
-                        role="note"
-                        className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200"
-                      >
-                        Real money. Payments are final and go directly to the seller.
                       </Typography>
                     )}
                     <Button
@@ -531,6 +523,11 @@ export function MarketplaceCart() {
                     >
                       {isSandbox ? 'Place sandbox order' : 'Place order'}
                     </Button>
+                    {!isStaging && !isSandbox && (
+                      <Typography as="p" className="text-xs text-muted-foreground">
+                        Paid directly to the seller.
+                      </Typography>
+                    )}
                     {!canPlaceOrder && !approvalNeeded && (
                       <Typography id="place-order-reason" as="p" className="text-xs text-muted-foreground">
                         {checkout.hasFulfillmentConflict

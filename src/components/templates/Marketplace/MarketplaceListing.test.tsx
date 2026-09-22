@@ -382,10 +382,10 @@ describe('MarketplaceListing', () => {
     expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
-    expect(screen.getByText(CAPABILITIES)).toBeInTheDocument();
-    expect(
-      screen.getByText(/this is the first Shop-scoped approval; it was not covered by signing in on pubky.app/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Sign in to Pubky Shop.')).toBeInTheDocument();
+    expect(screen.queryByText(/permission list/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(CAPABILITIES)).not.toBeInTheDocument();
+    expect(screen.queryByText(/first Shop-scoped approval/i)).not.toBeInTheDocument();
   });
 
   it('labels an ended auction Auction ended and does not blame the seller for checkout unavailability', () => {
@@ -436,7 +436,8 @@ describe('MarketplaceListing', () => {
     expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
-    expect(screen.getByText(/Ring will show an empty permission list/i)).toBeInTheDocument();
+    expect(screen.getByText('Approve purchases for this device.')).toBeInTheDocument();
+    expect(screen.queryByText(/permission list/i)).not.toBeInTheDocument();
     expect(screen.queryByText(CAPABILITIES)).not.toBeInTheDocument();
   });
 });

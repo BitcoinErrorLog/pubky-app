@@ -129,13 +129,15 @@ function setPaykitIframeSource(iframe: HTMLIFrameElement): WindowProxy {
 }
 
 describe('MarketplacePaymentSettings', () => {
-  it('leads with the seller-direct promise', async () => {
+  it('leads with how-you-get-paid setup copy, not a funds warning', async () => {
     await renderSettings();
 
     expect(screen.getByRole('heading', { name: 'How you get paid' })).toBeInTheDocument();
-    expect(
-      screen.getByText('Every method pays the seller directly — this marketplace never holds funds.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Set up the methods buyers can use at checkout.')).toBeInTheDocument();
+    expect(screen.queryByText(/pays the seller directly/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/never holds funds/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pre-production/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/this prototype/i)).not.toBeInTheDocument();
   });
 
   it('renders the three method cards in buyer-familiar order', async () => {
@@ -253,6 +255,19 @@ describe('MarketplacePaymentSettings', () => {
 
     // The payload contract is unchanged: invalid input never leaves the browser.
     expect(mockedController.putMyPaymentConfig).not.toHaveBeenCalled();
+  });
+
+  it('tells Ring-signed-up sellers to create a Shop identity in Bitkit', async () => {
+    await renderSettings();
+
+    const helper =
+      'Your Shop identity must live in Bitkit. Signed up with Pubky Ring? Create a new Shop account by scanning the sign-up QR with Bitkit — Ring import is coming to Bitkit.';
+    expect(screen.getByText(helper)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    expect(screen.getAllByText(helper)).toHaveLength(2);
+    expect(screen.getByText(/Bitkit 2.5 or newer is required/)).toBeInTheDocument();
   });
 
   it('validates the Bitkit setup callback', async () => {
