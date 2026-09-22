@@ -46,7 +46,10 @@ describe('createGooglePlacesAutocompleteProvider', () => {
     const empty = createGooglePlacesAutocompleteProvider('');
     expect(await empty.suggest('42 Union', 'session')).toEqual([]);
 
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 403 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('nope', { status: 403 })),
+    );
     const provider = createGooglePlacesAutocompleteProvider('test-key');
     expect(await provider.suggest('42 Union', 'session')).toEqual([]);
 

@@ -28,11 +28,7 @@ import {
   locksPublicUriSchema,
 } from '@/libs/commerce/marketplace-records';
 import { type MarketplacePickupDetails, pickupDetailsSchema } from '@/libs/commerce/pickup';
-import {
-  canonicalizePostalCode,
-  canonicalizeRegion,
-  refinePostalAddressFields,
-} from '@/libs/commerce/postal-address';
+import { canonicalizePostalCode, canonicalizeRegion, refinePostalAddressFields } from '@/libs/commerce/postal-address';
 import { type MarketplaceCommand, marketplaceCommandSchema } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import {

@@ -289,7 +289,10 @@ export function regionErrorMessage(countryCode: string, region: string): string 
   const trimmed = region.trim();
   if (rule.regionRequired && !trimmed) return `${rule.regionLabel} is required.`;
   if (!trimmed) return null;
-  if (rule.subdivisions && !rule.subdivisions.some((option) => option.code === canonicalizeRegion(countryCode, trimmed))) {
+  if (
+    rule.subdivisions &&
+    !rule.subdivisions.some((option) => option.code === canonicalizeRegion(countryCode, trimmed))
+  ) {
     return `Choose a valid ${rule.regionLabel.toLowerCase()}.`;
   }
   if (trimmed.length > 100) return `${rule.regionLabel} must be 100 characters or fewer.`;
@@ -302,7 +305,9 @@ export function postalErrorMessage(countryCode: string, postalCode: string): str
   if (!trimmed) return `${rule.postalLabel} is required.`;
   if (trimmed.length > 32) return `${rule.postalLabel} must be 32 characters or fewer.`;
   if (rule.postalPattern && !rule.postalPattern.test(canonicalizePostalCode(countryCode, trimmed))) {
-    return rule.postalExample ? `Use a valid ${rule.postalLabel} (e.g. ${rule.postalExample}).` : `Use a valid ${rule.postalLabel}.`;
+    return rule.postalExample
+      ? `Use a valid ${rule.postalLabel} (e.g. ${rule.postalExample}).`
+      : `Use a valid ${rule.postalLabel}.`;
   }
   return null;
 }

@@ -8,12 +8,12 @@ Checkout, the address book, pickup, and `checkout.create` / `offer.checkout` cop
 
 ## Provider
 
-| Provider | Fit | Cost / key | Leak |
-| --- | --- | --- | --- |
-| **Google Places Autocomplete (New)** | Best US rooftop; session token ties suggest → one Place Details | Per-session; public key + HTTP referrer | Google sees prefix + selected place id |
-| Mapbox Search Box | Browser token + URL restriction | Per-request | Mapbox sees prefix + retrieve |
-| Radar | Autocomplete + details | Server-leaning auth | Often wants a backend |
-| Smarty US Autocomplete Pro | Excellent US | Auth-id/token is typically server | A Shop BFF would see the selected address |
+| Provider                             | Fit                                                             | Cost / key                              | Leak                                      |
+| ------------------------------------ | --------------------------------------------------------------- | --------------------------------------- | ----------------------------------------- |
+| **Google Places Autocomplete (New)** | Best US rooftop; session token ties suggest → one Place Details | Per-session; public key + HTTP referrer | Google sees prefix + selected place id    |
+| Mapbox Search Box                    | Browser token + URL restriction                                 | Per-request                             | Mapbox sees prefix + retrieve             |
+| Radar                                | Autocomplete + details                                          | Server-leaning auth                     | Often wants a backend                     |
+| Smarty US Autocomplete Pro           | Excellent US                                                    | Auth-id/token is typically server       | A Shop BFF would see the selected address |
 
 **Choice: Google Places Autocomplete (New)** behind `AddressAutocompleteProvider` (`suggest(input, sessionToken)`, `retrieve(placeId, sessionToken)`). Other adapters slot in. US line 1 only.
 
@@ -31,10 +31,10 @@ On-device US ZIP → city/state fill (GeoNames, CC-BY 4.0) does not call a vendo
 
 ## Input inventory
 
-| Input | Type | Source | Missing |
-| --- | --- | --- | --- |
+| Input                                 | Type               | Source                                               | Missing                        |
+| ------------------------------------- | ------------------ | ---------------------------------------------------- | ------------------------------ |
 | `PUBKY_RUNTIME_GOOGLE_PLACES_API_KEY` | Public browser key | Vercel runtime; Google Cloud key with HTTP referrers | Autocomplete off; plain fields |
-| Session token | UUID in the tab | Minted per typing session; rotated after retrieve | New session on next suggest |
+| Session token                         | UUID in the tab    | Minted per typing session; rotated after retrieve    | New session on next suggest    |
 
 ## John ACTION — create the key
 

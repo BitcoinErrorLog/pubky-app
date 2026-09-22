@@ -14,24 +14,24 @@ The Shop command schema now matches that table. The live Rust service still reje
 
 ## Subdivision lists
 
-| Country | Control | Stored value |
-| --- | --- | --- |
-| US | Searchable combobox: 50 states + DC + AS, GU, MP, PR, VI + AA/AE/AP | ISO suffix (`MA`) |
-| CA | Searchable combobox: 10 provinces + 3 territories | ISO suffix (`ON`) |
-| AU | Searchable combobox: 6 states + 2 territories | ISO suffix (`NSW`) |
-| Other required | Free text | Trimmed string, max 100 |
-| Other optional | Free text, not required | Empty string allowed |
+| Country        | Control                                                             | Stored value            |
+| -------------- | ------------------------------------------------------------------- | ----------------------- |
+| US             | Searchable combobox: 50 states + DC + AS, GU, MP, PR, VI + AA/AE/AP | ISO suffix (`MA`)       |
+| CA             | Searchable combobox: 10 provinces + 3 territories                   | ISO suffix (`ON`)       |
+| AU             | Searchable combobox: 6 states + 2 territories                       | ISO suffix (`NSW`)      |
+| Other required | Free text                                                           | Trimmed string, max 100 |
+| Other optional | Free text, not required                                             | Empty string allowed    |
 
 ## Address autocomplete (USA)
 
 Street suggest-as-you-type always sends the prefix to a geocoder. Delivery addresses are sensitive (W10.5 sealed path + shipping contract). No provider is called with the street until John creates a key.
 
-| Provider | Fit | Cost / key | What leaves the device |
-| --- | --- | --- | --- |
-| Google Places Autocomplete (New) | Best US rooftop; session token ties suggest → one Place Details | Per-session SKU on John's Google Cloud project; public browser key with HTTP-referrer + API restriction | Google sees the typed prefix and the selected place id |
-| Mapbox Search Box | Good US data; token + URL restriction | Per-request; John-owned token | Mapbox sees prefix + retrieve |
-| Smarty / USPS-backed validation | Excellent US delivery points | Auth-id/token is server-shaped | A Shop BFF would see the finished address — a second plaintext holder besides sealed / `plaintext_v1` |
-| Privacy-preserving ZIP fill | ZIP → city + state; postal-shape checks per country | None | Nothing. Bundled GeoNames US ZIPs (CC-BY 4.0) + USPS ZIP3 prefixes |
+| Provider                         | Fit                                                             | Cost / key                                                                                              | What leaves the device                                                                                |
+| -------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Google Places Autocomplete (New) | Best US rooftop; session token ties suggest → one Place Details | Per-session SKU on John's Google Cloud project; public browser key with HTTP-referrer + API restriction | Google sees the typed prefix and the selected place id                                                |
+| Mapbox Search Box                | Good US data; token + URL restriction                           | Per-request; John-owned token                                                                           | Mapbox sees prefix + retrieve                                                                         |
+| Smarty / USPS-backed validation  | Excellent US delivery points                                    | Auth-id/token is server-shaped                                                                          | A Shop BFF would see the finished address — a second plaintext holder besides sealed / `plaintext_v1` |
+| Privacy-preserving ZIP fill      | ZIP → city + state; postal-shape checks per country             | None                                                                                                    | Nothing. Bundled GeoNames US ZIPs (CC-BY 4.0) + USPS ZIP3 prefixes                                    |
 
 **Recommendation:** ship ZIP → City + State and per-country format validation now. Scaffold Google Places Autocomplete (New) behind `PUBKY_RUNTIME_GOOGLE_PLACES_API_KEY` so the type-ahead can turn on when John creates a referrer-restricted Places key. Do not send street keystrokes to Google, Mapbox, or Smarty without that key.
 
@@ -39,10 +39,10 @@ Cost is Google's per-session Autocomplete (New) SKU, billed to the Cloud project
 
 ### Input inventory
 
-| Input | Type | Source | Missing |
-| --- | --- | --- | --- |
+| Input                                 | Type               | Source                                                                  | Missing                                                |
+| ------------------------------------- | ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
 | `PUBKY_RUNTIME_GOOGLE_PLACES_API_KEY` | Public browser key | Vercel runtime; Google Cloud key, HTTP referrers, Places API (New) only | Autocomplete off; ZIP fill and typed fields still work |
-| Session token | UUID in the tab | Minted per typing session; rotated after Place Details | New session on the next suggest |
+| Session token                         | UUID in the tab    | Minted per typing session; rotated after Place Details                  | New session on the next suggest                        |
 
 ### Key (only if type-ahead should go live)
 

@@ -263,12 +263,7 @@ export function MarketplaceAddressFields<T extends FieldValues>({
           </Container>
         )}
       />
-      <ControlledInputField
-        name={'line2' as Path<T>}
-        control={control}
-        label="Address line 2"
-        disabled={disabled}
-      />
+      <ControlledInputField name={'line2' as Path<T>} control={control} label="Address line 2" disabled={disabled} />
       <div className="grid gap-4 sm:grid-cols-2">
         <ControlledInputField name={'city' as Path<T>} control={control} label="City" disabled={disabled} />
         <Controller
@@ -372,7 +367,11 @@ export function MarketplaceAddressFields<T extends FieldValues>({
                   const next = event.target.value.toUpperCase();
                   field.onChange(next);
                   const nextList = subdivisionsForCountry(next);
-                  if (nextList && regionValue && !nextList.some((option) => option.code === canonicalizeRegion(next, regionValue))) {
+                  if (
+                    nextList &&
+                    regionValue &&
+                    !nextList.some((option) => option.code === canonicalizeRegion(next, regionValue))
+                  ) {
                     setValue('region' as Path<T>, '' as T[Path<T>], { shouldValidate: true, shouldDirty: true });
                   }
                 }}
