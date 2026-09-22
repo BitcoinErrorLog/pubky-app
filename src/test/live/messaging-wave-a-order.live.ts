@@ -623,14 +623,22 @@ async function completeOnboardingIfNeeded(page: Page): Promise<void> {
 
 async function signInWithEncryptedFile(page: Page, seat: Seat): Promise<void> {
   await page.goto(`${shopUrl}/sign-in`, { waitUntil: 'domcontentloaded', timeout: 180_000 });
-  await page.locator('#restore-encrypted-file-btn').click();
-  const fileInput = page.locator('#encrypted-file-input');
-  await fileInput.waitFor({ state: 'attached', timeout: 30_000 });
-  await fileInput.setInputFiles(seat.pkarrPath);
-  await page.locator('#restore-password').waitFor({ state: 'visible', timeout: 30_000 });
-  await page.locator('#restore-password').fill(seat.passphrase);
-  const restore = page.locator('#encrypted-file-restore-btn');
   try {
+    await page.locator('#restore-encrypted-file-btn').click();
+    const dialogTitle = page.getByText('Restore with encrypted file').first();
+    const opened = await dialogTitle
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!opened) {
+      await page.locator('#restore-encrypted-file-btn').click({ force: true });
+      await dialogTitle.waitFor({ state: 'visible', timeout: 15_000 });
+    }
+    await page.locator('#encrypted-file-input').setInputFiles(seat.pkarrPath);
+    const password = page.locator('#restore-password');
+    await password.waitFor({ state: 'visible', timeout: 15_000 });
+    await password.fill(seat.passphrase);
+    const restore = page.locator('#encrypted-file-restore-btn');
     await withPatience('encrypted restore enabled', 20_000, 250, async () => ({
       done: await restore.isEnabled(),
       value: true,
@@ -758,7 +766,6 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
     };
     await ensureShopPage();
     browser = await chromium.launch({
-      channel: 'chrome',
       headless: true,
       args: [
         '--disable-web-security',
