@@ -30,7 +30,7 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
   useMarketplaceOffers: () => ({
-    offers: [state.outcome === 'expired' ? { ...offer, award: { ...offer.award, state: 'expired' } } : offer],
+    offers: [offer],
     refresh: vi.fn(async () => {}),
   }),
 }));
@@ -115,7 +115,23 @@ describe('Marketplace award checkout — visual regression', () => {
 
   it('captures the expired state', async () => {
     state.outcome = 'expired';
-    await capture('award-checkout-expired-desktop');
+    await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+      if (!(pay instanceof HTMLButtonElement) || pay.disabled) {
+        throw new Error('Award Pay is not ready yet.');
+      }
+    });
+    const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+    if (!(pay instanceof HTMLButtonElement)) throw new Error('Award Pay is missing.');
+    await userEvent.click(pay);
+    await vi.waitFor(() => {
+      if (!document.body.textContent?.includes('Offer expired')) {
+        throw new Error('Award expired copy has not rendered yet.');
+      }
+    });
+    const surface = expectVrtSurface('marketplace-award-checkout');
+    await expect(surface).toMatchScreenshot('award-checkout-expired-desktop');
   });
 
   it('captures the success state', async () => {
