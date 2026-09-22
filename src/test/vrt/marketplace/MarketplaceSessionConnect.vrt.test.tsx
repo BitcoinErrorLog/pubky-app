@@ -41,8 +41,9 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/orders',
 }));
 
-// Bridged / narrow-grant arrival: the dialog asks for CAPABILITIES. Direct
-// Shop sign-in never mounts this surface with a full grant already in hand.
+// Bridged / narrow-grant arrival: the dialog asks for a Shop purchase
+// approval. Direct Shop sign-in never mounts this surface with a full grant
+// already in hand.
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     ...createMarketplaceVrtCommerceController(),
