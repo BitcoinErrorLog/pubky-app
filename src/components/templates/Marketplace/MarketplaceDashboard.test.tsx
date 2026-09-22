@@ -113,6 +113,7 @@ describe('MarketplaceDashboard', () => {
     render(<MarketplaceDashboard />);
 
     expect(screen.getByRole('heading', { name: 'Seller studio' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Inventory/ })).toHaveAttribute('href', MARKETPLACE_ROUTES.INVENTORY);
     const chips = screen.getByTestId('marketplace-dashboard-kpi-chips');
     expect(chips).toHaveAttribute('role', 'region');
     expect(chips).toHaveAttribute('aria-label', 'Dashboard metrics');

@@ -83,6 +83,7 @@ describe('Marketplace fidelity cards — visual regression', () => {
     ['mobile', { width: 390, height: 844 }],
   ] as const)('captures the drop card mid-hover on %s', async (name, viewport) => {
     const screen = await renderForVRT(<FidelityCards />, { viewport });
+    await screen.getByTestId(VRT_ROOT_TESTID).hover({ position: { x: 1, y: 1 } });
     vi.spyOn(Math, 'random').mockReturnValue(0.75);
     const dropCard = screen.getByRole('link', { name: 'View After Hours — limited vinyl' });
     await hoverAndWaitForScale(dropCard);

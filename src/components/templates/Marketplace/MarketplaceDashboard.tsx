@@ -162,6 +162,12 @@ export function MarketplaceDashboard() {
               </Link>
             </Button>
             <Button asChild variant="secondary" className="rounded-full">
+              <Link href={MARKETPLACE_ROUTES.INVENTORY} overrideDefaults>
+                <Package className="mr-2 size-4" />
+                Inventory
+              </Link>
+            </Button>
+            <Button asChild variant="secondary" className="rounded-full">
               <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
                 Orders
               </Link>

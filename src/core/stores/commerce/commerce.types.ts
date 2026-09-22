@@ -59,6 +59,7 @@ export interface CommerceState {
   selectedListingId: string | null;
   pendingEntityIds: string[];
   marketplaceSession: CommerceMarketplaceSession | null;
+  inventorySession: CommerceMarketplaceSession | null;
   watchlistSyncStatus: CommerceWatchlistSyncUiStatus;
   receiptsPublicationStatus: CommerceReceiptPublicationUiStatus;
 }
@@ -76,6 +77,7 @@ export interface CommerceActions {
   setSelectedListingId: (listingId: string | null) => void;
   setEntityPending: (entityId: string, isPending: boolean) => void;
   setMarketplaceSession: (session: CommerceMarketplaceSession | null) => void;
+  setInventorySession: (session: CommerceMarketplaceSession | null) => void;
   setWatchlistSyncStatus: (watchlistSyncStatus: CommerceWatchlistSyncUiStatus) => void;
   setReceiptsPublicationStatus: (receiptsPublicationStatus: CommerceReceiptPublicationUiStatus) => void;
   resetFilters: () => void;
@@ -98,6 +100,7 @@ export const commerceInitialState: CommerceState = {
   selectedListingId: null,
   pendingEntityIds: [],
   marketplaceSession: null,
+  inventorySession: null,
   watchlistSyncStatus: 'idle',
   receiptsPublicationStatus: 'idle',
 };
@@ -115,6 +118,7 @@ export enum CommerceActionTypes {
   SET_SELECTED_LISTING = 'SET_SELECTED_LISTING',
   SET_ENTITY_PENDING = 'SET_ENTITY_PENDING',
   SET_MARKETPLACE_SESSION = 'SET_MARKETPLACE_SESSION',
+  SET_INVENTORY_SESSION = 'SET_INVENTORY_SESSION',
   SET_WATCHLIST_SYNC_STATUS = 'SET_WATCHLIST_SYNC_STATUS',
   SET_RECEIPTS_PUBLICATION_STATUS = 'SET_RECEIPTS_PUBLICATION_STATUS',
   RESET_FILTERS = 'RESET_FILTERS',
