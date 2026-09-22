@@ -10,12 +10,12 @@ import { Image } from '@/atoms/Image/Image';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { type MarketplaceCartGroup, useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
-import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
-import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import {
   useMarketplaceFirstMediaUrls,
   useMarketplaceMediaUrl,
 } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
+import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import { getMarketplaceCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
