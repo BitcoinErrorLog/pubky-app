@@ -111,13 +111,20 @@ class BytesFile implements ShopBrowserFile {
   }
 
   stream(): ReadableStream<Uint8Array> {
-    const bytes = this.bytes;
-    return new ReadableStream({
+    const bytes = this.bytes instanceof Uint8Array ? this.bytes : new Uint8Array(this.bytes);
+    const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(bytes);
         controller.close();
       },
     });
+    Object.defineProperty(stream, Symbol.asyncIterator, {
+      configurable: true,
+      value: async function* () {
+        yield bytes;
+      },
+    });
+    return stream;
   }
 
   async arrayBuffer(): Promise<ArrayBuffer> {
@@ -346,5 +353,21 @@ describe('CommerceInventoryImportApplication', () => {
     const planned = await app().planFile(new BytesFile(utf8(JSON.stringify(rows)), 'bulk.json', 'application/json'));
     expect(planned.status).toBe('planned');
     if (planned.status === 'planned') expect(planned.rowCount).toBe(250);
+  });
+
+  it('re-plans exported canonical CSV without duplicate headers', async () => {
+    const rows = Array.from({ length: 3 }, (_, index) => canonicalRow(`csv_${index}`));
+    const csv = MarketplaceShopClientService.exportListingsCsv(rows);
+    const header = new TextDecoder().decode(csv).split(/\r?\n/, 1)[0] ?? '';
+    const cells = header.split(',').map((cell) => cell.replaceAll('"', ''));
+    expect(new Set(cells).size).toBe(cells.length);
+    const file = new BytesFile(csv, 'listings.csv', 'text/csv');
+    const raw = await MarketplaceShopClientService.planBrowserFile(file, store);
+    expect(raw.ok, raw.ok ? 'ok' : `${raw.error.code}: ${raw.error.message} ${JSON.stringify(raw.error.details)}`).toBe(
+      true,
+    );
+    const planned = await app().planFile(file);
+    expect(planned.status).toBe('planned');
+    if (planned.status === 'planned') expect(planned.rowCount).toBe(3);
   });
 });

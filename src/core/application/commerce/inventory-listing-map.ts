@@ -256,7 +256,6 @@ export function listingToCanonicalRows(record: CommerceListingRecord): Canonical
     extraFields: {
       record_json: recordJson,
       country_code: record.location.countryCode,
-      media_json: JSON.stringify(record.media),
     },
     sourceRow: index + 2,
   }));
