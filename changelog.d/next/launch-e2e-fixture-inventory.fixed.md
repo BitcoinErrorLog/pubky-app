@@ -1,1 +1,1 @@
-Required launch-e2e gate serves a committed Nexus fixture instead of live 7108. Checkout hydrates stub listing 2b81df4f. Signed-in seller board with grant is the required Chromium canary so listSellerListings runs.
+Required launch-e2e gate serves a committed Nexus fixture instead of live 7108. Checkout hydrates stub listing 2b81df4f from Dexie (no WASM homeserver GET). Signed-in seller board with grant is the required Chromium canary so listSellerListings runs. Catalog axe keeps color-contrast as a hard gate.

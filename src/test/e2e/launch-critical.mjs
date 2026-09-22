@@ -214,24 +214,23 @@ async function approveAuthRequest(secretHex, authorizationUrl) {
   await new sdk.Pubky().signer(keypair).approveAuthRequest(authorizationUrl);
 }
 
-async function waitForSignedIn(page, timeout = 45_000) {
-  await Promise.race([
-    page.getByText('Verifying account').waitFor({ state: 'visible', timeout }),
-    page.waitForURL((url) => url.pathname !== '/sign-in', { timeout, waitUntil: 'commit' }),
-    page.waitForFunction(
-      () => {
-        try {
-          const raw = localStorage.getItem('auth-store');
-          if (!raw) return false;
-          const parsed = JSON.parse(raw);
-          return Boolean(parsed?.state?.currentUserPubky || parsed?.currentUserPubky);
-        } catch {
-          return false;
-        }
-      },
-      { timeout },
-    ),
-  ]);
+async function waitForSignedIn(page, timeout = 60_000) {
+  await page.waitForFunction(
+    () => {
+      if (location.pathname !== '/sign-in') return true;
+      const body = document.body?.innerText ?? '';
+      if (body.includes('Verifying account')) return true;
+      try {
+        const raw = localStorage.getItem('auth-store');
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        return Boolean(parsed?.state?.currentUserPubky || parsed?.currentUserPubky);
+      } catch {
+        return false;
+      }
+    },
+    { timeout },
+  );
 }
 
 function isSellerSignedIn(pageUrl, authStoreRaw, verifyingVisible) {
@@ -249,36 +248,32 @@ function isSellerSignedIn(pageUrl, authStoreRaw, verifyingVisible) {
   }
 }
 
+async function readAuthStore(page) {
+  return await page.evaluate(() => {
+    try {
+      return localStorage.getItem('auth-store');
+    } catch {
+      return null;
+    }
+  });
+}
+
 async function signInSeller(page, secretHex) {
   try {
     await closeJoinDialog(page);
     await gotoAndSettle(page, '/sign-in');
     const firstUrl = await waitForAuthUrl(page);
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await new Promise((resolve) => setTimeout(resolve, 800));
     const authorizationUrl = await waitForAuthUrl(page).catch(() => firstUrl);
-    await approveAuthRequest(secretHex, authorizationUrl);
-    await waitForSignedIn(page);
-    let stillOnSignIn = new URL(page.url()).pathname === '/sign-in';
-    const verifyingVisible = await page
-      .getByText('Verifying account')
-      .isVisible()
-      .catch(() => false);
-    if (stillOnSignIn && !verifyingVisible) {
-      const retryUrl = await waitForAuthUrl(page);
-      if (retryUrl !== authorizationUrl) {
-        await approveAuthRequest(secretHex, retryUrl);
-        await waitForSignedIn(page, 30_000);
-      }
+    try {
+      await approveAuthRequest(secretHex, authorizationUrl);
+    } catch (error) {
+      record('inventory:seller-signin', false, `approveAuthRequest: ${String(error).slice(0, 200)}`);
+      return false;
     }
-    stillOnSignIn = new URL(page.url()).pathname === '/sign-in';
-    const authStoreRaw = await page.evaluate(() => {
-      try {
-        return localStorage.getItem('auth-store');
-      } catch {
-        return null;
-      }
-    });
-    const signedIn = isSellerSignedIn(
+    await waitForSignedIn(page);
+    let authStoreRaw = await readAuthStore(page);
+    let signedIn = isSellerSignedIn(
       page.url(),
       authStoreRaw,
       await page
@@ -286,6 +281,22 @@ async function signInSeller(page, secretHex) {
         .isVisible()
         .catch(() => false),
     );
+    if (!signedIn) {
+      const retryUrl = await waitForAuthUrl(page).catch(() => null);
+      if (retryUrl && retryUrl !== authorizationUrl) {
+        await approveAuthRequest(secretHex, retryUrl);
+        await waitForSignedIn(page, 45_000);
+        authStoreRaw = await readAuthStore(page);
+        signedIn = isSellerSignedIn(
+          page.url(),
+          authStoreRaw,
+          await page
+            .getByText('Verifying account')
+            .isVisible()
+            .catch(() => false),
+        );
+      }
+    }
     record(
       'inventory:seller-signin',
       signedIn,
@@ -553,78 +564,112 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
 }
 
 async function calibrateBindRevert(page) {
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async (serviceUrl) => {
     const original = window.fetch;
-    const holder = {};
-    holder.fetch = original;
+    const clientShaped = { fetch: original };
     let unboundThrew = false;
     try {
-      await holder.fetch('https://example.invalid/launch-e2e-bind-revert');
+      await clientShaped.fetch(`${serviceUrl}/health`);
     } catch (error) {
       unboundThrew = /illegal invocation/i.test(String(error));
     }
     let boundOk = false;
     try {
       const bound = original.bind(window);
-      const response = await bound('data:application/json,{}');
-      boundOk = response.ok || response.status === 0 || response.type === 'opaque' || true;
+      const response = await bound(`${serviceUrl}/health`);
+      boundOk = typeof response.status === 'number';
     } catch (error) {
       boundOk = !/illegal invocation/i.test(String(error));
     }
-    return { unboundThrew, boundOk };
-  });
+    return {
+      unboundThrew,
+      boundOk,
+      boardMounted: Boolean(document.querySelector('[data-testid="inventory-studio"]')),
+    };
+  }, SERVICE_URL);
+  assert(
+    'inventory:bind-revert-board-mounted',
+    result.boardMounted,
+    result.boardMounted ? 'calibration after inventory-studio mounted' : 'board was not mounted — calibration invalid',
+  );
   assert(
     'inventory:bind-revert-unbound-throws',
     result.unboundThrew,
     result.unboundThrew
-      ? 'Chromium throws Illegal invocation on method-call Window.fetch'
+      ? 'PubkyShopClient-shaped unbound Window.fetch throws Illegal invocation'
       : 'unbound Window.fetch did not throw — calibration invalid',
   );
   assert(
     'inventory:bind-revert-bound-ok',
     result.boundOk,
-    result.boundOk ? 'bound Window.fetch is callable' : 'bound Window.fetch threw Illegal invocation',
+    result.boundOk
+      ? 'bound Window.fetch is callable against the service origin'
+      : 'bound Window.fetch threw Illegal invocation',
   );
 }
 
-async function installHomeserverListingFixture(page, canonicalListing, shop) {
-  const listingId = canonicalListing.listingId;
-  const listingBody = JSON.stringify(canonicalListing);
-  const shopBody = JSON.stringify(shop);
-  const fulfillJson = async (route, body) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body,
-    });
+function listingCacheRow(canonicalListing) {
+  const price = canonicalListing.sale.unitPrice;
+  return {
+    id: `${canonicalListing.ownerPubky}:${canonicalListing.listingId}`,
+    seller_id: canonicalListing.ownerPubky,
+    listing_id: canonicalListing.listingId,
+    record: canonicalListing,
+    revision: canonicalListing.revision,
+    state: canonicalListing.state,
+    category_id: canonicalListing.categoryId,
+    format: canonicalListing.sale.format,
+    currency: price.currency,
+    price_minor: price.amountMinor,
+    sync_status: 'synced',
+    updated_at: Date.parse(canonicalListing.updatedAt),
   };
-  await page.route(`**/*${listingId}*`, async (route) => {
-    const url = route.request().url();
-    if (url.includes(`/pub/pubky.app/marketplace/v1/listings/${listingId}`)) {
-      await fulfillJson(route, listingBody);
-      return;
-    }
-    await route.continue();
+}
+
+function shopCacheRow(shop) {
+  return {
+    id: shop.ownerPubky,
+    owner_id: shop.ownerPubky,
+    record: shop,
+    revision: shop.revision,
+    sync_status: 'synced',
+    updated_at: Date.parse(shop.updatedAt),
+  };
+}
+
+async function seedCanonicalListingCache(page, canonicalListing, shop) {
+  await page.waitForFunction(() => indexedDB.databases().then((dbs) => dbs.some((entry) => entry.name === 'franky')), {
+    timeout: 15_000,
   });
-  await page.route('**/pub/pubky.app/marketplace/v1/shop.json**', async (route) => {
-    await fulfillJson(route, shopBody);
-  });
-  await page.addInitScript(
-    ({ listing, shopRecord, id }) => {
-      const original = window.fetch.bind(window);
-      window.fetch = async (input, init) => {
-        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes(`/pub/pubky.app/marketplace/v1/listings/${id}`)) {
-          return new Response(listing, { status: 200, headers: { 'content-type': 'application/json' } });
-        }
-        if (url.includes('/pub/pubky.app/marketplace/v1/shop.json')) {
-          return new Response(shopRecord, { status: 200, headers: { 'content-type': 'application/json' } });
-        }
-        return original(input, init);
-      };
+  const seeded = await page.evaluate(
+    async ({ listing, shopRecord }) => {
+      const put = (storeName, value) =>
+        new Promise((resolve, reject) => {
+          const open = indexedDB.open('franky');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            if (![...db.objectStoreNames].includes(storeName)) {
+              db.close();
+              reject(new Error(`missing store ${storeName}`));
+              return;
+            }
+            const tx = db.transaction(storeName, 'readwrite');
+            tx.objectStore(storeName).put(value);
+            tx.oncomplete = () => {
+              db.close();
+              resolve(true);
+            };
+            tx.onerror = () => reject(tx.error);
+          };
+        });
+      await put('commerce_listings', listing);
+      await put('commerce_shops', shopRecord);
+      return true;
     },
-    { listing: listingBody, shopRecord: shopBody, id: listingId },
+    { listing: listingCacheRow(canonicalListing), shopRecord: shopCacheRow(shop) },
   );
+  assert('listing:fixture-cache', seeded === true, 'canonical listing+shop in Dexie franky');
 }
 
 async function main() {
@@ -653,12 +698,15 @@ async function main() {
     console.error('pageerror', error);
   });
 
-  await installHomeserverListingFixture(page, canonicalListing, shop);
-
   try {
     const catalog = await gotoAndSettle(page, fixture.pages[0].path);
     assert('catalog:http', catalog !== null && catalog.ok(), `status ${catalog?.status()}`);
     await expectVisible(page, page.getByText(fixture.catalogHeading, { exact: false }), 'catalog:heading');
+    try {
+      await seedCanonicalListingCache(page, canonicalListing, shop);
+    } catch (error) {
+      record('listing:fixture-cache', false, String(error).slice(0, 240));
+    }
     const sandbox = await page.getByText(fixture.forbiddenSandboxCopy).count();
     assert('catalog:not-sandbox', sandbox === 0, sandbox === 0 ? 'staging adapter' : 'sandbox copy present');
 
