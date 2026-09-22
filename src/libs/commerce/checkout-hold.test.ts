@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { createOrderFixture, ORDER_FIXTURE_BUYER } from '@/test/fixtures/commerce/orders';
 import {
   CHECKOUT_HOLD_COPY,
+  findViewerPendingHoldOrder,
   formatHoldDeadline,
   holderBoundCopy,
   holderUnboundCopy,
@@ -66,5 +68,42 @@ describe('checkout-hold copy', () => {
     expect(refundRequiredCopyForRole(false, 'bitcoin')).toBe(CHECKOUT_HOLD_COPY.refundRequiredBitcoinSeller);
     expect(refundRequiredCopyForRole(false, 'paypal')).toBe(CHECKOUT_HOLD_COPY.refundRequiredPaypalSeller);
     expect(refundRequiredCopyForRole(false, 'stripe')).toBe(CHECKOUT_HOLD_COPY.refundRequiredStripeSeller);
+  });
+});
+
+describe('findViewerPendingHoldOrder', () => {
+  const listingAggregateId = 'listing:yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy_boots_01';
+  const sessionId = 'sess_not-a-pubky-identifier';
+
+  const ownHold = {
+    order: createOrderFixture('pending_payment', {
+      buyerPubky: ORDER_FIXTURE_BUYER,
+      lines: [
+        {
+          ...createOrderFixture('pending_payment').lines[0],
+          listingAggregateId,
+        },
+      ],
+    }),
+  };
+
+  it('matches the viewer pubky to a pending_payment order on this listing', () => {
+    expect(findViewerPendingHoldOrder([ownHold], listingAggregateId, ORDER_FIXTURE_BUYER)).toEqual({
+      orderId: ownHold.order.id,
+    });
+  });
+
+  it('does not treat a session id as the hold owner', () => {
+    expect(findViewerPendingHoldOrder([ownHold], listingAggregateId, sessionId)).toBeNull();
+    const sessionKeyed = {
+      order: { ...ownHold.order, buyerPubky: sessionId },
+    };
+    expect(findViewerPendingHoldOrder([sessionKeyed], listingAggregateId, ORDER_FIXTURE_BUYER)).toBeNull();
+  });
+
+  it('ignores paid orders and holds on other listings', () => {
+    const paid = { order: createOrderFixture('paid', { buyerPubky: ORDER_FIXTURE_BUYER }) };
+    expect(findViewerPendingHoldOrder([paid], listingAggregateId, ORDER_FIXTURE_BUYER)).toBeNull();
+    expect(findViewerPendingHoldOrder([ownHold], 'listing:other_item', ORDER_FIXTURE_BUYER)).toBeNull();
   });
 });
