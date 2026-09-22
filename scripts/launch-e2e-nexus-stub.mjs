@@ -6,8 +6,8 @@
  * Chromium runner never read live nexusd 7108. Nightly Cypress may still
  * hit staging; this process is only for the required PR check.
  */
-import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
