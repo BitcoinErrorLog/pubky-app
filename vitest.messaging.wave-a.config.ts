@@ -2,15 +2,14 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
 /**
- * Wave A live proof: durable staging order → `?conversation=` gate.
+ * Wave A live proof: Chromium Shop page, two staging seats, buyer send → seller see.
  *
- *   MARKETPLACE_STAGING_MESSAGING_IDENTITIES_FILE=/path/outside/the/repo.json \
  *   npm run test:marketplace:messaging:wave-a
  */
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
-    name: 'marketplace-messaging-wave-a-order',
+    name: 'marketplace-messaging-wave-a-shop',
     environment: 'node',
     include: ['src/test/live/messaging-wave-a-order.live.ts'],
     env: {
@@ -22,7 +21,7 @@ export default defineConfig({
       PUBKY_RUNTIME_MARKETPLACE_URL: process.env.MARKETPLACE_SERVICE_URL ?? 'https://staging-api.pubky.app',
       PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL: process.env.MARKETPLACE_NEXUS_URL ?? 'https://nexus.staging.pubky.app',
     },
-    testTimeout: 180_000,
-    hookTimeout: 60_000,
+    testTimeout: 900_000,
+    hookTimeout: 300_000,
   },
 });
