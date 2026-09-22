@@ -1,0 +1,1 @@
+Checkout delivery address: Region required only where the postal system needs it (US State dropdown, CA Province, …); US ZIP fills City + State on-device; Google Places type-ahead stays off without a restricted key.

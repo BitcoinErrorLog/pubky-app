@@ -28,6 +28,11 @@ import {
   locksPublicUriSchema,
 } from '@/libs/commerce/marketplace-records';
 import { type MarketplacePickupDetails, pickupDetailsSchema } from '@/libs/commerce/pickup';
+import {
+  canonicalizePostalCode,
+  canonicalizeRegion,
+  refinePostalAddressFields,
+} from '@/libs/commerce/postal-address';
 import { type MarketplaceCommand, marketplaceCommandSchema } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import {
@@ -64,15 +69,21 @@ const commerceDeliveryAddressInputSchema = z
     line1: z.string().trim().min(1).max(200),
     line2: z.string().trim().max(200),
     city: z.string().trim().min(1).max(100),
-    region: z.string().trim().min(1).max(100),
-    postalCode: z.string().trim().min(1).max(32),
+    region: z.string().trim().max(100),
+    postalCode: z.string().trim().max(32),
     countryCode: z
       .string()
       .trim()
       .regex(/^[A-Za-z]{2}$/)
       .transform((code) => code.toUpperCase()),
   })
-  .strict();
+  .strict()
+  .superRefine((data, context) => refinePostalAddressFields(data, context))
+  .transform((data) => ({
+    ...data,
+    region: canonicalizeRegion(data.countryCode, data.region),
+    postalCode: canonicalizePostalCode(data.countryCode, data.postalCode),
+  }));
 
 export type CommerceDeliveryAddressInput = z.infer<typeof commerceDeliveryAddressInputSchema>;
 

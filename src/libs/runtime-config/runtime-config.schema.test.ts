@@ -158,6 +158,17 @@ describe('runtimeEnvInputSchema', () => {
     ).toBe(1);
   });
 
+  it('keeps the Google Places browser key optional; blank means autocomplete off', () => {
+    const parsed = runtimeEnvInputSchema.parse(VALID_ENV_INPUT);
+    expect(parsed.googlePlacesApiKey).toBeUndefined();
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, googlePlacesApiKey: '  ' }).googlePlacesApiKey,
+    ).toBeUndefined();
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, googlePlacesApiKey: 'AIzaSyTestKey' }).googlePlacesApiKey,
+    ).toBe('AIzaSyTestKey');
+  });
+
   it('parses defaulted app/deployer values when provided', () => {
     const parsed = runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, ...APP_ENV_INPUT });
 

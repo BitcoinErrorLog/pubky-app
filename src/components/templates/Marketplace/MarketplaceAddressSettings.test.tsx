@@ -47,9 +47,9 @@ describe('MarketplaceAddressSettings', () => {
     await user.type(screen.getByRole('textbox', { name: 'Label' }), 'Home');
     await user.type(screen.getByRole('textbox', { name: 'Recipient' }), 'Alice Buyer');
     await user.type(screen.getByRole('textbox', { name: 'Address line 1' }), '1 Market Street');
-    await user.type(screen.getByRole('textbox', { name: 'City' }), 'New York');
-    await user.type(screen.getByRole('textbox', { name: 'Region' }), 'NY');
-    await user.type(screen.getByRole('textbox', { name: 'Postal code' }), '10001');
+    await user.type(screen.getByLabelText('City'), 'New York');
+    await user.type(screen.getByLabelText('State'), 'NY');
+    await user.type(screen.getByLabelText('ZIP code'), '10001');
     await user.clear(screen.getByRole('textbox', { name: 'Country' }));
     await user.type(screen.getByRole('textbox', { name: 'Country' }), 'US');
     await user.click(screen.getByRole('button', { name: 'Save address' }));

@@ -168,8 +168,8 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
     await user.type(screen.getByLabelText('Recipient'), 'Alice Buyer');
     await user.type(screen.getByLabelText('Address line 1'), '1 Market Street');
     await user.type(screen.getByLabelText('City'), 'New York');
-    await user.type(screen.getByLabelText('Region'), 'NY');
-    await user.type(screen.getByLabelText('Postal code'), '10001');
+    await user.type(screen.getByLabelText('State'), 'NY');
+    await user.type(screen.getByLabelText('ZIP code'), '10001');
     await user.click(screen.getByRole('checkbox', { name: /I accept guarantee policy v1/ }));
 
     const placeOrder = screen.getByRole('button', { name: 'Place order' });

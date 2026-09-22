@@ -4,6 +4,7 @@ import {
   pickupAvailabilityWindowSchema,
   pickupDetailsSchema,
 } from '@/libs/commerce/pickup';
+import { refinePostalAddressFields } from '@/libs/commerce/postal-address';
 
 /**
  * Seller-authored pickup details (local pickup design PART A, §A1/§A4): the
@@ -77,14 +78,16 @@ export const pickupDetailsFormSchema = z
         [PICKUP_DETAILS_FORM_FIELDS.NAME, 'Recipient or place name is required.'],
         [PICKUP_DETAILS_FORM_FIELDS.LINE1, 'Address line 1 is required.'],
         [PICKUP_DETAILS_FORM_FIELDS.CITY, 'City is required.'],
-        [PICKUP_DETAILS_FORM_FIELDS.REGION, 'Region is required.'],
-        [PICKUP_DETAILS_FORM_FIELDS.POSTAL_CODE, 'Postal code is required.'],
       ];
       for (const [field, message] of required) {
         if (!data[field as keyof typeof data]) {
           context.addIssue({ code: 'custom', path: [field], message });
         }
       }
+      refinePostalAddressFields(data, context, {
+        regionPath: [PICKUP_DETAILS_FORM_FIELDS.REGION],
+        postalPath: [PICKUP_DETAILS_FORM_FIELDS.POSTAL_CODE],
+      });
       if (!/^[A-Za-z]{2}$/.test(data.countryCode)) {
         context.addIssue({
           code: 'custom',

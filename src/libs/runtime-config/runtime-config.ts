@@ -211,6 +211,7 @@ export const getSingleApprovalSignIn = (): boolean => getRuntimeConfig().singleA
 export const getMarketplaceGrantFlowEnabled = (): boolean => getRuntimeConfig().marketplaceGrantFlowEnabled;
 export const getMarketplaceGrantPollMilliseconds = (): number => getRuntimeConfig().marketplaceGrantPollMilliseconds;
 export const getPreludeSdkKey = (): string | undefined => getRuntimeConfig().preludeSdkKey;
+export const getGooglePlacesApiKey = (): string | undefined => getRuntimeConfig().googlePlacesApiKey;
 export const getPreludeSdkTimeoutMs = (): number => getRuntimeConfig().preludeSdkTimeoutMs;
 export const getPlausibleDomain = (): string | undefined => getRuntimeConfig().plausibleDomain;
 export const getPlausibleScriptUrl = (): string | undefined => getRuntimeConfig().plausibleScriptUrl;
