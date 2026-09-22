@@ -204,6 +204,26 @@ export class MarketplaceShopClientService {
     return client.orders(pubky, query);
   }
 
+  static async listSessions(client: PubkyShopClient): Promise<SdkResult<LosslessJsonObject>> {
+    return client.listSessions();
+  }
+
+  static async revokeSession(client: PubkyShopClient, id: string): Promise<SdkResult<null>> {
+    return client.revokeSession(id);
+  }
+
+  static async addWebhook(client: PubkyShopClient, url: string): Promise<SdkResult<LosslessJsonObject>> {
+    return client.addWebhook(url);
+  }
+
+  static async rotateWebhook(client: PubkyShopClient, id: string): Promise<SdkResult<LosslessJsonObject>> {
+    return client.rotateWebhook(id);
+  }
+
+  static async deleteWebhook(client: PubkyShopClient, id: string): Promise<SdkResult<null>> {
+    return client.deleteWebhook(id);
+  }
+
   static async getInventoryProjection(
     client: PubkyShopClient,
     aggregateId: string,
@@ -371,6 +391,7 @@ export type {
   ImportManifest,
   InventoryAdjustRequest,
   InventoryProjection,
+  LosslessJsonObject,
   PlannedImportRow,
   ResumeTask,
   SdkResult,
