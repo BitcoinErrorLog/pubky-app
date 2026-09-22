@@ -587,7 +587,6 @@ async function approveSignerUrl(page: Page, keypair: Keypair): Promise<void> {
     done: await copy.isEnabled(),
     value: true,
   }));
-  const waiting = page.getByText('Waiting for approval on your signer…');
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await page.evaluate(() => {
       (window as unknown as { __waveACopied?: string }).__waveACopied = '';
