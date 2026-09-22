@@ -4,6 +4,7 @@ import type {
   ConversationThreadItem,
   UseEncryptedConversationReturn,
 } from '@/hooks/useEncryptedConversation/useEncryptedConversation.types';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import type {
   CommerceMessagingMessageModelSchema,
   CommerceMessagingOutboxModelSchema,
@@ -74,7 +75,7 @@ describe('EncryptedConversationBody queued rendering', () => {
       cancelQueued,
     );
 
-    render(<EncryptedConversationBody conversation={conversation} counterpartyLabel="Satoshi" />);
+    render(<EncryptedConversationBody conversation={conversation} />);
 
     expect(screen.getByText('already delivered')).toBeInTheDocument();
     expect(screen.getByText('waiting')).toBeInTheDocument();
@@ -87,16 +88,16 @@ describe('EncryptedConversationBody queued rendering', () => {
   it('shows the honest retry note once a flush attempt failed — never a sent state', () => {
     const conversation = conversationFixture([queuedItem('stuck message', 'homeserver write failed')]);
 
-    render(<EncryptedConversationBody conversation={conversation} counterpartyLabel="Satoshi" />);
+    render(<EncryptedConversationBody conversation={conversation} />);
 
-    expect(screen.getByText('Queued — last attempt failed, will retry')).toBeInTheDocument();
+    expect(screen.getByText(MESSAGING_COPY.queued)).toBeInTheDocument();
     expect(screen.queryByText('Sent')).not.toBeInTheDocument();
   });
 
   it('keeps the composer enabled while the handshake is pending', () => {
     const conversation = conversationFixture([]);
 
-    render(<EncryptedConversationBody conversation={conversation} counterpartyLabel="Satoshi" />);
+    render(<EncryptedConversationBody conversation={conversation} />);
 
     expect(screen.getByLabelText('Message')).toBeEnabled();
   });

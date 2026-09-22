@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, LockKeyhole, MessageCircle } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
@@ -13,7 +15,14 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useEncryptedInbox } from '@/hooks/useEncryptedInbox/useEncryptedInbox';
 import { useMarketplaceInbox } from '@/hooks/useMarketplaceInbox/useMarketplaceInbox';
+import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
+import {
+  reportRejectedConversationQuery,
+  resolveMarketplaceConversationQuery,
+} from '@/libs/commerce/marketplace-conversation-query';
 import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
+import { marketplaceCounterpartyLabel, MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessagingEnableDialog } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
@@ -32,7 +41,7 @@ export function MarketplaceInbox() {
       className="pb-28"
       classNameWrapperContent="max-w-7xl"
     >
-      <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+      <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6" data-surface="marketplace-inbox">
         <MarketplaceSectionNav />
         <Link
           href={APP_ROUTES.MARKETPLACE}
@@ -47,9 +56,7 @@ export function MarketplaceInbox() {
             Messages
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            {encrypted
-              ? 'End-to-end encrypted listing conversations. History is stored on this device.'
-              : 'Private listing conversations and transaction context.'}
+            {encrypted ? MESSAGING_COPY.inboxSubtitleDurable : MESSAGING_COPY.sandboxWarning}
           </Typography>
         </div>
 
@@ -59,39 +66,75 @@ export function MarketplaceInbox() {
   );
 }
 
-/**
- * Durable modes: real E2EE messaging over Paykit Encrypted Links. Local
- * history renders even without a live session; a live session (Ring grant)
- * gates sending, receiving, and answering queued handshakes.
- */
 function EncryptedInbox() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const inbox = useEncryptedInbox();
+  const searchParams = useSearchParams();
+  const query = resolveMarketplaceConversationQuery({
+    values: searchParams.getAll('conversation'),
+    currentUserPubky,
+  });
+  const reportedRejection = useRef(false);
 
-  if (!currentUserPubky) {
-    return (
-      <EmptyState
-        title="Sign in to see your messages"
-        body="Encrypted conversations belong to a signed-in account on this device."
-      />
-    );
+  useEffect(() => {
+    if (query.status === 'invalid' || query.status === 'other-account') {
+      if (!reportedRejection.current) {
+        reportedRejection.current = true;
+        reportRejectedConversationQuery();
+      }
+      return;
+    }
+    reportedRejection.current = false;
+  }, [query.status]);
+
+  const openQuery = query.status === 'open' ? query : null;
+  const openConversationId = openQuery
+    ? buildMarketplaceConversationAggregateId(openQuery.sellerPubky, openQuery.buyerPubky, openQuery.listingId)
+    : null;
+  const matchingOpenRow = openConversationId
+    ? inbox.conversations.some((conversation) => conversation.conversation_id === openConversationId)
+    : false;
+
+  if (!currentUserPubky && query.status !== 'invalid' && query.status !== 'other-account') {
+    return <EmptyState title={MESSAGING_COPY.inboxSignedOutTitle} body={MESSAGING_COPY.inboxSignedOutBody} />;
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {query.status === 'invalid' && (
+        <div role="alert" className="rounded-xl border border-destructive/40 p-4">
+          {MESSAGING_COPY.deepLinkInvalid}
+        </div>
+      )}
+      {query.status === 'other-account' && (
+        <div role="alert" className="rounded-xl border border-destructive/40 p-4">
+          {MESSAGING_COPY.deepLinkOtherAccount}
+        </div>
+      )}
+
+      {openQuery && !matchingOpenRow && (
+        <MarketplaceEncryptedConversationDialog
+          sellerPubky={openQuery.sellerPubky}
+          buyerPubky={openQuery.buyerPubky}
+          listingId={openQuery.listingId}
+          counterpartyPubky={currentUserPubky === openQuery.sellerPubky ? openQuery.buyerPubky : openQuery.sellerPubky}
+          defaultOpen
+          trigger={
+            <button type="button" className="sr-only">
+              Open conversation
+            </button>
+          }
+        />
+      )}
+
       {inbox.status === 'needs-enable' && (
         <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5">
           <div className="flex items-center gap-2">
             <LockKeyhole className="size-5 text-muted-foreground" />
-            <Heading level={2} size="md">
-              {inbox.receiverProvisioned ? 'Reconnect encrypted messaging' : 'Enable encrypted messaging'}
-            </Heading>
+            <Typography as="p" className="text-sm text-muted-foreground">
+              {inbox.receiverProvisioned ? MESSAGING_COPY.inboxNeedsReconnect : MESSAGING_COPY.inboxNeedsEnable}
+            </Typography>
           </div>
-          <Typography as="p" className="text-sm text-muted-foreground">
-            {inbox.receiverProvisioned
-              ? 'The messaging session could not be resumed automatically — your sign-in may predate the messaging grant, or the homeserver no longer accepts its session. Approve a fresh connection in Pubky Ring to send and receive; your stored history below stays readable either way.'
-              : 'Marketplace messages are end-to-end encrypted and activate automatically for sign-ins made with the current grant. Your sign-in predates the messaging grant, so a one-time Pubky Ring approval is needed to grant the Paykit message tree and publish your encrypted-messaging address so others can reach you.'}
-          </Typography>
           <MarketplaceMessagingEnableDialog reconnect={inbox.receiverProvisioned} onEnabled={inbox.refresh} />
         </div>
       )}
@@ -102,7 +145,7 @@ function EncryptedInbox() {
             {inbox.errorMessage}
           </div>
           <Button variant="secondary" className="rounded-full" onClick={inbox.refresh}>
-            Try again
+            {MESSAGING_COPY.inboxRetry}
           </Button>
         </div>
       )}
@@ -111,36 +154,45 @@ function EncryptedInbox() {
         <Skeleton className="h-32 w-full" />
       ) : inbox.conversations.length ? (
         <div className="flex flex-col gap-3">
-          <Typography as="p" className="text-xs text-muted-foreground">
-            End-to-end encrypted · history stored on this device · both sides must have enabled encrypted messaging. The
-            local storage includes the keys that decrypt it — clearing site data deletes both.
-          </Typography>
           {inbox.conversations.map((conversation) => (
-            <EncryptedConversationRow key={conversation.id} conversation={conversation} />
+            <EncryptedConversationRow
+              key={conversation.id}
+              conversation={conversation}
+              defaultOpen={Boolean(openConversationId && conversation.conversation_id === openConversationId)}
+            />
           ))}
         </div>
       ) : inbox.status === 'ready' ? (
-        <EmptyState
-          title="No messages yet"
-          body="Open a listing and message its seller to begin. Encrypted messages can only reach sellers who have enabled messaging themselves."
-        />
+        <EmptyState title={MESSAGING_COPY.inboxEmptyTitle} body={MESSAGING_COPY.inboxEmptyBody} />
       ) : null}
     </div>
   );
 }
 
-function EncryptedConversationRow({ conversation }: { conversation: MessagingConversationSummary }) {
+function EncryptedConversationRow({
+  conversation,
+  defaultOpen,
+}: {
+  conversation: MessagingConversationSummary;
+  defaultOpen: boolean;
+}) {
   const parsed = parseConversationAggregateId(conversation.conversation_id);
+  const { userDetails } = useUserDetails(conversation.counterparty_pubky);
   if (!parsed) return null;
   const { lastMessage, lastQueued } = conversation;
-  // The newest item can be a device-locally QUEUED message — say so instead
-  // of pretending it was sent.
   const preview =
     lastQueued && (!lastMessage || lastQueued.queued_at > lastMessage.recorded_at)
-      ? `Queued: ${lastQueued.body}`
+      ? `${MESSAGING_COPY.queued}: ${lastQueued.body}`
       : lastMessage
         ? `${lastMessage.direction === 'sent' ? 'You: ' : ''}${lastMessage.body}`
-        : 'Conversation started — no messages yet';
+        : '';
+  const unread = Boolean(
+    lastMessage && lastMessage.direction === 'received' && lastMessage.recorded_at > (conversation.last_read_at ?? 0),
+  );
+  const counterpartyLabel = marketplaceCounterpartyLabel({
+    profileName: userDetails?.name,
+    counterpartyIsSeller: conversation.counterparty_pubky === parsed.sellerPubky,
+  });
 
   return (
     <MarketplaceEncryptedConversationDialog
@@ -148,8 +200,9 @@ function EncryptedConversationRow({ conversation }: { conversation: MessagingCon
       buyerPubky={parsed.buyerPubky}
       listingId={parsed.listingId}
       counterpartyPubky={conversation.counterparty_pubky}
+      defaultOpen={defaultOpen}
       trigger={
-        <button type="button" className="w-full text-left" aria-label="Open encrypted conversation">
+        <button type="button" className="w-full text-left" aria-label={`Open conversation with ${counterpartyLabel}`}>
           <Card className="border py-4 transition-colors hover:border-brand/40">
             <CardContent className="flex items-center gap-4 px-4">
               <div className="rounded-full bg-brand/15 p-3 text-brand">
@@ -157,12 +210,17 @@ function EncryptedConversationRow({ conversation }: { conversation: MessagingCon
               </div>
               <div className="min-w-0 flex-1">
                 <Typography as="p" className="font-semibold">
-                  {conversation.counterparty_pubky.slice(0, 10)}…
+                  {counterpartyLabel}
                 </Typography>
-                <Typography as="p" className="truncate text-sm text-muted-foreground">
-                  {preview}
-                </Typography>
+                {preview ? (
+                  <Typography as="p" className="truncate text-sm text-muted-foreground">
+                    {preview}
+                  </Typography>
+                ) : null}
               </div>
+              {unread ? (
+                <span aria-label="Unread messages" className="size-2.5 shrink-0 rounded-full bg-brand" />
+              ) : null}
               {conversation.lastMessage && (
                 <time
                   dateTime={new Date(conversation.lastMessage.sent_at).toISOString()}
@@ -179,18 +237,33 @@ function EncryptedConversationRow({ conversation }: { conversation: MessagingCon
   );
 }
 
-/** Sandbox mode: the labeled plaintext prototype transport, unchanged. */
 function SandboxInbox() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const { conversations, isLoading, error, isSandbox } = useMarketplaceInbox();
+  const searchParams = useSearchParams();
+  const query = resolveMarketplaceConversationQuery({
+    values: searchParams.getAll('conversation'),
+    currentUserPubky,
+  });
+  const reportedRejection = useRef(false);
+
+  useEffect(() => {
+    if (query.status === 'invalid' || query.status === 'other-account') {
+      if (!reportedRejection.current) {
+        reportedRejection.current = true;
+        reportRejectedConversationQuery();
+      }
+      return;
+    }
+    reportedRejection.current = false;
+  }, [query.status]);
 
   if (!isSandbox) {
-    return (
-      <EmptyState
-        title="Messaging is not available"
-        body="This deployment mode has no messaging backend, so there is nothing real to show here."
-      />
-    );
+    return <EmptyState title={MESSAGING_COPY.unavailable} body="" />;
+  }
+
+  if (!currentUserPubky && query.status !== 'invalid' && query.status !== 'other-account') {
+    return <EmptyState title={MESSAGING_COPY.inboxSignedOutTitle} body={MESSAGING_COPY.inboxSignedOutBody} />;
   }
 
   if (isLoading) return <Skeleton className="h-32 w-full" />;
@@ -203,45 +276,85 @@ function SandboxInbox() {
     );
   }
 
-  if (!conversations.length) {
-    return <EmptyState title="No messages yet" body="Open a listing and message its seller to begin." />;
-  }
-
   return (
     <div className="flex flex-col gap-3">
-      <Typography as="p" className="text-xs text-muted-foreground">
-        Sandbox messages are not encrypted: they are stored in plaintext in the sandbox service&apos;s memory and are
-        readable by whoever runs it. Do not share anything private.
-      </Typography>
-      {conversations.map((conversation) => {
-        const last = conversation.messages.at(-1);
-        const counterpart =
-          currentUserPubky === conversation.sellerPubky ? conversation.buyerPubky : conversation.sellerPubky;
-        const listingRoute = listingRouteFromAggregate(conversation.listingAggregateId);
-        return (
-          <Link key={conversation.id} href={listingRoute} overrideDefaults>
-            <Card className="border py-4 transition-colors hover:border-brand/40">
-              <CardContent className="flex items-center gap-4 px-4">
-                <div className="rounded-full bg-brand/15 p-3 text-brand">
-                  <MessageCircle className="size-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <Typography as="p" className="font-semibold">
-                    {counterpart.slice(0, 10)}…
-                  </Typography>
-                  <Typography as="p" className="truncate text-sm text-muted-foreground">
-                    {last?.text ?? 'Conversation started'}
-                  </Typography>
-                </div>
-                <time dateTime={last?.createdAt} className="text-xs text-muted-foreground">
-                  {last ? new Date(last.createdAt).toLocaleDateString('en-US') : ''}
-                </time>
-              </CardContent>
-            </Card>
-          </Link>
-        );
-      })}
+      {query.status === 'invalid' && (
+        <div role="alert" className="rounded-xl border border-destructive/40 p-4">
+          {MESSAGING_COPY.deepLinkInvalid}
+        </div>
+      )}
+      {query.status === 'other-account' && (
+        <div role="alert" className="rounded-xl border border-destructive/40 p-4">
+          {MESSAGING_COPY.deepLinkOtherAccount}
+        </div>
+      )}
+      {!conversations.length ? (
+        <EmptyState title={MESSAGING_COPY.inboxEmptyTitle} body={MESSAGING_COPY.inboxEmptyBody} />
+      ) : (
+        conversations.map((conversation) => {
+          const last = conversation.messages.at(-1);
+          const counterpart =
+            currentUserPubky === conversation.sellerPubky ? conversation.buyerPubky : conversation.sellerPubky;
+          const listingRoute = listingRouteFromAggregate(conversation.listingAggregateId);
+          const counterpartyIsSeller = counterpart === conversation.sellerPubky;
+          return (
+            <SandboxConversationRow
+              key={conversation.id}
+              href={listingRoute}
+              counterpart={counterpart}
+              counterpartyIsSeller={counterpartyIsSeller}
+              preview={last?.text ?? ''}
+              timestamp={last?.createdAt}
+            />
+          );
+        })
+      )}
     </div>
+  );
+}
+
+function SandboxConversationRow({
+  href,
+  counterpart,
+  counterpartyIsSeller,
+  preview,
+  timestamp,
+}: {
+  href: string;
+  counterpart: string;
+  counterpartyIsSeller: boolean;
+  preview: string;
+  timestamp?: string;
+}) {
+  const { userDetails } = useUserDetails(counterpart);
+  const label = marketplaceCounterpartyLabel({
+    profileName: userDetails?.name,
+    counterpartyIsSeller,
+  });
+
+  return (
+    <Link href={href} overrideDefaults>
+      <Card className="border py-4 transition-colors hover:border-brand/40">
+        <CardContent className="flex items-center gap-4 px-4">
+          <div className="rounded-full bg-brand/15 p-3 text-brand">
+            <MessageCircle className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Typography as="p" className="font-semibold">
+              {label}
+            </Typography>
+            {preview ? (
+              <Typography as="p" className="truncate text-sm text-muted-foreground">
+                {preview}
+              </Typography>
+            ) : null}
+          </div>
+          <time dateTime={timestamp} className="text-xs text-muted-foreground">
+            {timestamp ? new Date(timestamp).toLocaleDateString('en-US') : ''}
+          </time>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
@@ -252,9 +365,11 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       <Heading level={2} size="md">
         {title}
       </Heading>
-      <Typography as="p" className="mt-2 max-w-lg text-muted-foreground">
-        {body}
-      </Typography>
+      {body ? (
+        <Typography as="p" className="mt-2 max-w-lg text-muted-foreground">
+          {body}
+        </Typography>
+      ) : null}
     </div>
   );
 }

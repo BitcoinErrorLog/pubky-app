@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ExternalLink, ReceiptText } from 'lucide-react';
-import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
+import { APP_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -11,16 +11,20 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
-import { isTransactionalCommerceMode } from '@/config/commerce';
+import { type CommerceAdapterMode,isDurableCommerceMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
+import { listingIdFromOrder, marketplaceConversationHref } from '@/libs/commerce/marketplace-conversation-query';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { formatBitcoinAmount } from '@/libs/commerce/pricing';
+import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropCountdown } from '@/organisms/Marketplace/DropCountdown';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
+import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
@@ -267,18 +271,8 @@ export function MarketplaceOrders() {
                         {order.deliveryAssumed && (
                           <div className="mt-3 rounded-xl border border-brand/30 bg-brand/5 p-3">
                             <Typography as="p" className="text-sm text-foreground">
-                              Marked delivered automatically after the delivery window; tell the seller if it
-                              hasn&apos;t arrived.
+                              {MESSAGING_COPY.assumedDelivery}
                             </Typography>
-                            {isBuyer && (
-                              <div className="mt-2 max-w-44">
-                                <Button asChild variant="secondary" className="rounded-full">
-                                  <Link href={MARKETPLACE_ROUTES.MESSAGES} overrideDefaults>
-                                    Message seller
-                                  </Link>
-                                </Button>
-                              </div>
-                            )}
                           </div>
                         )}
                         {order.state === 'delivered' && (
@@ -299,6 +293,7 @@ export function MarketplaceOrders() {
                             Refund recorded from external evidence: {order.externalRefund.transactionId}
                           </Typography>
                         )}
+                        <MarketplaceOrderMessageCta order={order} adapterMode={adapterMode} />
                         <div className="mt-4">
                           <MarketplacePaymentStatusCard
                             order={order}
@@ -336,6 +331,50 @@ export function MarketplaceOrders() {
         <MarketplaceMyReviews />
       </Container>
     </ContentLayout>
+  );
+}
+
+function MarketplaceOrderMessageCta({
+  order,
+  adapterMode,
+}: {
+  order: MarketplaceOrder;
+  adapterMode: CommerceAdapterMode;
+}) {
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const listingId = listingIdFromOrder(order);
+  if (!listingId) return null;
+
+  const conversationId = buildMarketplaceConversationAggregateId(order.sellerPubky, order.buyerPubky, listingId);
+  const trigger = (
+    <Button variant="secondary" className="rounded-full">
+      {MESSAGING_COPY.orderCta}
+    </Button>
+  );
+
+  if (isDurableCommerceMode(adapterMode) && currentUserPubky) {
+    const counterpartyPubky = currentUserPubky === order.sellerPubky ? order.buyerPubky : order.sellerPubky;
+    return (
+      <div className="mt-3" data-surface="marketplace-order-message-cta">
+        <MarketplaceEncryptedConversationDialog
+          sellerPubky={order.sellerPubky}
+          buyerPubky={order.buyerPubky}
+          listingId={listingId}
+          counterpartyPubky={counterpartyPubky}
+          trigger={trigger}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3" data-surface="marketplace-order-message-cta">
+      <Button asChild variant="secondary" className="rounded-full">
+        <Link href={marketplaceConversationHref(conversationId)} overrideDefaults>
+          {MESSAGING_COPY.orderCta}
+        </Link>
+      </Button>
+    </div>
   );
 }
 

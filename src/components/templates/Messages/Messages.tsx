@@ -13,7 +13,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useEncryptedInbox } from '@/hooks/useEncryptedInbox/useEncryptedInbox';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
-import { formatPublicKey } from '@/libs/utils/utils';
+import { marketplaceCounterpartyLabel, MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
@@ -66,9 +66,7 @@ export function Messages() {
                   </Heading>
                 </div>
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  {inbox.receiverProvisioned
-                    ? 'The messaging session could not be resumed automatically — your sign-in may predate the messaging grant, or the homeserver no longer accepts its session. Approve a fresh connection in Pubky Ring to send and receive; your stored history below stays readable either way.'
-                    : 'Messages are end-to-end encrypted and activate automatically for sign-ins made with the current grant. Your sign-in predates the messaging grant, so a one-time Pubky Ring approval is needed to grant the Paykit message tree and publish your encrypted-messaging address so others can reach you.'}
+                  {inbox.receiverProvisioned ? MESSAGING_COPY.inboxNeedsReconnect : MESSAGING_COPY.inboxNeedsEnable}
                 </Typography>
                 <MarketplaceMessagingEnableDialog reconnect={inbox.receiverProvisioned} onEnabled={inbox.refresh} />
               </div>
@@ -154,7 +152,7 @@ function UnreadDot() {
 /** A direct-message thread — links to its own page, labeled with the counterparty. */
 function DmConversationRow({ conversation }: { conversation: MessagingConversationSummary }) {
   const { userDetails } = useUserDetails(conversation.counterparty_pubky);
-  const displayName = userDetails?.name || formatPublicKey({ key: conversation.counterparty_pubky });
+  const displayName = userDetails?.name?.trim() || 'Direct message';
 
   return (
     <Link href={getDmConversationRoute(conversation.counterparty_pubky)} overrideDefaults>
@@ -191,8 +189,13 @@ function DmConversationRow({ conversation }: { conversation: MessagingConversati
 /** A marketplace listing conversation — opens the proven dialog, labeled with its listing link. */
 function ListingConversationRow({ conversation }: { conversation: MessagingConversationSummary }) {
   const parsed = parseConversationAggregateId(conversation.conversation_id);
+  const { userDetails } = useUserDetails(conversation.counterparty_pubky);
   if (!parsed) return null;
   const listingRoute = getMarketplaceListingRoute(parsed.sellerPubky, parsed.listingId);
+  const counterpartyLabel = marketplaceCounterpartyLabel({
+    profileName: userDetails?.name,
+    counterpartyIsSeller: conversation.counterparty_pubky === parsed.sellerPubky,
+  });
 
   return (
     <MarketplaceEncryptedConversationDialog
@@ -210,7 +213,7 @@ function ListingConversationRow({ conversation }: { conversation: MessagingConve
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <Typography as="p" className="truncate font-semibold">
-                    {formatPublicKey({ key: conversation.counterparty_pubky })}
+                    {counterpartyLabel}
                   </Typography>
                   <Link
                     href={listingRoute}
