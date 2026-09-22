@@ -87,6 +87,41 @@ async function peekLooksLikeJson(file: ShopBrowserFile): Promise<boolean> {
   return lead !== undefined && JSON_LEAD.has(lead);
 }
 
+/** Same prefix as SDK `exportCanonicalCsv` / `formulaProtected`. */
+const FORMULA_PREFIX = /^[=+\-@]/;
+const FORMULA_IDENTITY_KEYS = new Set([
+  'listingId',
+  'listing_id',
+  'sellerPubky',
+  'seller_pubky',
+  'recordUri',
+  'record_uri',
+  'variantId',
+  'variant_id',
+  'rowIdentity',
+]);
+
+function formulaProtected(value: string): string {
+  if (value.startsWith("'") || FORMULA_PREFIX.test(value)) {
+    return `'${value}`;
+  }
+  return value;
+}
+
+function quoteFormulaStrings(value: unknown, key?: string): unknown {
+  if (typeof value === 'string') {
+    return key !== undefined && FORMULA_IDENTITY_KEYS.has(key) ? value : formulaProtected(value);
+  }
+  if (Array.isArray(value)) return value.map((entry) => quoteFormulaStrings(entry));
+  const object = asObject(value);
+  if (!object) return value;
+  const next: Record<string, unknown> = {};
+  for (const [field, entry] of Object.entries(object)) {
+    next[field] = quoteFormulaStrings(entry, field);
+  }
+  return next;
+}
+
 function jsonPayloads(value: unknown): Map<string, string> {
   const items = Array.isArray(value)
     ? value
@@ -98,7 +133,7 @@ function jsonPayloads(value: unknown): Map<string, string> {
     const object = asObject(item);
     if (!object) continue;
     const row = object as unknown as CanonicalCsvRow;
-    payloads.set(canonicalCsvRowIdentity(row), JSON.stringify(row));
+    payloads.set(canonicalCsvRowIdentity(row), JSON.stringify(quoteFormulaStrings(object)));
   }
   return payloads;
 }

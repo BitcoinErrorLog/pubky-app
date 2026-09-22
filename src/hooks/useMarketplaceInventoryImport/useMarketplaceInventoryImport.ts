@@ -14,6 +14,7 @@ export function useMarketplaceInventoryImport(sellerPubky: string | null) {
   const [message, setMessage] = useState<string | undefined>();
   const [counts, setCounts] = useState<InventoryImportDryRunCounts | undefined>();
   const [manifestId, setManifestId] = useState<string | null>(null);
+  const [conflictListingId, setConflictListingId] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | undefined>();
   const [busy, setBusy] = useState(false);
 
@@ -24,6 +25,7 @@ export function useMarketplaceInventoryImport(sellerPubky: string | null) {
     setMessage(undefined);
     setCounts(undefined);
     setManifestId(null);
+    setConflictListingId(null);
     setProgress(undefined);
     setBusy(false);
   }, []);
@@ -49,10 +51,38 @@ export function useMarketplaceInventoryImport(sellerPubky: string | null) {
       }
       setManifestId(result.manifestId);
       setCounts(result.counts);
+      setConflictListingId(null);
       setScene(result.counts.conflict > 0 ? 'conflict' : 'dry-run');
       setStep(result.counts.conflict > 0 ? 5 : 4);
     },
     [sellerPubky],
+  );
+
+  const applyPublishResult = useCallback(
+    (result: Awaited<ReturnType<typeof CommerceController.publishInventoryImport>>) => {
+      if (result.status === 'conflict') {
+        setScene('conflict');
+        setConflictListingId(result.listingId);
+        setMessage(result.message);
+        return;
+      }
+      if (result.status === 'rate-limited') {
+        setScene('mixed');
+        setMessage(result.message);
+        return;
+      }
+      if (result.status === 'complete') {
+        setProgress({ done: result.synced + result.failed, total: result.synced + result.failed });
+        setScene(result.mixed ? 'mixed' : 'result');
+        setStep(6);
+        setMessage(result.message);
+        setConflictListingId(null);
+        return;
+      }
+      setScene('parse-fail');
+      setMessage(result.status === 'error' ? result.message : 'This file could not be planned. Nothing was published.');
+    },
+    [],
   );
 
   const publish = useCallback(async () => {
@@ -63,26 +93,8 @@ export function useMarketplaceInventoryImport(sellerPubky: string | null) {
     setProgress({ done: 0, total: counts ? counts.create + counts.update + counts.end : 0 });
     const result = await CommerceController.publishInventoryImport(sellerPubky, manifestId);
     setBusy(false);
-    if (result.status === 'conflict') {
-      setScene('conflict');
-      setMessage(result.message);
-      return;
-    }
-    if (result.status === 'rate-limited') {
-      setScene('mixed');
-      setMessage(result.message);
-      return;
-    }
-    if (result.status === 'complete') {
-      setProgress({ done: result.synced + result.failed, total: result.synced + result.failed });
-      setScene(result.mixed ? 'mixed' : 'result');
-      setStep(6);
-      setMessage(result.message);
-      return;
-    }
-    setScene('parse-fail');
-    setMessage(result.status === 'error' ? result.message : 'This file could not be planned. Nothing was published.');
-  }, [counts, manifestId, sellerPubky]);
+    applyPublishResult(result);
+  }, [applyPublishResult, counts, manifestId, sellerPubky]);
 
   const resume = useCallback(async () => {
     if (!sellerPubky || !manifestId) return;
@@ -90,34 +102,46 @@ export function useMarketplaceInventoryImport(sellerPubky: string | null) {
     setScene('progress');
     const result = await CommerceController.resumeInventoryImport(sellerPubky, manifestId);
     setBusy(false);
-    if (result.status === 'conflict') {
-      setScene('conflict');
-      setMessage(result.message);
-      return;
-    }
-    if (result.status === 'complete') {
-      setScene(result.mixed ? 'mixed' : 'result');
-      setStep(6);
-      setMessage(result.message);
-      return;
-    }
-    if (result.status === 'rate-limited' || result.status === 'error') {
-      setScene('mixed');
-      setMessage(result.message);
-    }
-  }, [manifestId, sellerPubky]);
+    applyPublishResult(result);
+  }, [applyPublishResult, manifestId, sellerPubky]);
 
   const confirmConflict = useCallback(async () => {
     if (!sellerPubky || !manifestId) return;
-    await CommerceController.confirmInventoryImportConflict(sellerPubky, manifestId, '');
-    await resume();
-  }, [manifestId, resume, sellerPubky]);
+    setBusy(true);
+    const result = await CommerceController.confirmInventoryImportConflict(
+      sellerPubky,
+      manifestId,
+      conflictListingId ?? '',
+    );
+    setBusy(false);
+    if (result.status === 'planned') {
+      setCounts(result.counts);
+      setConflictListingId(null);
+      setScene(result.counts.conflict > 0 ? 'conflict' : 'dry-run');
+      setStep(result.counts.conflict > 0 ? 5 : 4);
+      return;
+    }
+    applyPublishResult(result);
+  }, [applyPublishResult, conflictListingId, manifestId, sellerPubky]);
 
   const discardConflict = useCallback(async () => {
     if (!sellerPubky || !manifestId) return;
-    await CommerceController.discardInventoryImportConflict(sellerPubky, manifestId, '');
-    await resume();
-  }, [manifestId, resume, sellerPubky]);
+    setBusy(true);
+    const result = await CommerceController.discardInventoryImportConflict(
+      sellerPubky,
+      manifestId,
+      conflictListingId ?? '',
+    );
+    setBusy(false);
+    if (result.status === 'planned') {
+      setCounts(result.counts);
+      setConflictListingId(null);
+      setScene(result.counts.conflict > 0 ? 'conflict' : 'dry-run');
+      setStep(result.counts.conflict > 0 ? 5 : 4);
+      return;
+    }
+    applyPublishResult(result);
+  }, [applyPublishResult, conflictListingId, manifestId, sellerPubky]);
 
   const downloadResult = useCallback(async () => {
     if (!sellerPubky || !manifestId) return;

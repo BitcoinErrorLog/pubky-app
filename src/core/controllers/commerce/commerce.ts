@@ -335,11 +335,11 @@ export class CommerceController {
   }
 
   static async confirmInventoryImportConflict(sellerPubky: string, manifestId: string, listingId: string) {
-    await CommerceInventoryImportApplication.forSeller(sellerPubky).confirmConflict(manifestId, listingId);
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).confirmConflict(manifestId, listingId);
   }
 
   static async discardInventoryImportConflict(sellerPubky: string, manifestId: string, listingId: string) {
-    await CommerceInventoryImportApplication.forSeller(sellerPubky).discardConflict(manifestId, listingId);
+    return await CommerceInventoryImportApplication.forSeller(sellerPubky).discardConflict(manifestId, listingId);
   }
 
   static async exportInventoryListingsCsv(sellerPubky: string) {

@@ -142,7 +142,7 @@ export function MarketplaceInventoryImport({
       )}
       {scene === 'progress' && (
         <Typography as="p" className="text-sm text-muted-foreground" data-testid="inventory-import-progress">
-          Publishing {progress?.done ?? 0} of {progress?.total ?? 0}. Homeserver first, then sync.
+          Saving your listings… {progress?.done ?? 0} of {progress?.total ?? 0}.
         </Typography>
       )}
       {scene === 'result' && (

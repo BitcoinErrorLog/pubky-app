@@ -16,6 +16,7 @@ import {
   type HostImportCheckpoint,
   type HostPlannedImportRow,
   type InventoryManifestStore,
+  isManifestConflict,
 } from '@/services/marketplace/marketplace-import-store';
 import { inventoryCapabilityCovers } from '@/services/marketplace/marketplace-inventory-grant';
 import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
@@ -36,6 +37,8 @@ export const IMPORT_PARSE_FAIL_COPY = 'This file could not be planned. Nothing w
 export const IMPORT_CONFLICT_COPY =
   'This listing changed since the plan. Confirm or discard; it will not be overwritten.';
 export const IMPORT_MIXED_COPY = 'Some listings synced; some did not. Resume publishes only the unfinished rows.';
+export const CONFLICT_CONFIRMED = 'conflict_confirmed';
+export const CONFLICT_DISCARDED = 'conflict_discarded';
 
 export type InventoryImportAuth =
   | { status: 'durable-unavailable' }
@@ -63,6 +66,10 @@ export type InventoryImportPublishResult =
   | { status: 'rate-limited'; message: string }
   | Exclude<InventoryImportAuth, { status: 'ready' }>
   | { status: 'error'; message: string };
+
+export type InventoryImportConflictAckResult =
+  | InventoryImportPublishResult
+  | { status: 'planned'; manifestId: string; rowCount: number; counts: DryRunCounts };
 
 export type InventoryImportHost = {
   readonly sellerPubky: string;
@@ -233,7 +240,8 @@ export class CommerceInventoryImportApplication {
     for (const [listingId, group] of groups) {
       const actionable = group.filter((row) => resumeNext(row.checkpoint) !== 'none');
       if (actionable.length === 0) continue;
-      if (group.some((row) => row.intendedAction === 'conflict' || row.checkpoint === 'conflict')) {
+      if (group.some((row) => isConflictRow(row))) {
+        if (group.every((row) => isAcknowledgedConflict(row) || !isConflictRow(row))) continue;
         conflictListingId ??= listingId;
         continue;
       }
@@ -277,12 +285,14 @@ export class CommerceInventoryImportApplication {
     };
   }
 
-  async confirmConflict(_manifestId: string, _listingId: string): Promise<void> {
-    // Conflict is a terminal SDK checkpoint; confirm skips overwrite and resumes the rest.
+  async confirmConflict(manifestId: string, listingId: string): Promise<InventoryImportConflictAckResult> {
+    await this.acknowledgeConflict(manifestId, listingId, 'confirm');
+    return this.afterConflictAck(manifestId);
   }
 
-  async discardConflict(_manifestId: string, _listingId: string): Promise<void> {
-    // Conflict is a terminal SDK checkpoint; discard skips overwrite.
+  async discardConflict(manifestId: string, listingId: string): Promise<InventoryImportConflictAckResult> {
+    await this.acknowledgeConflict(manifestId, listingId, 'discard');
+    return this.afterConflictAck(manifestId);
   }
 
   async exportListingsCsv(): Promise<Uint8Array> {
@@ -351,6 +361,87 @@ export class CommerceInventoryImportApplication {
       lines.push([row.listingId, row.rowIdentity, row.checkpoint, result].map(csvCell).join(','));
     }
     return `${lines.join('\n')}\n`;
+  }
+
+  private async afterConflictAck(manifestId: string): Promise<InventoryImportConflictAckResult> {
+    const loaded = await this.host.store.load(manifestId);
+    if (!loaded) return { status: 'error', message: 'The import plan is missing.' };
+    const started = loaded.rows.some((row) => publishHadStarted(row));
+    if (started) return this.resume(manifestId);
+    const unresolved = firstUnresolvedConflict(this.groups(loaded.rows));
+    if (unresolved) {
+      return { status: 'conflict', listingId: unresolved, message: IMPORT_CONFLICT_COPY };
+    }
+    return {
+      status: 'planned',
+      manifestId,
+      rowCount: loaded.rowCount,
+      counts: remainingDryRunCounts(loaded.rows),
+    };
+  }
+
+  private async acknowledgeConflict(manifestId: string, listingId: string, kind: 'confirm' | 'discard'): Promise<void> {
+    const loaded = await this.host.store.load(manifestId);
+    if (!loaded) return;
+    const groups = this.groups(loaded.rows);
+    const targetId = listingId || firstUnresolvedConflict(groups);
+    if (!targetId) return;
+    const group = groups.get(targetId);
+    if (!group) return;
+    const failureCode = kind === 'confirm' ? CONFLICT_CONFIRMED : CONFLICT_DISCARDED;
+    const preferred: HostImportCheckpoint = kind === 'confirm' ? 'conflict' : 'failed';
+    for (const row of group) {
+      if (isAcknowledgedConflict(row)) continue;
+      if (row.checkpoint !== 'conflict') {
+        const hop = nextAllowedCheckpoint(row.checkpoint, preferred);
+        if (hop !== null) {
+          await this.checkpointRow(manifestId, row.rowIdentity, hop);
+        }
+      }
+      await this.annotateRowFailure(manifestId, row.rowIdentity, failureCode);
+    }
+  }
+
+  private async annotateRowFailure(manifestId: string, rowIdentity: string, failureCode: string): Promise<void> {
+    for (;;) {
+      const manifest = await this.host.store.load(manifestId);
+      if (!manifest) return;
+      const row = manifest.rows.find((entry) => entry.rowIdentity === rowIdentity);
+      if (!row || row.failureCode === failureCode) return;
+      try {
+        await this.host.store.compareAndSwap(manifestId, manifest.manifestVersion, (current) => ({
+          ...current,
+          manifestVersion: current.manifestVersion + 1,
+          rows: current.rows.map((entry) => (entry.rowIdentity === rowIdentity ? { ...entry, failureCode } : entry)),
+        }));
+        return;
+      } catch (error) {
+        if (!isManifestConflict(error)) return;
+      }
+    }
+  }
+
+  private async checkpointRow(
+    manifestId: string,
+    rowIdentity: string,
+    checkpoint: HostImportCheckpoint,
+  ): Promise<void> {
+    for (;;) {
+      const manifest = await this.host.store.load(manifestId);
+      if (!manifest) return;
+      const row = manifest.rows.find((entry) => entry.rowIdentity === rowIdentity);
+      if (!row || row.checkpoint === checkpoint) return;
+      const hop = nextAllowedCheckpoint(row.checkpoint, checkpoint);
+      if (hop === null) return;
+      const result = await MarketplaceShopClientService.checkpointRow(
+        this.host.store,
+        manifestId,
+        manifest.manifestVersion,
+        row.rowIdentity,
+        hop,
+      );
+      if (!result.ok) return;
+    }
   }
 
   private groups(rows: readonly HostPlannedImportRow[]): Map<string, HostPlannedImportRow[]> {
@@ -482,6 +573,43 @@ const CHECKPOINT_HOPS: Readonly<Record<HostImportCheckpoint, readonly HostImport
   conflict: [],
   failed: ['publishing', 'conflict'],
 };
+
+function isConflictRow(row: HostPlannedImportRow): boolean {
+  return row.checkpoint === 'conflict' || row.intendedAction === 'conflict';
+}
+
+function isAcknowledgedConflict(row: HostPlannedImportRow): boolean {
+  return (
+    row.failureCode === CONFLICT_CONFIRMED || row.failureCode === CONFLICT_DISCARDED || row.checkpoint === 'failed'
+  );
+}
+
+function publishHadStarted(row: HostPlannedImportRow): boolean {
+  if (row.checkpoint === 'publishing' || row.checkpoint === 'published_unsynced' || row.checkpoint === 'complete') {
+    return true;
+  }
+  return (row.checkpoint === 'conflict' || row.checkpoint === 'failed') && row.intendedAction !== 'conflict';
+}
+
+function remainingDryRunCounts(rows: readonly HostPlannedImportRow[]): DryRunCounts {
+  const counts = { create: 0, update: 0, end: 0, unchanged: 0, conflict: 0 };
+  for (const row of rows) {
+    if (isAcknowledgedConflict(row)) continue;
+    if (row.intendedAction === 'create') counts.create += 1;
+    else if (row.intendedAction === 'update') counts.update += 1;
+    else if (row.intendedAction === 'end') counts.end += 1;
+    else if (row.intendedAction === 'unchanged') counts.unchanged += 1;
+    else if (row.intendedAction === 'conflict') counts.conflict += 1;
+  }
+  return counts;
+}
+
+function firstUnresolvedConflict(groups: Map<string, HostPlannedImportRow[]>): string | null {
+  for (const [listingId, group] of groups) {
+    if (group.some((row) => isConflictRow(row) && !isAcknowledgedConflict(row))) return listingId;
+  }
+  return null;
+}
 
 function nextAllowedCheckpoint(from: HostImportCheckpoint, target: HostImportCheckpoint): HostImportCheckpoint | null {
   const allowed = CHECKPOINT_HOPS[from];

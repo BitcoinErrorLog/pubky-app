@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CommerceInventoryImportApplication, IMPORT_PARSE_FAIL_COPY } from '@/application/commerce/inventory-import';
+import {
+  CommerceInventoryImportApplication,
+  CONFLICT_CONFIRMED,
+  CONFLICT_DISCARDED,
+  IMPORT_PARSE_FAIL_COPY,
+} from '@/application/commerce/inventory-import';
 import { listingToCanonicalRows } from '@/application/commerce/inventory-listing-map';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -203,6 +208,20 @@ describe('MarketplaceShopClientService import helpers', () => {
     }
   });
 
+  it('quotes formula prefixes in persisted JSON payloads', async () => {
+    const store = new MemoryImportStore();
+    const row = canonicalRow('boots_01', { title: '=HYPERLINK("http://x")' });
+    const file = new BytesFile(utf8(JSON.stringify([row])), 'listings.json', 'application/json');
+    const planned = await MarketplaceShopClientService.planBrowserFile(file, store);
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const manifest = await store.load(planned.value.manifestId);
+    expect(manifest?.rows).toHaveLength(1);
+    const payload = await store.getPayloadJson(planned.value.manifestId, manifest!.rows[0]!.rowIdentity);
+    expect(payload).toContain("'=HYPERLINK");
+    expect(payload).not.toMatch(/"title":"=HYPERLINK/);
+  });
+
   it('plans JSON rows and persists payloads without publishing', async () => {
     const store = new MemoryImportStore();
     const row = canonicalRow('boots_01');
@@ -313,6 +332,74 @@ describe('CommerceInventoryImportApplication', () => {
     if (planned.status !== 'planned') return;
     const published = await importer.publish(planned.manifestId);
     expect(published.status).toBe('conflict');
+  });
+
+  it('confirm on a CAS 409 skips overwrite and publishes remaining rows', async () => {
+    const importer = CommerceInventoryImportApplication.forSeller(PUBKY, {
+      store,
+      currentItems: async () => ({}),
+      putListing: async (record) => {
+        if (record.listingId === 'boots_01') {
+          throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed.', {
+            service: ErrorService.Homeserver,
+            operation: 'putVerifiedPublicListing',
+          });
+        }
+        puts.push(record.listingId);
+      },
+      listingExists: async () => false,
+      syncMany: async (listings) => {
+        syncCalls.push([...listings]);
+        return syncOk(listings.map((listing) => ({ listing_id: listing.listing_id, status: 200 })));
+      },
+    });
+    const planned = await importer.planFile(
+      new BytesFile(
+        utf8(JSON.stringify([canonicalRow('boots_01'), canonicalRow('hat_01')])),
+        'two.json',
+        'application/json',
+      ),
+    );
+    expect(planned.status).toBe('planned');
+    if (planned.status !== 'planned') return;
+    const published = await importer.publish(planned.manifestId);
+    expect(published.status).toBe('conflict');
+    if (published.status !== 'conflict') return;
+    const confirmed = await importer.confirmConflict(planned.manifestId, published.listingId);
+    expect(puts).toEqual(['hat_01']);
+    expect(confirmed.status).toBe('complete');
+    const manifest = await store.load(planned.manifestId);
+    const boots = manifest?.rows.find((row) => row.listingId === 'boots_01');
+    expect(boots?.checkpoint).toBe('conflict');
+    expect(boots?.failureCode).toBe(CONFLICT_CONFIRMED);
+    expect(puts).toEqual(['hat_01']);
+  });
+
+  it('discard on a CAS 409 does not PUT that listing again', async () => {
+    const importer = CommerceInventoryImportApplication.forSeller(PUBKY, {
+      store,
+      currentItems: async () => ({}),
+      putListing: async () => {
+        throw Err.client(ClientErrorCode.CONFLICT, 'The published listing changed.', {
+          service: ErrorService.Homeserver,
+          operation: 'putVerifiedPublicListing',
+        });
+      },
+      listingExists: async () => false,
+      syncMany: async () => syncOk([]),
+    });
+    const planned = await importer.planFile(
+      new BytesFile(utf8(JSON.stringify([canonicalRow('boots_01')])), 'one.json', 'application/json'),
+    );
+    expect(planned.status).toBe('planned');
+    if (planned.status !== 'planned') return;
+    const published = await importer.publish(planned.manifestId);
+    expect(published.status).toBe('conflict');
+    const discarded = await importer.discardConflict(planned.manifestId, '');
+    expect(discarded.status).toBe('complete');
+    const manifest = await store.load(planned.manifestId);
+    expect(manifest?.rows[0]?.failureCode).toBe(CONFLICT_DISCARDED);
+    expect(puts).toEqual([]);
   });
 
   it('quotes formula prefixes in the result CSV download', async () => {
