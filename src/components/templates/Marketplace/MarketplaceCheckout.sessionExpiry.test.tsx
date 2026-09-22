@@ -107,6 +107,22 @@ vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: [], isLoading: false, refresh: vi.fn(async () => {}) }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
+  useMarketplaceOfferCheckout: () => ({ submit: vi.fn(), isSubmitting: false }),
+}));
+
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => 0,
+}));
+
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 0,
+}));
+
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));

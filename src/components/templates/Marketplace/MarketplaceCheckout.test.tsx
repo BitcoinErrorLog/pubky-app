@@ -28,11 +28,24 @@ const view = vi.hoisted(() => ({
   isPickupCapabilityLoading: false,
   orderCount: 1,
   payResult: { ok: false, orderIds: [] as string[], boundOrders: [] as unknown[] },
+  awardItems: [] as Array<{ awardId: string; listingId: string; variantId: string }>,
 }));
 
 const checkoutActions = vi.hoisted(() => ({
   pay: vi.fn(async () => view.payResult),
   setFulfillmentChoice: vi.fn(),
+  remove: vi.fn(async () => {}),
+  rememberAddress: vi.fn(async () => {}),
+}));
+
+const offerState = vi.hoisted(() => ({
+  offers: [] as Array<Record<string, unknown>>,
+  isLoading: false,
+  refresh: vi.fn(async () => {}),
+  submit: vi.fn(),
+  outcome: { ok: true, orderId: '00000000-0000-4000-8000-000000000803', boundOrder: null } as
+    | { ok: true; orderId: string; boundOrder: null }
+    | { ok: false; code: string },
 }));
 
 const listing = {
@@ -104,7 +117,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
       return {
         items,
         ordinaryItems: items,
-        awardItems: [],
+        awardItems: view.awardItems,
         itemCount: items.reduce((total, item) => total + item.quantity, 0),
         subtotals: sumMoneyByAsset(
           items.flatMap((item) => {
@@ -118,7 +131,7 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
         isLoading: view.isLoading,
         add: vi.fn(),
         update: vi.fn(),
-        remove: vi.fn(),
+        remove: checkoutActions.remove,
         clear: vi.fn(),
         groups: actual.groupMarketplaceCartItems(items as never),
       };
@@ -147,6 +160,7 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       addresses: view.addresses,
       selectedAddressId: view.selectedAddressId,
       selectAddress: vi.fn(),
+      rememberAddress: checkoutActions.rememberAddress,
       fulfillmentOptionsForSeller: (sellerPubky: string) => view.fulfillmentOptions[sellerPubky] ?? ['shipping'],
       fulfillmentForSeller: (sellerPubky: string) => view.fulfillmentEffective[sellerPubky] ?? 'shipping',
       setFulfillmentChoice: checkoutActions.setFulfillmentChoice,
@@ -180,7 +194,36 @@ vi.mock('@/controllers/commerce/commerce', () => ({
       paypalMerchantEmail: 'seller@example.com',
     })),
     getIndicativeBtcRate: vi.fn(async () => null),
+    getOrFetchListing: vi.fn(async () => listing.record),
+    getListing: vi.fn(async () => listing),
+    getCartItems: vi.fn(async () => []),
+    getManyListings: vi.fn(async () => new Map()),
   },
+}));
+
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => 0,
+}));
+
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 0,
+}));
+
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({
+    offers: offerState.offers,
+    isLoading: offerState.isLoading,
+    refresh: offerState.refresh,
+  }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
+  useMarketplaceOfferCheckout: () => ({ submit: offerState.submit, isSubmitting: false }),
+}));
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
+    selector({ currentUserPubky: 'b'.repeat(52) }),
 }));
 
 vi.mock('@/organisms/Marketplace/MarketplaceIndicativePrice', () => ({
@@ -206,6 +249,38 @@ vi.mock('@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary', () =>
   }),
 }));
 
+function resetCheckoutView() {
+  checkoutActions.pay.mockClear();
+  checkoutActions.setFulfillmentChoice.mockReset();
+  checkoutActions.remove.mockClear();
+  checkoutActions.rememberAddress.mockClear();
+  view.items = [];
+  view.isLoading = false;
+  view.adapterMode = 'sandbox';
+  view.deployEnv = 'production';
+  view.hasMarketplaceSession = false;
+  view.needsSession = false;
+  view.sessionError = null;
+  view.addresses = [];
+  view.selectedAddressId = null;
+  view.fulfillmentOptions = {};
+  view.fulfillmentEffective = {};
+  view.requiresDeliveryAddress = true;
+  view.hasFulfillmentConflict = false;
+  view.isPickupCapabilityLoading = false;
+  view.orderCount = 1;
+  view.payResult = { ok: false, orderIds: [], boundOrders: [] };
+  view.awardItems = [];
+  offerState.offers = [];
+  offerState.isLoading = false;
+  offerState.refresh.mockClear();
+  offerState.submit.mockReset();
+  offerState.outcome = { ok: true, orderId: '00000000-0000-4000-8000-000000000803', boundOrder: null };
+  offerState.submit.mockResolvedValue(offerState.outcome);
+  searchParams.current = new URLSearchParams();
+  window.history.replaceState(null, '', '/marketplace/checkout');
+}
+
 function seededCart() {
   view.items = [
     {
@@ -229,25 +304,7 @@ async function fillValidDelivery(user: ReturnType<typeof userEvent.setup>) {
 
 describe('MarketplaceCheckout', () => {
   beforeEach(() => {
-    checkoutActions.pay.mockClear();
-    checkoutActions.setFulfillmentChoice.mockReset();
-    view.items = [];
-    view.isLoading = false;
-    view.adapterMode = 'sandbox';
-    view.deployEnv = 'production';
-    view.hasMarketplaceSession = false;
-    view.needsSession = false;
-    view.sessionError = null;
-    view.addresses = [];
-    view.selectedAddressId = null;
-    view.fulfillmentOptions = {};
-    view.fulfillmentEffective = {};
-    view.requiresDeliveryAddress = true;
-    view.hasFulfillmentConflict = false;
-    view.isPickupCapabilityLoading = false;
-    view.orderCount = 1;
-    view.payResult = { ok: false, orderIds: [], boundOrders: [] };
-    window.history.replaceState(null, '', '/marketplace/checkout');
+    resetCheckoutView();
   });
 
   it('disables Pay without a marketplace session in durable mode', () => {
@@ -388,22 +445,7 @@ describe('MarketplaceCheckout', () => {
 
 describe('MarketplaceCheckout local pickup (Wave 7, §A2)', () => {
   beforeEach(() => {
-    checkoutActions.setFulfillmentChoice.mockReset();
-    view.items = [];
-    view.isLoading = false;
-    view.adapterMode = 'sandbox';
-    view.hasMarketplaceSession = false;
-    view.needsSession = false;
-    view.sessionError = null;
-    view.addresses = [];
-    view.selectedAddressId = null;
-    view.fulfillmentOptions = {};
-    view.fulfillmentEffective = {};
-    view.requiresDeliveryAddress = true;
-    view.hasFulfillmentConflict = false;
-    view.isPickupCapabilityLoading = false;
-    view.orderCount = 1;
-    window.history.replaceState(null, '', '/marketplace/checkout');
+    resetCheckoutView();
   });
 
   it('offers the fulfillment choice only when every line in the group publishes both', async () => {
@@ -494,3 +536,196 @@ describe('MarketplaceCheckout local pickup (Wave 7, §A2)', () => {
     expect(screen.queryByText(/Local pickup — no delivery address/)).not.toBeInTheDocument();
   });
 });
+
+const acceptedOffer = {
+  id: 'offer-1',
+  state: 'accepted',
+  buyerPubky: 'b'.repeat(52),
+  award: {
+    id: 'award-1',
+    state: 'active',
+    listing: {
+      sellerPubky: 's'.repeat(52),
+      listingId: 'boots',
+      title: 'Vintage boots',
+      aggregateId: 'listing:s_boots',
+      listingRevision: 3,
+      listingRecordSha256: 'a'.repeat(64),
+    },
+    variant: { id: 'variant_42', options: [{ name: 'Size', value: '42' }] },
+    unitPrice: { amountMinor: 600, currency: 'USD', exponent: 2 },
+    quantity: 1,
+    convertBy: '2026-09-15T12:00:00.000Z',
+    subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
+    shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
+    merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
+  },
+};
+
+describe('MarketplaceCheckout accepted-offer path', () => {
+  beforeEach(() => {
+    resetCheckoutView();
+    searchParams.current = new URLSearchParams('offer=offer-1');
+    view.awardItems = [{ awardId: 'award-1', listingId: 's:boots', variantId: 'variant_42' }];
+    offerState.offers = [acceptedOffer];
+    view.addresses = [
+      {
+        id: 'home',
+        label: 'Home',
+        city: 'New York',
+        is_default: true,
+      },
+    ];
+    window.history.replaceState(null, '', '/marketplace/checkout?offer=offer-1');
+  });
+
+  async function fillAndPay(user: ReturnType<typeof userEvent.setup>) {
+    await fillValidDelivery(user);
+    await user.click(screen.getByRole('checkbox', { name: /I accept sandbox guarantee policy v1/ }));
+    const pay = screen.getByTestId('marketplace-checkout-pay');
+    await waitFor(() => expect(pay).toBeEnabled());
+    await user.click(pay);
+  }
+
+  it('renders server-projected agreed price, shipping, total, and deadline on the one Checkout screen', () => {
+    render(<MarketplaceCheckout />);
+
+    expect(screen.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+    expect(screen.getByText('Vintage boots')).toBeInTheDocument();
+    expect(screen.getByText(/42 · Quantity 1/)).toBeInTheDocument();
+    expect(screen.getByText('Subtotal').parentElement).toHaveTextContent('$6.00');
+    expect(screen.getByText('Shipping').parentElement).toHaveTextContent('$1.00');
+    expect(screen.getByText('Merchandise total').parentElement).toHaveTextContent('$7.00');
+    expect(screen.getByText(/Checkout window closes/)).toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-checkout-pay')).toBeInTheDocument();
+    expect(screen.getByLabelText('Saved addresses')).toBeInTheDocument();
+  });
+
+  it('keeps the new-address form when the book is empty instead of gating to settings', () => {
+    view.addresses = [];
+    render(<MarketplaceCheckout />);
+
+    expect(screen.getByLabelText('Recipient')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Add delivery address' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-checkout-pay')).toBeDisabled();
+  });
+
+  it('removes the award line and continues checkout after a successful pay', async () => {
+    const user = userEvent.setup();
+    render(<MarketplaceCheckout />);
+    await fillAndPay(user);
+
+    expect(offerState.submit).toHaveBeenCalled();
+    expect(checkoutActions.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
+    expect(offerState.refresh).toHaveBeenCalledTimes(1);
+    expect(checkoutActions.rememberAddress).toHaveBeenCalled();
+  });
+
+  it('shows expiry copy, removes the line, refreshes offers, and offers both next actions', async () => {
+    offerState.submit.mockResolvedValue({ ok: false, code: 'AWARD_EXPIRED' });
+    const user = userEvent.setup();
+    render(<MarketplaceCheckout />);
+    await fillAndPay(user);
+
+    expect(screen.getByText('This accepted offer expired before checkout. Nothing was reserved.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View offers' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Buy at current price' })).toBeInTheDocument();
+    expect(checkoutActions.remove).toHaveBeenCalledTimes(1);
+    expect(offerState.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['AWARD_ALREADY_CONVERTED', 'REVISION_CONFLICT'])('shows the converted state for %s', async (code) => {
+    offerState.submit.mockResolvedValue({ ok: false, code });
+    const user = userEvent.setup();
+    render(<MarketplaceCheckout />);
+    await fillAndPay(user);
+
+    expect(screen.getByText('This accepted offer has already been converted.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View orders' })).toBeInTheDocument();
+    expect(checkoutActions.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
+  });
+
+  it('removes the award line and refreshes offers when the award is unavailable', async () => {
+    offerState.submit.mockResolvedValue({ ok: false, code: 'AWARD_UNAVAILABLE' });
+    const user = userEvent.setup();
+    render(<MarketplaceCheckout />);
+    await fillAndPay(user);
+
+    expect(screen.getByText('This offer is no longer available.')).toBeInTheDocument();
+    expect(checkoutActions.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
+  });
+
+  it('shows mapped refusal copy and Retry for other checkout refusal codes', async () => {
+    offerState.submit.mockResolvedValue({ ok: false, code: 'AWARD_QUANTITY_MISMATCH' });
+    const user = userEvent.setup();
+    render(<MarketplaceCheckout />);
+    await fillAndPay(user);
+
+    expect(screen.getByText('The checkout quantity does not match the accepted offer.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('withholds checkout for a malformed award projection', () => {
+    offerState.offers = [{ ...acceptedOffer, award: undefined }];
+    render(<MarketplaceCheckout />);
+    expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-checkout-pay')).not.toBeInTheDocument();
+  });
+
+  it.each(['subtotal', 'shipping', 'merchandiseTotal'])('withholds checkout when %s is absent', (field) => {
+    const incomplete = { ...acceptedOffer, award: { ...acceptedOffer.award } };
+    delete incomplete.award[field as keyof typeof incomplete.award];
+    offerState.offers = [incomplete];
+    render(<MarketplaceCheckout />);
+    expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-checkout-pay')).not.toBeInTheDocument();
+  });
+
+  it('withholds checkout when award money currencies do not match', () => {
+    offerState.offers = [
+      {
+        ...acceptedOffer,
+        award: { ...acceptedOffer.award, shipping: { ...acceptedOffer.award.shipping, currency: 'EUR' } },
+      },
+    ];
+    render(<MarketplaceCheckout />);
+    expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
+  });
+
+  it('withholds checkout from the seller on the award route', () => {
+    offerState.offers = [{ ...acceptedOffer, buyerPubky: 's'.repeat(52) }];
+    render(<MarketplaceCheckout />);
+    expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-checkout-pay')).not.toBeInTheDocument();
+  });
+});
+
+describe('MarketplaceCheckout drop-claim path', () => {
+  beforeEach(() => {
+    resetCheckoutView();
+    searchParams.current = new URLSearchParams({
+      seller: listing.record.ownerPubky,
+      drop: 'vol1',
+      listing: 'boots',
+    });
+    window.history.replaceState(
+      null,
+      '',
+      `/marketplace/checkout?seller=${listing.record.ownerPubky}&drop=vol1&listing=boots`,
+    );
+  });
+
+  it('loads the drop listing as quantity 1 on the one Checkout screen', async () => {
+    render(<MarketplaceCheckout />);
+
+    expect(await screen.findByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+    expect(await screen.findByText('Vintage boots')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to drop' })).toHaveAttribute(
+      'href',
+      `/marketplace/drop/${listing.record.ownerPubky}/vol1`,
+    );
+    expect(screen.getByTestId('marketplace-checkout-pay')).toBeInTheDocument();
+    expect(screen.getByLabelText('Recipient')).toBeInTheDocument();
+  });
+});
+

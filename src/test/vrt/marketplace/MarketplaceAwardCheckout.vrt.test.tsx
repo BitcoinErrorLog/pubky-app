@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import { expectVrtSurface, renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
-import { MarketplaceAwardCheckout } from '@/templates/Marketplace/MarketplaceAwardCheckout';
+import { MarketplaceCheckout } from '@/templates/Marketplace/MarketplaceCheckout';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { ACCEPTED_OFFER_AWARD_WIRE_FIXTURE } from '@/test/fixtures/commerce/offers';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
@@ -22,8 +22,9 @@ const offer = asOpaque<MarketplaceOffer>({
 });
 
 vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams('offer=00000000-0000-0000-0000-000000000901'),
-  usePathname: () => '/marketplace/award-checkout',
+  usePathname: () => '/marketplace/checkout',
 }));
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
@@ -31,13 +32,20 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
   useMarketplaceOffers: () => ({
     offers: [offer],
+    isLoading: false,
     refresh: vi.fn(async () => {}),
   }),
 }));
 vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   useMarketplaceCart: () => ({
+    items: [],
+    ordinaryItems: [],
     awardItems: [{ awardId: offer.award!.id, listingId: 's:boots', variantId: 'variant_42' }],
+    groups: [],
+    subtotals: [],
+    isLoading: false,
     remove: vi.fn(async () => {}),
+    clear: vi.fn(async () => {}),
   }),
 }));
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
@@ -46,21 +54,66 @@ vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
   useMarketplaceActivityUnread: () => 2,
 }));
-vi.mock('@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook', () => ({
-  useMarketplaceAddressBook: () => ({
-    addresses: [
-      {
-        id: 'home',
-        label: 'Home',
-        name: 'Alice Buyer',
-        line1: '1 Market Street',
-        line2: '',
-        city: 'New York',
-        region: 'NY',
-        postal_code: '10001',
-        country_code: 'US',
-      },
-    ],
+vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
+  const { useForm } = await import('react-hook-form');
+  const { marketplaceCheckoutDefaults } = await import('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types');
+  return {
+    useMarketplaceCheckout: () => ({
+      form: useForm({
+        defaultValues: {
+          ...marketplaceCheckoutDefaults,
+          name: 'Alice Buyer',
+          line1: '1 Market Street',
+          city: 'New York',
+          region: 'NY',
+          postalCode: '10001',
+          countryCode: 'US',
+          acceptsGuarantee: true,
+        },
+      }),
+      submit: vi.fn(async () => false),
+      pay: vi.fn(async () => ({ ok: false, orderIds: [], boundOrders: [] })),
+      isPaying: false,
+      needsSession: false,
+      sessionError: null,
+      hasMarketplaceSession: true,
+      addresses: [
+        {
+          id: 'home',
+          label: 'Home',
+          name: 'Alice Buyer',
+          line1: '1 Market Street',
+          line2: '',
+          city: 'New York',
+          region: 'NY',
+          postal_code: '10001',
+          country_code: 'US',
+          is_default: true,
+        },
+      ],
+      selectedAddressId: 'home',
+      selectAddress: vi.fn(),
+      fulfillmentOptionsForSeller: () => ['shipping'],
+      fulfillmentForSeller: () => 'shipping',
+      setFulfillmentChoice: vi.fn(),
+      requiresDeliveryAddress: true,
+      hasFulfillmentConflict: false,
+      isPickupCapabilityLoading: false,
+      orderCount: 1,
+      rememberAddress: vi.fn(async () => {}),
+    }),
+  };
+});
+vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
+  useMarketplaceOrders: () => ({
+    orders: [],
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    adapterMode: 'sandbox',
+    refresh: vi.fn(),
+    advancePayment: vi.fn(),
+    actOnOrder: vi.fn(),
   }),
 }));
 vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
@@ -71,6 +124,10 @@ vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () =>
     ),
   }),
 }));
+vi.mock('@/config/commerce', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/config/commerce')>();
+  return { ...actual, getCommerceAdapterMode: () => 'sandbox' };
+});
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getSellerPaymentConfig: vi.fn(async () => ({
@@ -79,6 +136,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
       stripePaymentLink: null,
       paypalMerchantEmail: null,
     })),
+    getIndicativeBtcRate: vi.fn(async () => null),
   },
 }));
 vi.mock('@/stores/auth/auth.store', () => ({
@@ -92,16 +150,16 @@ describe('Marketplace award checkout — visual regression', () => {
   });
 
   async function capture(scene: string, viewport = VRT_VIEWPORT_DESKTOP) {
-    await renderForVRT(<MarketplaceAwardCheckout />, { viewport });
+    await renderForVRT(<MarketplaceCheckout />, { viewport });
     if (state.outcome === 'active') {
       await vi.waitFor(() => {
-        const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+        const pay = document.querySelector('[data-testid="marketplace-checkout-pay"]');
         if (!(pay instanceof HTMLButtonElement) || pay.disabled) {
           throw new Error('Award Pay is not ready yet.');
         }
       });
     }
-    const surface = expectVrtSurface('marketplace-award-checkout');
+    const surface = expectVrtSurface('marketplace-checkout');
     await expect(surface).toMatchScreenshot(scene);
   }
 
@@ -115,14 +173,14 @@ describe('Marketplace award checkout — visual regression', () => {
 
   it('captures the expired state', async () => {
     state.outcome = 'expired';
-    await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await renderForVRT(<MarketplaceCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
     await vi.waitFor(() => {
-      const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+      const pay = document.querySelector('[data-testid="marketplace-checkout-pay"]');
       if (!(pay instanceof HTMLButtonElement) || pay.disabled) {
         throw new Error('Award Pay is not ready yet.');
       }
     });
-    const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+    const pay = document.querySelector('[data-testid="marketplace-checkout-pay"]');
     if (!(pay instanceof HTMLButtonElement)) throw new Error('Award Pay is missing.');
     await userEvent.click(pay);
     await vi.waitFor(() => {
@@ -130,20 +188,20 @@ describe('Marketplace award checkout — visual regression', () => {
         throw new Error('Award expired copy has not rendered yet.');
       }
     });
-    const surface = expectVrtSurface('marketplace-award-checkout');
+    const surface = expectVrtSurface('marketplace-checkout');
     await expect(surface).toMatchScreenshot('award-checkout-expired-desktop');
   });
 
   it('captures the success state', async () => {
     state.outcome = 'success';
-    await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await renderForVRT(<MarketplaceCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
     await vi.waitFor(() => {
-      const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+      const pay = document.querySelector('[data-testid="marketplace-checkout-pay"]');
       if (!(pay instanceof HTMLButtonElement) || pay.disabled) {
         throw new Error('Award Pay is still disabled.');
       }
     });
-    const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+    const pay = document.querySelector('[data-testid="marketplace-checkout-pay"]');
     if (!(pay instanceof HTMLButtonElement)) throw new Error('Award Pay is missing.');
     await userEvent.click(pay);
     await vi.waitFor(() => {
@@ -151,7 +209,7 @@ describe('Marketplace award checkout — visual regression', () => {
         throw new Error('Award checkout success has not rendered yet.');
       }
     });
-    const surface = expectVrtSurface('marketplace-award-checkout');
+    const surface = expectVrtSurface('marketplace-checkout');
     await expect(surface).toMatchScreenshot('award-checkout-success-desktop');
   });
 });

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Banknote, Check, CreditCard, LoaderCircle, WalletCards } from 'lucide-react';
 import { Controller, useWatch } from 'react-hook-form';
-import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceDropRoute, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Checkbox } from '@/atoms/Checkbox/Checkbox';
@@ -45,6 +45,7 @@ import { marketplaceOfferCheckoutFailureMessage } from '@/libs/commerce/failure-
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { availablePaymentMethods, type PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
+import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
@@ -55,8 +56,11 @@ import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectio
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import type { MarketplaceOfferAward } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { MarketplaceAwardCheckout } from './MarketplaceAwardCheckout';
 import { MarketplaceCartSkeleton } from './MarketplaceCart.skeleton';
+
+type AwardPayOutcome = 'expired' | 'converted' | 'error' | 'success' | 'unavailable' | 'session';
+
+const EMPTY_CHECKOUT_ITEMS: MarketplaceCartItem[] = [];
 
 const METHOD_COPY: Record<PaymentMethodKind, string> = {
   bitcoin: '₿ Bitcoin',
@@ -65,33 +69,117 @@ const METHOD_COPY: Record<PaymentMethodKind, string> = {
 };
 
 export function MarketplaceCheckout() {
-  const searchParams = useSearchParams();
-  const offerReference = searchParams.get('offer');
-  if (offerReference) return <MarketplaceAwardCheckout />;
   return <MarketplaceCartCheckout />;
 }
 
 function MarketplaceCartCheckout() {
+  const searchParams = useSearchParams();
+  const offerReference = searchParams.get('offer');
+  const dropSeller = searchParams.get('seller');
+  const dropId = searchParams.get('drop');
+  const dropListingId = searchParams.get('listing');
+  const isOfferCheckout = Boolean(offerReference);
+  const isDropCheckout = Boolean(dropSeller && dropId && dropListingId);
+
   const cart = useMarketplaceCart();
+  const offers = useMarketplaceOffers();
+  const offerPay = useMarketplaceOfferCheckout();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const [dropItem, setDropItem] = useState<MarketplaceCartItem | null>(null);
+  const [dropLoadState, setDropLoadState] = useState<'idle' | 'loading' | 'ready' | 'missing'>(() =>
+    dropSeller && dropListingId ? 'loading' : 'idle',
+  );
+  const [awardOutcome, setAwardOutcome] = useState<AwardPayOutcome | null>(null);
+  const [awardErrorCode, setAwardErrorCode] = useState<string | null>(null);
+
+  const offer = offers.offers.find((item) => item.id === offerReference || item.award?.id === offerReference);
+  const award: MarketplaceOfferAward | undefined = offer?.award;
+  const offerEligible = Boolean(
+    offer &&
+      award &&
+      award.state === 'active' &&
+      offer.buyerPubky === currentUserPubky &&
+      isMarketplaceAwardCheckoutEligible(award),
+  );
+
+  useEffect(() => {
+    if (!dropSeller || !dropListingId) {
+      setDropItem(null);
+      setDropLoadState('idle');
+      return;
+    }
+    let active = true;
+    setDropLoadState('loading');
+    void (async () => {
+      try {
+        try {
+          await CommerceController.getOrFetchListing(dropSeller, dropListingId);
+        } catch {
+          // Local Dexie may still have the listing after a homeserver miss.
+        }
+        const listing = await CommerceController.getListing(dropSeller, dropListingId);
+        if (!active) return;
+        const variant =
+          listing?.record.variants.find((candidate) => candidate.enabled !== false) ?? listing?.record.variants[0];
+        if (!listing || !variant) {
+          setDropItem(null);
+          setDropLoadState('missing');
+          return;
+        }
+        setDropItem(dropCheckoutItem(listing, variant.id));
+        setDropLoadState('ready');
+      } catch {
+        if (!active) return;
+        setDropItem(null);
+        setDropLoadState('missing');
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [dropSeller, dropListingId]);
+
   const ordinaryItems = cart.ordinaryItems ?? cart.items;
-  const checkout = useMarketplaceCheckout(ordinaryItems, cart.clear);
+  const checkoutItems = useMemo(() => {
+    if (isOfferCheckout) return EMPTY_CHECKOUT_ITEMS;
+    if (isDropCheckout) return dropItem ? [dropItem] : EMPTY_CHECKOUT_ITEMS;
+    return ordinaryItems;
+  }, [dropItem, isDropCheckout, isOfferCheckout, ordinaryItems]);
+  const checkout = useMarketplaceCheckout(
+    checkoutItems,
+    isOfferCheckout || isDropCheckout ? async () => undefined : cart.clear,
+  );
   const orders = useMarketplaceOrders();
   const adapterMode = getCommerceAdapterMode();
   const isSandbox = adapterMode === 'sandbox';
   const isStaging = getDeployEnv() === 'staging';
   const formValues = useWatch({ control: checkout.form.control });
   const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
-  const shipping = marketplaceCartShippingTotals(cart.groups, checkout.fulfillmentForSeller);
-  const totalSubtotals = [...cart.subtotals, ...shipping.totals].reduce<
-    Array<{ amountMinor: number; currency: string; exponent: number }>
-  >((totals, money) => {
-    const existing = totals.find(
-      (candidate) => candidate.currency === money.currency && candidate.exponent === money.exponent,
-    );
-    if (existing) existing.amountMinor += money.amountMinor;
-    else totals.push({ ...money });
-    return totals;
-  }, []);
+  const displayGroups = useMemo(
+    () => (isOfferCheckout ? [] : groupMarketplaceCartItems(checkoutItems)),
+    [checkoutItems, isOfferCheckout],
+  );
+  const shipping = marketplaceCartShippingTotals(displayGroups, checkout.fulfillmentForSeller);
+  const itemSubtotals =
+    isOfferCheckout && award
+      ? [award.subtotal]
+      : isDropCheckout
+        ? displayGroups.flatMap((group) => group.subtotals)
+        : cart.subtotals;
+  const shippingTotals = isOfferCheckout && award ? [award.shipping] : shipping.totals;
+  const totalSubtotals =
+    isOfferCheckout && award
+      ? [award.merchandiseTotal]
+      : [...itemSubtotals, ...shipping.totals].reduce<
+          Array<{ amountMinor: number; currency: string; exponent: number }>
+        >((totals, money) => {
+          const existing = totals.find(
+            (candidate) => candidate.currency === money.currency && candidate.exponent === money.exponent,
+          );
+          if (existing) existing.amountMinor += money.amountMinor;
+          else totals.push({ ...money });
+          return totals;
+        }, []);
   const sessionExpired = Boolean(checkout.needsSession && checkout.sessionError);
   const approvalNeeded = isDurableCommerceMode(adapterMode) && (!checkout.hasMarketplaceSession || sessionExpired);
   const [hashOrderId, setHashOrderId] = useState<string | null>(null);
@@ -99,10 +187,16 @@ function MarketplaceCartCheckout() {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodKind | null>(null);
   const [sharedMethods, setSharedMethods] = useState<PaymentMethodKind[] | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const sellerKey = useMemo(
-    () => [...new Set(ordinaryItems.map((item) => item.listing.record.ownerPubky))].join('|'),
-    [ordinaryItems],
-  );
+  const sellerKey =
+    isOfferCheckout && award
+      ? award.listing.sellerPubky
+      : [...new Set(checkoutItems.map((item) => item.listing.record.ownerPubky))].join('|');
+  const isPaying = isOfferCheckout ? offerPay.isSubmitting : checkout.isPaying;
+  const listingRoute =
+    award && getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
+  const backHref =
+    isDropCheckout && dropSeller && dropId ? getMarketplaceDropRoute(dropSeller, dropId) : MARKETPLACE_ROUTES.CART;
+  const backLabel = isDropCheckout ? 'Back to drop' : 'Back to cart';
 
   useEffect(() => {
     const syncHash = () => setHashOrderId(readCheckoutHashOrderId(window.location.hash));
@@ -158,10 +252,76 @@ function MarketplaceCartCheckout() {
     !approvalNeeded &&
     formValid &&
     !checkout.hasFulfillmentConflict &&
-    !checkout.isPaying &&
+    !isPaying &&
+    (!isOfferCheckout || offerEligible) &&
     (isSandbox || (sharedMethods !== null && sharedMethods.length > 0 && selectedMethod !== null));
 
+  const removeAwardLine = async () => {
+    const line = cart.awardItems.find((item) => item.awardId === award?.id);
+    if (line) await cart.remove(line.listingId, line.variantId, line.awardId ?? undefined);
+  };
+
+  const payOffer = async () => {
+    if (!offer || !award || !offerEligible) return;
+    const method = isSandbox && selectedMethod === null ? null : selectedMethod;
+    const values = checkout.form.getValues();
+    if (!marketplaceCheckoutSchema.safeParse(values).success) return;
+    const result = await offerPay.submit(
+      offer,
+      {
+        name: values.name,
+        line1: values.line1,
+        line2: values.line2,
+        city: values.city,
+        region: values.region,
+        postalCode: values.postalCode,
+        countryCode: values.countryCode,
+      },
+      method,
+    );
+    if (result.ok) {
+      await removeAwardLine();
+      await offers.refresh();
+      await checkout.rememberAddress();
+      if (result.boundOrder?.fiatCheckoutUrl) {
+        window.location.assign(result.boundOrder.fiatCheckoutUrl);
+        return;
+      }
+      if (result.orderId) {
+        setPayingOrderIds([result.orderId]);
+        window.history.replaceState(null, '', getMarketplaceCheckoutRoute(result.orderId));
+        setHashOrderId(result.orderId);
+        await orders.refresh();
+        return;
+      }
+      setAwardOutcome('success');
+      return;
+    }
+    if (result.code === 'AWARD_UNAVAILABLE') {
+      await removeAwardLine();
+      await offers.refresh();
+      setAwardOutcome('unavailable');
+    } else if (result.code === 'SESSION_REQUIRED') {
+      setAwardOutcome('session');
+    } else if (result.code === 'AWARD_EXPIRED') {
+      await removeAwardLine();
+      await offers.refresh();
+      setAwardOutcome('expired');
+    } else if (result.code === 'AWARD_ALREADY_CONVERTED' || result.code === 'REVISION_CONFLICT') {
+      await removeAwardLine();
+      await offers.refresh();
+      setAwardOutcome('converted');
+    } else {
+      setAwardErrorCode(result.code);
+      setAwardOutcome('error');
+    }
+  };
+
   const pay = async () => {
+    if (isOfferCheckout) {
+      await payOffer();
+      return;
+    }
     const method = isSandbox && selectedMethod === null ? null : selectedMethod;
     const result = await checkout.pay(method);
     if (!result.ok) return;
@@ -194,19 +354,29 @@ function MarketplaceCartCheckout() {
         data-testid="marketplace-checkout"
       >
         <MarketplaceSectionNav />
-        <Link href={MARKETPLACE_ROUTES.CART} overrideDefaults className="text-sm text-muted-foreground">
-          Back to cart
+        <Link href={backHref} overrideDefaults className="text-sm text-muted-foreground">
+          {backLabel}
         </Link>
         <div>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
             Checkout
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            Address and payment. Nothing is reserved until you pay.
+            {isOfferCheckout && offerEligible && award
+              ? `Checkout window closes ${new Date(award.convertBy).toLocaleString('en-US')}`
+              : 'Address and payment. Nothing is reserved until you pay.'}
           </Typography>
         </div>
 
-        {showPaying ? (
+        {awardOutcome && isOfferCheckout ? (
+          <MarketplaceAwardOutcome
+            outcome={awardOutcome}
+            award={award}
+            errorCode={awardErrorCode}
+            listingRoute={listingRoute}
+            onRetry={() => setAwardOutcome(null)}
+          />
+        ) : showPaying ? (
           <div className="grid gap-4" data-testid="marketplace-checkout-paying">
             {holdCopy && (
               <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm">
@@ -244,26 +414,39 @@ function MarketplaceCartCheckout() {
               ))
             )}
           </div>
-        ) : cart.isLoading ? (
+        ) : cart.isLoading || (isOfferCheckout && offers.isLoading) || dropLoadState === 'loading' ? (
           <MarketplaceCartSkeleton />
-        ) : ordinaryItems.length === 0 ? (
+        ) : isOfferCheckout && !offerEligible ? (
+          <Card className="border">
+            <CardContent className="grid gap-3 px-6">
+              <Heading level={2} size="lg">
+                Checkout unavailable
+              </Heading>
+              <Typography as="p">Checkout for this offer is unavailable right now.</Typography>
+              <Link href={APP_ROUTES.MARKETPLACE} overrideDefaults>
+                Browse the marketplace
+              </Link>
+            </CardContent>
+          </Card>
+        ) : dropLoadState === 'missing' || (!isOfferCheckout && checkoutItems.length === 0) ? (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed text-center">
             <Heading level={2} size="md">
               Nothing to check out
             </Heading>
             <Typography as="p" className="mt-2 text-muted-foreground">
-              Add items in your cart first.
+              {isDropCheckout ? 'This drop listing could not be loaded.' : 'Add items in your cart first.'}
             </Typography>
             <Button asChild className="mt-6 rounded-full">
-              <Link href={MARKETPLACE_ROUTES.CART} overrideDefaults>
-                Back to cart
+              <Link href={backHref} overrideDefaults>
+                {backLabel}
               </Link>
             </Button>
           </div>
         ) : (
           <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
             <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
-              {cart.groups.map((group) => {
+              {isOfferCheckout && award ? <MarketplaceAwardTerms award={award} /> : null}
+              {displayGroups.map((group) => {
                 const fulfillmentOptions = checkout.fulfillmentOptionsForSeller(group.sellerPubky);
                 const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
                 const isPickupGroup = fulfillment === 'pickup';
@@ -274,7 +457,7 @@ function MarketplaceCartCheckout() {
                     aria-label={`Items from ${group.sellerPubky}`}
                     data-surface={isPickupGroup ? 'checkout-pickup-group' : undefined}
                   >
-                    {cart.groups.length > 1 && <MarketplaceCheckoutSellerHeader group={group} />}
+                    {displayGroups.length > 1 && <MarketplaceCheckoutSellerHeader group={group} />}
                     {checkout.isPickupCapabilityLoading ? (
                       <Skeleton
                         className="h-16 w-full"
@@ -467,9 +650,9 @@ function MarketplaceCartCheckout() {
                     Pay
                   </Heading>
                   <div className="flex justify-between">
-                    <Typography as="span">Items</Typography>
+                    <Typography as="span">{isOfferCheckout ? 'Subtotal' : 'Items'}</Typography>
                     <div className="flex flex-col items-end">
-                      {cart.subtotals.map((subtotal) => (
+                      {itemSubtotals.map((subtotal) => (
                         <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
                           {formatCommerceMoney(subtotal)}{' '}
                           <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
@@ -477,11 +660,11 @@ function MarketplaceCartCheckout() {
                       ))}
                     </div>
                   </div>
-                  {shipping.totals.length > 0 && (
+                  {shippingTotals.length > 0 && (
                     <div className="flex justify-between">
                       <Typography as="span">Shipping</Typography>
                       <div className="flex flex-col items-end">
-                        {shipping.totals.map((subtotal) => (
+                        {shippingTotals.map((subtotal) => (
                           <Typography key={`${subtotal.currency}:${subtotal.exponent}`} as="span" className="font-bold">
                             {formatCommerceMoney(subtotal)}{' '}
                             <MarketplaceIndicativePrice money={subtotal} className="font-normal" />
@@ -492,7 +675,7 @@ function MarketplaceCartCheckout() {
                   )}
                   <div className="flex justify-between border-t pt-3">
                     <Typography as="span" className="font-semibold">
-                      Total
+                      {isOfferCheckout ? 'Merchandise total' : 'Total'}
                     </Typography>
                     <div className="flex flex-col items-end">
                       {totalSubtotals.map((subtotal) => (
@@ -567,7 +750,7 @@ function MarketplaceCartCheckout() {
                     data-testid="marketplace-checkout-pay"
                     aria-describedby={!canPay && !approvalNeeded ? 'checkout-pay-reason' : undefined}
                   >
-                    {checkout.isPaying ? (
+                    {isPaying ? (
                       <>
                         <LoaderCircle className="mr-2 size-4 animate-spin" />
                         Paying
@@ -670,6 +853,141 @@ function MarketplaceCheckoutSellerHeader({ group }: { group: MarketplaceCartGrou
             </Typography>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function dropCheckoutItem(listing: CommerceListingModelSchema, variantId: string): MarketplaceCartItem {
+  return {
+    id: `${listing.id}:${variantId}:drop`,
+    listingId: listing.id,
+    variantId,
+    quantity: 1,
+    listing,
+    pricingSource: 'listing',
+  };
+}
+
+function MarketplaceAwardTerms({ award }: { award: MarketplaceOfferAward }) {
+  const listingRoute = getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
+  const variantLabel = award.variant.options.map((item) => item.value).join(' · ') || 'Default';
+  return (
+    <section className="grid gap-3" aria-label="Accepted offer">
+      <Card className="border py-4">
+        <CardContent className="grid gap-2 px-4">
+          <Typography as="h2" className="truncate font-semibold">
+            <Link href={listingRoute} overrideDefaults className="hover:text-brand hover:underline">
+              {award.listing.title}
+            </Link>
+          </Typography>
+          <Typography as="p" className="text-sm text-muted-foreground">
+            {variantLabel} · Quantity {award.quantity}
+          </Typography>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
+function MarketplaceAwardOutcome({
+  outcome,
+  award,
+  errorCode,
+  listingRoute,
+  onRetry,
+}: {
+  outcome: AwardPayOutcome;
+  award: MarketplaceOfferAward | undefined;
+  errorCode: string | null;
+  listingRoute: string | null | undefined;
+  onRetry: () => void;
+}) {
+  if (outcome === 'success') {
+    return (
+      <Card className="border">
+        <CardContent className="grid gap-4 px-6">
+          <Heading level={2} size="lg">
+            Checkout started
+          </Heading>
+          <Typography as="p">
+            Your agreed merchandise total is {award ? formatCommerceMoney(award.merchandiseTotal) : ''}.
+          </Typography>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (outcome === 'expired') {
+    return (
+      <Card className="border">
+        <CardContent className="grid gap-4 px-6">
+          <Heading level={2} size="lg">
+            Offer expired
+          </Heading>
+          <Typography as="p">This accepted offer expired before checkout. Nothing was reserved.</Typography>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="secondary" className="rounded-full">
+              <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
+                View offers
+              </Link>
+            </Button>
+            {listingRoute && (
+              <Button asChild className="rounded-full">
+                <Link href={listingRoute} overrideDefaults>
+                  Buy at current price
+                </Link>
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (outcome === 'converted') {
+    return (
+      <Card className="border">
+        <CardContent className="grid gap-4 px-6">
+          <Heading level={2} size="lg">
+            Offer already converted
+          </Heading>
+          <Typography as="p">This accepted offer has already been converted.</Typography>
+          <Button asChild className="w-fit rounded-full">
+            <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
+              View orders
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (outcome === 'unavailable') {
+    return (
+      <Card className="border">
+        <CardContent className="grid gap-3 px-6">
+          <Heading level={2} size="lg">
+            Checkout unavailable
+          </Heading>
+          <Typography as="p">This offer is no longer available.</Typography>
+          <Link href={MARKETPLACE_ROUTES.OFFERS} overrideDefaults>
+            View offers
+          </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (outcome === 'session') {
+    return <MarketplaceSessionRequiredCard />;
+  }
+  return (
+    <Card className="border">
+      <CardContent className="grid gap-4 px-6">
+        <Heading level={2} size="lg">
+          Checkout could not be completed
+        </Heading>
+        <Typography as="p">{marketplaceOfferCheckoutFailureMessage(errorCode)}</Typography>
+        <Button className="w-fit rounded-full" onClick={onRetry}>
+          Retry
+        </Button>
       </CardContent>
     </Card>
   );

@@ -233,6 +233,22 @@ vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: [], isLoading: false, refresh: vi.fn(async () => {}) }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
+  useMarketplaceOfferCheckout: () => ({ submit: vi.fn(), isSubmitting: false }),
+}));
+
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => 3,
+}));
+
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 2,
+}));
+
 vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/useMarketplaceCart/useMarketplaceCart')>();
   const { sumMoneyByAsset } = await import('@/libs/commerce/pricing');

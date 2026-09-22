@@ -218,6 +218,7 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       hasFulfillmentConflict: false,
       isPickupCapabilityLoading: false,
       orderCount: view.orderCount,
+      rememberAddress: vi.fn(async () => {}),
     }),
   };
 });
@@ -233,6 +234,22 @@ vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
     advancePayment: vi.fn(),
     actOnOrder: vi.fn(),
   }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: [], isLoading: false, refresh: vi.fn(async () => {}) }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
+  useMarketplaceOfferCheckout: () => ({ submit: vi.fn(), isSubmitting: false }),
+}));
+
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => 3,
+}));
+
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 2,
 }));
 
 vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
