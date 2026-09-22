@@ -5,6 +5,10 @@ on:
     branches:
       - 'release/shop-*'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   vrt-marketplace:
     name: vrt-marketplace
