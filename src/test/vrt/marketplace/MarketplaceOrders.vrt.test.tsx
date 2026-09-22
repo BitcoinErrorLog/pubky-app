@@ -232,37 +232,6 @@ const ordersState = vi.hoisted(() => ({
   adapterMode: 'sandbox' as string,
 }));
 
-async function settleAwaitingPaymentTab(tabList: HTMLElement) {
-  await parkVrtHover();
-  const deadline = performance.now() + 2_000;
-  let settledChecks = 0;
-
-  while (settledChecks < 2) {
-    if (performance.now() >= deadline) {
-      throw new Error('Awaiting payment tab animations did not settle within 2 seconds');
-    }
-
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-    });
-    const animations = tabList.getAnimations({ subtree: true });
-
-    if (animations.length > 0) {
-      settledChecks = 0;
-      await Promise.all(animations.map((animation) => animation.finished.catch(() => undefined)));
-    } else {
-      settledChecks += 1;
-    }
-  }
-
-  tabList.scrollLeft = 0;
-  await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-  });
-  tabList.scrollLeft = 0;
-  expect(tabList.scrollLeft).toBe(0);
-}
-
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/marketplace/orders',
@@ -390,39 +359,30 @@ describe('Marketplace orders — visual regression', () => {
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-payment-states-desktop');
   });
 
-  it('renders the active seller Waiting on the other side tab at desktop viewport', async () => {
+  it('renders seller awaiting-payment rows as Reservations at desktop viewport', async () => {
     const { sellerAwaitingPayment } = await fixtures;
     ordersState.orders = sellerAwaitingPayment;
     ordersState.isLoading = false;
     ordersState.error = null;
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await screen.getByRole('tab', { name: /Waiting on the other side 2/i }).click();
-    await expect(screen.getByRole('tab', { name: /Waiting on the other side 2/i })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expect.element(screen.getByRole('heading', { name: 'Reservations' })).toBeVisible();
     expect(screen.getByText('Seller awaiting entitlement')).toBeInTheDocument();
     expect(screen.getByText('Seller detected payment')).toBeInTheDocument();
-    expect(screen.container.textContent).not.toContain('Seller confirmed payment');
-    expect(screen.container.textContent).not.toContain('Buyer awaiting payment');
-    await settleAwaitingPaymentTab(screen.container.querySelector('[role="tablist"]') as HTMLElement);
+    expect(screen.getByText('Seller confirmed payment')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-desktop');
   });
 
-  it('renders the active seller Waiting on the other side tab at mobile viewport', async () => {
+  it('renders seller awaiting-payment rows as Reservations at mobile viewport', async () => {
     const { sellerAwaitingPayment } = await fixtures;
     ordersState.orders = sellerAwaitingPayment;
     ordersState.isLoading = false;
     ordersState.error = null;
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_MOBILE });
-    await screen.getByRole('tab', { name: /Waiting on the other side 2/i }).click();
-    await expect(screen.getByRole('tab', { name: /Waiting on the other side 2/i })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
-    await settleAwaitingPaymentTab(screen.container.querySelector('[role="tablist"]') as HTMLElement);
+    await expect.element(screen.getByRole('heading', { name: 'Reservations' })).toBeVisible();
+    expect(screen.getByText('Seller awaiting entitlement')).toBeInTheDocument();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-mobile');
   });
 

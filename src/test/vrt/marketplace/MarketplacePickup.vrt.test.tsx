@@ -187,6 +187,21 @@ vi.mock('@/controllers/commerce/commerce', async () => {
   };
 });
 
+vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
+  useMarketplaceSessionConnect: () => ({
+    status: 'idle',
+    authorizationUrl: '',
+    errorMessage: null,
+    requestsFullGrant: true,
+    requestsGrantReconnect: false,
+    start: vi.fn(),
+    cancel: vi.fn(),
+    copyAuthUrl: vi.fn(async () => {}),
+    openInRing: vi.fn(),
+    isOpeningRing: false,
+  }),
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => view.pathname,

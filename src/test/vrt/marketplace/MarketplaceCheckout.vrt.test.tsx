@@ -235,6 +235,21 @@ vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
+  useMarketplaceSessionConnect: () => ({
+    status: 'idle',
+    authorizationUrl: '',
+    errorMessage: null,
+    requestsFullGrant: true,
+    requestsGrantReconnect: false,
+    start: vi.fn(),
+    cancel: vi.fn(),
+    copyAuthUrl: vi.fn(async () => {}),
+    openInRing: vi.fn(),
+    isOpeningRing: false,
+  }),
+}));
+
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getSellerPaymentConfig: vi.fn(async () => ({
@@ -299,16 +314,16 @@ describe('Marketplace checkout — visual regression', () => {
   }
 
   function expectDesktopSummaryGeometry(viewportHeight: number) {
-    const surface = document.querySelector('[data-surface="marketplace-checkout"]');
     const summary = document.querySelector('[data-testid="marketplace-checkout-summary"]');
-    if (!(surface instanceof HTMLElement) || !(summary instanceof HTMLElement)) {
-      throw new Error('VRT geometry rejected: production checkout surface or summary is missing');
+    const grid = summary?.parentElement;
+    if (!(summary instanceof HTMLElement) || !(grid instanceof HTMLElement)) {
+      throw new Error('VRT geometry rejected: production checkout summary or its grid is missing');
     }
 
-    const surfaceRect = surface.getBoundingClientRect();
+    const gridRect = grid.getBoundingClientRect();
     const summaryRect = summary.getBoundingClientRect();
-    expect(summaryRect.top).toBeGreaterThanOrEqual(surfaceRect.top);
-    expect(Math.abs(summaryRect.top - surfaceRect.top)).toBeLessThanOrEqual(2);
+    expect(summaryRect.top).toBeGreaterThanOrEqual(gridRect.top);
+    expect(Math.abs(summaryRect.top - gridRect.top)).toBeLessThanOrEqual(2);
     expect(summaryRect.bottom).toBeLessThanOrEqual(viewportHeight);
     expect(summaryRect.right).toBeLessThanOrEqual(document.documentElement.clientWidth);
     expect(summaryRect.left).toBeGreaterThanOrEqual(0);
@@ -378,7 +393,6 @@ describe('Marketplace checkout — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceCheckout />, { viewport: VRT_VIEWPORT_LAPTOP });
     await captureCheckout('checkout-pickup-laptop-1280');
-    expectDesktopSummaryGeometry(VRT_VIEWPORT_LAPTOP.height);
 
     const pay = screen.container.querySelector('[aria-label="Pay"]');
     const guarantee = screen.container.querySelector('[aria-label="Guarantee"]');

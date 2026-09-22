@@ -254,7 +254,7 @@ function MarketplaceCartCheckout() {
           </div>
         ) : (
           <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
               {cart.groups.map((group) => {
                 const fulfillmentOptions = checkout.fulfillmentOptionsForSeller(group.sellerPubky);
                 const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
@@ -449,7 +449,10 @@ function MarketplaceCartCheckout() {
               )}
             </div>
 
-            <Card className="h-fit border lg:self-start" data-testid="marketplace-checkout-summary">
+            <Card
+              className="h-fit border lg:col-start-2 lg:row-start-1 lg:self-start"
+              data-testid="marketplace-checkout-summary"
+            >
               <CardContent className="grid gap-6 px-6">
                 <section className="grid gap-3" aria-label="Pay">
                   <Heading level={2} size="sm" className="text-xl font-semibold">
