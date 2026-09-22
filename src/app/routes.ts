@@ -61,6 +61,40 @@ export function getMarketplaceAddressSettingsRoute(returnTo?: string): string {
   return `${MARKETPLACE_ROUTES.SETTINGS_ADDRESSES}?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
+export function isMarketplaceListingComposerReturnTo(returnTo: string): boolean {
+  if (returnTo.startsWith('//') || !returnTo.startsWith('/') || /^[a-z][a-z\d+\-.]*:/i.test(returnTo)) {
+    return false;
+  }
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(returnTo);
+  } catch {
+    return false;
+  }
+  if (decoded.split('/').some((segment) => segment === '.' || segment === '..')) {
+    return false;
+  }
+  if (decoded === MARKETPLACE_ROUTES.SELL) return true;
+  const segments = decoded.split('/').filter(Boolean);
+  return (
+    segments[0] === 'marketplace' &&
+    segments[1] === 'listing' &&
+    segments.length === 5 &&
+    segments[4] === 'edit' &&
+    isPubkyIdentifier(segments[2]) &&
+    Boolean(segments[3])
+  );
+}
+
+export function getMarketplacePaymentSettingsRoute(returnTo?: string): string {
+  if (!returnTo || !isMarketplaceListingComposerReturnTo(returnTo)) return MARKETPLACE_ROUTES.SETTINGS;
+  return `${MARKETPLACE_ROUTES.SETTINGS}?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+export function readMarketplaceListingComposerReturnTo(returnTo: string | null): string | null {
+  return returnTo && isMarketplaceListingComposerReturnTo(returnTo) ? returnTo : null;
+}
+
 export enum PROFILE_ROUTES {
   PROFILE = '/profile',
   NOTIFICATIONS = '/profile/notifications',
