@@ -36,18 +36,22 @@ vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
     refresh: vi.fn(async () => {}),
   }),
 }));
-vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
-  useMarketplaceCart: () => ({
-    items: [],
-    ordinaryItems: [],
-    awardItems: [{ awardId: offer.award!.id, listingId: 's:boots', variantId: 'variant_42' }],
-    groups: [],
-    subtotals: [],
-    isLoading: false,
-    remove: vi.fn(async () => {}),
-    clear: vi.fn(async () => {}),
-  }),
-}));
+vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useMarketplaceCart/useMarketplaceCart')>();
+  return {
+    ...actual,
+    useMarketplaceCart: () => ({
+      items: [],
+      ordinaryItems: [],
+      awardItems: [{ awardId: offer.award!.id, listingId: 's:boots', variantId: 'variant_42' }],
+      groups: [],
+      subtotals: [],
+      isLoading: false,
+      remove: vi.fn(async () => {}),
+      clear: vi.fn(async () => {}),
+    }),
+  };
+});
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
   useMarketplaceCartCount: () => 3,
 }));
@@ -128,6 +132,10 @@ vi.mock('@/config/commerce', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/config/commerce')>();
   return { ...actual, getCommerceAdapterMode: () => 'sandbox' };
 });
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
+  return { ...actual, getDeployEnv: () => 'staging' };
+});
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getSellerPaymentConfig: vi.fn(async () => ({
@@ -142,6 +150,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
     selector({ currentUserPubky: 'b'.repeat(52) }),
+}));
+vi.mock('@/organisms/Marketplace/MarketplaceIndicativePrice', () => ({
+  MarketplaceIndicativePrice: ({ money }: { money: { currency: string } }) =>
+    money.currency === 'USD' ? <span>≈ ₿137,000</span> : null,
 }));
 
 describe('Marketplace award checkout — visual regression', () => {
