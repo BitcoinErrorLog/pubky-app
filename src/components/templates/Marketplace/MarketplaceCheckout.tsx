@@ -264,6 +264,7 @@ function MarketplaceCartCheckout() {
                     key={group.sellerPubky}
                     className="grid gap-3"
                     aria-label={`Items from ${group.sellerPubky}`}
+                    data-surface={isPickupGroup ? 'checkout-pickup-group' : undefined}
                   >
                     {cart.groups.length > 1 && <MarketplaceCheckoutSellerHeader group={group} />}
                     {checkout.isPickupCapabilityLoading ? (

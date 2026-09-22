@@ -428,6 +428,7 @@ describe('MarketplaceCheckout local pickup (Wave 7, §A2)', () => {
     render(<MarketplaceCheckout />);
 
     expect(screen.getByText(/Local pickup — no delivery address or shipping for these items/)).toBeInTheDocument();
+    expect(document.querySelector('[data-surface="checkout-pickup-group"]')).toBeTruthy();
   });
 
   it('hides the delivery-address step on a pickup-only checkout and says why', () => {

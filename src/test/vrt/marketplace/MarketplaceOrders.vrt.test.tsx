@@ -426,33 +426,29 @@ describe('Marketplace orders — visual regression', () => {
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-awaiting-payment-seller-mobile');
   });
 
-  it('renders a buyer pending-payment order with the active action tab and deadline at desktop viewport', async () => {
+  it('renders a buyer pending-payment checkout with Continue checkout at desktop viewport', async () => {
     const { buyerPendingPayment } = await fixtures;
     ordersState.orders = buyerPendingPayment;
     ordersState.isLoading = false;
     ordersState.error = null;
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByRole('tab', { name: /Needs my action 1/i })).toHaveAttribute('aria-selected', 'true');
+    await expect.element(screen.getByRole('heading', { name: 'Checkout in progress' })).toBeVisible();
     await expect.element(screen.getByText('Buyer pending-payment camera')).toBeVisible();
-    await expect.element(screen.getByText(/Complete payment by/i)).toBeVisible();
+    await expect.element(screen.getByRole('link', { name: 'Continue checkout' })).toBeVisible();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-pending-payment-buyer-desktop');
   });
 
-  it('renders a seller pending-payment order in the waiting tab with deadline at desktop viewport', async () => {
+  it('renders a seller pending-payment reservation at desktop viewport', async () => {
     const { sellerPendingPayment } = await fixtures;
     ordersState.orders = sellerPendingPayment;
     ordersState.isLoading = false;
     ordersState.error = null;
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await screen.getByRole('tab', { name: /Waiting on the other side 1/i }).click();
-    await expect(screen.getByRole('tab', { name: /Waiting on the other side 1/i })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
+    await expect.element(screen.getByRole('heading', { name: 'Reservations' })).toBeVisible();
     await expect.element(screen.getByText('Seller pending-payment zine')).toBeVisible();
-    await expect.element(screen.getByText(/Complete payment by/i)).toBeVisible();
+    await expect.element(screen.getByText(/Held for a buyer/i)).toBeVisible();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-pending-payment-seller-desktop');
   });
 

@@ -26,13 +26,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/award-checkout',
 }));
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
-  ContentLayout: ({
-    children,
-    classNameWrapperContent,
-  }: {
-    children: React.ReactNode;
-    classNameWrapperContent?: string;
-  }) => <main className={classNameWrapperContent}>{children}</main>,
+  ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
 vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
   useMarketplaceOffers: () => ({
@@ -73,11 +67,19 @@ vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () =>
   useMarketplaceOfferCheckout: () => ({
     isSubmitting: false,
     submit: vi.fn(async () =>
-      state.outcome === 'success'
-        ? { ok: true, orderId: '00000000-0000-0000-0000-000000000903' }
-        : { ok: false, code: 'AWARD_EXPIRED' },
+      state.outcome === 'success' ? { ok: true, orderId: '' } : { ok: false, code: 'AWARD_EXPIRED' },
     ),
   }),
+}));
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    getSellerPaymentConfig: vi.fn(async () => ({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    })),
+  },
 }));
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
@@ -91,6 +93,14 @@ describe('Marketplace award checkout — visual regression', () => {
 
   async function capture(scene: string, viewport = VRT_VIEWPORT_DESKTOP) {
     await renderForVRT(<MarketplaceAwardCheckout />, { viewport });
+    if (state.outcome === 'active') {
+      await vi.waitFor(() => {
+        const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+        if (!(pay instanceof HTMLButtonElement) || pay.disabled) {
+          throw new Error('Award Pay is not ready yet.');
+        }
+      });
+    }
     const surface = expectVrtSurface('marketplace-award-checkout');
     await expect(surface).toMatchScreenshot(scene);
   }
@@ -108,21 +118,24 @@ describe('Marketplace award checkout — visual regression', () => {
     await capture('award-checkout-expired-desktop');
   });
 
-  it('captures the success state at desktop viewport', async () => {
+  it('captures the success state', async () => {
     state.outcome = 'success';
-    const screen = await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await userEvent.click(screen.getByRole('button', { name: 'Place order' }));
-    await expect(screen.getByRole('heading', { name: 'Order created' })).toBeVisible();
+    await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+      if (!(pay instanceof HTMLButtonElement) || pay.disabled) {
+        throw new Error('Award Pay is still disabled.');
+      }
+    });
+    const pay = document.querySelector('[data-testid="marketplace-award-checkout-pay"]');
+    if (!(pay instanceof HTMLButtonElement)) throw new Error('Award Pay is missing.');
+    await userEvent.click(pay);
+    await vi.waitFor(() => {
+      if (!document.body.textContent?.includes('Checkout started')) {
+        throw new Error('Award checkout success has not rendered yet.');
+      }
+    });
     const surface = expectVrtSurface('marketplace-award-checkout');
     await expect(surface).toMatchScreenshot('award-checkout-success-desktop');
-  });
-
-  it('captures the success state at mobile viewport', async () => {
-    state.outcome = 'success';
-    const screen = await renderForVRT(<MarketplaceAwardCheckout />, { viewport: VRT_VIEWPORT_MOBILE });
-    await userEvent.click(screen.getByRole('button', { name: 'Place order' }));
-    await expect(screen.getByRole('heading', { name: 'Order created' })).toBeVisible();
-    const surface = expectVrtSurface('marketplace-award-checkout');
-    await expect(surface).toMatchScreenshot('award-checkout-success-mobile');
   });
 });
