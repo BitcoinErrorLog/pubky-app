@@ -236,6 +236,45 @@ function activateServiceSession(session: ServiceSession): void {
   (modules.MarketplaceSessionService as unknown as { session: ServiceSession | null }).session = session;
 }
 
+async function installStagingCorsBypass(context: BrowserContext): Promise<void> {
+  const hosts = new Set([new URL(SERVICE_URL).hostname, new URL(NEXUS_URL).hostname]);
+  await context.route(
+    (url) => hosts.has(url.hostname),
+    async (route) => {
+      const request = route.request();
+      const origin = shopUrl || `http://127.0.0.1:${SHOP_PORT}`;
+      const allowHeaders = request.headers()['access-control-request-headers'] ?? 'authorization,content-type';
+      if (request.method() === 'OPTIONS') {
+        await route.fulfill({
+          status: 204,
+          headers: {
+            'access-control-allow-origin': origin,
+            'access-control-allow-credentials': 'true',
+            'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+            'access-control-allow-headers': allowHeaders,
+            'access-control-max-age': '86400',
+          },
+        });
+        return;
+      }
+      const response = await route.fetch();
+      const headers = {
+        ...response.headers(),
+        'access-control-allow-origin': origin,
+        'access-control-allow-credentials': 'true',
+        'access-control-expose-headers': '*',
+      };
+      delete headers['content-encoding'];
+      delete headers['content-length'];
+      await route.fulfill({
+        status: response.status(),
+        headers,
+        body: await response.body(),
+      });
+    },
+  );
+}
+
 async function injectMarketplaceSession(page: Page, session: PersistedMarketplaceSession): Promise<void> {
   await page.evaluate(
     ({ key, blob }) => {
@@ -600,16 +639,22 @@ async function connectMarketplaceSession(
   const listing = page.getByText(`${listingTitle} × 1`);
   const allTab = page.getByRole('tab', { name: /^All / });
   const empty = page.getByRole('heading', { name: 'No orders yet' });
+  const unavailable = page.getByRole('alert').filter({ hasText: 'Marketplace orders are unavailable' });
   try {
     await Promise.race([
       listing.waitFor({ state: 'visible', timeout: 45_000 }),
       allTab.waitFor({ state: 'visible', timeout: 45_000 }),
       empty.waitFor({ state: 'visible', timeout: 45_000 }),
       approve.waitFor({ state: 'visible', timeout: 45_000 }),
+      unavailable.waitFor({ state: 'visible', timeout: 45_000 }),
     ]);
   } catch {
     await capturePage(page, `${shotPrefix}-orders-boot`);
     throw new Error(`${shotPrefix}: orders page showed neither session card, empty state, nor the listing`);
+  }
+  if ((await unavailable.count()) > 0) {
+    await capturePage(page, `${shotPrefix}-orders-unavailable`);
+    throw new Error(`${shotPrefix}: orders fetch failed (Marketplace orders are unavailable)`);
   }
   if ((await listing.count()) > 0) return;
   if ((await approve.count()) > 0 && (await allTab.count()) === 0 && (await empty.count()) === 0) {
@@ -659,7 +704,15 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
       specs: await import('pubky-app-specs'),
     };
     await ensureShopPage();
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      channel: 'chrome',
+      headless: true,
+      args: [
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process,BlockInsecurePrivateNetworkRequests',
+        '--disable-site-isolation-trials',
+      ],
+    });
   }, 300_000);
 
   afterAll(async () => {
@@ -677,9 +730,16 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
 
       failingStep = 'chromium_restore';
       const body = `wave-a-shop-${Date.now()}`;
-      const contextOptions = { permissions: ['clipboard-read', 'clipboard-write'] as const };
-      const sellerContext: BrowserContext = await browser.newContext(contextOptions);
-      const buyerContext: BrowserContext = await browser.newContext(contextOptions);
+      const sellerContext: BrowserContext = await browser.newContext({
+        permissions: ['clipboard-read', 'clipboard-write'],
+        ignoreHTTPSErrors: true,
+      });
+      const buyerContext: BrowserContext = await browser.newContext({
+        permissions: ['clipboard-read', 'clipboard-write'],
+        ignoreHTTPSErrors: true,
+      });
+      await installStagingCorsBypass(sellerContext);
+      await installStagingCorsBypass(buyerContext);
       await sellerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: shopUrl });
       await buyerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: shopUrl });
       const sellerPage = await sellerContext.newPage();
