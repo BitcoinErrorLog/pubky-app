@@ -23,6 +23,7 @@
     "test:update-snapshots": "vitest run --project unit --update --testNamePattern=\"[Ss]napshots?\"",
     "test:vrt": "vitest run --project vrt --project vrt-marketplace",
     "test:vrt:regenerate-baseline": "vitest run --project vrt --project vrt-marketplace --update",
+    "vrt:linux": "bash scripts/vrt-linux.sh",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\" --ignore-path .prettierignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\" --ignore-path .prettierignore",
     "precommit": "lint-staged && npm run typecheck",

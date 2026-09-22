@@ -65,6 +65,16 @@ vi.mock('dexie-react-hooks', () => ({
   useLiveQuery: () => ({ record: { name: 'Satoshi Vintage' } }),
 }));
 
+const paymentGate = vi.hoisted(() => ({
+  isDurable: false,
+  ready: true,
+  reason: null as 'unsigned' | 'no-method' | 'unverified' | null,
+}));
+
+vi.mock('@/hooks/useSellerPaymentMethodGate/useSellerPaymentMethodGate', () => ({
+  useSellerPaymentMethodGate: () => paymentGate,
+}));
+
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getShop: () => Promise.resolve({ record: { name: 'Satoshi Vintage' } }),
@@ -92,6 +102,12 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('MarketplaceDashboard', () => {
+  beforeEach(() => {
+    paymentGate.isDurable = false;
+    paymentGate.ready = true;
+    paymentGate.reason = null;
+  });
+
   it('renders KPI metrics as a horizontal chip strip on mobile', () => {
     viewport.isMobile = true;
     dashboardState.listings = [listing()];
@@ -244,6 +260,34 @@ describe('MarketplaceDashboard', () => {
     dashboardState.nowMs = Date.parse(endsAt);
     rerender(<MarketplaceDashboard />);
     expect(within(screen.getByRole('row', { name: /Ended rangefinder/ })).getByText('ended')).toBeInTheDocument();
+  });
+
+  it('surfaces the payment-method precondition on Create listing / Sell an item', () => {
+    viewport.isMobile = false;
+    paymentGate.isDurable = true;
+    paymentGate.ready = true;
+    paymentGate.reason = 'no-method';
+    dashboardState.listings = [];
+    dashboardState.metrics = {
+      activeListings: 0,
+      totalInventory: 0,
+      lowStock: 0,
+      paidOrders: 0,
+      revenue: [],
+      openOffers: 0,
+    };
+
+    render(<MarketplaceDashboard />);
+
+    const notes = screen.getAllByTestId('create-listing-payment-precondition');
+    expect(notes.length).toBeGreaterThan(0);
+    for (const note of notes) {
+      expect(note).toHaveTextContent('Payment setup required');
+      expect(note).toHaveTextContent('Set up how you get paid first');
+    }
+    for (const link of screen.getAllByRole('link', { name: 'Sell an item' })) {
+      expect(link).toHaveAttribute('href', MARKETPLACE_ROUTES.SELL);
+    }
   });
 });
 

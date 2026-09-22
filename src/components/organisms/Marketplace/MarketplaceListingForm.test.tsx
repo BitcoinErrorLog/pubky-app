@@ -64,6 +64,7 @@ vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
       fetchSellerPickupDetails: () =>
         Promise.resolve({ listingAggregateId: 'listing:agg', current: null, lastVersion: 0 }),
       commitSetPickupDetails: pickupCapability.commitSetPickupDetails,
+      hasFullHomeserverGrant: () => true,
     },
   };
 });
@@ -137,6 +138,8 @@ function FormHarness({
   saleTermsLocked = false,
   listingId,
   submittedFulfillment,
+  publishBlocked = null,
+  publishGuardReady = true,
 }: {
   fulfillment?: CreateMarketplaceListingData['fulfillment'];
   defaultValues?: Partial<CreateMarketplaceListingData>;
@@ -147,6 +150,8 @@ function FormHarness({
   mode?: 'create' | 'edit';
   saleTermsLocked?: boolean;
   listingId?: string;
+  publishBlocked?: import('@/libs/commerce/listing-publish-guards').ListingPublishBlockReason | null;
+  publishGuardReady?: boolean;
 }) {
   const form = useForm<CreateMarketplaceListingData>({
     defaultValues: { ...createMarketplaceListingDefaults, fulfillment, ...defaultValues },
@@ -164,6 +169,8 @@ function FormHarness({
       mode={mode}
       saleTermsLocked={saleTermsLocked}
       listingId={listingId}
+      publishBlocked={publishBlocked}
+      publishGuardReady={publishGuardReady}
     />
   );
 }
@@ -939,10 +946,68 @@ describe('MarketplaceListingForm publish gate vs schema', () => {
   });
 });
 
+describe('MarketplaceListingForm durable publish guards at the button', () => {
+  const pickupReady = {
+    title: 'Vintage boots',
+    description: 'Well cared for boots.',
+    categoryId: 'fashion',
+    price: '125.00',
+  };
+
+  it.each([
+    ['no-method', 'Payment method', 'Configure a payment method before publishing'],
+    ['session', 'Marketplace session', 'Connect a marketplace session before publishing'],
+    ['unsigned', 'Sign in', 'Sign in before publishing'],
+    [
+      'unverified',
+      'Payment settings',
+      'We could not verify your payment settings. Reconnect your session and try again.',
+    ],
+  ] as const)('disables Publish and lists %s on Review', (reason, checklist, title) => {
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        defaultValues={pickupReady}
+        media={buildMedia([photoItem('one', 'Front')])}
+        publishBlocked={reason}
+      />,
+    );
+
+    const publish = screen.getByRole('button', { name: 'Publish listing' });
+    expect(publish).toBeDisabled();
+    expect(publish).toHaveAttribute('aria-describedby', 'listing-publish-guard');
+    expect(screen.getByText(checklist)).toBeInTheDocument();
+    expect(screen.getAllByText(title).length).toBeGreaterThan(0);
+    expect(document.getElementById('listing-section-review')).toHaveAttribute('data-section-complete', 'false');
+    expect(screen.getByRole('alert')).toHaveAttribute('data-surface', 'listing-publish-guard');
+  });
+
+  it('keeps Publish disabled while guards are still checking', () => {
+    render(
+      <FormHarness
+        fulfillment="pickup"
+        defaultValues={pickupReady}
+        media={buildMedia([photoItem('one', 'Front')])}
+        publishGuardReady={false}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeDisabled();
+    expect(screen.getByText('Checking payment settings…')).toBeInTheDocument();
+  });
+});
+
 describe('MarketplaceListingForm - Snapshots', () => {
   it('matches the physical listing form snapshot', async () => {
     const { container } = render(<FormHarness />);
     await screen.findByRole('combobox', { name: 'Fulfillment' });
+    // Fulfillment is on the first paint while pickupAvailable is still
+    // null, so the combobox exists under the pickup-capability skeleton.
+    // The committed snapshot is the settled form (capability on, no
+    // skeleton). Wait for that world; do not refresh the baseline.
+    await waitFor(() => {
+      expect(screen.queryByTestId('pickup-capability-skeleton')).not.toBeInTheDocument();
+    });
     expect(container.firstChild).toMatchSnapshot();
   });
 });

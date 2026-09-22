@@ -99,6 +99,12 @@ describe('useEditMarketplaceListing', () => {
     authState.currentUserPubky = OWNER;
     vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue(structuredClone(publishedRecord));
     vi.mocked(CommerceController.getMarketplaceSellerListingProjection).mockResolvedValue(null);
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
   });
 
   it('hydrates the form and photos from the published record', async () => {
@@ -152,7 +158,7 @@ describe('useEditMarketplaceListing', () => {
   });
 
   it('refuses to publish when the seller has no payment method', async () => {
-    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
       stripePaymentLink: null,
@@ -170,7 +176,7 @@ describe('useEditMarketplaceListing', () => {
   });
 
   it('refuses to publish when the public payment-config request is rejected', async () => {
-    vi.mocked(CommerceController.getSellerPaymentConfig).mockRejectedValueOnce(new Error('offline'));
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockRejectedValue(new Error('offline'));
     const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
     await waitFor(() => expect(result.current.status).toBe('ready'));
 

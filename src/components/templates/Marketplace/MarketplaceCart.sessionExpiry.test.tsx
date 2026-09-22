@@ -178,10 +178,8 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Place order' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Place order' })).toHaveAttribute(
-      'aria-describedby',
-      'place-order-reason',
-    );
+    expect(screen.getByRole('button', { name: 'Place order' })).not.toHaveAttribute('aria-describedby');
+    expect(screen.queryByText('Approve purchases in Pubky Ring before placing the order.')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(useCommerceStore.getState().marketplaceSession).toBeNull();
     });

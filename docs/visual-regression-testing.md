@@ -236,12 +236,17 @@ and revert every PNG the PR did not intend to change.
 
 ## Linux marketplace baselines (`vrt-marketplace` CI)
 
+new scenes: run `npm run vrt:linux` before pushing so Linux baselines ship with the PR.
+
 The `vrt-marketplace` job runs in `mcr.microsoft.com/playwright:v1.60.0-noble`
 (lockfile `playwright` 1.60.0) and compares chromium+firefox captures against
 committed `*-linux.png` only. It never writes `*-darwin.png`. A missing linux
 baseline fails the job; the recorded PNG is uploaded as
 `vrt-marketplace-linux-baselines` and the log tells the author to commit it.
 A pixel mismatch against an existing linux baseline also fails.
+`npm run vrt:linux` is the local equivalent: same image, `--update` only for
+missing `*-linux.png` (mismatch still fails; tracked linux and darwin are
+never rewritten).
 
 Capture region is the element's border box: `expectVrtSurface` / `VRT_ROOT`
 screenshots, with window and element scroll reset to the top before the shot.

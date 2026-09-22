@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, PencilLine, Store } from 'lucide-react';
-import { getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import { getMarketplaceListingEditRoute, getMarketplaceListingRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -11,9 +11,9 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useEditMarketplaceListing } from '@/hooks/useEditMarketplaceListing/useEditMarketplaceListing';
+import { ListingPublishGuardNotice } from '@/molecules/Marketplace/ListingPublishGuardNotice';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceListingForm } from '@/organisms/Marketplace/MarketplaceListingForm';
-import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { MarketplaceSkeleton } from './Marketplace.skeleton';
 
 export interface MarketplaceEditListingProps {
@@ -111,31 +111,12 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
         </div>
 
         {editing.publishBlocked && (
-          <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-            <Typography as="p" className="font-semibold">
-              {editing.publishBlocked === 'session'
-                ? 'Connect your marketplace session before publishing'
-                : editing.publishBlocked === 'no-method'
-                  ? 'Configure a payment method before publishing'
-                  : 'We could not verify your payment settings. Reconnect your session and try again.'}
-            </Typography>
-            <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-              {editing.publishBlocked === 'session'
-                ? 'Approve the marketplace session in Pubky Ring, then submit these changes again.'
-                : editing.publishBlocked === 'no-method'
-                  ? 'Buyers cannot pay for this listing until you add at least one payment method.'
-                  : 'Your payment settings could not be checked against the marketplace service.'}
-            </Typography>
-            {editing.publishBlocked === 'no-method' ? (
-              <Button asChild variant="link" className="mt-2 h-auto p-0">
-                <Link href={MARKETPLACE_ROUTES.SETTINGS} overrideDefaults>
-                  Payment settings
-                </Link>
-              </Button>
-            ) : (
-              <MarketplaceSessionRequiredCard onConnected={() => undefined} />
-            )}
-          </div>
+          <ListingPublishGuardNotice
+            reason={editing.publishBlocked}
+            surface="seller-publish-blocked"
+            density="banner"
+            returnTo={getMarketplaceListingEditRoute(sellerPubky, listingId)}
+          />
         )}
 
         <MarketplaceListingForm
@@ -147,6 +128,9 @@ export function MarketplaceEditListing({ sellerPubky, listingId }: MarketplaceEd
           listingId={listingId}
           mode="edit"
           saleTermsLocked={editing.saleTermsLocked}
+          publishBlocked={editing.publishBlocked}
+          publishGuardReady={editing.publishGuardReady}
+          returnTo={getMarketplaceListingEditRoute(sellerPubky, listingId)}
         />
         <Button asChild variant="ghost" className="rounded-full">
           <Link href={listingRoute} overrideDefaults>
