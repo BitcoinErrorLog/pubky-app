@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeft, ImageIcon, Package, RefreshCw, ShoppingBag } from 'lucide-react';
+import { ArrowLeft, ImageIcon, Package, RefreshCw, ShoppingBag, Upload } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import type { InventoryBoardRow } from '@/application/commerce/inventory';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -17,16 +17,20 @@ import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceInventory } from '@/hooks/useMarketplaceInventory/useMarketplaceInventory';
+import { useMarketplaceInventoryImport } from '@/hooks/useMarketplaceInventoryImport/useMarketplaceInventoryImport';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceInventoryGrantBanner } from '@/organisms/Marketplace/MarketplaceInventoryGrantBanner';
+import { MarketplaceInventoryImport } from '@/organisms/Marketplace/MarketplaceInventoryImport';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 
 export function MarketplaceInventory() {
   const board = useMarketplaceInventory();
+  const importer = useMarketplaceInventoryImport(board.sellerPubky ?? null);
   const [editing, setEditing] = useState<InventoryBoardRow | null>(null);
   const [target, setTarget] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
 
   const rows = board.load.status === 'ready' ? board.load.rows : [];
 
@@ -57,6 +61,19 @@ export function MarketplaceInventory() {
           <Typography as="p" className="mt-3 max-w-2xl text-muted-foreground">
             Available, reserved, and sold counts from the transaction service. Reserved is not available to sell.
           </Typography>
+          {(board.load.status === 'ready' || board.load.status === 'empty') && (
+            <Button
+              className="mt-4 rounded-full"
+              variant="secondary"
+              onClick={() => {
+                importer.reset();
+                setImportOpen(true);
+              }}
+            >
+              <Upload className="mr-2 size-4" />
+              Import
+            </Button>
+          )}
         </div>
 
         <div data-surface="inventory-studio" data-testid="inventory-studio">
@@ -243,6 +260,36 @@ export function MarketplaceInventory() {
           )}
         </div>
       </Container>
+
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open);
+          if (!open) importer.reset();
+        }}
+      >
+        <DialogContent className="border-border bg-popover">
+          <DialogHeader>
+            <DialogTitle>Import listings</DialogTitle>
+          </DialogHeader>
+          <MarketplaceInventoryImport
+            step={importer.step}
+            scene={importer.scene}
+            fileName={importer.fileName}
+            message={importer.message}
+            counts={importer.counts}
+            progress={importer.progress}
+            onFile={(file) => void importer.planFile(file)}
+            onPublish={() => void importer.publish()}
+            onResume={() => void importer.resume()}
+            onConfirmConflict={() => void importer.confirmConflict()}
+            onDiscardConflict={() => void importer.discardConflict()}
+            onDownloadResult={() => void importer.downloadResult()}
+            onExportListings={() => void importer.exportListings()}
+            onExportOrders={() => void importer.exportOrders()}
+          />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="border-border bg-popover">

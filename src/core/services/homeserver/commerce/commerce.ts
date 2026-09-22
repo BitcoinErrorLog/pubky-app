@@ -19,4 +19,8 @@ export class CommerceHomeserverService {
   static async delete(url: string): Promise<void> {
     await HomeserverService.request({ method: HttpMethod.DELETE, url });
   }
+
+  static async exists(url: string): Promise<boolean> {
+    return await HomeserverService.exists(url);
+  }
 }
