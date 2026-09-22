@@ -17,11 +17,18 @@ const view = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/marketplace/settings',
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     ...createMarketplaceVrtCommerceController(),
+    getSellerPaymentConfig: async () => ({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: 'https://buy.stripe.com/test_fixture',
+      paypalMerchantEmail: 'seller@example.com',
+    }),
     getPaykitSetupUrl: () => 'about:blank',
     getMyPaymentConfig: vi.fn(async () => ({
       bitcoinEnabled: true,

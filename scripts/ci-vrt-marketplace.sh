@@ -175,6 +175,10 @@ fi
 
 if [ "$CLASS_EXIT" -eq 10 ]; then
   record_missing_linux
+  if [ "${VRT_LINUX_LOCAL:-}" = "1" ]; then
+    echo "Missing Linux baselines recorded in the worktree. Commit the new *-linux.png files (npm run vrt:linux)."
+    exit 0
+  fi
   echo "Missing Linux baselines. Job failed. Commit the recorded *-linux.png from the vrt-marketplace-linux-baselines artifact."
   exit 1
 fi
