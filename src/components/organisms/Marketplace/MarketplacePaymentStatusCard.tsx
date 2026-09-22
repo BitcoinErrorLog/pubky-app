@@ -247,7 +247,7 @@ export function MarketplacePaymentStatusCard({
         <Typography as="p" className="text-sm text-muted-foreground">
           {expiredNoLateMoney
             ? CHECKOUT_HOLD_COPY.expiredNoLateMoney
-            : 'The marketplace payment window elapsed before a verified payment arrived, so this order was not completed. A payment verified after expiry is reconciled manually — never silently applied or discarded.'}
+            : 'The marketplace payment window elapsed before a verified payment arrived, so this checkout was not completed. A payment verified after expiry is reconciled manually — never silently applied or discarded.'}
         </Typography>
       )}
       {visibleStatus === 'manual_review' && !refundRequired && (
@@ -331,8 +331,8 @@ export function MarketplacePaymentStatusCard({
           ) : methodPayment.availableMethods.length === 0 ? (
             <>
               <Typography as="p" className="text-sm text-muted-foreground">
-                The seller has not set up any payment methods yet, so this order cannot be paid right now. Message the
-                seller — once they configure a method in their payment settings, it appears here.
+                The seller has not set up any payment methods yet, so this checkout cannot be paid right now. Message
+                the seller — once they configure a method in their payment settings, it appears here.
               </Typography>
               <Button
                 size="sm"

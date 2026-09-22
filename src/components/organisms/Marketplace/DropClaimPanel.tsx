@@ -11,6 +11,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import type { UseMarketplaceDropClaimResult } from '@/hooks/useMarketplaceDropClaim/useMarketplaceDropClaim';
 import { useMarketplaceFirstMediaUrls } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { getMarketplaceCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceDropRecord, CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -125,9 +126,12 @@ export function DropClaimPanel({
                   {isClaimed ? (
                     <div className="flex flex-col items-end gap-1">
                       <Button asChild variant="secondary" size="sm" className="rounded-full">
-                        <Link href={MARKETPLACE_ROUTES.ORDERS} overrideDefaults>
+                        <Link
+                          href={getMarketplaceCheckoutRoute(claim.claimedOrderIds?.get(compositeId))}
+                          overrideDefaults
+                        >
                           <CheckCircle2 className="mr-2 size-4 text-brand" />
-                          Claimed — open Orders
+                          Claimed — Continue checkout
                         </Link>
                       </Button>
                       {claimDeadline && (

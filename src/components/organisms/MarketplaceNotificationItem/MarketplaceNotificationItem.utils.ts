@@ -61,7 +61,7 @@ function getBaseActionText(type: MarketplaceNotification['type']): string {
     case 'auction_ended':
       return 'ended an auction';
     case 'order_created':
-      return 'placed an order';
+      return 'started checkout';
     case 'payment_confirmed':
       return 'confirmed payment for an order';
     case 'order_cancelled':

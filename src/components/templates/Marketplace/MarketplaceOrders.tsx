@@ -1,7 +1,9 @@
 'use client';
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ExternalLink, ReceiptText } from 'lucide-react';
+import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -14,6 +16,19 @@ import { type CommerceAdapterMode, isDurableCommerceMode, isTransactionalCommerc
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
+import {
+  buyerCheckoutStateLabel,
+  getMarketplaceCheckoutRoute,
+  isAbandonedCheckout,
+  isBuyerCheckoutInProgress,
+  isBuyerOrderHistory,
+  isPendingPaymentState,
+  isSellerPaidOrder,
+  isSellerReservation,
+  readCheckoutHashOrderId,
+  reservedWhileYouPayCopy,
+  sellerReservationCopy,
+} from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { listingIdFromOrder, marketplaceConversationHref } from '@/libs/commerce/marketplace-conversation-query';
@@ -21,7 +36,6 @@ import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { formatBitcoinAmount } from '@/libs/commerce/pricing';
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
-import { DropCountdown } from '@/organisms/Marketplace/DropCountdown';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
@@ -47,6 +61,7 @@ const ORDER_TABS: { id: OrdersTab; label: string }[] = [
 ];
 
 export function MarketplaceOrders() {
+  const router = useRouter();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const receiptsPublicationStatus = useCommerceStore((state) => state.receiptsPublicationStatus);
   const { orders, isLoading, error, needsSession, refresh, advancePayment, actOnOrder, adapterMode } =
@@ -57,15 +72,33 @@ export function MarketplaceOrders() {
   const [hasSelectedTab, setHasSelectedTab] = useState(false);
   const tabListRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Partial<Record<OrdersTab, HTMLButtonElement | null>>>({});
-  const orderCounts = getOrderTabCounts(orders, currentUserPubky);
-  const visibleOrders = orders.filter((view) => isOrderInTab(view, activeTab, currentUserPubky));
+  const redirectedHashRef = useRef<string | null>(null);
+  const buyerCheckouts = orders.filter(({ order }) => isBuyerCheckoutInProgress(order, currentUserPubky));
+  const sellerReservations = orders.filter(({ order }) => isSellerReservation(order, currentUserPubky));
+  const abandonedCheckouts = orders.filter(({ order }) => isAbandonedCheckout(order, currentUserPubky));
+  const historyOrders = orders.filter(
+    ({ order }) => isBuyerOrderHistory(order, currentUserPubky) || isSellerPaidOrder(order, currentUserPubky),
+  );
+  const orderCounts = getOrderTabCounts(historyOrders, currentUserPubky);
+  const visibleOrders = historyOrders.filter((view) => isOrderInTab(view, activeTab, currentUserPubky));
 
   useEffect(() => {
-    if (hasSelectedTab || !orders.length) return;
+    if (isLoading) return;
+    const id = readCheckoutHashOrderId(window.location.hash);
+    if (!id || redirectedHashRef.current === id) return;
+    const view = orders.find((candidate) => candidate.order.id === id);
+    if (view && isBuyerCheckoutInProgress(view.order, currentUserPubky)) {
+      redirectedHashRef.current = id;
+      router.replace(getMarketplaceCheckoutRoute(id));
+    }
+  }, [currentUserPubky, isLoading, orders, router]);
+
+  useEffect(() => {
+    if (hasSelectedTab || !historyOrders.length) return;
     setActiveTab(
       orderCounts.needs_action > 0 ? 'needs_action' : orderCounts.waiting_other > 0 ? 'waiting_other' : 'all',
     );
-  }, [currentUserPubky, hasSelectedTab, orderCounts.needs_action, orderCounts.waiting_other, orders]);
+  }, [currentUserPubky, hasSelectedTab, historyOrders.length, orderCounts.needs_action, orderCounts.waiting_other]);
 
   useEffect(() => {
     const tabList = tabListRef.current;
@@ -131,183 +164,284 @@ export function MarketplaceOrders() {
           </div>
         ) : orders.length ? (
           <>
-            <div
-              ref={tabListRef}
-              className="flex flex-nowrap gap-2 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-visible"
-              role="tablist"
-              aria-label="Order filters"
-            >
-              {ORDER_TABS.map((tab) => (
-                <Button
-                  key={tab.id}
-                  type="button"
-                  size="sm"
-                  variant={activeTab === tab.id ? 'default' : 'ghost'}
-                  className="rounded-full"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  aria-label={`${tab.label} ${orderCounts[tab.id]}`}
-                  ref={(element) => {
-                    tabRefs.current[tab.id] = element;
-                  }}
-                  onClick={() => chooseTab(tab.id)}
-                >
-                  {tab.label}
-                  <span className="text-xs text-muted-foreground">{orderCounts[tab.id]}</span>
-                </Button>
-              ))}
-            </div>
-            <div className="grid gap-4">
-              {visibleOrders.map(({ order, payment, receipt }) => {
-                const isBuyer = currentUserPubky === order.buyerPubky;
-                const nextActorHint = getNextActorHint(order, payment, isBuyer);
-                return (
-                  <Card key={order.id} className="border py-5">
-                    <CardContent className="grid gap-5 px-5 lg:grid-cols-[1fr_auto] lg:items-center">
+            {buyerCheckouts.length > 0 && (
+              <div className="grid gap-3" data-testid="marketplace-continue-checkout">
+                <Heading level={2} size="sm" className="text-xl font-semibold">
+                  Checkout in progress
+                </Heading>
+                {buyerCheckouts.map(({ order }) => (
+                  <Card key={order.id} className="border py-4">
+                    <CardContent className="flex flex-wrap items-center justify-between gap-3 px-5">
                       <div>
-                        <div className="mb-3 flex flex-wrap gap-2">
-                          <Badge variant="outline" className="border-border/60 text-muted-foreground">
-                            {isBuyer ? 'You bought' : 'You sold'}
-                          </Badge>
-                          <Badge variant="secondary">{orderStateLabel(order)}</Badge>
-                          {order.fulfillment === 'pickup' && <Badge variant="secondary">Local pickup</Badge>}
-                          <DropEditionBadge order={order} />
-                          {nextActorHint && (
-                            <Badge variant={nextActorHint.isCurrentUser ? 'default' : 'outline'}>
-                              {nextActorHint.label}
-                            </Badge>
-                          )}
-                          {order.pricedFrom === 'offer' && (
-                            <Badge variant="secondary">Priced from your accepted offer</Badge>
-                          )}
-                        </div>
-                        {order.lines.map((line) => (
-                          <div key={line.listingAggregateId}>
-                            <Typography as="p" className="font-semibold">
-                              {line.title} × {line.quantity}
-                            </Typography>
-                            {/* The buyer's variant snapshot from checkout. */}
-                            {line.variantOptions?.length ? (
-                              <Typography as="p" className="text-xs text-muted-foreground">
-                                {line.variantOptions.map(({ name, value }) => `${name}: ${value}`).join(' · ')}
-                              </Typography>
-                            ) : null}
-                          </div>
-                        ))}
-                        <Typography as="p" className="mt-2 text-2xl font-bold text-brand">
-                          {formatCommerceMoney(order.total)} <MarketplaceOrderBitcoinAmount order={order} />
+                        <Typography as="p" className="font-semibold">
+                          {order.lines.map((line) => line.title).join(', ')}
                         </Typography>
-                        <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-                          Items {formatCommerceMoney(order.subtotal)} · Shipping {formatCommerceMoney(order.shipping)}
+                        <Typography as="p" className="text-sm text-muted-foreground">
+                          {order.paymentMethod
+                            ? reservedWhileYouPayCopy(order.holdExpiresAt)
+                            : buyerCheckoutStateLabel(order)}
                         </Typography>
-                        {order.state === 'pending_payment' && order.holdExpiresAt && (
-                          <PaymentDeadline expiresAt={order.holdExpiresAt} />
-                        )}
-                        {/* A post-payment terms change (§A3): the buyer is told
-                            plainly, and their unilateral exit is named. */}
-                        {isBuyer && order.fulfillment === 'pickup' && order.pickupTermsChanged && (
-                          <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3" role="status">
-                            <Typography as="p" className="text-sm text-amber-200">
-                              The seller changed the pickup terms since you paid. Show the meeting point to see the
-                              terms you paid against — you can cancel this order instantly from the order actions.
-                            </Typography>
-                          </div>
-                        )}
-                        {receipt && (
-                          <div className="mt-3 flex flex-col gap-1">
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <ReceiptText className="size-4 text-brand" />
-                              Receipt integrity {receipt.contentHash.slice(0, 12)}…
-                            </div>
-                            <DropEditionReceiptLine order={order} />
-                            {receiptsPublicationStatus === 'needs_reauth' && (
-                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                <Typography as="p" className="text-sm text-muted-foreground">
-                                  Receipt not saved to your private storage yet — reconnect to save it
-                                </Typography>
-                                <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {order.shipment && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                            <Typography as="p">
-                              {order.shipment.carrier} · {order.shipment.trackingNumber} · {order.shipment.state}
-                            </Typography>
-                            {/* Only carriers the curated registry can resolve get a
-                              link — an unrecognized carrier stays plain text
-                              instead of risking a dead tracking URL. */}
-                            {(() => {
-                              const trackingUrl = buildCarrierTrackingUrl(
-                                order.shipment.carrier,
-                                order.shipment.trackingNumber,
-                              );
-                              return trackingUrl ? (
-                                <Link
-                                  href={trackingUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  overrideDefaults
-                                  className="inline-flex items-center gap-1 font-medium text-brand hover:underline"
-                                >
-                                  Track package
-                                  <ExternalLink className="size-3.5" />
-                                </Link>
-                              ) : null;
-                            })()}
-                          </div>
-                        )}
-                        {order.deliveryAssumed && (
-                          <div className="mt-3 rounded-xl border border-brand/30 bg-brand/5 p-3">
-                            <Typography as="p" className="text-sm text-foreground">
-                              {MESSAGING_COPY.assumedDelivery}
-                            </Typography>
-                          </div>
-                        )}
-                        {order.state === 'delivered' && (
-                          <Typography as="p" className="mt-2 text-sm text-muted-foreground">
-                            Completes automatically after the return window unless a return is requested.
-                          </Typography>
-                        )}
-                        {order.returnRequest && (
-                          <Typography as="p" className="mt-2 text-sm text-muted-foreground">
-                            Return {order.returnRequest.state}: {order.returnRequest.reason}
-                          </Typography>
-                        )}
-                        {order.externalRefund && (
-                          <Typography as="p" className="mt-2 text-sm text-brand">
-                            {/* Only ever externally evidenced: Paykit Server cannot spend, so
-                              the app records the seller's transaction evidence and never
-                              claims it moved funds itself. */}
-                            Refund recorded from external evidence: {order.externalRefund.transactionId}
-                          </Typography>
-                        )}
-                        <MarketplaceOrderMessageCta order={order} adapterMode={adapterMode} />
-                        <div className="mt-4">
-                          <MarketplacePaymentStatusCard
-                            order={order}
-                            payment={payment}
-                            isBuyer={isBuyer}
-                            adapterMode={adapterMode}
-                            advancePayment={advancePayment}
-                            onPaymentChanged={refresh}
-                          />
-                        </div>
                       </div>
-
-                      <MarketplaceOrderActions
-                        order={order}
-                        isBuyer={isBuyer}
-                        canEditReview={adapterMode === 'transaction-service'}
-                        actOnOrder={actOnOrder}
-                        onChanged={refresh}
-                      />
+                      <Button asChild className="rounded-full">
+                        <Link href={getMarketplaceCheckoutRoute(order.id)} overrideDefaults>
+                          Continue checkout
+                        </Link>
+                      </Button>
                     </CardContent>
                   </Card>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            )}
+            {sellerReservations.length > 0 && (
+              <div className="grid gap-3" data-testid="marketplace-reservations">
+                <Heading level={2} size="sm" className="text-xl font-semibold">
+                  Reservations
+                </Heading>
+                {sellerReservations.map(({ order }) => (
+                  <Card key={order.id} className="border py-4">
+                    <CardContent className="grid gap-2 px-5">
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline" className="border-border/60 text-muted-foreground">
+                          Reservation
+                        </Badge>
+                        <Badge variant="secondary">Held</Badge>
+                      </div>
+                      {order.lines.map((line) => (
+                        <Typography key={line.listingAggregateId} as="p" className="font-semibold">
+                          {line.title} × {line.quantity}
+                        </Typography>
+                      ))}
+                      <Typography as="p" className="text-sm text-muted-foreground">
+                        {sellerReservationCopy(order.holdExpiresAt)}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+            {historyOrders.length > 0 && (
+              <>
+                <div
+                  ref={tabListRef}
+                  className="flex flex-nowrap gap-2 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-visible"
+                  role="tablist"
+                  aria-label="Order filters"
+                >
+                  {ORDER_TABS.map((tab) => (
+                    <Button
+                      key={tab.id}
+                      type="button"
+                      size="sm"
+                      variant={activeTab === tab.id ? 'default' : 'ghost'}
+                      className="rounded-full"
+                      role="tab"
+                      aria-selected={activeTab === tab.id}
+                      aria-label={`${tab.label} ${orderCounts[tab.id]}`}
+                      ref={(element) => {
+                        tabRefs.current[tab.id] = element;
+                      }}
+                      onClick={() => chooseTab(tab.id)}
+                    >
+                      {tab.label}
+                      <span className="text-xs text-muted-foreground">{orderCounts[tab.id]}</span>
+                    </Button>
+                  ))}
+                </div>
+                <div className="grid gap-4">
+                  {visibleOrders.map(({ order, payment, receipt }) => {
+                    const isBuyer = currentUserPubky === order.buyerPubky;
+                    const nextActorHint = getNextActorHint(order, payment, isBuyer);
+                    return (
+                      <Card key={order.id} className="border py-5">
+                        <CardContent className="grid gap-5 px-5 lg:grid-cols-[1fr_auto] lg:items-center">
+                          <div>
+                            <div className="mb-3 flex flex-wrap gap-2">
+                              <Badge variant="outline" className="border-border/60 text-muted-foreground">
+                                {isBuyer ? 'You bought' : 'You sold'}
+                              </Badge>
+                              <Badge variant="secondary">
+                                {isPendingPaymentState(order.state)
+                                  ? isBuyer
+                                    ? buyerCheckoutStateLabel(order)
+                                    : 'Held'
+                                  : orderStateLabel(order)}
+                              </Badge>
+                              {order.fulfillment === 'pickup' && <Badge variant="secondary">Local pickup</Badge>}
+                              <DropEditionBadge order={order} />
+                              {nextActorHint && (
+                                <Badge variant={nextActorHint.isCurrentUser ? 'default' : 'outline'}>
+                                  {nextActorHint.label}
+                                </Badge>
+                              )}
+                              {order.pricedFrom === 'offer' && (
+                                <Badge variant="secondary">Priced from your accepted offer</Badge>
+                              )}
+                            </div>
+                            {order.lines.map((line) => (
+                              <div key={line.listingAggregateId}>
+                                <Typography as="p" className="font-semibold">
+                                  {line.title} × {line.quantity}
+                                </Typography>
+                                {/* The buyer's variant snapshot from checkout. */}
+                                {line.variantOptions?.length ? (
+                                  <Typography as="p" className="text-xs text-muted-foreground">
+                                    {line.variantOptions.map(({ name, value }) => `${name}: ${value}`).join(' · ')}
+                                  </Typography>
+                                ) : null}
+                              </div>
+                            ))}
+                            <Typography as="p" className="mt-2 text-2xl font-bold text-brand">
+                              {formatCommerceMoney(order.total)} <MarketplaceOrderBitcoinAmount order={order} />
+                            </Typography>
+                            <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                              Items {formatCommerceMoney(order.subtotal)} · Shipping{' '}
+                              {formatCommerceMoney(order.shipping)}
+                            </Typography>
+                            {order.state === 'pending_payment' && order.holdExpiresAt && (
+                              <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                                {isBuyer
+                                  ? reservedWhileYouPayCopy(order.holdExpiresAt)
+                                  : sellerReservationCopy(order.holdExpiresAt)}
+                              </Typography>
+                            )}
+                            {/* A post-payment terms change (§A3): the buyer is told
+                            plainly, and their unilateral exit is named. */}
+                            {isBuyer && order.fulfillment === 'pickup' && order.pickupTermsChanged && (
+                              <div
+                                className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3"
+                                role="status"
+                              >
+                                <Typography as="p" className="text-sm text-amber-200">
+                                  The seller changed the pickup terms since you paid. Show the meeting point to see the
+                                  terms you paid against — you can cancel this order instantly from the order actions.
+                                </Typography>
+                              </div>
+                            )}
+                            {receipt && (
+                              <div className="mt-3 flex flex-col gap-1">
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <ReceiptText className="size-4 text-brand" />
+                                  Receipt integrity {receipt.contentHash.slice(0, 12)}…
+                                </div>
+                                <DropEditionReceiptLine order={order} />
+                                {receiptsPublicationStatus === 'needs_reauth' && (
+                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <Typography as="p" className="text-sm text-muted-foreground">
+                                      Receipt not saved to your private storage yet — reconnect to save it
+                                    </Typography>
+                                    <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {order.shipment && (
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                <Typography as="p">
+                                  {order.shipment.carrier} · {order.shipment.trackingNumber} · {order.shipment.state}
+                                </Typography>
+                                {/* Only carriers the curated registry can resolve get a
+                              link — an unrecognized carrier stays plain text
+                              instead of risking a dead tracking URL. */}
+                                {(() => {
+                                  const trackingUrl = buildCarrierTrackingUrl(
+                                    order.shipment.carrier,
+                                    order.shipment.trackingNumber,
+                                  );
+                                  return trackingUrl ? (
+                                    <Link
+                                      href={trackingUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      overrideDefaults
+                                      className="inline-flex items-center gap-1 font-medium text-brand hover:underline"
+                                    >
+                                      Track package
+                                      <ExternalLink className="size-3.5" />
+                                    </Link>
+                                  ) : null;
+                                })()}
+                              </div>
+                            )}
+                            {order.deliveryAssumed && (
+                              <div className="mt-3 rounded-xl border border-brand/30 bg-brand/5 p-3">
+                                <Typography as="p" className="text-sm text-foreground">
+                                  Marked delivered automatically after the delivery window; tell the seller if it
+                                  hasn&apos;t arrived.
+                                </Typography>
+                                {isBuyer && (
+                                  <div className="mt-2 max-w-44">
+                                    <Button asChild variant="secondary" className="rounded-full">
+                                      <Link href={MARKETPLACE_ROUTES.MESSAGES} overrideDefaults>
+                                        Message seller
+                                      </Link>
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {order.state === 'delivered' && (
+                              <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                                Completes automatically after the return window unless a return is requested.
+                              </Typography>
+                            )}
+                            {order.returnRequest && (
+                              <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                                Return {order.returnRequest.state}: {order.returnRequest.reason}
+                              </Typography>
+                            )}
+                            {order.externalRefund && (
+                              <Typography as="p" className="mt-2 text-sm text-brand">
+                                {/* Only ever externally evidenced: Paykit Server cannot spend, so
+                              the app records the seller's transaction evidence and never
+                              claims it moved funds itself. */}
+                                Refund recorded from external evidence: {order.externalRefund.transactionId}
+                              </Typography>
+                            )}
+                            <div className="mt-4">
+                              <MarketplacePaymentStatusCard
+                                order={order}
+                                payment={payment}
+                                isBuyer={isBuyer}
+                                adapterMode={adapterMode}
+                                advancePayment={advancePayment}
+                                onPaymentChanged={refresh}
+                              />
+                            </div>
+                          </div>
+
+                          <MarketplaceOrderActions
+                            order={order}
+                            isBuyer={isBuyer}
+                            canEditReview={adapterMode === 'transaction-service'}
+                            actOnOrder={actOnOrder}
+                            onChanged={refresh}
+                          />
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            {abandonedCheckouts.length > 0 && (
+              <div className="grid gap-3" data-testid="marketplace-abandoned-checkouts">
+                <Heading level={2} size="sm" className="text-xl font-semibold">
+                  Abandoned
+                </Heading>
+                {abandonedCheckouts.map(({ order }) => (
+                  <Card key={order.id} className="border py-4">
+                    <CardContent className="grid gap-1 px-5">
+                      <Typography as="p" className="font-semibold">
+                        {order.lines.map((line) => line.title).join(', ')}
+                      </Typography>
+                      <Typography as="p" className="text-sm text-muted-foreground">
+                        Checkout ended before payment.
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </>
         ) : (
           <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed text-center">
@@ -481,6 +615,9 @@ function getNextActorHint(
   payment: MarketplacePayment | null,
   isBuyer: boolean,
 ): { label: string; isCurrentUser: boolean } | null {
+  if (order.state === 'pending_payment') {
+    return null;
+  }
   if (isHoldExpiredNoLateMoney(order, payment)) {
     return { label: CHECKOUT_HOLD_COPY.expiredNoLateMoney, isCurrentUser: false };
   }
@@ -491,20 +628,4 @@ function getNextActorHint(
     return isBuyer ? { label: 'Waiting on seller', isCurrentUser: false } : { label: 'Your move', isCurrentUser: true };
   }
   return { label: 'No action pending', isCurrentUser: false };
-}
-
-function PaymentDeadline({ expiresAt }: { expiresAt: string }) {
-  const localDeadline = new Date(expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  return (
-    <DropCountdown
-      startsAt={expiresAt}
-      endsAt={null}
-      clockOffsetMs={0}
-      phaseLabel={`Complete payment by ${localDeadline} (`}
-      compact
-      hideWhenExpired
-      announcePhaseLabel={false}
-      className="mt-2 text-muted-foreground"
-    />
-  );
 }

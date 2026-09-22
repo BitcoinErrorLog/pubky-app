@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { extractCheckoutOrderIds } from '@/libs/commerce/checkout-phase';
 import { MARKETPLACE_FAILURE_MESSAGES, marketplaceDropRefusalMessage } from '@/libs/commerce/failure-messages';
 import {
   buildMarketplaceCheckoutAggregateId,
@@ -25,6 +26,8 @@ export interface UseMarketplaceDropClaimResult {
   claimedListingIds: ReadonlySet<string>;
   /** Payment deadlines keyed by the claimed seller/listing composite id. */
   claimDeadlines?: ReadonlyMap<string, string>;
+  /** Checkout row ids keyed by the claimed seller/listing composite id. */
+  claimedOrderIds?: ReadonlyMap<string, string>;
   /**
    * The last claim refusal, mapped to client-owned static copy.
    */
@@ -51,6 +54,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
   const [submittingListingId, setSubmittingListingId] = useState<string | null>(null);
   const [claimedListingIds, setClaimedListingIds] = useState<ReadonlySet<string>>(new Set());
   const [claimDeadlines, setClaimDeadlines] = useState<ReadonlyMap<string, string>>(new Map());
+  const [claimedOrderIds, setClaimedOrderIds] = useState<ReadonlyMap<string, string>>(new Map());
   const [failure, setFailure] = useState<string | null>(null);
   const [needsSession, setNeedsSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -142,6 +146,10 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
         return false;
       }
       setClaimedListingIds((current) => new Set(current).add(compositeId));
+      const createdIds = extractCheckoutOrderIds(response.result);
+      if (createdIds[0]) {
+        setClaimedOrderIds((current) => new Map(current).set(compositeId, createdIds[0]));
+      }
       const responseDeadline = readHoldExpiresAt(response.result);
       const projectionDeadline =
         responseDeadline ?? (await readClaimedOrderDeadline(projection.aggregateId)).holdExpiresAt;
@@ -151,8 +159,8 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
       toast({
         title: 'Claimed',
         description: responseDeadline
-          ? `The order was recorded by the transaction service. Complete payment by ${formatDeadline(responseDeadline)}.`
-          : 'The order was recorded by the transaction service. Open Orders to complete the payment.',
+          ? `Reserved while you pay. Continue checkout by ${formatDeadline(responseDeadline)}.`
+          : 'Reserved. Continue checkout to pay.',
       });
       await Promise.resolve(onClaimed?.()).catch(() => {});
       return true;
@@ -176,6 +184,7 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
     submittingListingId,
     claimedListingIds,
     claimDeadlines,
+    claimedOrderIds,
     failure,
     needsSession,
     sessionError,

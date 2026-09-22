@@ -59,7 +59,7 @@ export function isSellerPaidOrder(
     currentUserPubky !== null &&
     order.sellerPubky === currentUserPubky &&
     order.buyerPubky !== currentUserPubky &&
-    !isPendingPaymentState(order.state)
+    isPaidOrLaterState(order.state)
   );
 }
 

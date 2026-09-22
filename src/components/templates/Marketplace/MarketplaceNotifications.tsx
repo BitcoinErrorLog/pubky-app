@@ -307,7 +307,7 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
     case 'auction_ended':
       return 'Auction ended';
     case 'order_created':
-      return 'New order created';
+      return 'Checkout started';
     case 'payment_confirmed':
       return 'Payment confirmed';
     case 'order_cancelled':
