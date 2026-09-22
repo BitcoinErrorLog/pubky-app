@@ -1,5 +1,6 @@
 import { CommerceApplication, type CommerceCheckoutFulfillmentInput } from '@/application/commerce/commerce';
 import { CommerceInventoryApplication, type InventoryBoardRow } from '@/application/commerce/inventory';
+import { CommerceInventoryAutomationsApplication } from '@/application/commerce/inventory-automations';
 import { CommerceInventoryImportApplication } from '@/application/commerce/inventory-import';
 import { TagKind } from '@/application/tag/tag.types';
 import {
@@ -352,6 +353,30 @@ export class CommerceController {
 
   static async inventoryImportResultCsv(sellerPubky: string, manifestId: string) {
     return await CommerceInventoryImportApplication.forSeller(sellerPubky).resultCsv(manifestId);
+  }
+
+  static async loadInventoryAutomations(sellerPubky: string) {
+    return await CommerceInventoryAutomationsApplication.load(sellerPubky);
+  }
+
+  static async revokeInventorySession(
+    sellerPubky: string,
+    id: string,
+    kind: Parameters<typeof CommerceInventoryAutomationsApplication.revoke>[2],
+  ) {
+    return await CommerceInventoryAutomationsApplication.revoke(sellerPubky, id, kind);
+  }
+
+  static async addInventoryWebhook(sellerPubky: string, url: string) {
+    return await CommerceInventoryAutomationsApplication.addWebhook(sellerPubky, url);
+  }
+
+  static async rotateInventoryWebhook(sellerPubky: string, id: string) {
+    return await CommerceInventoryAutomationsApplication.rotateWebhook(sellerPubky, id);
+  }
+
+  static async deleteInventoryWebhook(sellerPubky: string, id: string) {
+    return await CommerceInventoryAutomationsApplication.deleteWebhook(sellerPubky, id);
   }
 
   /** True while getActiveSession still considers the bearer inside its margin. */

@@ -8,7 +8,6 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceInventoryGrantConnect } from '@/hooks/useMarketplaceInventoryGrantConnect/useMarketplaceInventoryGrantConnect';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
-import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
 
 export function MarketplaceInventoryGrantDialog({
   triggerLabel = 'Approve in your Pubky signer',
@@ -63,20 +62,11 @@ export function MarketplaceInventoryGrantDialog({
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">
         <DialogHeader>
-          <DialogTitle>Approve marketplace-service access</DialogTitle>
+          <DialogTitle>Approve inventory access</DialogTitle>
         </DialogHeader>
         <Typography as="p" className="text-sm text-muted-foreground">
-          Stock and imports need a marketplace-service grant. Approve this exact path in Bitkit or Pubky Ring. This does
-          not replace your purchase session and never requests root access.
+          Approve this grant in Bitkit or Pubky Ring; it does not replace your purchase session.
         </Typography>
-        <div className="rounded-md border border-border bg-muted/40 p-3">
-          <code className="block font-sans text-xs break-all" data-testid="inventory-grant-requested">
-            {INVENTORY_GRANT}
-          </code>
-          <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-            Your signer will show this exact permission. Compare it before approving.
-          </Typography>
-        </div>
         {grant.status === 'error' ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
             {grant.errorMessage}

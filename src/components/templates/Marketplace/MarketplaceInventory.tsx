@@ -62,17 +62,24 @@ export function MarketplaceInventory() {
             Available, reserved, and sold counts from the transaction service. Reserved is not available to sell.
           </Typography>
           {(board.load.status === 'ready' || board.load.status === 'empty') && (
-            <Button
-              className="mt-4 rounded-full"
-              variant="secondary"
-              onClick={() => {
-                importer.reset();
-                setImportOpen(true);
-              }}
-            >
-              <Upload className="mr-2 size-4" />
-              Import
-            </Button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                className="rounded-full"
+                variant="secondary"
+                onClick={() => {
+                  importer.reset();
+                  setImportOpen(true);
+                }}
+              >
+                <Upload className="mr-2 size-4" />
+                Import
+              </Button>
+              <Button asChild className="rounded-full" variant="secondary">
+                <Link href={MARKETPLACE_ROUTES.INVENTORY_AUTOMATIONS} overrideDefaults>
+                  Automations
+                </Link>
+              </Button>
+            </div>
           )}
         </div>
 

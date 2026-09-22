@@ -2,10 +2,11 @@ import { defineConfig } from 'vitest/config';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
 /**
- * Headless staging proof for Inventory Studio W1 (grant + one stock edit)
- * and W2 (250-row CSV plan, mixed 207, resume). Excluded from every merge
- * gate. Files run in sequence because they share the seller identity and
- * Dexie shim.
+ * Headless staging proof for Inventory Studio W1 (grant + one stock edit),
+ * W2 (250-row CSV plan, mixed 207, resume), and W3 (sessions, webhooks,
+ * inventory revoke). Excluded from every merge gate. Files run in sequence
+ * because they share the seller identity and Dexie shim. W3 is last: it
+ * revokes the inventory session.
  *
  *   MARKETPLACE_STAGING_DROP_IDENTITIES_FILE=/path/outside/the/repo.json \
  *   npm run test:marketplace:inventory
@@ -15,7 +16,11 @@ export default defineConfig({
   test: {
     name: 'inventory-studio-live',
     environment: 'node',
-    include: ['src/test/live/inventory-studio.live.ts', 'src/test/live/inventory-import.live.ts'],
+    include: [
+      'src/test/live/inventory-studio.live.ts',
+      'src/test/live/inventory-import.live.ts',
+      'src/test/live/inventory-automations.live.ts',
+    ],
     fileParallelism: false,
     maxWorkers: 1,
     testTimeout: 180_000,

@@ -50,6 +50,8 @@ import {
   type CommerceWatchSnapshotModelSchema,
   commerceWatchSnapshotTableSchema,
   commerceWatchTombstoneTableSchema,
+  type CommerceWebhookModelSchema,
+  commerceWebhookTableSchema,
 } from '@/models/commerce/commerce.schema';
 import { type FeedModelSchema, feedTableSchema } from '@/models/feed/feed.schema';
 import { type FileDetailsModelSchema, fileDetailsTableSchema } from '@/models/file/fileDetails.schema';
@@ -217,6 +219,8 @@ export class AppDatabase extends Dexie {
   commerce_import_manifests!: Dexie.Table<CommerceImportManifestModelSchema>;
   commerce_import_rows!: Dexie.Table<CommerceImportRowModelSchema>;
   commerce_import_mappings!: Dexie.Table<CommerceImportMappingModelSchema>;
+  // Inventory Studio webhooks (W3). Device-local {id,url} only; wiped on sign-out.
+  commerce_webhooks!: Dexie.Table<CommerceWebhookModelSchema>;
   // Encrypted messaging (Paykit Encrypted Links) — rows carry key material
   // and device-local plaintext history; see messaging.schema.ts header.
   commerce_messaging_receivers!: Dexie.Table<CommerceMessagingReceiverModelSchema>;
@@ -327,25 +331,33 @@ export class AppDatabase extends Dexie {
         commerce_import_rows: commerceImportRowTableSchema,
         commerce_import_mappings: commerceImportMappingTableSchema,
       };
+      const webhookStores = {
+        commerce_webhooks: commerceWebhookTableSchema,
+      };
       const storesWithoutImport = stores;
-      const storesAtDeclared = { ...storesWithoutImport, ...importStores };
+      const storesAt6 = { ...storesWithoutImport, ...importStores };
+      const storesAtDeclared = { ...storesAt6, ...webhookStores };
 
       if (this.declaredVersion > MESSAGING_WRAP_BASE_DB_VERSION) {
-        // Version chain for 4 → 5 → 6: 4 and 5 share the wrap-era schema
+        // Version chain for 4 → 5 → 6 → 7: 4 and 5 share the wrap-era schema
         // (no import tables). 6 adds Inventory Studio import stores in place.
+        // 7 adds commerce_webhooks ({id,url} only) in place.
         this.version(MESSAGING_WRAP_BASE_DB_VERSION).stores(storesWithoutImport);
         if (this.declaredVersion >= 5) {
           this.version(5).stores(storesWithoutImport);
         }
         if (this.declaredVersion >= 6) {
-          this.version(6).stores(storesAtDeclared);
+          this.version(6).stores(storesAt6);
         }
-        if (this.declaredVersion > 6) {
+        if (this.declaredVersion >= 7) {
+          this.version(7).stores(storesAtDeclared);
+        }
+        if (this.declaredVersion > 7) {
           this.version(this.declaredVersion).stores(storesAtDeclared);
         }
       } else {
-        // Tests force DB_VERSION=1: fold import tables into the single version
-        // so wipe-enumerate tests see them without a 4→6 chain.
+        // Tests force DB_VERSION=1: fold import and webhook tables into the
+        // single version so wipe-enumerate tests see them without a 4→7 chain.
         this.version(this.declaredVersion).stores(storesAtDeclared);
       }
     } catch (error) {
@@ -546,8 +558,8 @@ export class AppDatabase extends Dexie {
     if (currentVersion !== this.declaredVersion) {
       if (currentVersion >= MESSAGING_WRAP_BASE_DB_VERSION && this.declaredVersion > currentVersion) {
         // 4 → N: wrap messaging secrets when leaving v4. 5 → 6 adds import
-        // tables in place via Dexie — do not delete-and-recreate, that would
-        // wipe seller-local inventory import checkpoints.
+        // tables in place via Dexie; 6 → 7 adds webhook {id,url} rows. Do not
+        // delete-and-recreate, that would wipe seller-local inventory state.
         Logger.info(`Database upgrade ${currentVersion} → ${this.declaredVersion}: in-place Dexie schema`, {
           rawVersion,
           expectedVersion: this.declaredVersion,
