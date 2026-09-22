@@ -126,8 +126,14 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
       </Link>
 
       {teaserUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
-        <img src={teaserUrl} alt={`${record.title} teaser`} className="max-h-96 w-full rounded-2xl object-cover" />
+        <div className="relative h-48 w-full overflow-hidden rounded-2xl bg-linear-to-br from-brand/20 via-card to-card">
+          {/* eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization */}
+          <img
+            src={teaserUrl}
+            alt={`${record.title} teaser`}
+            className="absolute inset-0 size-full object-cover object-center"
+          />
+        </div>
       ) : (
         <div className="flex h-48 w-full items-center justify-center rounded-2xl bg-linear-to-br from-brand/20 via-card to-card">
           <CalendarClock className="size-12 text-muted-foreground" />

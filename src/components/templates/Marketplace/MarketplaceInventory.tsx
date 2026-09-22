@@ -153,13 +153,15 @@ export function MarketplaceInventory() {
                         <td className="p-3">
                           <div className="flex items-center gap-3">
                             {entry.thumbUrl ? (
-                              <Image
-                                src={entry.thumbUrl}
-                                alt=""
-                                width={40}
-                                height={40}
-                                className="size-10 rounded-md object-cover"
-                              />
+                              <div className="relative size-10 shrink-0 overflow-hidden rounded-md">
+                                <Image
+                                  src={entry.thumbUrl}
+                                  alt=""
+                                  fill
+                                  sizes="40px"
+                                  className="object-cover object-center"
+                                />
+                              </div>
                             ) : (
                               <div className="flex size-10 items-center justify-center rounded-md bg-muted">
                                 <ImageIcon className="size-4 text-muted-foreground" />

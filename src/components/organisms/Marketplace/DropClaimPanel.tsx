@@ -93,8 +93,10 @@ export function DropClaimPanel({
               return (
                 <li key={listingId} className="flex items-center gap-3 rounded-lg border bg-card p-3">
                   {mediaUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization
-                    <img src={mediaUrl} alt="" className="size-12 shrink-0 rounded-md object-cover" />
+                    <div className="relative size-12 shrink-0 overflow-hidden rounded-md">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- homeserver media bypasses Next image optimization */}
+                      <img src={mediaUrl} alt="" className="size-full object-cover object-center" />
+                    </div>
                   )}
                   <div className="min-w-0 flex-1">
                     <Typography as="p" className="truncate text-sm font-semibold">

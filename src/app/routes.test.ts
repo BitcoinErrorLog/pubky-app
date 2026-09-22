@@ -5,7 +5,9 @@ import {
   AUTHENTICATED_ROUTES,
   getCollectionRoute,
   getMarketplaceAddressSettingsRoute,
+  getMarketplaceListingEditRoute,
   getMarketplaceListingRoute,
+  getMarketplacePaymentSettingsRoute,
   getMarketplaceShopRoute,
   getProfileRoute,
   getUserProfileUrl,
@@ -17,6 +19,7 @@ import {
   isPostRoute,
   isPublicExploreRoute,
   LOGO_LANDING_ROUTES,
+  MARKETPLACE_ROUTES,
   matchesAllowedRoute,
   matchMarketplaceListingRoute,
   matchMarketplaceShopRoute,
@@ -202,6 +205,31 @@ describe('getMarketplaceAddressSettingsRoute', () => {
     '/marketplace/drop/%2e%2e',
   ])('rejects unsafe return target %s', (returnTo) => {
     expect(getMarketplaceAddressSettingsRoute(returnTo)).toBe('/marketplace/settings/addresses');
+  });
+});
+
+describe('getMarketplacePaymentSettingsRoute', () => {
+  const seller = 'y'.repeat(52);
+  const editPath = getMarketplaceListingEditRoute(seller, 'boots_01');
+
+  it('attaches the listing composer return path', () => {
+    expect(getMarketplacePaymentSettingsRoute(MARKETPLACE_ROUTES.SELL)).toBe(
+      '/marketplace/settings?returnTo=%2Fmarketplace%2Fsell',
+    );
+    expect(getMarketplacePaymentSettingsRoute(editPath)).toBe(
+      `/marketplace/settings?returnTo=${encodeURIComponent(editPath)}`,
+    );
+  });
+
+  it.each([
+    'https://evil.example/sell',
+    '//evil.example/sell',
+    'javascript:alert(1)',
+    '/marketplace/settings',
+    '/marketplace/listing/%2e%2e/edit',
+    '/marketplace/drop/x',
+  ])('rejects unsafe return target %s', (returnTo) => {
+    expect(getMarketplacePaymentSettingsRoute(returnTo)).toBe('/marketplace/settings');
   });
 });
 

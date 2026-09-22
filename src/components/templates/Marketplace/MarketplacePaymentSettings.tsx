@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, SlidersHorizontal, Store } from 'lucide-react';
-import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
+import { APP_ROUTES, MARKETPLACE_ROUTES, readMarketplaceListingComposerReturnTo } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -12,17 +14,72 @@ import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksConnect } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
+import {
+  consumeListingComposerReturnTo,
+  peekListingComposerReturnTo,
+  rememberListingComposerReturnTo,
+} from '@/libs/commerce/listing-publish-guards';
+import { availablePaymentMethods, type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceGetPaidSettings } from '@/organisms/Marketplace/MarketplaceGetPaidSettings';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
+function ownViewLooksBuyerPayable(config: SellerPaymentConfigOwnView): boolean {
+  return Boolean(config.paypalMerchantEmail || config.stripePaymentLink || config.bitcoinEnabled);
+}
+
 export function MarketplacePaymentSettings() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const locksConnect = useMarketplaceLocksConnect();
   const showFxEstimate = useMarketplaceDisplayStore((state) => state.showFxEstimate);
   const setShowFxEstimate = useMarketplaceDisplayStore((state) => state.setShowFxEstimate);
   const measurementSystem = useMarketplaceDisplayStore((state) => state.measurementSystem);
   const setMeasurementSystem = useMarketplaceDisplayStore((state) => state.setMeasurementSystem);
+  const returnPath =
+    readMarketplaceListingComposerReturnTo(searchParams.get('returnTo')) ??
+    readMarketplaceListingComposerReturnTo(peekListingComposerReturnTo());
+  const [canContinue, setCanContinue] = useState(false);
+
+  useEffect(() => {
+    if (returnPath) rememberListingComposerReturnTo(returnPath);
+  }, [returnPath]);
+
+  useEffect(() => {
+    if (!returnPath || !currentUserPubky) {
+      setCanContinue(false);
+      return;
+    }
+    let active = true;
+    void CommerceController.getSellerPaymentConfig(currentUserPubky)
+      .then((config) => {
+        if (active) setCanContinue(availablePaymentMethods(config).length > 0);
+      })
+      .catch(() => {
+        if (active) setCanContinue(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUserPubky, returnPath]);
+
+  const resumeComposer = () => {
+    if (!returnPath) return;
+    consumeListingComposerReturnTo();
+    router.push(returnPath);
+  };
+
+  const onPaymentSaved = (config: SellerPaymentConfigOwnView) => {
+    if (!returnPath) return;
+    if (ownViewLooksBuyerPayable(config)) {
+      setCanContinue(true);
+      resumeComposer();
+    }
+  };
 
   return (
     <ContentLayout
@@ -35,12 +92,12 @@ export function MarketplacePaymentSettings() {
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
         <Link
-          href={APP_ROUTES.MARKETPLACE}
+          href={returnPath ?? APP_ROUTES.MARKETPLACE}
           overrideDefaults
           className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
         >
           <ArrowLeft className="size-4" />
-          Marketplace
+          {returnPath ? 'Back to listing' : 'Marketplace'}
         </Link>
         <div>
           <Badge className="mb-4" data-testid="get-paid-integration-badge">
@@ -54,7 +111,21 @@ export function MarketplacePaymentSettings() {
           </Typography>
         </div>
 
-        <MarketplaceGetPaidSettings locksConnect={locksConnect} />
+        {returnPath ? (
+          <div
+            data-testid="listing-composer-return"
+            className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <Typography as="p" className="text-sm text-muted-foreground">
+              After at least one payment method is configured, continue creating your listing.
+            </Typography>
+            <Button className="shrink-0 rounded-full" disabled={!canContinue} onClick={resumeComposer}>
+              Continue creating listing
+            </Button>
+          </div>
+        ) : null}
+
+        <MarketplaceGetPaidSettings locksConnect={locksConnect} onSaved={onPaymentSaved} />
 
         <Card className="border">
           <CardContent className="flex flex-col gap-3 px-6 sm:flex-row sm:items-center sm:justify-between">

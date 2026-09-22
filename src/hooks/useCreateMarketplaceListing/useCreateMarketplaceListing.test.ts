@@ -36,8 +36,23 @@ const secondRecord = {
   altText: 'Boot soles showing light wear',
 };
 
+const commerceState = vi.hoisted(() => ({
+  marketplaceSession: {
+    pubky: 'y'.repeat(52),
+    capabilities: '/pub/pubky.app/:rw',
+    issuedAt: '2026-08-21T12:00:00.000Z',
+    expiresAt: '2026-09-21T12:00:00.000Z',
+  } as { pubky: string; capabilities: string; issuedAt: string; expiresAt: string } | null,
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (store: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: OWNER }),
+}));
+
+vi.mock('@/stores/commerce/commerce.store', () => ({
+  useCommerceStore: Object.assign((selector: (store: typeof commerceState) => unknown) => selector(commerceState), {
+    getState: () => commerceState,
+  }),
 }));
 
 vi.mock('@/hooks/useListingMediaManager/useListingMediaManager', () => ({
@@ -92,6 +107,18 @@ describe('useCreateMarketplaceListing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mediaState.prepared = true;
+    commerceState.marketplaceSession = {
+      pubky: OWNER,
+      capabilities: '/pub/pubky.app/:rw',
+      issuedAt: '2026-08-21T12:00:00.000Z',
+      expiresAt: '2026-09-21T12:00:00.000Z',
+    };
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770121');
   });
 
@@ -138,7 +165,7 @@ describe('useCreateMarketplaceListing', () => {
   });
 
   it('blocks publishing when the seller has no payment method', async () => {
-    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
       stripePaymentLink: null,
@@ -155,7 +182,7 @@ describe('useCreateMarketplaceListing', () => {
   });
 
   it('blocks publishing when the public payment-config request is rejected', async () => {
-    vi.mocked(CommerceController.getSellerPaymentConfig).mockRejectedValueOnce(new Error('offline'));
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockRejectedValue(new Error('offline'));
     const { result } = renderHook(() => useCreateMarketplaceListing());
 
     await act(async () => {

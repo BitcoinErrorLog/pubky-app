@@ -73,6 +73,7 @@ export function MarketplaceSessionConnectDialog({
   // picks the flow `start()` begins) — never re-evaluate it here, or the
   // copy could describe a different approval than the QR requests.
   const requestsFullGrant = session.requestsFullGrant;
+  const requestsGrantReconnect = session.requestsGrantReconnect;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -84,11 +85,15 @@ export function MarketplaceSessionConnectDialog({
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">
         <DialogHeader>
-          <DialogTitle>{grantFlowEnabled ? 'Approve purchases' : 'Approve purchases in Pubky Ring'}</DialogTitle>
+          <DialogTitle>{requestsGrantReconnect ? 'Approve purchases' : 'Approve purchases in Pubky Ring'}</DialogTitle>
         </DialogHeader>
 
         <Typography as="p" className="text-sm text-muted-foreground">
-          {requestsFullGrant && !grantFlowEnabled ? 'Sign in to Pubky Shop.' : 'Approve purchases for this device.'}
+          {requestsGrantReconnect
+            ? 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
+            : requestsFullGrant && !grantFlowEnabled
+              ? 'Sign in to Pubky Shop.'
+              : 'Approve purchases for this device.'}
         </Typography>
 
         {['error', 'mismatch', 'expired', 'cancelled'].includes(session.status) ? (
@@ -165,10 +170,10 @@ export function MarketplaceSessionConnectDialog({
                   <Smartphone className="mr-2 size-4" />
                 )}
                 {session.isOpeningRing
-                  ? grantFlowEnabled
+                  ? requestsGrantReconnect
                     ? 'Opening signer...'
                     : 'Opening Pubky Ring...'
-                  : grantFlowEnabled
+                  : requestsGrantReconnect
                     ? 'Open in signer'
                     : 'Open in Pubky Ring'}
               </Button>

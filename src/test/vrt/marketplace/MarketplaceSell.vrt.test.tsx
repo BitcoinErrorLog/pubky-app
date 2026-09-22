@@ -1,6 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
+import { createZustandLikeHook } from '@/test-utils/stores';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { expectVrtSurface, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
@@ -65,6 +66,18 @@ const sellerPaymentConfig = vi.hoisted(() =>
     }),
   ),
 );
+const emptySellerPaymentConfig = {
+  bitcoinAvailable: false,
+  bitcoinOfferAvailable: true,
+  stripePaymentLink: null,
+  paypalMerchantEmail: null,
+};
+const paidSellerPaymentConfig = {
+  bitcoinAvailable: true,
+  bitcoinOfferAvailable: true,
+  stripePaymentLink: null,
+  paypalMerchantEmail: null,
+};
 
 vi.mock('@/config/commerce', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/config/commerce')>();
@@ -111,16 +124,14 @@ vi.mock('@/stores/auth/auth.store', () => ({
 }));
 
 vi.mock('@/stores/commerce/commerce.store', () => ({
-  useCommerceStore: {
-    getState: () => ({
-      marketplaceSession: {
-        pubky: 'y'.repeat(52),
-        capabilities: '/pub/pubky.app/:rw',
-        expiresAt: '2026-09-14T00:00:00.000Z',
-        issuedAt: '2026-09-13T00:00:00.000Z',
-      },
-    }),
-  },
+  useCommerceStore: createZustandLikeHook({
+    marketplaceSession: {
+      pubky: 'y'.repeat(52),
+      capabilities: '/pub/pubky.app/:rw',
+      expiresAt: '2026-09-14T00:00:00.000Z',
+      issuedAt: '2026-09-13T00:00:00.000Z',
+    },
+  }),
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
@@ -177,7 +188,9 @@ describe('Marketplace sell studio — visual regression', () => {
     useMarketplaceDisplayStore.setState({ measurementSystem: 'imperial' });
     view.pickupAvailable = false;
     view.adapterMode = 'sandbox';
-    sellerPaymentConfig.mockClear();
+    sellerPaymentConfig.mockReset();
+    sellerPaymentConfig.mockImplementation(() => Promise.resolve(emptySellerPaymentConfig));
+    sessionStorage.clear();
   });
 
   function assertStickyRailHasVisibleAncestors(rail: Element, scrollingRoot: Element) {
@@ -226,34 +239,85 @@ describe('Marketplace sell studio — visual regression', () => {
     );
   });
 
-  it('renders the publish-blocked payment state at desktop viewport', async () => {
+  it('renders the payment-method interstitial at desktop viewport', async () => {
     view.adapterMode = 'transaction-service';
-    view.drafts = [
-      {
-        ...draftFixture,
-        data: {
-          ...draftFixture.data,
-          form: {
-            ...draftFixture.data.form,
-            categoryId: 'fashion-men-footwear-boots',
-            attrSize: 'US 9',
-            currency: 'USD',
-            fulfillment: 'pickup',
-          },
-        },
-      },
-    ];
-    view.mediaItems = [photoItem('photo_front', 'Front view of the boots')];
+    view.drafts = [];
+    view.mediaItems = [];
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await screen.getByRole('button', { name: 'Publish listing' }).click();
-    await vi.waitFor(() => screen.getByText('Configure a payment method before publishing'));
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('[data-surface="listing-payment-setup"]')) {
+        throw new Error('The payment interstitial has not rendered yet.');
+      }
+      if (!screen.container.textContent?.includes('Buyers cannot pay you otherwise')) {
+        throw new Error('The payment interstitial copy has not rendered yet.');
+      }
+    });
     expect(sellerPaymentConfig).toHaveBeenCalledWith('y'.repeat(52));
-    const alert = screen.getByRole('alert');
-    expect(alert).toHaveAttribute('data-surface', 'seller-publish-blocked');
-    expect(alert).toHaveTextContent('Configure a payment method before publishing');
-    expect(screen.getByRole('button', { name: 'Publish listing' })).toBeEnabled();
-    await expect(expectVrtSurface('seller-publish-blocked')).toMatchScreenshot('sell-publish-blocked-desktop');
+    expect(screen.container.querySelector('#title')).toBeNull();
+    expect(screen.container.querySelector('[name="title"]')).toBeNull();
+    await expect(expectVrtSurface('listing-payment-setup')).toMatchScreenshot('sell-payment-setup-desktop');
+  });
+
+  it('renders the payment-method interstitial at mobile viewport', async () => {
+    view.adapterMode = 'transaction-service';
+    view.drafts = [];
+    view.mediaItems = [];
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_MOBILE });
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('[data-surface="listing-payment-setup"]')) {
+        throw new Error('The payment interstitial has not rendered yet.');
+      }
+      if (!screen.container.textContent?.includes('Buyers cannot pay you otherwise')) {
+        throw new Error('The payment interstitial copy has not rendered yet.');
+      }
+    });
+    expect(screen.container.querySelector('#title')).toBeNull();
+    await expect(expectVrtSurface('listing-payment-setup')).toMatchScreenshot(
+      'sell-payment-setup-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('returns to the listing composer after a payment method is configured', async () => {
+    view.adapterMode = 'transaction-service';
+    view.drafts = [];
+    view.mediaItems = [];
+
+    const blocked = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (!blocked.container.querySelector('[data-surface="listing-payment-setup"]')) {
+        throw new Error('The payment interstitial has not rendered yet.');
+      }
+      if (!blocked.container.querySelector('a[href="/marketplace/settings?returnTo=%2Fmarketplace%2Fsell"]')) {
+        throw new Error('The Payment settings link has not rendered yet.');
+      }
+    });
+    expect(blocked.container.querySelector('#title')).toBeNull();
+    const settingsLink = blocked.container.querySelector<HTMLAnchorElement>(
+      'a[href="/marketplace/settings?returnTo=%2Fmarketplace%2Fsell"]',
+    );
+    expect(settingsLink).not.toBeNull();
+    settingsLink!.addEventListener('click', (event) => event.preventDefault(), { capture: true });
+    settingsLink!.click();
+    expect(sessionStorage.getItem('pubky.marketplace.listingComposerReturnTo')).toBe('/marketplace/sell');
+
+    sellerPaymentConfig.mockImplementation(() => Promise.resolve(paidSellerPaymentConfig));
+    blocked.unmount();
+
+    const composer = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await vi.waitFor(() => {
+      if (!composer.container.querySelector('#title')) {
+        throw new Error('The listing composer has not rendered yet.');
+      }
+    });
+    expect(composer.container.querySelector('[data-surface="listing-payment-setup"]')).toBeNull();
+    expect(
+      [...composer.container.querySelectorAll('button')].some((button) =>
+        button.textContent?.includes('Publish listing'),
+      ),
+    ).toBe(true);
   });
 
   // The shipping section with saved presets: the apply-preset picker renders

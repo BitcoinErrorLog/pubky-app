@@ -39,6 +39,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard';
+import { useSellerPaymentMethodGate } from '@/hooks/useSellerPaymentMethodGate/useSellerPaymentMethodGate';
 import { listingDisplayState } from '@/libs/commerce/auction-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { isListingRegistrationPending } from '@/models/commerce/commerce.schema';
@@ -63,6 +64,8 @@ export function MarketplaceDashboard() {
   } | null>(null);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
+  const paymentGate = useSellerPaymentMethodGate();
+  const paymentSetupRequired = paymentGate.ready && paymentGate.reason === 'no-method';
   // Normalize "no record" to null so `undefined` keeps meaning "still loading".
   const shop = useLiveQuery(
     () => (currentUserPubky ? CommerceController.getShop(currentUserPubky).then((found) => found ?? null) : null),
@@ -150,11 +153,7 @@ export function MarketplaceDashboard() {
             </Typography>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button asChild className="rounded-full">
-              <Link href={MARKETPLACE_ROUTES.SELL} overrideDefaults>
-                Sell an item
-              </Link>
-            </Button>
+            <SellAnItemControl paymentSetupRequired={paymentSetupRequired} align="end" />
             <Button asChild variant="secondary" className="rounded-full">
               <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
                 <Store className="mr-2 size-4" />
@@ -364,11 +363,7 @@ export function MarketplaceDashboard() {
                       <Typography as="p" className="mt-2 text-muted-foreground">
                         Publish your first item — it appears here with its state, inventory, and actions.
                       </Typography>
-                      <Button asChild className="mt-6 rounded-full">
-                        <Link href={MARKETPLACE_ROUTES.SELL} overrideDefaults>
-                          Sell an item
-                        </Link>
-                      </Button>
+                      <SellAnItemControl paymentSetupRequired={paymentSetupRequired} align="center" />
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -545,6 +540,33 @@ export function MarketplaceDashboard() {
   );
 }
 
+function SellAnItemControl({
+  paymentSetupRequired,
+  align,
+}: {
+  paymentSetupRequired: boolean;
+  align: 'end' | 'center';
+}) {
+  return (
+    <div className={`flex flex-col gap-1 ${align === 'center' ? 'mt-6 items-center' : 'items-end'}`}>
+      <Button asChild className="rounded-full">
+        <Link href={MARKETPLACE_ROUTES.SELL} overrideDefaults>
+          Sell an item
+        </Link>
+      </Button>
+      {paymentSetupRequired ? (
+        <span
+          data-testid="create-listing-payment-precondition"
+          className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground"
+        >
+          <Badge variant="outline">Payment setup required</Badge>
+          Set up how you get paid first
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 type DashboardMetrics = ReturnType<typeof useMarketplaceSellerDashboard>['metrics'];
 
 function dashboardKpis(metrics: DashboardMetrics) {
@@ -577,7 +599,7 @@ function ListingThumbnail({ mediaUrls, title }: { mediaUrls: readonly string[]; 
           alt={`${title} thumbnail`}
           fill
           sizes="40px"
-          className="absolute inset-0 object-cover"
+          className="absolute inset-0 object-cover object-center"
           onError={() => setFailed(true)}
         />
       </div>

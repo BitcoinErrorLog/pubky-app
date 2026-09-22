@@ -28,8 +28,12 @@ import {
   type UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
+import {
+  evaluateDurableListingPublishGuards,
+  type ListingPublishBlockReason,
+  listingPublishBlockToast,
+} from '@/libs/commerce/listing-publish-guards';
 import { type CommerceListingRecord, commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
-import { availablePaymentMethods } from '@/libs/commerce/payment-methods';
 import {
   amountInputFromMoney,
   amountInputToMoney,
@@ -51,7 +55,8 @@ export interface UseEditMarketplaceListingResult {
   media: UseListingMediaManagerResult;
   /** True for auction listings: the sale terms were fixed at publish time. */
   saleTermsLocked: boolean;
-  publishBlocked: 'no-method' | 'unverified' | 'session' | null;
+  publishBlocked: ListingPublishBlockReason | null;
+  publishGuardReady: boolean;
   submit: (options?: { silent?: boolean }) => Promise<string | null>;
 }
 
@@ -79,7 +84,9 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
   const [status, setStatus] = useState<EditMarketplaceListingStatus>('loading');
   const [record, setRecord] = useState<CommerceListingRecord | null>(null);
   const hydratedReservePriceRef = useRef<CommerceMoney | null | undefined>(undefined);
-  const [publishBlocked, setPublishBlocked] = useState<'no-method' | 'unverified' | 'session' | null>(null);
+  const durablePublish = isDurableCommerceMode(getCommerceAdapterMode());
+  const [publishBlocked, setPublishBlocked] = useState<ListingPublishBlockReason | null>(null);
+  const [publishGuardReady, setPublishGuardReady] = useState(!durablePublish);
   const form = useForm<CreateMarketplaceListingData>({
     resolver: zodResolver(createMarketplaceListingSchema),
     defaultValues: createMarketplaceListingDefaults,
@@ -129,22 +136,40 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserPubky, sellerPubky, listingId]);
 
+  useEffect(() => {
+    if (!durablePublish) {
+      setPublishBlocked(null);
+      setPublishGuardReady(true);
+      return;
+    }
+    let active = true;
+    setPublishGuardReady(false);
+    void evaluateDurableListingPublishGuards({
+      ownerPubky: currentUserPubky,
+      hasMarketplaceSession: Boolean(marketplaceSession),
+      loadPaymentConfig: (pubky) => CommerceController.getSellerPaymentConfig(pubky),
+    }).then((reason) => {
+      if (!active) return;
+      setPublishBlocked(reason);
+      setPublishGuardReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [currentUserPubky, durablePublish, marketplaceSession]);
+
   const submit = async (options?: { silent?: boolean }): Promise<string | null> => {
     if (!currentUserPubky || !record) return null;
     setPublishBlocked(null);
-    if (isDurableCommerceMode(getCommerceAdapterMode())) {
-      if (!marketplaceSession) {
-        setPublishBlocked('session');
-        return null;
-      }
-      try {
-        const paymentConfig = await CommerceController.getSellerPaymentConfig(currentUserPubky);
-        if (availablePaymentMethods(paymentConfig).length === 0) {
-          setPublishBlocked('no-method');
-          return null;
-        }
-      } catch {
-        setPublishBlocked('unverified');
+    if (durablePublish) {
+      const reason = await evaluateDurableListingPublishGuards({
+        ownerPubky: currentUserPubky,
+        hasMarketplaceSession: Boolean(marketplaceSession),
+        loadPaymentConfig: (pubky) => CommerceController.getSellerPaymentConfig(pubky),
+      });
+      if (reason) {
+        setPublishBlocked(reason);
+        if (!options?.silent) toast(listingPublishBlockToast(reason));
         return null;
       }
     }
@@ -186,6 +211,7 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
     media,
     saleTermsLocked: record?.sale.format === 'auction',
     publishBlocked,
+    publishGuardReady,
     submit,
   };
 }
