@@ -31,6 +31,7 @@ const LISTING_ID = process.env.INVENTORY_LIVE_LISTING_ID ?? '';
 const STAMP = `w4i_${Date.now().toString(36)}`;
 
 type AppModules = {
+  CommerceApplication: typeof import('@/application/commerce/commerce').CommerceApplication;
   CommerceInventoryApplication: typeof import('@/application/commerce/inventory').CommerceInventoryApplication;
   CommerceInventoryImportApplication: typeof import('@/application/commerce/inventory-import').CommerceInventoryImportApplication;
   listingToCanonicalRows: typeof import('@/application/commerce/inventory-listing-map').listingToCanonicalRows;
@@ -40,6 +41,10 @@ type AppModules = {
   MarketplaceSessionService: typeof import('@/services/marketplace/marketplace-session').MarketplaceSessionService;
   MarketplaceInventorySessionService: typeof import('@/services/marketplace/marketplace-inventory-session').MarketplaceInventorySessionService;
   HomeserverService: typeof import('@/services/homeserver/homeserver').HomeserverService;
+  CommerceHomeserverService: typeof import('@/services/homeserver/commerce/commerce').CommerceHomeserverService;
+  CommerceRecordNormalizer: typeof import('@/pipes/commerce/commerce.normalizer').CommerceRecordNormalizer;
+  isAppError: typeof import('@/libs/error/error.utils').isAppError;
+  isNotFound: typeof import('@/libs/error/error.utils').isNotFound;
   useAuthStore: typeof import('@/stores/auth/auth.store').useAuthStore;
   createCommerceListingFixture: typeof import('@/test/fixtures/commerce/commerce').createCommerceListingFixture;
   sdk: typeof import('@synonymdev/pubky');
@@ -139,9 +144,31 @@ function csvFile(records: Array<ReturnType<typeof liveListing>>, name: string): 
   return new BytesFile(modules.MarketplaceShopClientService.exportListingsCsv(rows), name, 'text/csv');
 }
 
+async function deleteImportedListings(listingIds: readonly string[]): Promise<string[]> {
+  const lines: string[] = [];
+  for (const listingId of listingIds) {
+    const url = modules.CommerceRecordNormalizer.listingUri(sellerPubky, listingId);
+    const existed = await modules.CommerceHomeserverService.exists(url);
+    try {
+      await modules.CommerceApplication.commitDeleteListing(sellerPubky, listingId);
+      const after = await modules.CommerceHomeserverService.exists(url);
+      const result = !existed ? 'already_absent' : after ? 'delete_left_residue' : 'deleted';
+      lines.push(`${listingId}\texisted=${String(existed)}\tresult=${result}\tafter=${String(after)}`);
+    } catch (error) {
+      const notFound = modules.isAppError(error) && modules.isNotFound(error);
+      const code = modules.isAppError(error) ? error.code : error instanceof Error ? error.name : 'unknown';
+      lines.push(
+        `${listingId}\texisted=${String(existed)}\tresult=${notFound ? 'not_found' : `error:${code}`}\tafter=unknown`,
+      );
+    }
+  }
+  return lines;
+}
+
 describe('inventory studio W4 staging proof', () => {
   beforeAll(async () => {
     modules = {
+      CommerceApplication: (await import('@/application/commerce/commerce')).CommerceApplication,
       CommerceInventoryApplication: (await import('@/application/commerce/inventory')).CommerceInventoryApplication,
       CommerceInventoryImportApplication: (await import('@/application/commerce/inventory-import'))
         .CommerceInventoryImportApplication,
@@ -154,6 +181,10 @@ describe('inventory studio W4 staging proof', () => {
       MarketplaceInventorySessionService: (await import('@/services/marketplace/marketplace-inventory-session'))
         .MarketplaceInventorySessionService,
       HomeserverService: (await import('@/services/homeserver/homeserver')).HomeserverService,
+      CommerceHomeserverService: (await import('@/services/homeserver/commerce/commerce')).CommerceHomeserverService,
+      CommerceRecordNormalizer: (await import('@/pipes/commerce/commerce.normalizer')).CommerceRecordNormalizer,
+      isAppError: (await import('@/libs/error/error.utils')).isAppError,
+      isNotFound: (await import('@/libs/error/error.utils')).isNotFound,
       useAuthStore: (await import('@/stores/auth/auth.store')).useAuthStore,
       createCommerceListingFixture: (await import('@/test/fixtures/commerce/commerce')).createCommerceListingFixture,
       sdk: await import('@synonymdev/pubky'),
@@ -288,49 +319,57 @@ describe('inventory studio W4 staging proof', () => {
 
   it('imports a 3-row canonical CSV and writes a result column', async () => {
     const ids = [`${STAMP}_a`, `${STAMP}_b`, `${STAMP}_c`];
-    const store = new modules.DexieManifestStore(sellerPubky);
-    const importer = modules.CommerceInventoryImportApplication.forSeller(sellerPubky, { store });
-    const planned = await importer.planFile(
-      csvFile(
-        ids.map((listingId) => liveListing(listingId, sellerPubky)),
-        'w4-3.csv',
-      ),
-    );
-    expect(planned.status, planned.status === 'parse-failed' ? planned.message : planned.status).toBe('planned');
-    if (planned.status !== 'planned') return;
-    expect(planned.rowCount).toBe(3);
+    try {
+      const store = new modules.DexieManifestStore(sellerPubky);
+      const importer = modules.CommerceInventoryImportApplication.forSeller(sellerPubky, { store });
+      const planned = await importer.planFile(
+        csvFile(
+          ids.map((listingId) => liveListing(listingId, sellerPubky)),
+          'w4-3.csv',
+        ),
+      );
+      expect(planned.status, planned.status === 'parse-failed' ? planned.message : planned.status).toBe('planned');
+      if (planned.status !== 'planned') return;
+      expect(planned.rowCount).toBe(3);
 
-    const published = await importer.publish(planned.manifestId);
-    expect(published.status, 'message' in published ? published.message : published.status).toBe('complete');
-    if (published.status !== 'complete') return;
+      const published = await importer.publish(planned.manifestId);
+      expect(published.status, 'message' in published ? published.message : published.status).toBe('complete');
+      if (published.status !== 'complete') return;
 
-    const csv = await importer.resultCsv(planned.manifestId);
-    const lines = csv.trim().split('\n');
-    expect(lines[0]).toBe('listing_id,row_identity,checkpoint,result');
-    expect(lines).toHaveLength(4);
-    expect(lines.slice(1).every((line) => line.split(',').length >= 4)).toBe(true);
-    expect(csv.split('\n')[0]?.split(',').includes('result')).toBe(true);
-    for (const listingId of ids) {
-      expect(csv).toContain(listingId);
+      const csv = await importer.resultCsv(planned.manifestId);
+      const lines = csv.trim().split('\n');
+      expect(lines[0]).toBe('listing_id,row_identity,checkpoint,result');
+      expect(lines).toHaveLength(4);
+      expect(lines.slice(1).every((line) => line.split(',').length >= 4)).toBe(true);
+      expect(csv.split('\n')[0]?.split(',').includes('result')).toBe(true);
+      for (const listingId of ids) {
+        expect(csv).toContain(listingId);
+      }
+
+      writeFileSync(`${PROOF_DIR}/import-3.csv`, csv);
+      writeFileSync(
+        `${PROOF_DIR}/import-3.txt`,
+        [
+          `service=${SERVICE_URL}`,
+          `pubky=${sellerPubky}`,
+          `grant=${modules.INVENTORY_GRANT}`,
+          `stamp=${STAMP}`,
+          `manifest_id=${planned.manifestId}`,
+          `row_count=${planned.rowCount}`,
+          `publish_status=${published.status}`,
+          `published=${published.published}`,
+          `synced=${published.synced}`,
+          `mixed=${String(published.mixed)}`,
+          `result_header=${lines[0]}`,
+          `result_rows=${lines.length - 1}`,
+        ].join('\n'),
+      );
+    } finally {
+      const cleanup = await deleteImportedListings(ids);
+      writeFileSync(
+        `${PROOF_DIR}/import-3-cleanup.txt`,
+        [`service=${SERVICE_URL}`, `pubky=${sellerPubky}`, `stamp=${STAMP}`, ...cleanup].join('\n'),
+      );
     }
-
-    writeFileSync(`${PROOF_DIR}/import-3.csv`, csv);
-    writeFileSync(
-      `${PROOF_DIR}/import-3.txt`,
-      [
-        `service=${SERVICE_URL}`,
-        `pubky=${sellerPubky}`,
-        `grant=${modules.INVENTORY_GRANT}`,
-        `stamp=${STAMP}`,
-        `manifest_id=${planned.manifestId}`,
-        `row_count=${planned.rowCount}`,
-        `publish_status=${published.status}`,
-        `published=${published.published}`,
-        `synced=${published.synced}`,
-        `mixed=${String(published.mixed)}`,
-        `result_header=${lines[0]}`,
-        `result_rows=${lines.length - 1}`,
-      ].join('\n'),
-    );
   }, 180_000);
 });
