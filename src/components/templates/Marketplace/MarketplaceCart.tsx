@@ -1,7 +1,7 @@
 'use client';
 
 import { ArrowLeft, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';

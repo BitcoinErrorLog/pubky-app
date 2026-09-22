@@ -868,7 +868,7 @@ function dropCheckoutItem(listing: CommerceListingModelSchema, variantId: string
   };
 }
 
-function MarketplaceAwardTerms({ award }: { award: MarketplaceOfferAward }) {
+function MarketplaceAwardTerms({ award }: { award: NonNullable<MarketplaceOfferAward> }) {
   const listingRoute = getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
   const variantLabel = award.variant.options.map((item) => item.value).join(' · ') || 'Default';
   return (
