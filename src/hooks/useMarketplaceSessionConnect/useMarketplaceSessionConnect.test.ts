@@ -451,6 +451,7 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
 
       expect(beginMarketplaceGrantFlow).not.toHaveBeenCalled();
       expect(CommerceController.beginMarketplaceSessionConnect).toHaveBeenCalledTimes(1);
+      expect(result.current.requestsGrantReconnect).toBe(false);
       expect(result.current.status).toBe('awaiting');
       expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=bootstrap');
     } finally {
@@ -480,6 +481,7 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
 
       expect(beginMarketplaceGrantFlow).toHaveBeenCalledTimes(1);
       expect(CommerceController.beginMarketplaceSessionConnect).toHaveBeenCalledTimes(1);
+      expect(result.current.requestsGrantReconnect).toBe(false);
       expect(result.current.authorizationUrl).toBe('pubkyauth:///?caps=fallback');
       expect(result.current.errorMessage).toBeNull();
       expect(result.current.errorMessage).not.toBe(MARKETPLACE_FAILURE_MESSAGES.sessionTimeout);
@@ -535,6 +537,7 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
 
       act(() => result.current.start());
       await waitFor(() => expect(result.current.status).toBe('awaiting'));
+      expect(result.current.requestsGrantReconnect).toBe(true);
       expect(result.current.authorizationUrl).toBe('pubkyauth://signin_grant/?caps=empty');
 
       resolveResult({

@@ -33,6 +33,8 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   sessionTimeout: 'The approval expired before it was completed. Try again.',
   sessionStart: 'Could not start the marketplace session.',
   sessionMissing: 'Connect a marketplace session to continue. This is a new session, not an expired approval.',
+  sessionCookieExpired:
+    'This marketplace session is no longer valid. Connect a new session. This is not an expired signer approval.',
   soldOut: 'This drop is sold out.',
   listingSoldOut: 'This listing has sold out.',
   dropNotStarted: "This drop hasn't started yet.",
@@ -72,7 +74,7 @@ const CODE_MESSAGES: ReadonlyMap<string, string> = new Map([
   ['SESSION_EXPIRED', MARKETPLACE_FAILURE_MESSAGES.session],
   ['UNAUTHORIZED', MARKETPLACE_FAILURE_MESSAGES.session],
   ['shop_session_missing', MARKETPLACE_FAILURE_MESSAGES.sessionMissing],
-  ['shop_session_expired', MARKETPLACE_FAILURE_MESSAGES.sessionMissing],
+  ['shop_session_expired', MARKETPLACE_FAILURE_MESSAGES.sessionCookieExpired],
   ['flow_expired', MARKETPLACE_FAILURE_MESSAGES.sessionTimeout],
 ]);
 

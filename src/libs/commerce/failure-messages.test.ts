@@ -22,8 +22,10 @@ describe('marketplaceFailureMessage', () => {
       MARKETPLACE_FAILURE_MESSAGES.sessionMissing,
     );
     expect(marketplaceFailureMessage('shop_session_expired', MARKETPLACE_FAILURE_MESSAGES.sessionStart)).toBe(
-      MARKETPLACE_FAILURE_MESSAGES.sessionMissing,
+      MARKETPLACE_FAILURE_MESSAGES.sessionCookieExpired,
     );
+    expect(MARKETPLACE_FAILURE_MESSAGES.sessionCookieExpired).not.toBe(MARKETPLACE_FAILURE_MESSAGES.sessionMissing);
+    expect(MARKETPLACE_FAILURE_MESSAGES.sessionCookieExpired).not.toBe(MARKETPLACE_FAILURE_MESSAGES.sessionTimeout);
     expect(marketplaceFailureMessage('flow_expired', MARKETPLACE_FAILURE_MESSAGES.sessionStart)).toBe(
       MARKETPLACE_FAILURE_MESSAGES.sessionTimeout,
     );

@@ -44,6 +44,11 @@ export function useMarketplaceSessionConnect(
   const [authorizationUrl, setAuthorizationUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOpeningRing, setIsOpeningRing] = useState(false);
+  // First-paint copy must match the flow `start()` will pick: grant reconnect
+  // only when a marketplace bearer already exists. AuthToken fallback clears it.
+  const [requestsGrantReconnect, setRequestsGrantReconnect] = useState(
+    () => getMarketplaceGrantFlowEnabled() && Boolean(MarketplaceSessionService.getActiveSession()),
+  );
   const activeFlowRef = useRef<ActiveFlow | null>(null);
   const activeGrantFlowRef = useRef<MarketplaceGrantFlow | null>(null);
   const generationRef = useRef(0);
@@ -95,6 +100,7 @@ export function useMarketplaceSessionConnect(
     const generation = generationRef.current;
 
     const startAuthTokenConnect = () => {
+      setRequestsGrantReconnect(false);
       let flow: ActiveFlow;
       try {
         flow = requestsFullGrant
@@ -166,6 +172,7 @@ export function useMarketplaceSessionConnect(
     // paired cookie. A seller with no marketplace bearer must bootstrap via
     // AuthToken instead of opening a grant that 401s locally as "expired".
     if (grantFlowEnabled && MarketplaceSessionService.getActiveSession()) {
+      setRequestsGrantReconnect(true);
       setAuthorizationUrl('');
       setStatus('creating');
       void beginMarketplaceGrantFlow()
@@ -272,6 +279,7 @@ export function useMarketplaceSessionConnect(
     authorizationUrl,
     errorMessage,
     requestsFullGrant,
+    requestsGrantReconnect,
     start,
     cancel,
     copyAuthUrl,

@@ -8,6 +8,7 @@ import {
   createMarketplaceListingDefaults,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
 import type { UseListingMediaManagerResult } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import type { MarketplaceSessionInfo } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceSell } from './MarketplaceSell';
@@ -19,7 +20,9 @@ import { MarketplaceSell } from './MarketplaceSell';
 // its boundary; the router push is the assertion target.
 const routerPush = vi.hoisted(() => vi.fn());
 const commerceMode = vi.hoisted(() => ({ current: 'unavailable' as 'unavailable' | 'transaction-service' }));
-const restorePersistedMarketplaceSession = vi.hoisted(() => vi.fn(() => null));
+const restorePersistedMarketplaceSession = vi.hoisted(
+  () => vi.fn((): MarketplaceSessionInfo | null => null),
+);
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush }),
