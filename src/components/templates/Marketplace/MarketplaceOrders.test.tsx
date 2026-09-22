@@ -101,6 +101,11 @@ vi.mock('@/organisms/Marketplace/MarketplaceMyReviews', () => ({
   MarketplaceMyReviews: () => <div data-testid="my-reviews" />,
 }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => '/marketplace/orders',
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -174,24 +179,23 @@ describe('MarketplaceOrders tabs', () => {
 
     render(<MarketplaceOrders />);
 
-    await waitFor(() => expect(screen.getByRole('tab', { name: /All 3/i })).toHaveAttribute('aria-selected', 'true'));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /All 2/i })).toHaveAttribute('aria-selected', 'true'));
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
     expect(screen.getByText(/Sold paid boots/)).toBeInTheDocument();
     expect(screen.getByText(/Bought pending jacket/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
   });
 
-  it('does not infer an action tab for a seller pending payment without a service actor', async () => {
-    const user = userEvent.setup();
+  it('does not infer an action tab for a seller pending payment without a service actor', () => {
     ordersState.orders = [
       orderView('pending_payment', 'Sold pending boots', 'seller', { nextActor: 'none' }, 'awaiting_entitlement'),
     ];
 
     render(<MarketplaceOrders />);
 
-    await user.click(screen.getByRole('tab', { name: /Needs my action 0/i }));
-    expect(screen.queryByText(/Sold pending boots/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /Waiting on the other side 0/i }));
-    expect(screen.queryByText(/Sold pending boots/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Reservations' })).toBeInTheDocument();
+    expect(screen.getByText(/Sold pending boots/)).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 
   it('defaults to All when the user has no seller orders', () => {
@@ -202,8 +206,9 @@ describe('MarketplaceOrders tabs', () => {
 
     render(<MarketplaceOrders />);
 
-    expect(screen.getByRole('tab', { name: /All 2/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /All 1/i })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText(/Bought pending boots/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
     expect(screen.getByText(/Bought shipped jacket/)).toBeInTheDocument();
   });
 
@@ -226,12 +231,13 @@ describe('MarketplaceOrders tabs', () => {
     );
 
     expect(screen.getByRole('tab', { name: /Needs my action 1/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Needs my action 1/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /In transit 2/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Completed 2/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Cancelled 1/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /All 8/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Cancelled 0/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /All 7/i })).toBeInTheDocument();
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
+    expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
+    expect(screen.getByText('Checkout ended before payment.')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /Needs my action 1/i }));
     expect(screen.queryByText(/Sold paid boots/)).not.toBeInTheDocument();
@@ -248,15 +254,14 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.queryByText(/Bought cancelled mittens/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Sold return requested gloves/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('tab', { name: /Cancelled 1/i }));
-    expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Cancelled 0/i }));
+    expect(screen.queryByText(/Bought cancelled mittens/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('tab', { name: /All 8/i }));
+    await user.click(screen.getByRole('tab', { name: /All 7/i }));
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
   });
 
-  it('shows seller pending-payment orders in Waiting on the other side through the canonical visible status', async () => {
-    const user = userEvent.setup();
+  it('shows seller unpaid holds as Reservations and buyer unpaid as Continue checkout', async () => {
     ordersState.orders = [
       orderView('pending_payment', 'Sold unpaid boots', 'seller', { nextActor: 'buyer' }, 'awaiting_entitlement'),
       orderView('pending_payment', 'Bought unpaid coat', 'buyer', { nextActor: 'buyer' }, 'awaiting_entitlement'),
@@ -267,47 +272,46 @@ describe('MarketplaceOrders tabs', () => {
 
     render(<MarketplaceOrders />);
 
-    expect(screen.getByRole('tab', { name: /Waiting on the other side 2/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /All 5/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('tab', { name: /Waiting on the other side 2/i }));
+    expect(screen.getByRole('heading', { name: 'Reservations' })).toBeInTheDocument();
     expect(screen.getByText(/Sold unpaid boots/)).toBeInTheDocument();
     expect(screen.getByText(/Sold detected hat/)).toBeInTheDocument();
-    expect(screen.queryByText(/Bought unpaid coat/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Sold paid bag/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Sold cancelled scarf/)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('tab', { name: /All 5/i }));
-    expect(screen.getByText(/Sold unpaid boots/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
     expect(screen.getByText(/Bought unpaid coat/)).toBeInTheDocument();
+    expect(screen.queryByText(/Sold cancelled scarf/)).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /All 1/i })).toBeInTheDocument();
+    expect(screen.getByText(/Sold paid bag/)).toBeInTheDocument();
   });
 
-  it('shows a payment deadline for a pending order and omits it when absent or expired', () => {
+  it('shows reserved checkout copy on Continue checkout, not a payment deadline on Orders', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-15T10:00:00.000Z'));
     ordersState.orders = [
       orderView('pending_payment', 'Bought deadline boots', 'buyer', {
         holdExpiresAt: '2026-09-15T10:05:00.000Z',
+        paymentMethod: 'bitcoin',
         nextActor: 'buyer',
       }),
     ];
     const { rerender } = render(<MarketplaceOrders />);
-    expect(screen.getByText(/Complete payment by/)).toBeInTheDocument();
-    expect(screen.getByText(/05:00/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
+    expect(screen.getByText(/Reserved while you pay · 5:00/)).toBeInTheDocument();
+    expect(screen.queryByText(/Complete payment by/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
 
     ordersState.orders = [
       orderView('pending_payment', 'Bought no deadline boots', 'buyer', { holdExpiresAt: null, nextActor: 'buyer' }),
     ];
     rerender(<MarketplaceOrders />);
-    expect(screen.queryByText(/Complete payment by/)).not.toBeInTheDocument();
+    expect(screen.getByText('Checkout in progress')).toBeInTheDocument();
 
     ordersState.orders = [
       orderView('pending_payment', 'Bought expired boots', 'buyer', {
         holdExpiresAt: '2026-09-15T09:59:59.000Z',
+        paymentMethod: 'bitcoin',
         nextActor: 'buyer',
       }),
     ];
     rerender(<MarketplaceOrders />);
-    expect(screen.queryByText(/Complete payment by/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Reserved while you pay · 0:00/)).toBeInTheDocument();
   });
 
   it('does not label an elapsed unpaid order as Your move', () => {
@@ -321,20 +325,20 @@ describe('MarketplaceOrders tabs', () => {
       ),
     ];
     render(<MarketplaceOrders />);
-    expect(screen.getByText('Payment window elapsed. The item is available again.')).toBeInTheDocument();
+    expect(screen.getByText('Checkout ended before payment.')).toBeInTheDocument();
     expect(screen.queryByText('Your move')).not.toBeInTheDocument();
   });
 
-  it('puts buyer pending payment under Needs my action and leaves Waiting on the other side empty', async () => {
+  it('puts buyer pending payment under Continue checkout, not Needs my action', async () => {
     ordersState.orders = [
       orderView('pending_payment', 'Bought unpaid coat', 'buyer', { nextActor: 'buyer' }, 'awaiting_entitlement'),
     ];
 
     render(<MarketplaceOrders />);
 
-    expect(screen.getByRole('tab', { name: /Needs my action 1/i })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: /Waiting on the other side 0/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
     expect(screen.getByText(/Bought unpaid coat/)).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 
   it('excludes buyer, confirmed, manual-review, null-payment, and same-party orders', async () => {
@@ -364,22 +368,17 @@ describe('MarketplaceOrders tabs', () => {
     render(<MarketplaceOrders />);
     await user.click(screen.getByRole('tab', { name: /Waiting on the other side 0/i }));
 
-    expect(() => expect(screen.getByText(/Bought unpaid coat/)).toBeInTheDocument()).toThrow();
-    expect(() => expect(screen.getByText(/Sold paid bag/)).toBeInTheDocument()).toThrow();
-    expect(() => expect(screen.getByText(/Sold confirmed bag/)).toBeInTheDocument()).toThrow();
-    expect(() => expect(screen.getByText(/Sold manual review bag/)).toBeInTheDocument()).toThrow();
-    expect(() => expect(screen.getByText(/Sold null payment bag/)).toBeInTheDocument()).toThrow();
-    expect(() => expect(screen.getByText(/Same-party bag/)).toBeInTheDocument()).toThrow();
+    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Reservations' })).toBeInTheDocument();
+    expect(screen.queryByText(/Sold paid bag/)).not.toBeInTheDocument();
   });
 
   it('keeps the active tab semantically addressable for horizontal visibility management', () => {
-    ordersState.orders = [
-      orderView('pending_payment', 'Sold unpaid boots', 'seller', { nextActor: 'buyer' }, 'detected'),
-    ];
+    ordersState.orders = [orderView('return_requested', 'Sold return requested gloves', 'seller')];
 
     render(<MarketplaceOrders />);
 
-    const activeTab = screen.getByRole('tab', { name: /Waiting on the other side 1/i });
+    const activeTab = screen.getByRole('tab', { name: /Needs my action 1/i });
     expect(activeTab).toHaveAttribute('aria-selected', 'true');
     expect(activeTab).toHaveAttribute('role', 'tab');
   });
@@ -405,7 +404,7 @@ describe('MarketplaceOrders tabs', () => {
     render(<MarketplaceOrders />);
 
     const tabList = screen.getByRole('tablist');
-    const activeTab = screen.getByRole('tab', { name: /Waiting on the other side 1/i });
+    const activeTab = screen.getByRole('tab', { name: /Needs my action 1/i });
     Object.defineProperties(tabList, {
       clientWidth: { configurable: true, value: 100 },
       scrollLeft: { configurable: true, value: 20, writable: true },
@@ -442,7 +441,7 @@ describe('MarketplaceOrders tabs', () => {
     render(<MarketplaceOrders />);
 
     const tabList = screen.getByRole('tablist');
-    const activeTab = screen.getByRole('tab', { name: /Waiting on the other side 1/i });
+    const activeTab = screen.getByRole('tab', { name: /Needs my action 1/i });
     Object.defineProperties(tabList, {
       clientWidth: { configurable: true, value: 240 },
       scrollLeft: { configurable: true, value: 20, writable: true },
@@ -503,8 +502,8 @@ describe('MarketplaceOrders tabs', () => {
 
   it('renders each service actor variant without inventing an actor', async () => {
     ordersState.orders = [
-      orderView('pending_payment', 'Seller config needed', 'buyer', { nextActor: 'seller' }),
-      orderView('pending_payment', 'Seller confirmation needed', 'seller', { nextActor: 'seller' }),
+      orderView('paid', 'Seller config needed', 'buyer', { nextActor: 'seller' }),
+      orderView('paid', 'Seller confirmation needed', 'seller', { nextActor: 'seller' }),
       orderView('delivered', 'Auto completion pending', 'buyer', { nextActor: 'none' }),
     ];
 
@@ -526,8 +525,9 @@ describe('MarketplaceOrders tabs', () => {
     render(<MarketplaceOrders />);
 
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: /Needs my action 2/i })).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByRole('tab', { name: /Needs my action 1/i })).toHaveAttribute('aria-selected', 'true'),
     );
+    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
     expect(screen.getByText(/Bought pending boots/)).toBeInTheDocument();
     expect(screen.getByText(/Sold paid boots/)).toBeInTheDocument();
     expect(screen.queryByText(/Bought completed scarf/)).not.toBeInTheDocument();

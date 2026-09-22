@@ -13,6 +13,10 @@ const PAID_OR_LATER_STATES = new Set([
   'delivered',
   'completed',
   'ready_for_pickup',
+  'cancel_requested',
+  'return_requested',
+  'return_approved',
+  'return_received',
   'refunded_external',
   'closed',
 ]);

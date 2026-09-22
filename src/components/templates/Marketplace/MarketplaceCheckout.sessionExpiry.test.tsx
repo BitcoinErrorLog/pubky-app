@@ -9,7 +9,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { MARKETPLACE_SESSION_STORAGE_KEY, MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
-import { MarketplaceCart } from './MarketplaceCart';
+import { MarketplaceCheckout } from './MarketplaceCheckout';
 
 const BUYER = 'b'.repeat(52);
 const EXPIRES_AT = '2099-01-01T00:00:00.000Z';
@@ -39,8 +39,9 @@ const view = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-  usePathname: () => '/marketplace/cart',
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => '/marketplace/checkout',
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/config/commerce', async (importOriginal) => {
@@ -70,6 +71,8 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
       }>;
       return {
         items,
+        ordinaryItems: items,
+        awardItems: [],
         itemCount: items.reduce((total, item) => total + item.quantity, 0),
         subtotals: sumMoneyByAsset(
           items.flatMap((item) => {
@@ -91,6 +94,19 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
   };
 });
 
+vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
+  useMarketplaceOrders: () => ({
+    orders: [],
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    adapterMode: 'transaction-service',
+    refresh: vi.fn(),
+    advancePayment: vi.fn(),
+    actOnOrder: vi.fn(),
+  }),
+}));
+
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
@@ -105,7 +121,7 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
 }));
 
-describe('MarketplaceCart session expiry (real checkout hook)', () => {
+describe('MarketplaceCheckout session expiry (real checkout hook)', () => {
   beforeEach(() => {
     view.items = [
       {
@@ -128,6 +144,12 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
     CommerceController.bindMarketplaceSessionStore();
     vi.spyOn(CommerceApplication, 'getDeliveryAddresses').mockResolvedValue([]);
     vi.spyOn(CommerceApplication, 'fetchPickupAvailable').mockResolvedValue(true);
+    vi.spyOn(CommerceApplication, 'getSellerPaymentConfig').mockResolvedValue({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    });
     vi.spyOn(CommerceApplication, 'getMarketplaceListingProjection').mockResolvedValue({
       aggregateId: `listing:${BUYER}_boots`,
       sellerPubky: BUYER,
@@ -159,9 +181,9 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
     useCommerceStore.getState().reset();
   });
 
-  it('reopens step 1 and nulls the store when executeMarketplaceCommand returns SESSION_EXPIRED', async () => {
+  it('reopens Ring approval and nulls the store when executeMarketplaceCommand returns SESSION_EXPIRED', async () => {
     const user = userEvent.setup();
-    render(<MarketplaceCart />);
+    render(<MarketplaceCheckout />);
 
     expect(screen.getByText(/Purchases approved in Pubky Ring/)).toBeInTheDocument();
 
@@ -172,14 +194,12 @@ describe('MarketplaceCart session expiry (real checkout hook)', () => {
     await user.type(screen.getByLabelText('ZIP code'), '10001');
     await user.click(screen.getByRole('checkbox', { name: /I accept guarantee policy v1/ }));
 
-    const placeOrder = screen.getByRole('button', { name: 'Place order' });
-    expect(placeOrder).toBeEnabled();
-    await user.click(placeOrder);
+    const pay = screen.getByTestId('marketplace-checkout-pay');
+    await waitFor(() => expect(pay).toBeEnabled());
+    await user.click(pay);
 
     expect(await screen.findByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Place order' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Place order' })).not.toHaveAttribute('aria-describedby');
-    expect(screen.queryByText('Approve purchases in Pubky Ring before placing the order.')).not.toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-checkout-pay')).toBeDisabled();
     await waitFor(() => {
       expect(useCommerceStore.getState().marketplaceSession).toBeNull();
     });

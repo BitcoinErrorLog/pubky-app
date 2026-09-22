@@ -31,6 +31,7 @@ describe('checkout-phase', () => {
   it('keeps unpaid buyer rows out of order history', () => {
     expect(isBuyerOrderHistory({ state: 'pending_payment', buyerPubky: BUYER }, BUYER)).toBe(false);
     expect(isBuyerOrderHistory({ state: 'paid', buyerPubky: BUYER }, BUYER)).toBe(true);
+    expect(isBuyerOrderHistory({ state: 'return_requested', buyerPubky: BUYER }, BUYER)).toBe(true);
     expect(isBuyerOrderHistory({ state: 'cancelled', buyerPubky: BUYER }, BUYER)).toBe(false);
     expect(isAbandonedCheckout({ state: 'cancelled', buyerPubky: BUYER }, BUYER)).toBe(true);
     expect(isBuyerCheckoutInProgress({ state: 'pending_payment', buyerPubky: BUYER }, BUYER)).toBe(true);
@@ -39,10 +40,13 @@ describe('checkout-phase', () => {
   it('classifies seller reservations as unpaid holds, not orders', () => {
     const unpaid = { state: 'pending_payment', sellerPubky: SELLER, buyerPubky: BUYER };
     const paid = { state: 'paid', sellerPubky: SELLER, buyerPubky: BUYER };
+    const returning = { state: 'return_requested', sellerPubky: SELLER, buyerPubky: BUYER };
     expect(isSellerReservation(unpaid, SELLER)).toBe(true);
     expect(isSellerPaidOrder(unpaid, SELLER)).toBe(false);
     expect(isSellerReservation(paid, SELLER)).toBe(false);
     expect(isSellerPaidOrder(paid, SELLER)).toBe(true);
+    expect(isSellerPaidOrder(returning, SELLER)).toBe(true);
+    expect(isSellerPaidOrder({ state: 'cancelled', sellerPubky: SELLER, buyerPubky: BUYER }, SELLER)).toBe(false);
   });
 
   it('labels unbound vs bound checkout without the word order', () => {

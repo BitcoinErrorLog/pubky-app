@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -6,8 +6,8 @@ import { MarketplaceAwardCheckout } from './MarketplaceAwardCheckout';
 
 const state = vi.hoisted(() => ({
   offers: [] as Array<Record<string, unknown>>,
-  outcome: { ok: true, orderId: '00000000-0000-4000-8000-000000000803' } as
-    | { ok: true; orderId: string }
+  outcome: { ok: true, orderId: '00000000-0000-4000-8000-000000000803', boundOrder: null } as
+    | { ok: true; orderId: string; boundOrder: null }
     | { ok: false; code: string },
   remove: vi.fn(async () => {}),
   refresh: vi.fn(async () => {}),
@@ -93,6 +93,22 @@ vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({ useM
 vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
   useMarketplaceActivityUnread: () => 0,
 }));
+vi.mock('@/controllers/commerce/commerce', () => ({
+  CommerceController: {
+    getSellerPaymentConfig: vi.fn(async () => ({
+      bitcoinAvailable: true,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    })),
+  },
+}));
+
+async function clickPay(user: ReturnType<typeof userEvent.setup>) {
+  const button = await screen.findByTestId('marketplace-award-checkout-pay');
+  await waitFor(() => expect(button).toBeEnabled());
+  await user.click(button);
+}
 
 describe('MarketplaceAwardCheckout', () => {
   beforeEach(() => {
@@ -112,14 +128,20 @@ describe('MarketplaceAwardCheckout', () => {
       },
     ];
     state.isLoading = false;
-    state.outcome = { ok: true, orderId: '00000000-0000-0000-0000-000000000803' };
+    state.outcome = { ok: true, orderId: '00000000-0000-0000-0000-000000000803', boundOrder: null };
     state.submit.mockResolvedValue(state.outcome);
+    vi.stubGlobal(
+      'location',
+      Object.create(window.location, {
+        assign: { value: vi.fn(), writable: true, configurable: true },
+      }),
+    );
   });
 
   it('renders server-projected agreed price, fixed terms, shipping, total, and deadline', () => {
     render(<MarketplaceAwardCheckout />);
 
-    expect(screen.getByRole('heading', { name: 'Place order' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
     expect(screen.getByText('Vintage boots')).toBeInTheDocument();
     expect(screen.getByText(/42 · Quantity 1/)).toBeInTheDocument();
     expect(screen.getByText('Subtotal').parentElement).toHaveTextContent('$6.00');
@@ -139,12 +161,12 @@ describe('MarketplaceAwardCheckout', () => {
     const { rerender } = render(<MarketplaceAwardCheckout />);
 
     expect(screen.getByRole('status')).toHaveTextContent('Loading delivery addresses…');
-    expect(screen.queryByRole('button', { name: 'Place order' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-award-checkout-pay')).not.toBeInTheDocument();
 
     state.isLoading = false;
     rerender(<MarketplaceAwardCheckout />);
-    const button = screen.getByRole('button', { name: 'Place order' });
-    expect(button).toBeEnabled();
+    const button = await screen.findByTestId('marketplace-award-checkout-pay');
+    await waitFor(() => expect(button).toBeEnabled());
     expect(button).not.toHaveAttribute('disabled');
     const propsKey = Object.keys(button).find((key) => key.startsWith('__reactProps'));
     expect(propsKey ? asOpaque<Record<string, { disabled?: boolean }>>(button)[propsKey]?.disabled : undefined).toBe(
@@ -169,21 +191,16 @@ describe('MarketplaceAwardCheckout', () => {
     );
   });
 
-  it('removes the award line and refreshes offers only after successful checkout', async () => {
+  it('removes the award line and continues checkout after a successful pay', async () => {
     const user = userEvent.setup();
     render(<MarketplaceAwardCheckout />);
 
-    await user.click(screen.getByRole('button', { name: 'Place order' }));
+    await clickPay(user);
 
     expect(state.submit).toHaveBeenCalled();
     expect(state.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
     expect(state.refresh).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('heading', { name: 'Order created' })).toBeInTheDocument();
-    expect(screen.getByText(/agreed merchandise total is \$7.00/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View order' })).toHaveAttribute(
-      'href',
-      '/marketplace/orders#00000000-0000-0000-0000-000000000803',
-    );
+    expect(window.location.assign).toHaveBeenCalledWith('/marketplace/checkout#00000000-0000-0000-0000-000000000803');
   });
 
   it('shows expiry copy, removes the line, refreshes offers, and offers both next actions', async () => {
@@ -191,11 +208,9 @@ describe('MarketplaceAwardCheckout', () => {
     const user = userEvent.setup();
     render(<MarketplaceAwardCheckout />);
 
-    await user.click(screen.getByRole('button', { name: 'Place order' }));
+    await clickPay(user);
 
-    expect(
-      screen.getByText('This accepted offer expired before the order was placed. Nothing was ordered.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('This accepted offer expired before checkout. Nothing was reserved.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View offers' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Buy at current price' })).toBeInTheDocument();
     expect(state.remove).toHaveBeenCalledTimes(1);
@@ -207,9 +222,9 @@ describe('MarketplaceAwardCheckout', () => {
     const user = userEvent.setup();
     render(<MarketplaceAwardCheckout />);
 
-    await user.click(screen.getByRole('button', { name: 'Place order' }));
+    await clickPay(user);
 
-    expect(screen.getByText('This accepted offer has already been converted to an order.')).toBeInTheDocument();
+    expect(screen.getByText('This accepted offer has already been converted.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View orders' })).toBeInTheDocument();
     expect(state.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
     expect(state.refresh).toHaveBeenCalledTimes(1);
@@ -220,7 +235,7 @@ describe('MarketplaceAwardCheckout', () => {
     const user = userEvent.setup();
     render(<MarketplaceAwardCheckout />);
 
-    await user.click(screen.getByRole('button', { name: 'Place order' }));
+    await clickPay(user);
 
     expect(screen.getByText('This offer is no longer available.')).toBeInTheDocument();
     expect(state.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
@@ -232,7 +247,7 @@ describe('MarketplaceAwardCheckout', () => {
     const user = userEvent.setup();
     render(<MarketplaceAwardCheckout />);
 
-    await user.click(screen.getByRole('button', { name: 'Place order' }));
+    await clickPay(user);
 
     expect(screen.getByText('The checkout quantity does not match the accepted offer.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
@@ -242,7 +257,7 @@ describe('MarketplaceAwardCheckout', () => {
     state.offers = [{ ...offer, award: undefined }];
     render(<MarketplaceAwardCheckout />);
     expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Place order' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-award-checkout-pay')).not.toBeInTheDocument();
   });
 
   it.each(['subtotal', 'shipping', 'merchandiseTotal'])('withholds checkout when %s is absent', (field) => {
@@ -251,7 +266,7 @@ describe('MarketplaceAwardCheckout', () => {
     state.offers = [incomplete];
     render(<MarketplaceAwardCheckout />);
     expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Place order' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-award-checkout-pay')).not.toBeInTheDocument();
   });
 
   it('withholds checkout when award money currencies do not match', () => {
@@ -269,6 +284,6 @@ describe('MarketplaceAwardCheckout', () => {
     state.offers = [{ ...offer, buyerPubky: 's'.repeat(52) }];
     render(<MarketplaceAwardCheckout />);
     expect(screen.getByText('Checkout for this offer is unavailable right now.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Place order' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-award-checkout-pay')).not.toBeInTheDocument();
   });
 });
