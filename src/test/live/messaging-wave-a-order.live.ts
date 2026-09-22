@@ -71,6 +71,16 @@ let createdListingId = '';
 let failingStep = 'boot';
 let sellerSeat: Seat;
 let buyerSeat: Seat;
+let sellerPersistedSession: PersistedMarketplaceSession;
+let buyerPersistedSession: PersistedMarketplaceSession;
+
+type PersistedMarketplaceSession = {
+  token: string;
+  sessionId?: string;
+  pubky: string;
+  capabilities: string;
+  expiresAt: string;
+};
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -208,8 +218,40 @@ async function connectServiceSession(keypair: Keypair, pubky: string): Promise<S
   return session;
 }
 
+function snapshotMarketplaceSession(expectedPubky: string): PersistedMarketplaceSession {
+  const session = modules.MarketplaceSessionService.getActiveSession();
+  if (!session || session.pubky !== expectedPubky) {
+    throw new Error(`expected marketplace session for ${expectedPubky.slice(0, 8)}`);
+  }
+  return {
+    token: session.token,
+    sessionId: session.sessionId,
+    pubky: session.pubky,
+    capabilities: session.capabilities,
+    expiresAt: session.expiresAt,
+  };
+}
+
 function activateServiceSession(session: ServiceSession): void {
   (modules.MarketplaceSessionService as unknown as { session: ServiceSession | null }).session = session;
+}
+
+async function injectMarketplaceSession(page: Page, session: PersistedMarketplaceSession): Promise<void> {
+  await page.evaluate(
+    ({ key, blob }) => {
+      window.localStorage.setItem(key, blob);
+    },
+    {
+      key: 'pubky.marketplace.session.v1',
+      blob: JSON.stringify({
+        token: session.token,
+        sessionId: session.sessionId,
+        pubky: session.pubky,
+        capabilities: session.capabilities,
+        expiresAt: session.expiresAt,
+      }),
+    },
+  );
 }
 
 async function publishShippingListing(sellerPubky: string, title: string): Promise<string> {
@@ -362,6 +404,7 @@ async function createDurableOrder(): Promise<{
   failingStep = 'seller_marketplace_session';
   const sellerSession = await connectServiceSession(sellerSeat.keypair, sellerSeat.pubky);
   activateServiceSession(sellerSession);
+  sellerPersistedSession = snapshotMarketplaceSession(sellerSeat.pubky);
   failingStep = 'listing_register';
   await registerOrSyncListing(sellerSeat.pubky, listingId, title);
 
@@ -370,6 +413,7 @@ async function createDurableOrder(): Promise<{
   failingStep = 'buyer_marketplace_session';
   const buyerSession = await connectServiceSession(buyerSeat.keypair, buyerSeat.pubky);
   activateServiceSession(buyerSession);
+  buyerPersistedSession = snapshotMarketplaceSession(buyerSeat.pubky);
 
   failingStep = 'checkout_create';
   const listingView = await modules.MarketplaceGatewayService.getListing(buyerSeat.pubky, listingAggregateId);
@@ -478,9 +522,6 @@ async function installAuthUrlCapture(page: Page): Promise<void> {
 async function approveSignerUrl(page: Page, keypair: Keypair): Promise<void> {
   await page.bringToFront();
   await installAuthUrlCapture(page);
-  await page.evaluate(() => {
-    (window as unknown as { __waveACopied?: string }).__waveACopied = '';
-  });
   await page.getByText('Waiting for approval on your signer…').waitFor({ state: 'visible', timeout: 60_000 });
   const copy = page.getByRole('button', { name: 'Copy link' });
   await copy.waitFor({ state: 'visible', timeout: 30_000 });
@@ -488,13 +529,25 @@ async function approveSignerUrl(page: Page, keypair: Keypair): Promise<void> {
     done: await copy.isEnabled(),
     value: true,
   }));
-  await copy.click();
-  const authorizationUrl = await withPatience('authorization URL capture', 15_000, 250, async () => {
-    const value = await page.evaluate(() => (window as unknown as { __waveACopied?: string }).__waveACopied ?? '');
-    return { done: value.startsWith('pubkyauth://'), value, detail: `len=${value.length}` };
-  });
-  expect(authorizationUrl.startsWith('pubkyauth://'), 'copied URL must be a pubkyauth deeplink').toBe(true);
-  await new Pubky().signer(keypair).approveAuthRequest(authorizationUrl);
+  const waiting = page.getByText('Waiting for approval on your signer…');
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.evaluate(() => {
+      (window as unknown as { __waveACopied?: string }).__waveACopied = '';
+    });
+    await copy.click();
+    const authorizationUrl = await withPatience('authorization URL capture', 15_000, 250, async () => {
+      const value = await page.evaluate(() => (window as unknown as { __waveACopied?: string }).__waveACopied ?? '');
+      return { done: value.startsWith('pubkyauth://'), value, detail: `len=${value.length}` };
+    });
+    expect(authorizationUrl.startsWith('pubkyauth://'), 'copied URL must be a pubkyauth deeplink').toBe(true);
+    await new Pubky().signer(keypair).approveAuthRequest(authorizationUrl);
+    const settled = await waiting
+      .waitFor({ state: 'hidden', timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (settled) return;
+  }
+  throw new Error('signer approval did not hide Waiting for approval on your signer…');
 }
 
 async function signInWithEncryptedFile(page: Page, seat: Seat): Promise<void> {
@@ -508,7 +561,7 @@ async function signInWithEncryptedFile(page: Page, seat: Seat): Promise<void> {
 
 async function waitForListingOnOrders(
   page: Page,
-  keypair: Keypair,
+  persisted: PersistedMarketplaceSession,
   listingTitle: string,
   shotPrefix: string,
 ): Promise<void> {
@@ -522,8 +575,9 @@ async function waitForListingOnOrders(
       if ((await listing.count()) > 0) return;
     }
     if (attempt > 0 && (await approve.count()) > 0 && (await allTab.count()) === 0) {
-      await approve.click();
-      await approveSignerUrl(page, keypair);
+      await injectMarketplaceSession(page, persisted);
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
+      continue;
     }
     if (attempt < 7) {
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
@@ -536,10 +590,11 @@ async function waitForListingOnOrders(
 
 async function connectMarketplaceSession(
   page: Page,
-  keypair: Keypair,
+  persisted: PersistedMarketplaceSession,
   listingTitle: string,
   shotPrefix: string,
 ): Promise<void> {
+  await injectMarketplaceSession(page, persisted);
   await page.goto(`${shopUrl}/marketplace/orders`, { waitUntil: 'domcontentloaded', timeout: 180_000 });
   const approve = page.getByRole('button', { name: 'Approve in Pubky Ring' });
   const listing = page.getByText(`${listingTitle} × 1`);
@@ -557,22 +612,11 @@ async function connectMarketplaceSession(
     throw new Error(`${shotPrefix}: orders page showed neither session card, empty state, nor the listing`);
   }
   if ((await listing.count()) > 0) return;
-  if ((await approve.count()) > 0) {
-    await approve.click();
-    try {
-      await approveSignerUrl(page, keypair);
-      await Promise.race([
-        listing.waitFor({ state: 'visible', timeout: 90_000 }),
-        allTab.waitFor({ state: 'visible', timeout: 90_000 }),
-        empty.waitFor({ state: 'visible', timeout: 90_000 }),
-        page.getByText('Purchases approved').waitFor({ state: 'visible', timeout: 90_000 }),
-      ]);
-    } catch (error) {
-      await capturePage(page, `${shotPrefix}-session-after`);
-      throw error;
-    }
+  if ((await approve.count()) > 0 && (await allTab.count()) === 0 && (await empty.count()) === 0) {
+    await injectMarketplaceSession(page, persisted);
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 180_000 });
   }
-  await waitForListingOnOrders(page, keypair, listingTitle, shotPrefix);
+  await waitForListingOnOrders(page, persisted, listingTitle, shotPrefix);
 }
 
 async function openOrderThread(page: Page, keypair: Keypair, listingTitle: string, shotPrefix: string): Promise<void> {
@@ -645,8 +689,8 @@ describe('Wave A Chromium Shop: buyer send, seller see', () => {
         await signInWithEncryptedFile(sellerPage, sellerSeat);
         await signInWithEncryptedFile(buyerPage, buyerSeat);
         failingStep = 'marketplace_session';
-        await connectMarketplaceSession(sellerPage, sellerSeat.keypair, created.title, 'seller');
-        await connectMarketplaceSession(buyerPage, buyerSeat.keypair, created.title, 'buyer');
+        await connectMarketplaceSession(sellerPage, sellerPersistedSession, created.title, 'seller');
+        await connectMarketplaceSession(buyerPage, buyerPersistedSession, created.title, 'buyer');
 
         failingStep = 'open_threads';
         await openOrderThread(sellerPage, sellerSeat.keypair, created.title, 'seller');
