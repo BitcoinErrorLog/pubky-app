@@ -170,4 +170,104 @@ describe('MarketplaceInventory VRT', () => {
       VRT_DENSE_CHROME_SCREENSHOT,
     );
   });
+
+  it('renders the empty board at mobile viewport', async () => {
+    view.isLoading = false;
+    view.load = { status: 'empty', rows: [] };
+    view.conflictListingId = null;
+    const screen = await renderForVRT(<MarketplaceInventory />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-empty-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders the grant-needed banner at mobile viewport', async () => {
+    view.isLoading = false;
+    view.load = { status: 'grant-needed' };
+    view.conflictListingId = null;
+    const screen = await renderForVRT(<MarketplaceInventory />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-grant-needed-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders durable-unavailable at mobile viewport', async () => {
+    view.isLoading = false;
+    view.load = { status: 'durable-unavailable' };
+    view.conflictListingId = null;
+    const screen = await renderForVRT(<MarketplaceInventory />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-durable-unavailable-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders a 409 revision conflict on the row at mobile viewport', async () => {
+    view.isLoading = false;
+    view.load = { status: 'ready', rows: [row()] };
+    view.conflictListingId = 'boots';
+    const screen = await renderForVRT(<MarketplaceInventory />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-revision-conflict-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders mixed per-id sync on the board at desktop viewport', async () => {
+    view.isLoading = false;
+    view.conflictListingId = null;
+    view.load = {
+      status: 'ready',
+      rows: [
+        row(),
+        row({
+          listingId: 'unsynced',
+          aggregateId: `listing:${SELLER}_unsynced`,
+          title: 'Unsynced listing',
+          reserved: 0,
+          available: 2,
+          sold: 0,
+          total: 2,
+          serverRevision: 1,
+          sync: 'missing',
+          syncMessage: 'Published, not yet registered for checkout',
+        }),
+      ],
+    };
+    const screen = await renderForVRT(<MarketplaceInventory />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-mixed-sync-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders mixed per-id sync on the board at mobile viewport', async () => {
+    view.isLoading = false;
+    view.conflictListingId = null;
+    view.load = {
+      status: 'ready',
+      rows: [
+        row(),
+        row({
+          listingId: 'unsynced',
+          aggregateId: `listing:${SELLER}_unsynced`,
+          title: 'Unsynced listing',
+          reserved: 0,
+          available: 2,
+          sold: 0,
+          total: 2,
+          serverRevision: 1,
+          sync: 'missing',
+          syncMessage: 'Published, not yet registered for checkout',
+        }),
+      ],
+    };
+    const screen = await renderForVRT(<MarketplaceInventory />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'inventory-mixed-sync-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
 });
