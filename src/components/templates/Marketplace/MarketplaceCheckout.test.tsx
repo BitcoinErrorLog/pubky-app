@@ -62,10 +62,12 @@ const secondSellerListing = {
   },
 };
 
+const searchParams = vi.hoisted(() => ({ current: new URLSearchParams() }));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => '/marketplace/checkout',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParams.current,
 }));
 
 vi.mock('@/config/commerce', async (importOriginal) => {
@@ -101,26 +103,24 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
       }>;
       return {
         items,
-        ordinaryItems: items.filter((item) => item.pricingSource !== 'offer'),
-        awardItems: items.filter((item) => item.pricingSource === 'offer'),
+        ordinaryItems: items,
+        awardItems: [],
         itemCount: items.reduce((total, item) => total + item.quantity, 0),
         subtotals: sumMoneyByAsset(
-          items
-            .filter((item) => item.pricingSource !== 'offer')
-            .flatMap((item) => {
-              const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
-              const price =
-                variant?.priceOverride ??
-                (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
-              return price ? [{ money: price, quantity: item.quantity }] : [];
-            }),
+          items.flatMap((item) => {
+            const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+            const price =
+              variant?.priceOverride ??
+              (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
+            return price ? [{ money: price, quantity: item.quantity }] : [];
+          }),
         ),
         isLoading: view.isLoading,
         add: vi.fn(),
         update: vi.fn(),
         remove: vi.fn(),
         clear: vi.fn(),
-        groups: actual.groupMarketplaceCartItems(items.filter((item) => item.pricingSource !== 'offer') as never),
+        groups: actual.groupMarketplaceCartItems(items as never),
       };
     },
   };
@@ -179,7 +179,13 @@ vi.mock('@/controllers/commerce/commerce', () => ({
       stripePaymentLink: 'https://buy.stripe.com/test_checkout',
       paypalMerchantEmail: 'seller@example.com',
     })),
+    getIndicativeBtcRate: vi.fn(async () => null),
   },
+}));
+
+vi.mock('@/organisms/Marketplace/MarketplaceIndicativePrice', () => ({
+  MarketplaceIndicativePrice: ({ money }: { money: { currency: string } }) =>
+    money.currency === 'USD' ? <span>≈ ₿137,000</span> : null,
 }));
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
@@ -241,6 +247,7 @@ describe('MarketplaceCheckout', () => {
     view.isPickupCapabilityLoading = false;
     view.orderCount = 1;
     view.payResult = { ok: false, orderIds: [], boundOrders: [] };
+    window.history.replaceState(null, '', '/marketplace/checkout');
   });
 
   it('disables Pay without a marketplace session in durable mode', () => {
@@ -396,6 +403,7 @@ describe('MarketplaceCheckout local pickup (Wave 7, §A2)', () => {
     view.hasFulfillmentConflict = false;
     view.isPickupCapabilityLoading = false;
     view.orderCount = 1;
+    window.history.replaceState(null, '', '/marketplace/checkout');
   });
 
   it('offers the fulfillment choice only when every line in the group publishes both', async () => {

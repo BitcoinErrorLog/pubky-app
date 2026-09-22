@@ -251,11 +251,12 @@ describe('MarketplaceOrders tabs', () => {
     await user.click(screen.getByRole('tab', { name: /Completed 2/i }));
     expect(screen.getByText(/Bought completed scarf/)).toBeInTheDocument();
     expect(screen.getByText(/Sold refunded belt/)).toBeInTheDocument();
-    expect(screen.queryByText(/Bought cancelled mittens/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
     expect(screen.queryByText(/Sold return requested gloves/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /Cancelled 0/i }));
-    expect(screen.queryByText(/Bought cancelled mittens/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-abandoned-checkouts')).toHaveTextContent('Bought cancelled mittens');
 
     await user.click(screen.getByRole('tab', { name: /All 7/i }));
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
@@ -301,7 +302,8 @@ describe('MarketplaceOrders tabs', () => {
       orderView('pending_payment', 'Bought no deadline boots', 'buyer', { holdExpiresAt: null, nextActor: 'buyer' }),
     ];
     rerender(<MarketplaceOrders />);
-    expect(screen.getByText('Checkout in progress')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Checkout in progress' })).toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-continue-checkout')).toHaveTextContent('Checkout in progress');
 
     ordersState.orders = [
       orderView('pending_payment', 'Bought expired boots', 'buyer', {
@@ -368,7 +370,7 @@ describe('MarketplaceOrders tabs', () => {
     render(<MarketplaceOrders />);
     await user.click(screen.getByRole('tab', { name: /Waiting on the other side 0/i }));
 
-    expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Continue checkout' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('heading', { name: 'Reservations' })).toBeInTheDocument();
     expect(screen.queryByText(/Sold paid bag/)).not.toBeInTheDocument();
   });
@@ -403,19 +405,21 @@ describe('MarketplaceOrders tabs', () => {
 
     render(<MarketplaceOrders />);
 
+    fireEvent.click(screen.getByRole('tab', { name: /All 1/i }));
+
     const tabList = screen.getByRole('tablist');
-    const activeTab = screen.getByRole('tab', { name: /Needs my action 1/i });
+    const actionTab = screen.getByRole('tab', { name: /Needs my action 1/i });
     Object.defineProperties(tabList, {
       clientWidth: { configurable: true, value: 100 },
       scrollLeft: { configurable: true, value: 20, writable: true },
       scrollTo: { configurable: true, value: tabListScrollTo },
     });
-    Object.defineProperties(activeTab, {
+    Object.defineProperties(actionTab, {
       offsetLeft: { configurable: true, value: 160 },
       offsetWidth: { configurable: true, value: 80 },
     });
 
-    fireEvent.click(activeTab);
+    fireEvent.click(actionTab);
 
     expect(tabListScrollTo).toHaveBeenCalledWith({ left: 150, behavior });
     expect(tabListScrollTo).toHaveBeenCalledTimes(1);

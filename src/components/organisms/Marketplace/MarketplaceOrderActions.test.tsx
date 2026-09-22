@@ -509,8 +509,8 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
     render(<MarketplaceOrderActions order={order} isBuyer canEditReview={false} actOnOrder={actOnOrder} />);
 
-    await user.click(screen.getByRole('button', { name: 'Cancel order' }));
-    expect(screen.getByRole('heading', { name: 'Cancel order' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel checkout' }));
+    expect(screen.getByRole('heading', { name: 'Cancel checkout' })).toBeInTheDocument();
     expect(screen.getByText(/Cancelling moves no money/)).toBeInTheDocument();
     expect(screen.getByTestId('dialog-content')).toHaveClass('m-6', 'rounded-xl', 'w-full', 'max-w-lg');
     expect(screen.getByTestId('dialog-content')).not.toHaveClass('sm:max-w-[calc(100vw-2rem)]');

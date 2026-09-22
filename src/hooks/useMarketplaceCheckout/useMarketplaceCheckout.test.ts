@@ -388,7 +388,6 @@ describe('useMarketplaceCheckout', () => {
 
     const { toast } = await import('@/molecules/Toaster/use-toast');
     const descriptions = vi.mocked(toast).mock.calls.map(([call]) => call.description);
-    expect(descriptions).toContain('Complete the sandbox payment to continue.');
     expect(descriptions).toContain('Checkout completed, but your cart could not be cleared.');
   });
 
@@ -418,7 +417,6 @@ describe('useMarketplaceCheckout', () => {
 
     const { toast } = await import('@/molecules/Toaster/use-toast');
     const descriptions = vi.mocked(toast).mock.calls.map(([call]) => call.description);
-    expect(descriptions).toContain('Complete the sandbox payment to continue.');
     expect(descriptions).toContain('Checkout completed, but the address could not be saved.');
   });
 

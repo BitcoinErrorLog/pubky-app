@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Banknote, Check, CreditCard, LoaderCircle, WalletCards } from 'lucide-react';
 import { Controller, useWatch } from 'react-hook-form';
@@ -91,6 +91,10 @@ function MarketplaceCartCheckout() {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodKind | null>(null);
   const [sharedMethods, setSharedMethods] = useState<PaymentMethodKind[] | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const sellerKey = useMemo(
+    () => [...new Set(ordinaryItems.map((item) => item.listing.record.ownerPubky))].join('|'),
+    [ordinaryItems],
+  );
 
   useEffect(() => {
     const syncHash = () => setHashOrderId(readCheckoutHashOrderId(window.location.hash));
@@ -100,7 +104,7 @@ function MarketplaceCartCheckout() {
   }, []);
 
   useEffect(() => {
-    const sellers = [...new Set(ordinaryItems.map((item) => item.listing.record.ownerPubky))];
+    const sellers = sellerKey.length === 0 ? [] : sellerKey.split('|');
     if (sellers.length === 0) {
       setSharedMethods([]);
       return;
@@ -123,7 +127,7 @@ function MarketplaceCartCheckout() {
     return () => {
       active = false;
     };
-  }, [ordinaryItems]);
+  }, [sellerKey]);
 
   const targetPayingIds = [...new Set([...payingOrderIds, ...(hashOrderId ? [hashOrderId] : [])])];
   const focusedPaying = orders.orders.filter((view) => targetPayingIds.includes(view.order.id));
