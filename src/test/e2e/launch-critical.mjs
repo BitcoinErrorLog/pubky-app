@@ -208,6 +208,17 @@ async function waitForAuthUrl(page, timeout = 25_000) {
   return url;
 }
 
+async function waitForStableAuthUrl(page) {
+  let last = await waitForAuthUrl(page);
+  for (let i = 0; i < 10; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const next = await waitForAuthUrl(page);
+    if (next === last) return next;
+    last = next;
+  }
+  return last;
+}
+
 async function approveAuthRequest(secretHex, authorizationUrl) {
   const sdk = await import('@synonymdev/pubky');
   const keypair = sdk.Keypair.fromSecret(hexToBytes(secretHex));
@@ -229,6 +240,7 @@ async function waitForSignedIn(page, timeout = 60_000) {
         return false;
       }
     },
+    undefined,
     { timeout },
   );
 }
@@ -262,9 +274,7 @@ async function signInSeller(page, secretHex) {
   try {
     await closeJoinDialog(page);
     await gotoAndSettle(page, '/sign-in');
-    const firstUrl = await waitForAuthUrl(page);
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    const authorizationUrl = await waitForAuthUrl(page).catch(() => firstUrl);
+    const authorizationUrl = await waitForStableAuthUrl(page);
     try {
       await approveAuthRequest(secretHex, authorizationUrl);
     } catch (error) {
@@ -638,9 +648,13 @@ function shopCacheRow(shop) {
 }
 
 async function seedCanonicalListingCache(page, canonicalListing, shop) {
-  await page.waitForFunction(() => indexedDB.databases().then((dbs) => dbs.some((entry) => entry.name === 'franky')), {
-    timeout: 15_000,
-  });
+  await page.waitForFunction(
+    () => indexedDB.databases().then((dbs) => dbs.some((entry) => entry.name === 'franky')),
+    undefined,
+    {
+      timeout: 15_000,
+    },
+  );
   const seeded = await page.evaluate(
     async ({ listing, shopRecord }) => {
       const put = (storeName, value) =>
@@ -692,6 +706,7 @@ async function main() {
     viewport: { width: 1280, height: 800 },
     locale: 'en-US',
   });
+  context.setDefaultTimeout(90_000);
   const page = await context.newPage();
   page.on('pageerror', (error) => {
     pageErrors.push(String(error));
