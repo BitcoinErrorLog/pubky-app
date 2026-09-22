@@ -519,7 +519,7 @@ export function MarketplaceCart() {
                       className="w-full rounded-full"
                       onClick={submit}
                       disabled={!canPlaceOrder}
-                      aria-describedby={!canPlaceOrder ? 'place-order-reason' : undefined}
+                      aria-describedby={!canPlaceOrder && !approvalNeeded ? 'place-order-reason' : undefined}
                     >
                       {isSandbox ? 'Place sandbox order' : 'Place order'}
                     </Button>
@@ -528,13 +528,11 @@ export function MarketplaceCart() {
                         Paid directly to the seller.
                       </Typography>
                     )}
-                    {!canPlaceOrder && (
+                    {!canPlaceOrder && !approvalNeeded && (
                       <Typography id="place-order-reason" as="p" className="text-xs text-muted-foreground">
-                        {approvalNeeded
-                          ? 'Approve purchases in Pubky Ring before placing the order.'
-                          : checkout.hasFulfillmentConflict
-                            ? "Some items can't be checked out together — see the note in your cart."
-                            : 'Fill in delivery details and accept the guarantee to place the order.'}
+                        {checkout.hasFulfillmentConflict
+                          ? "Some items can't be checked out together — see the note in your cart."
+                          : 'Fill in delivery details and accept the guarantee to place the order.'}
                       </Typography>
                     )}
                   </section>

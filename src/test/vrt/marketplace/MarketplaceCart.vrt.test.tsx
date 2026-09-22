@@ -495,6 +495,30 @@ describe('Marketplace cart — visual regression', () => {
     view.hasMarketplaceSession = false;
   });
 
+  it('renders the logged-out durable cart at desktop viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: { width: 1440, height: 1600 } });
+    await captureCart('cart-logged-out-desktop');
+    view.adapterMode = 'sandbox';
+  });
+
+  it('renders the logged-out durable cart at mobile viewport', async () => {
+    const { singleSeller } = await fixtures;
+    view.items = singleSeller;
+    view.isLoading = false;
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = false;
+
+    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
+    await captureCart('cart-logged-out-mobile');
+    view.adapterMode = 'sandbox';
+  });
+
   it('renders an accepted-offer group without mixing it into ordinary checkout', async () => {
     const { singleSeller } = await fixtures;
     const offer = parseContractFaithfulOffer('accepted', 'active');

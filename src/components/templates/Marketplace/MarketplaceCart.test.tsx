@@ -244,11 +244,8 @@ describe('MarketplaceCart', () => {
     expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
     const placeOrder = screen.getByRole('button', { name: 'Place order' });
     expect(placeOrder).toBeDisabled();
-    expect(placeOrder).toHaveAttribute('aria-describedby', 'place-order-reason');
-    expect(screen.getByText('Approve purchases in Pubky Ring before placing the order.')).toHaveAttribute(
-      'id',
-      'place-order-reason',
-    );
+    expect(placeOrder).not.toHaveAttribute('aria-describedby');
+    expect(screen.queryByText('Approve purchases in Pubky Ring before placing the order.')).not.toBeInTheDocument();
     expect(screen.queryByText('Accept the guarantee terms.')).not.toBeInTheDocument();
   });
 
@@ -263,7 +260,9 @@ describe('MarketplaceCart', () => {
       render(<MarketplaceCart />);
 
       expect(screen.queryByRole('note')).not.toBeInTheDocument();
-      expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Real money. Payments are final and go directly to the seller.'),
+      ).not.toBeInTheDocument();
       expect(screen.getByText('Paid directly to the seller.')).toBeInTheDocument();
       expect(screen.getByText(MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE)).toBeInTheDocument();
     },

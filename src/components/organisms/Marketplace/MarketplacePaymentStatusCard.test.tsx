@@ -147,7 +147,9 @@ describe('MarketplacePaymentStatusCard', () => {
       );
 
       expect(screen.queryByRole('note')).not.toBeInTheDocument();
-      expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Real money. Payments are final and go directly to the seller.'),
+      ).not.toBeInTheDocument();
     },
   );
 

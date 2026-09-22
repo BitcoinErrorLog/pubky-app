@@ -35,9 +35,7 @@ export function formatHoldDeadline(holdExpiresAt: string | null | undefined): st
 
 export function holderUnboundCopy(holdExpiresAt: string | null | undefined): string {
   const deadline = formatHoldDeadline(holdExpiresAt);
-  return deadline
-    ? `The item is held for you until ${deadline}.`
-    : 'The item is held for you once a payment starts.';
+  return deadline ? `The item is held for you until ${deadline}.` : 'The item is held for you once a payment starts.';
 }
 
 export function holderBoundCopy(holdExpiresAt: string | null | undefined): string {
