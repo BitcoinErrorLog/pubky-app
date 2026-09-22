@@ -46,7 +46,7 @@ export function MarketplaceInventoryOnceSecretDialog({
             variant="secondary"
             className="rounded-full"
             onClick={async () => {
-              await copyToClipboard(secret);
+              await copyToClipboard({ text: secret });
               setCopied(true);
             }}
           >

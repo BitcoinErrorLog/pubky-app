@@ -39,26 +39,28 @@ export type InventoryWebhookRow = {
   createdAt: number;
 };
 
+export type InventoryAutomationsBlocked = Exclude<InventoryAutomationsAuth, { status: 'ready' }>;
+
 export type InventoryAutomationsLoad =
-  | InventoryAutomationsAuth
+  | InventoryAutomationsBlocked
   | { status: 'empty'; sessions: []; webhooks: InventoryWebhookRow[] }
   | { status: 'ready'; sessions: InventorySessionRow[]; webhooks: InventoryWebhookRow[] }
   | { status: 'error'; message: string };
 
 export type InventoryRevokeResult =
   | { status: 'revoked'; id: string }
-  | Exclude<InventoryAutomationsAuth, { status: 'ready' }>
+  | InventoryAutomationsBlocked
   | { status: 'error'; message: string };
 
 export type InventoryWebhookSecretResult =
   | { status: 'secret'; id: string; url: string; secret: string; message: string }
-  | Exclude<InventoryAutomationsAuth, { status: 'ready' }>
+  | InventoryAutomationsBlocked
   | { status: 'invalid-url'; message: string }
   | { status: 'error'; message: string };
 
 export type InventoryWebhookDeleteResult =
   | { status: 'deleted'; id: string }
-  | Exclude<InventoryAutomationsAuth, { status: 'ready' }>
+  | InventoryAutomationsBlocked
   | { status: 'error'; message: string };
 
 const KIND_LABEL: Record<InventorySessionKind, InventorySessionRow['kindLabel']> = {
@@ -147,7 +149,7 @@ function classifyClientError(error: PubkyShopError): InventoryAutomationsAuth['s
   return 'error';
 }
 
-function mapError(error: PubkyShopError): Exclude<InventoryAutomationsAuth, { status: 'ready' }> | { status: 'error'; message: string } {
+function mapError(error: PubkyShopError): InventoryAutomationsBlocked | { status: 'error'; message: string } {
   if (MarketplaceShopClientService.isRateLimited(error)) {
     return { status: 'error', message: MarketplaceShopClientService.formatRateLimitCopy(error) };
   }
@@ -325,7 +327,7 @@ export class CommerceInventoryAutomationsApplication {
 
   private static fail<T>(
     result: Extract<SdkResult<T>, { ok: false }>,
-  ): Exclude<InventoryAutomationsAuth, { status: 'ready' }> | { status: 'error'; message: string } {
+  ): InventoryAutomationsBlocked | { status: 'error'; message: string } {
     return mapError(result.error);
   }
 
