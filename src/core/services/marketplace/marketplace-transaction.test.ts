@@ -978,21 +978,20 @@ describe('MarketplaceTransactionService read projections', () => {
       });
     });
 
-    it('surfaces live-test allow-list and amount-cap reasons as static copy', async () => {
+    it('surfaces capability_required, method_unavailable, and CAS revision conflict as static copy', async () => {
       await establishSession();
       vi.mocked(fetch).mockResolvedValueOnce(
-        jsonResponse(409, {
+        jsonResponse(403, {
           ok: false,
           error: {
-            code: 'INVALID_STATE',
-            message: 'This seller is not on the live-test allow-list.',
-            reason: 'live_test_seller_not_allowlisted',
+            code: 'capability_required',
+            message: 'The session grant does not authorize inventory access.',
           },
         }),
       );
       await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'paypal')).rejects.toMatchObject({
-        message: 'This seller is not enabled for live payment tests.',
-        context: { reason: 'live_test_seller_not_allowlisted' },
+        message: 'This payment needs a marketplace grant. Approve access on your signer and try again.',
+        context: { serviceCode: 'capability_required' },
       });
 
       vi.mocked(fetch).mockResolvedValueOnce(
@@ -1000,14 +999,28 @@ describe('MarketplaceTransactionService read projections', () => {
           ok: false,
           error: {
             code: 'INVALID_STATE',
-            message: 'The order total exceeds the live-test amount cap.',
-            reason: 'live_test_amount_capped',
+            message: 'The seller has no PayPal merchant email configured.',
+            reason: 'method_unavailable',
           },
         }),
       );
       await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'paypal')).rejects.toMatchObject({
-        message: 'This order exceeds the live-test payment cap of $1.00.',
-        context: { reason: 'live_test_amount_capped' },
+        message: 'The seller has not configured this payment method.',
+        context: { reason: 'method_unavailable', serviceCode: 'INVALID_STATE' },
+      });
+
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(409, {
+          ok: false,
+          error: {
+            code: 'REVISION_CONFLICT',
+            message: 'The aggregate changed.',
+          },
+        }),
+      );
+      await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'paypal')).rejects.toMatchObject({
+        message: 'This payment changed since you loaded it. The latest state was reloaded — retry from there.',
+        context: { serviceCode: 'REVISION_CONFLICT' },
       });
     });
 

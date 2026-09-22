@@ -66,7 +66,7 @@ describe('useMarketplaceOrderPayment', () => {
     expect(toastCall?.description).not.toContain('SENTINEL_ORDER_PAYMENT_ACTION');
   });
 
-  it('surfaces the service live-test refusal reason on an error toast', async () => {
+  it('surfaces the service refusal reason on an error toast', async () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
@@ -74,7 +74,7 @@ describe('useMarketplaceOrderPayment', () => {
       paypalMerchantEmail: 'seller@example.com',
     });
     vi.mocked(CommerceController.bindPaymentMethod).mockRejectedValueOnce(
-      appError('SENTINEL_ORDER_PAYMENT_ACTION', 'live_test_seller_not_allowlisted'),
+      appError('SENTINEL_ORDER_PAYMENT_ACTION', 'method_unavailable'),
     );
     const { result } = renderHook(() =>
       useMarketplaceOrderPayment({ order: createOrderFixture('paid'), enabled: true, onPaymentChanged: vi.fn() }),
@@ -85,7 +85,7 @@ describe('useMarketplaceOrderPayment', () => {
     });
     const toastCall = vi.mocked(toast).mock.calls.at(-1)?.[0];
     expect(toastCall?.variant).toBe('error');
-    expect(toastCall?.description).toBe('This seller is not enabled for live payment tests.');
+    expect(toastCall?.description).toBe('The seller has not configured this payment method.');
     expect(toastCall?.description).not.toContain('SENTINEL');
   });
 });

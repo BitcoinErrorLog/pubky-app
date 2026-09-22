@@ -4,7 +4,6 @@ import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/er
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
-  MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES,
   marketplaceCheckoutRefusalMessage,
   marketplaceFailureMessage,
   marketplaceOfferCheckoutFailureMessage,
@@ -118,33 +117,31 @@ describe('marketplaceCheckoutRefusalMessage', () => {
 });
 
 describe('marketplacePaymentMethodFailureMessage', () => {
-  it('maps a live-test allow-list refusal from context.reason', () => {
+  it('maps a capability_required family from the service code', () => {
     const error = new AppError({
       category: ErrorCategory.Client,
       code: ClientErrorCode.BAD_REQUEST,
       message: 'SENTINEL_PAYMENT_METHOD_WIRE',
       service: ErrorService.Marketplace,
       operation: 'bindPaymentMethod',
-      context: { statusCode: 409, reason: 'live_test_seller_not_allowlisted' },
+      context: { statusCode: 403, serviceCode: 'capability_required' },
     });
     expect(marketplacePaymentMethodFailureMessage(error, 'The payment action could not be completed.')).toBe(
-      MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES.get('live_test_seller_not_allowlisted'),
+      'This payment needs a marketplace grant. Approve access on your signer and try again.',
     );
     expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).not.toContain('SENTINEL');
   });
 
-  it('maps a live-test amount cap refusal with the $1.00 limit', () => {
+  it('maps a CAS 409 revision conflict from the wire code', () => {
     const error = new AppError({
       category: ErrorCategory.Client,
-      code: ClientErrorCode.BAD_REQUEST,
+      code: ClientErrorCode.CONFLICT,
       message: 'SENTINEL_PAYMENT_METHOD_WIRE',
       service: ErrorService.Marketplace,
       operation: 'bindPaymentMethod',
-      context: { statusCode: 409, reason: 'live_test_amount_capped' },
+      context: { statusCode: 409, serviceCode: 'REVISION_CONFLICT' },
     });
-    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).toBe(
-      'This order exceeds the live-test payment cap of $1.00.',
-    );
+    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).toBe(MARKETPLACE_FAILURE_MESSAGES.paymentChanged);
   });
 
   it('maps a missing payment method without copying the wire message', () => {
@@ -158,6 +155,31 @@ describe('marketplacePaymentMethodFailureMessage', () => {
     });
     expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).toBe(
       'The seller has not configured this payment method.',
+    );
+  });
+
+  it('maps seller-not-configured and service-unavailable families', () => {
+    const seller = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: 'stripe_key_missing' },
+    });
+    const unavailable = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: 'SENTINEL',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 503, reason: 'paykit_unavailable' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(seller, 'fallback')).toBe(
+      'This seller has not configured a Stripe key.',
+    );
+    expect(marketplacePaymentMethodFailureMessage(unavailable, 'fallback')).toBe(
+      'The Paykit server is unavailable. Try again shortly.',
     );
   });
 
@@ -175,8 +197,8 @@ describe('marketplacePaymentMethodFailureMessage', () => {
   });
 
   it('maps known reasons and ignores prototype keys', () => {
-    expect(marketplacePaymentMethodReasonMessage('live_test_seller_not_allowlisted')).toBe(
-      'This seller is not enabled for live payment tests.',
+    expect(marketplacePaymentMethodReasonMessage('method_unavailable')).toBe(
+      'The seller has not configured this payment method.',
     );
     expect(marketplacePaymentMethodReasonMessage('constructor')).toBe('The payment method request was refused.');
     expect(marketplacePaymentMethodReasonMessage(undefined)).toBe('The payment method request was refused.');

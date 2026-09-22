@@ -1062,24 +1062,31 @@ export class MarketplaceTransactionService {
 
   /**
    * The payment-methods surface answers failures with
-   * `{ok:false, error:{code, message, reason}}`. Map `reason` to a static
-   * client string — never copy `error.message`, which can echo a rejected
-   * Stripe restricted key or other private value into logs and the reporter.
+   * `{ok:false, error:{code, message, reason}}`. Map `reason`, or `code` when
+   * the family ships no reason (`capability_required`, CAS `REVISION_CONFLICT`),
+   * to a static client string — never copy `error.message`, which can echo a
+   * rejected Stripe restricted key or other private value into logs and the reporter.
    */
   private static async throwPaymentMethodError(response: Response, operation: string): Promise<void> {
     if (response.ok) return;
     let reason: string | undefined;
+    let serviceCode: string | undefined;
     try {
-      const body = (await response.clone().json()) as { error?: { reason?: string } };
+      const body = (await response.clone().json()) as { error?: { code?: string; reason?: string } };
       reason = typeof body.error?.reason === 'string' ? body.error.reason : undefined;
+      serviceCode = typeof body.error?.code === 'string' ? body.error.code : undefined;
     } catch {
       // A non-JSON failure body falls through to the generic parse error.
       return;
     }
-    throw Err.client(ClientErrorCode.BAD_REQUEST, marketplacePaymentMethodReasonMessage(reason), {
+    throw Err.client(ClientErrorCode.BAD_REQUEST, marketplacePaymentMethodReasonMessage(reason ?? serviceCode), {
       service: ErrorService.Marketplace,
       operation,
-      context: { statusCode: response.status, reason },
+      context: {
+        statusCode: response.status,
+        ...(reason ? { reason } : {}),
+        ...(serviceCode ? { serviceCode } : {}),
+      },
     });
   }
 
