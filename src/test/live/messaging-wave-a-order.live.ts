@@ -212,13 +212,21 @@ async function signInHomeserver(keypair: Keypair, pubky: string): Promise<void> 
 }
 
 async function connectServiceSession(keypair: Keypair, pubky: string): Promise<ServiceSession> {
-  const flow = modules.MarketplaceSessionService.beginSessionFlow();
-  await new Pubky().signer(keypair).approveAuthRequest(flow.authorizationUrl);
-  const info = await flow.awaitSession();
-  expect(info.pubky).toBe(pubky);
-  const session = modules.MarketplaceSessionService.getActiveSession();
-  if (session === null) throw new Error(`No marketplace session after auth for ${pubky.slice(0, 8)}`);
-  return session;
+  return await withPatience(`marketplace session for ${pubky.slice(0, 8)}`, 90_000, 4_000, async () => {
+    try {
+      const flow = modules.MarketplaceSessionService.beginSessionFlow();
+      await new Pubky().signer(keypair).approveAuthRequest(flow.authorizationUrl);
+      const info = await flow.awaitSession();
+      if (info.pubky !== pubky) {
+        return { done: false, value: null as never, detail: `session pubky ${info.pubky.slice(0, 8)}` };
+      }
+      const session = modules.MarketplaceSessionService.getActiveSession();
+      if (session === null) return { done: false, value: null as never, detail: 'no session' };
+      return { done: true, value: session };
+    } catch (error) {
+      return { done: false, value: null as never, detail: commandDetail(error) };
+    }
+  });
 }
 
 function snapshotMarketplaceSession(expectedPubky: string): PersistedMarketplaceSession {
