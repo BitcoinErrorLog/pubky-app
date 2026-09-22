@@ -17,6 +17,12 @@ import {
   commerceDeliveryAddressTableSchema,
   type CommerceFavoriteModelSchema,
   commerceFavoriteTableSchema,
+  type CommerceImportManifestModelSchema,
+  type CommerceImportMappingModelSchema,
+  type CommerceImportRowModelSchema,
+  commerceImportManifestTableSchema,
+  commerceImportMappingTableSchema,
+  commerceImportRowTableSchema,
   type CommerceListingDraftModelSchema,
   commerceListingDraftTableSchema,
   type CommerceListingModelSchema,
@@ -207,6 +213,10 @@ export class AppDatabase extends Dexie {
   // only, never on the homeserver (see commerce.schema.ts headers).
   commerce_delivery_addresses!: Dexie.Table<CommerceDeliveryAddressModelSchema>;
   commerce_shipping_presets!: Dexie.Table<CommerceShippingPresetModelSchema>;
+  // Inventory Studio import manifests (W2). Device-local; wiped on sign-out.
+  commerce_import_manifests!: Dexie.Table<CommerceImportManifestModelSchema>;
+  commerce_import_rows!: Dexie.Table<CommerceImportRowModelSchema>;
+  commerce_import_mappings!: Dexie.Table<CommerceImportMappingModelSchema>;
   // Encrypted messaging (Paykit Encrypted Links) — rows carry key material
   // and device-local plaintext history; see messaging.schema.ts header.
   commerce_messaging_receivers!: Dexie.Table<CommerceMessagingReceiverModelSchema>;
@@ -288,9 +298,6 @@ export class AppDatabase extends Dexie {
         // has never shipped, so there is no upgrade path to preserve.
         commerce_delivery_addresses: commerceDeliveryAddressTableSchema,
         commerce_shipping_presets: commerceShippingPresetTableSchema,
-        // Encrypted messaging — folded into the current (unreleased) DB
-        // version rather than bumping it: version 3 has never shipped, so
-        // there is no upgrade path to preserve.
         commerce_messaging_receivers: commerceMessagingReceiverTableSchema,
         commerce_messaging_links: commerceMessagingLinkTableSchema,
         commerce_messaging_conversations: commerceMessagingConversationTableSchema,
@@ -315,19 +322,31 @@ export class AppDatabase extends Dexie {
         moderation: moderationTableSchema,
       };
 
+      const importStores = {
+        commerce_import_manifests: commerceImportManifestTableSchema,
+        commerce_import_rows: commerceImportRowTableSchema,
+        commerce_import_mappings: commerceImportMappingTableSchema,
+      };
+      const storesWithoutImport = stores;
+      const storesAtDeclared = { ...storesWithoutImport, ...importStores };
+
       if (this.declaredVersion > MESSAGING_WRAP_BASE_DB_VERSION) {
-        // Version chain for the 4 → 5 upgrade: the schema is IDENTICAL across
-        // the bump (the wrap format rides in existing Uint8Array columns plus
-        // non-indexed wrap_version fields), so both versions declare the same
-        // stores. Declaring the base version is what lets Dexie OPEN a
-        // database last written by version 4 ("specification of currently
-        // installed DB version is missing" otherwise); the data migration
-        // itself runs in runInitialize, after open, where async WebCrypto is
-        // safe (a Dexie .upgrade() transaction cannot await non-Dexie work).
-        this.version(MESSAGING_WRAP_BASE_DB_VERSION).stores(stores);
-        this.version(this.declaredVersion).stores(stores);
+        // Version chain for 4 → 5 → 6: 4 and 5 share the wrap-era schema
+        // (no import tables). 6 adds Inventory Studio import stores in place.
+        this.version(MESSAGING_WRAP_BASE_DB_VERSION).stores(storesWithoutImport);
+        if (this.declaredVersion >= 5) {
+          this.version(5).stores(storesWithoutImport);
+        }
+        if (this.declaredVersion >= 6) {
+          this.version(6).stores(storesAtDeclared);
+        }
+        if (this.declaredVersion > 6) {
+          this.version(this.declaredVersion).stores(storesAtDeclared);
+        }
       } else {
-        this.version(this.declaredVersion).stores(stores);
+        // Tests force DB_VERSION=1: fold import tables into the single version
+        // so wipe-enumerate tests see them without a 4→6 chain.
+        this.version(this.declaredVersion).stores(storesAtDeclared);
       }
     } catch (error) {
       throw Err.database(DatabaseErrorCode.SCHEMA_ERROR, 'Failed to initialize database schema of indexedDB', {
@@ -525,18 +544,18 @@ export class AppDatabase extends Dexie {
     }
 
     if (currentVersion !== this.declaredVersion) {
-      if (currentVersion === MESSAGING_WRAP_BASE_DB_VERSION && this.declaredVersion > MESSAGING_WRAP_BASE_DB_VERSION) {
-        // 4 → 5: the schema is unchanged; the bump marks the at-rest wrap of
-        // messaging key material. In-place instead of delete-and-recreate —
-        // the rows being wrapped ARE the user's messaging identity and link
-        // state. A migration failure is FATAL here (fail closed): continuing
-        // would leave known-plaintext secrets in place.
-        Logger.info('Database upgrade 4 → 5: wrapping messaging secrets at rest, in place', {
+      if (currentVersion >= MESSAGING_WRAP_BASE_DB_VERSION && this.declaredVersion > currentVersion) {
+        // 4 → N: wrap messaging secrets when leaving v4. 5 → 6 adds import
+        // tables in place via Dexie — do not delete-and-recreate, that would
+        // wipe seller-local inventory import checkpoints.
+        Logger.info(`Database upgrade ${currentVersion} → ${this.declaredVersion}: in-place Dexie schema`, {
           rawVersion,
           expectedVersion: this.declaredVersion,
         });
         await this.open();
-        await migrateMessagingSecretsToWrappedStorage(this);
+        if (currentVersion === MESSAGING_WRAP_BASE_DB_VERSION) {
+          await migrateMessagingSecretsToWrappedStorage(this);
+        }
         return { wasDbReset: false, messagingAtRestDegraded: false };
       }
       Logger.info(`Database version mismatch. Current: ${currentVersion}, Expected: ${this.declaredVersion}`, {
