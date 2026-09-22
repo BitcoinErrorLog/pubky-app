@@ -4,7 +4,6 @@ import { createMarketplaceVrtAuthStore } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
 import { expectVrtSurface, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
-import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
 import { MarketplaceInventoryAutomations } from '@/templates/Marketplace/MarketplaceInventoryAutomations';
 import { MarketplaceInventoryOnceSecretDialog } from '@/organisms/Marketplace/MarketplaceInventoryOnceSecretDialog';
 import type { InventoryAutomationsLoad } from '@/application/commerce/inventory-automations';
@@ -96,7 +95,7 @@ describe('MarketplaceInventoryAutomations VRT', () => {
           kind: 'inventory',
           kindLabel: 'Inventory',
           label: 'Studio',
-          grant: INVENTORY_GRANT,
+          grant: '—',
           createdAt: '2026-09-21T00:00:00.000Z',
           expiresAt: '2099-01-01T00:00:00.000Z',
           lastUsedAt: null,
@@ -106,7 +105,7 @@ describe('MarketplaceInventoryAutomations VRT', () => {
           kind: 'cli',
           kindLabel: 'CLI',
           label: 'CLI',
-          grant: '/pub/example/:rw',
+          grant: '—',
           createdAt: '2026-09-21T00:00:00.000Z',
           expiresAt: '2099-01-01T00:00:00.000Z',
           lastUsedAt: null,
@@ -141,7 +140,7 @@ describe('MarketplaceInventoryAutomations VRT', () => {
           kind: 'inventory',
           kindLabel: 'Inventory',
           label: 'Studio',
-          grant: INVENTORY_GRANT,
+          grant: '—',
           createdAt: '2026-09-21T00:00:00.000Z',
           expiresAt: '2099-01-01T00:00:00.000Z',
           lastUsedAt: null,
@@ -179,6 +178,66 @@ describe('MarketplaceInventoryAutomations VRT', () => {
     expect(screen.getByTestId('inventory-once-secret')).toBeTruthy();
     await expect(expectVrtSurface('inventory-studio')).toMatchScreenshot(
       'inventory-once-secret-masked-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders the empty automations board at desktop viewport', async () => {
+    view.isLoading = false;
+    view.secret = null;
+    view.load = { status: 'empty', sessions: [], webhooks: [] };
+    await renderForVRT(<MarketplaceInventoryAutomations />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
+    await expect(expectVrtSurface('inventory-studio')).toMatchScreenshot(
+      'inventory-automations-empty-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders the grant-needed banner at desktop viewport', async () => {
+    view.isLoading = false;
+    view.secret = null;
+    view.load = { status: 'grant-needed' };
+    await renderForVRT(<MarketplaceInventoryAutomations />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
+    await expect(expectVrtSurface('inventory-studio')).toMatchScreenshot(
+      'inventory-automations-grant-needed-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders the automations error at desktop viewport', async () => {
+    view.isLoading = false;
+    view.secret = null;
+    view.load = { status: 'error', message: 'The service request failed.' };
+    await renderForVRT(<MarketplaceInventoryAutomations />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+      disableHover: true,
+    });
+    await expect(expectVrtSurface('inventory-studio')).toMatchScreenshot(
+      'inventory-automations-error-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders the once-secret dialog masked at mobile viewport', async () => {
+    const screen = await renderForVRT(
+      <main className="w-full py-6">
+        <MarketplaceInventoryOnceSecretDialog
+          open
+          secret="this-secret-must-not-appear-in-pixels"
+          onClose={() => undefined}
+        />
+      </main>,
+      { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
+    );
+    expect(screen.getByTestId('inventory-once-secret')).toBeTruthy();
+    await expect(expectVrtSurface('inventory-studio')).toMatchScreenshot(
+      'inventory-once-secret-masked-mobile',
       VRT_DENSE_CHROME_SCREENSHOT,
     );
   });

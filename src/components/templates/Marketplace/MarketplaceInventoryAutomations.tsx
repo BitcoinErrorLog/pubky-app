@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import { ArrowLeft, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
-import { WEBHOOK_DELIVERY_COPY, WEBHOOK_URL_COPY } from '@/application/commerce/inventory-automations';
+import {
+  type InventorySessionKind,
+  WEBHOOK_DELIVERY_COPY,
+  WEBHOOK_URL_COPY,
+} from '@/application/commerce/inventory-automations';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -17,12 +21,14 @@ import { useMarketplaceInventoryAutomations } from '@/hooks/useMarketplaceInvent
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceInventoryGrantBanner } from '@/organisms/Marketplace/MarketplaceInventoryGrantBanner';
 import { MarketplaceInventoryOnceSecretDialog } from '@/organisms/Marketplace/MarketplaceInventoryOnceSecretDialog';
+import { MarketplaceInventoryRevokeDialog } from '@/organisms/Marketplace/MarketplaceInventoryRevokeDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 
 export function MarketplaceInventoryAutomations() {
   const board = useMarketplaceInventoryAutomations();
   const [url, setUrl] = useState('');
+  const [revokeTarget, setRevokeTarget] = useState<{ id: string; kind: InventorySessionKind } | null>(null);
   const sessions = board.load.status === 'ready' ? board.load.sessions : [];
   const webhooks = board.load.status === 'ready' || board.load.status === 'empty' ? board.load.webhooks : [];
 
@@ -115,7 +121,6 @@ export function MarketplaceInventoryAutomations() {
                           <tr className="border-b border-border text-muted-foreground">
                             <th className="p-3 font-medium">Kind</th>
                             <th className="p-3 font-medium">Label</th>
-                            <th className="p-3 font-medium">Grant</th>
                             <th className="p-3 font-medium">Issued</th>
                             <th className="p-3 font-medium">Expires</th>
                             <th className="p-3 font-medium">Last used</th>
@@ -127,7 +132,6 @@ export function MarketplaceInventoryAutomations() {
                             <tr key={session.id} className="border-b border-border last:border-0">
                               <td className="p-3">{session.kindLabel}</td>
                               <td className="p-3">{session.label}</td>
-                              <td className="p-3 font-mono text-xs">{session.grant}</td>
                               <td className="p-3">{session.createdAt || '—'}</td>
                               <td className="p-3">{session.expiresAt || '—'}</td>
                               <td className="p-3">{session.lastUsedAt ?? '—'}</td>
@@ -137,7 +141,7 @@ export function MarketplaceInventoryAutomations() {
                                   variant="secondary"
                                   className="rounded-full"
                                   disabled={board.pendingId === session.id}
-                                  onClick={() => void board.revoke(session.id, session.kind)}
+                                  onClick={() => setRevokeTarget({ id: session.id, kind: session.kind })}
                                 >
                                   <KeyRound className="mr-2 size-4" />
                                   Revoke
@@ -249,6 +253,17 @@ export function MarketplaceInventoryAutomations() {
         secret={board.secret?.secret ?? ''}
         message={board.secret?.message}
         onClose={board.dismissSecret}
+      />
+      <MarketplaceInventoryRevokeDialog
+        open={revokeTarget !== null}
+        pending={revokeTarget !== null && board.pendingId === revokeTarget.id}
+        onClose={() => setRevokeTarget(null)}
+        onConfirm={() => {
+          if (!revokeTarget) return;
+          const target = revokeTarget;
+          setRevokeTarget(null);
+          void board.revoke(target.id, target.kind);
+        }}
       />
     </ContentLayout>
   );
