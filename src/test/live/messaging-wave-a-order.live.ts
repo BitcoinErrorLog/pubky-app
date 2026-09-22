@@ -240,12 +240,16 @@ function activateServiceSession(session: ServiceSession): void {
 }
 
 async function installStagingCorsBypass(context: BrowserContext): Promise<void> {
-  const hosts = new Set([new URL(SERVICE_URL).hostname, new URL(NEXUS_URL).hostname]);
+  const shopOrigin = () => shopUrl || `http://127.0.0.1:${SHOP_PORT}`;
   await context.route(
-    (url) => hosts.has(url.hostname),
+    (url) => url.protocol === 'https:' && url.origin !== new URL(shopOrigin()).origin,
     async (route) => {
       const request = route.request();
-      const origin = shopUrl || `http://127.0.0.1:${SHOP_PORT}`;
+      if (request.resourceType() === 'websocket') {
+        await route.continue();
+        return;
+      }
+      const origin = shopOrigin();
       const allowHeaders = request.headers()['access-control-request-headers'] ?? 'authorization,content-type';
       if (request.method() === 'OPTIONS') {
         await route.fulfill({
@@ -572,8 +576,12 @@ async function installAuthUrlCapture(page: Page): Promise<void> {
 async function approveSignerUrl(page: Page, keypair: Keypair): Promise<void> {
   await page.bringToFront();
   await installAuthUrlCapture(page);
-  await page.getByText('Waiting for approval on your signer…').waitFor({ state: 'visible', timeout: 60_000 });
+  const waiting = page.getByText('Waiting for approval on your signer…');
   const copy = page.getByRole('button', { name: 'Copy link' });
+  await Promise.race([
+    waiting.waitFor({ state: 'visible', timeout: 60_000 }),
+    copy.waitFor({ state: 'visible', timeout: 60_000 }),
+  ]);
   await copy.waitFor({ state: 'visible', timeout: 30_000 });
   await withPatience('Copy link enabled', 30_000, 250, async () => ({
     done: await copy.isEnabled(),
@@ -739,11 +747,38 @@ async function openOrderThread(page: Page, keypair: Keypair, listingTitle: strin
   await surface.waitFor({ state: 'visible', timeout: 30_000 });
   const composer = page.locator('#encrypted-message-body');
   const waiting = page.getByText('Waiting for approval on your signer…');
-  await Promise.race([
-    composer.waitFor({ state: 'visible', timeout: 60_000 }),
-    waiting.waitFor({ state: 'visible', timeout: 60_000 }),
-  ]);
+  const copyLink = page.getByRole('button', { name: 'Copy link' });
+  const enableCopy = page.getByText(
+    'Approve in your Pubky signer so this device can send and receive private messages.',
+  );
+  const notEnrolled = page.getByText(/has not turned on private messages yet/);
+  const tryAgain = page.getByRole('button', { name: 'Try again' });
+  try {
+    await Promise.race([
+      composer.waitFor({ state: 'visible', timeout: 90_000 }),
+      waiting.waitFor({ state: 'visible', timeout: 90_000 }),
+      copyLink.waitFor({ state: 'visible', timeout: 90_000 }),
+      enableCopy.waitFor({ state: 'visible', timeout: 90_000 }),
+      notEnrolled.waitFor({ state: 'visible', timeout: 90_000 }),
+      tryAgain.waitFor({ state: 'visible', timeout: 90_000 }),
+    ]);
+  } catch (error) {
+    await capturePage(page, `${shotPrefix}-thread-open`);
+    throw error;
+  }
   if ((await composer.count()) > 0) return;
+  if ((await notEnrolled.count()) > 0) {
+    await capturePage(page, `${shotPrefix}-thread-not-enrolled`);
+    throw new Error(`${shotPrefix}: counterparty is not enrolled for encrypted messaging`);
+  }
+  if ((await tryAgain.count()) > 0 && (await composer.count()) === 0) {
+    await capturePage(page, `${shotPrefix}-thread-enable-error`);
+    const alertText = await page
+      .getByRole('alert')
+      .innerText()
+      .catch(() => '');
+    throw new Error(`${shotPrefix}: messaging enable error ${alertText}`.trim());
+  }
   try {
     await approveSignerUrl(page, keypair);
     await composer.waitFor({ state: 'visible', timeout: 90_000 });
