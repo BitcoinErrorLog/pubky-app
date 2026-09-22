@@ -16,6 +16,8 @@ export interface UseMarketplaceLiveBidResult {
   ref: (node: HTMLElement | null) => void;
   /** Live auction state, or `null` while unknown (not fetched yet, service unreachable, or mode without a durable backend). */
   bid: MarketplaceLiveBid | null;
+  /** Durable listing state, used to replace Buy now on a reserved unit. */
+  listingState: 'available' | 'reserved' | 'sold' | null;
 }
 
 /**
@@ -34,9 +36,9 @@ export interface UseMarketplaceLiveBidResult {
  *
  * Scope: `transaction-service` mode only. The sandbox keeps terms-only cards;
  * its simulated bid state stays on the detail page where it is labeled as
- * such. Failures (no session yet, service unreachable, non-auction
- * projection) leave `bid` null and the card falls back to the seller's terms
- * from the index — never a fabricated bid.
+ * such. Failures (no session yet, service unreachable) leave `bid` and
+ * `listingState` null and the card falls back to the seller's terms
+ * from the index — never a fabricated bid or sold-out claim.
  */
 export function useMarketplaceLiveBid(
   sellerPubky: string,
@@ -47,6 +49,7 @@ export function useMarketplaceLiveBid(
   const isActive = enabled && isDurableMode;
   const { ref, isVisible } = useViewportObserver({ enabled: isActive });
   const [bid, setBid] = useState<MarketplaceLiveBid | null>(null);
+  const [listingState, setListingState] = useState<'available' | 'reserved' | 'sold' | null>(null);
   const hasFetchedRef = useRef(false);
 
   useEffect(() => {
@@ -55,7 +58,9 @@ export function useMarketplaceLiveBid(
     let mounted = true;
     void CommerceController.getMarketplaceListingProjection(sellerPubky, listingId)
       .then((projection) => {
-        if (!mounted || !projection?.auction) return;
+        if (!mounted || !projection) return;
+        setListingState(projection.state);
+        if (!projection.auction) return;
         setBid({
           currentPrice: projection.auction.currentPrice,
           bidCount: projection.auction.bidCount,
@@ -70,5 +75,5 @@ export function useMarketplaceLiveBid(
     };
   }, [isActive, isVisible, listingId, sellerPubky]);
 
-  return { ref, bid };
+  return { ref, bid, listingState };
 }

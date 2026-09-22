@@ -61,6 +61,7 @@ const MARKETPLACE_TAB_NOTIFICATION_TYPES = {
   pickup_details_updated: true,
   pickup_details_cleared: true,
   pickup_ready: true,
+  payment_refund_required: true,
 } as const satisfies Record<MarketplaceNotification['type'], true>;
 
 const SOCIAL_TAB_NOTIFICATION_TYPES = {

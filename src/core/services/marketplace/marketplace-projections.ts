@@ -209,6 +209,7 @@ export const marketplaceNotificationSchema = z
       // distinct `order.cancelled_terms_change` event, never `order.cancelled`,
       // so the reputation worker excludes it — the notification says why.
       'order_cancelled_terms_change',
+      'payment_refund_required',
     ]),
     aggregateId: z.string(),
     // Optional monetary context (ADR-0019 §8: present only where the
@@ -318,6 +319,10 @@ export const marketplacePaymentSchema = z
     // ADR-0019 section 8 keeps it out of read projections. The sandbox still
     // sends it, hence optional rather than removed.
     locksBundleId: z.uuid().optional(),
+    reviewReason: z
+      .enum(['late_settlement', 'refund_required', 'amount_mismatch', 'unpinned_legacy'])
+      .nullable()
+      .optional(),
     amount: marketplaceMoneySchema,
     createdAt: z.string(),
     updatedAt: z.string(),
@@ -423,6 +428,7 @@ export const marketplaceOrderProjectionSchema = z
     paymentId: z.uuid(),
     receiptId: z.uuid().nullable(),
     holdExpiresAt: z.string().nullable().optional(),
+    holdSource: z.enum(['checkout', 'locks', 'bind', 'sandbox', 'drop_claim']).nullable().optional(),
     // How this order reaches the buyer (§A2): exactly one fulfillment kind,
     // required on the service — one order per (seller, fulfillment). Orders
     // served by backends predating Wave 7 read as shipped orders.

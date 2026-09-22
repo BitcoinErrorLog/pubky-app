@@ -92,6 +92,7 @@ vi.mock('@/controllers/commerce/commerce', async () => {
       verifyStripePayment: vi.fn(async () => ({ verified: false, order: null })),
       markFiatPaid: vi.fn(async () => ({})),
       confirmFiatReceived: vi.fn(async () => ({})),
+      executeMarketplaceCommand: vi.fn(async () => ({ ok: true })),
     },
   };
 });
@@ -115,6 +116,8 @@ function makeCorrelation(registered: boolean) {
   };
 }
 
+const HOLD_DEADLINE = '2026-08-20T21:15:00.000Z';
+
 function Harness({ children }: { children: React.ReactNode }) {
   return <main className="mx-auto flex w-full max-w-xl flex-col gap-6 px-6 py-10">{children}</main>;
 }
@@ -123,9 +126,10 @@ async function renderCard(
   paymentState: 'awaiting_entitlement' | 'detected' | 'confirmed' | 'expired' | 'manual_review',
   adapterMode: 'sandbox' | 'transaction-service' | 'locks-paykit',
   options: {
-    adapter?: 'sandbox' | 'locks';
-    orderState?: 'pending_payment' | 'paid';
+    adapter?: 'sandbox' | 'locks' | 'paykit' | 'stripe' | 'paypal';
+    orderState?: 'pending_payment' | 'paid' | 'cancelled';
     orderOverrides?: Record<string, unknown>;
+    paymentOverrides?: Record<string, unknown>;
     isBuyer?: boolean;
     viewport?: object;
     deployEnv?: 'production' | 'staging';
@@ -138,6 +142,7 @@ async function renderCard(
   const payment = createPaymentFixture(paymentState, {
     adapter: options.adapter ?? 'sandbox',
     locksBundleId: undefined,
+    ...(options.paymentOverrides ?? {}),
   });
   const order = createOrderFixture(options.orderState ?? (paymentState === 'confirmed' ? 'paid' : 'pending_payment'), {
     paymentId: payment.id,
@@ -248,7 +253,10 @@ describe('Marketplace payment status card — visual regression', () => {
 
   it('renders the payment method picker with the seller-configured rails at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
-    const screen = await renderCard('awaiting_entitlement', 'transaction-service', { deployEnv: 'staging' });
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      deployEnv: 'staging',
+      orderOverrides: { holdExpiresAt: HOLD_DEADLINE, holdSource: 'checkout' },
+    });
     await expect.element(screen.getByText('₿ Bitcoin')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-picker-desktop');
     view.locks.enabled = true;
@@ -274,7 +282,12 @@ describe('Marketplace payment status card — visual regression', () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
       deployEnv: 'staging',
-      orderOverrides: { paymentMethod: 'bitcoin', paykitRequestState: 'pending' },
+      orderOverrides: {
+        paymentMethod: 'bitcoin',
+        paykitRequestState: 'pending',
+        holdExpiresAt: HOLD_DEADLINE,
+        holdSource: 'bind',
+      },
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-bitcoin-desktop');
     view.locks.enabled = true;
@@ -288,6 +301,8 @@ describe('Marketplace payment status card — visual regression', () => {
         paymentMethod: 'stripe',
         fiatCheckoutUrl: 'https://buy.stripe.com/test_fixture?client_reference_id=order-1',
         fiatVerification: 'processor',
+        holdExpiresAt: HOLD_DEADLINE,
+        holdSource: 'bind',
       },
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-stripe-desktop');
@@ -302,6 +317,8 @@ describe('Marketplace payment status card — visual regression', () => {
         paymentMethod: 'paypal',
         fiatCheckoutUrl: 'https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=seller%40example.com',
         fiatVerification: 'seller-attested',
+        holdExpiresAt: HOLD_DEADLINE,
+        holdSource: 'bind',
       },
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-paypal-desktop');
@@ -318,6 +335,8 @@ describe('Marketplace payment status card — visual regression', () => {
         fiatVerification: 'seller-attested',
         paymentReportedAt: '2026-08-22T12:00:00.000Z',
         fiatTransactionRef: '7AB12345CD678901E',
+        holdExpiresAt: HOLD_DEADLINE,
+        holdSource: 'bind',
       },
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
@@ -399,6 +418,74 @@ describe('Marketplace payment status card — visual regression', () => {
       deployEnv: 'staging',
     });
     await expect.element(screen.getByText('Resolve Bitcoin payment review')).not.toBeInTheDocument();
+  });
+
+  it('renders late-completion copy for the buyer at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('confirmed', 'transaction-service', {
+      deployEnv: 'staging',
+      orderState: 'paid',
+      orderOverrides: { cancellationReason: 'payment window elapsed' },
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-late-completion-buyer-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders late-completion copy for the seller at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('confirmed', 'transaction-service', {
+      deployEnv: 'staging',
+      isBuyer: false,
+      orderState: 'paid',
+      orderOverrides: { cancellationReason: 'payment window elapsed' },
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-late-completion-seller-desktop',
+    );
+    view.locks.enabled = true;
+  });
+
+  it('renders refund_required copy for the buyer at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('manual_review', 'transaction-service', {
+      deployEnv: 'staging',
+      currentUserPubky: 'b'.repeat(52),
+      orderState: 'cancelled',
+      paymentOverrides: { reviewReason: 'refund_required' },
+      orderOverrides: { cancellationReason: 'payment window elapsed', paymentMethod: 'bitcoin' },
+    });
+    await expect.element(screen.getByText(/The seller must return your funds/)).toBeInTheDocument();
+    await expect.element(screen.getByText(/Return the observed bitcoin/)).not.toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-refund-required-buyer-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders refund_required seller bitcoin resolution without Paid at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('manual_review', 'transaction-service', {
+      deployEnv: 'staging',
+      isBuyer: false,
+      adapter: 'paykit',
+      orderState: 'cancelled',
+      paymentOverrides: { reviewReason: 'refund_required', adapter: 'paykit' },
+      orderOverrides: { cancellationReason: 'payment window elapsed', paymentMethod: 'bitcoin' },
+    });
+    await expect.element(screen.getByText('Resolve Bitcoin payment review')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-refund-required-seller-bitcoin-desktop',
+    );
+    view.locks.enabled = true;
+  });
+
+  it('renders elapsed unpaid copy at desktop viewport', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('expired', 'transaction-service', {
+      deployEnv: 'staging',
+      orderState: 'cancelled',
+      orderOverrides: { cancellationReason: 'payment window elapsed' },
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-elapsed-desktop');
+    view.locks.enabled = true;
   });
 });
 

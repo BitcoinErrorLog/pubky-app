@@ -343,6 +343,8 @@ function notificationLabel(type: MarketplaceNotification['type']): string {
       return 'Pickup details removed';
     case 'pickup_ready':
       return 'Order ready for pickup';
+    case 'payment_refund_required':
+      return 'Payment requires a refund';
   }
 }
 

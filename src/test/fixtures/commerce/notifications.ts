@@ -32,6 +32,7 @@ const NOTIFICATION_TYPE_UNREAD = {
   pickup_details_updated: true,
   pickup_details_cleared: false,
   pickup_ready: true,
+  payment_refund_required: true,
 } as const satisfies Record<MarketplaceNotification['type'], boolean>;
 
 /** Every notification type the marketplace notification schema defines. */

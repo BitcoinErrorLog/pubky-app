@@ -281,6 +281,21 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.queryByText(/Complete payment by/)).not.toBeInTheDocument();
   });
 
+  it('does not label an elapsed unpaid order as Your move', () => {
+    ordersState.orders = [
+      orderView(
+        'cancelled',
+        'Bought elapsed boots',
+        'buyer',
+        { cancellationReason: 'payment window elapsed', nextActor: 'none' },
+        'expired',
+      ),
+    ];
+    render(<MarketplaceOrders />);
+    expect(screen.getByText('Payment window elapsed. The item is available again.')).toBeInTheDocument();
+    expect(screen.queryByText('Your move')).not.toBeInTheDocument();
+  });
+
   it('puts buyer pending payment under Needs my action and leaves Waiting on the other side empty', async () => {
     ordersState.orders = [
       orderView('pending_payment', 'Bought unpaid coat', 'buyer', { nextActor: 'buyer' }, 'awaiting_entitlement'),
