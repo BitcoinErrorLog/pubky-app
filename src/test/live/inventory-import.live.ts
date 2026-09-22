@@ -290,14 +290,14 @@ describe('inventory import staging proof', () => {
           expect(classified.some((item) => !item.ok)).toBe(true);
           const remapped = listings.map((listing, index) => {
             const source = items[index];
-            if (source && typeof source === 'object') {
+            if (source && typeof source === 'object' && !Array.isArray(source)) {
               return { ...(source as Record<string, unknown>), listing_id: listing.listing_id };
             }
             return { listing_id: listing.listing_id, status: index === 0 ? 200 : 404 };
           });
           return {
-            ok: true,
-            value: { ...result.value, results: remapped },
+            ok: true as const,
+            value: { ...result.value, results: remapped as typeof result.value.results },
           };
         }
         return modules.MarketplaceShopClientService.syncMany(client, listings);
