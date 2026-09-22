@@ -179,16 +179,13 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
 
       {state === 'unavailable' && (
         <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-          Drops need the durable transaction service — server time is the feature. This deployment runs
-          {drop.adapterMode === 'sandbox' ? ' the sandbox' : ' no transaction backend'}, so this drop cannot go live
-          here. The announcement below is the seller&rsquo;s signed record, shown as-is.
+          This drop cannot go live here. You can still view the announcement below.
         </div>
       )}
 
       {state === 'unregistered' && (
         <div role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-          This drop is announced on the seller&rsquo;s homeserver but not registered with the transaction service yet,
-          so there is no enforced schedule or stock to show. The start time below is the seller&rsquo;s stated intent.
+          This drop is not ready yet. The start time is provisional, and availability is not confirmed.
         </div>
       )}
 
@@ -203,8 +200,7 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
 
       {state === 'announced' && projection && (
         <Typography as="p" className="text-xs text-muted-foreground">
-          Countdown corrected against the transaction service&rsquo;s clock. The page flips to live only when the
-          service says so — never from this countdown.
+          Availability will update when the drop opens.
         </Typography>
       )}
 
@@ -261,7 +257,7 @@ export function MarketplaceDrop({ sellerPubky, dropId }: MarketplaceDropProps) {
             />
           </div>
           <Typography as="p" className="text-xs text-muted-foreground">
-            This archive stays public: final terms and outcome, from the transaction service&rsquo;s record of the drop.
+            The final terms and outcome remain publicly available.
           </Typography>
           <div className="flex flex-wrap gap-3">
             <Button

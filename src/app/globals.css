@@ -1010,6 +1010,12 @@ body {
   --font-weight-normal: 500;
 }
 
+/* Keep supporting copy readable within the listing detail section. */
+.marketplace-item-details :is(.text-xs, .text-\[11px\], .text-\[10px\]) {
+  font-size: 14px;
+  line-height: 20px;
+}
+
 .marketplace-card-enter {
   animation: marketplace-card-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
   animation-delay: calc(var(--marketplace-card-index, 0) * 60ms);

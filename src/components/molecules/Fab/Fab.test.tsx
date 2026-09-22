@@ -166,11 +166,14 @@ describe('Fab', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it.each(['/marketplace/cart', '/marketplace/award-checkout'])('hides on checkout route %s', (pathname) => {
-    mockPathname.mockReturnValue(pathname);
-    const { container } = render(<Fab />);
-    expect(container.firstChild).toBeNull();
-  });
+  it.each(['/marketplace/cart', '/marketplace/award-checkout', '/marketplace/listing/seller/item'])(
+    'hides on checkout route %s',
+    (pathname) => {
+      mockPathname.mockReturnValue(pathname);
+      const { container } = render(<Fab />);
+      expect(container.firstChild).toBeNull();
+    },
+  );
 
   describe('createPost action', () => {
     it('renders the new post dialog and opens it on click', () => {

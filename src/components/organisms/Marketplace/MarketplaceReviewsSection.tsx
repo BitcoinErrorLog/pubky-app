@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BadgeCheck, MessageSquareReply } from 'lucide-react';
+import { BadgeCheck, MessageSquareReply, Star } from 'lucide-react';
 import { getProfileRoute, PROFILE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
+import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Textarea } from '@/atoms/Textarea/Textarea';
 import { Typography } from '@/atoms/Typography/Typography';
@@ -22,6 +23,7 @@ export interface MarketplaceReviewsSectionProps {
   /** When set, the section lists the buyer reviews of one listing; otherwise the seller's. */
   listingId?: string;
   className?: string;
+  infoCard?: boolean;
 }
 
 /**
@@ -40,43 +42,68 @@ export interface MarketplaceReviewsSectionProps {
  * When no review-aware index serves this deployment the section renders
  * nothing at all — absence, not an empty claim.
  */
-export function MarketplaceReviewsSection({ sellerPubky, listingId, className }: MarketplaceReviewsSectionProps) {
+export function MarketplaceReviewsSection({
+  sellerPubky,
+  listingId,
+  className,
+  infoCard = false,
+}: MarketplaceReviewsSectionProps) {
   const { status, reviews, isFetching, hasMore, loadMore } = useMarketplaceReviews({ sellerPubky, listingId });
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
 
   if (status === 'unavailable' || status === 'loading') return null;
 
   return (
-    <section className={cn('flex w-full flex-col gap-3', className)} data-testid="marketplace-reviews-section">
-      <Typography as="h2" className="text-sm font-semibold">
-        Reviews
-      </Typography>
-      {reviews.length === 0 ? (
-        <Typography as="p" overrideDefaults className="text-xs text-muted-foreground">
-          No reviews yet.
-        </Typography>
-      ) : (
-        <ul className="flex flex-col gap-4">
-          {reviews.map((review) => (
-            <MarketplaceReviewItem
-              key={`${review.reviewerId}:${review.reviewId}`}
-              review={review}
-              currentUserPubky={currentUserPubky}
-            />
-          ))}
-        </ul>
+    <section
+      className={cn(
+        'flex w-full gap-3',
+        infoCard
+          ? 'marketplace-item-details min-w-0 items-start rounded-xl bg-card p-5 text-card-foreground shadow-sm sm:col-span-2'
+          : 'flex-col',
+        className,
       )}
-      {hasMore && (
-        <Button
-          size="sm"
-          variant="secondary"
-          className="self-start rounded-full"
-          disabled={isFetching}
-          onClick={loadMore}
+      data-testid="marketplace-reviews-section"
+    >
+      {infoCard && <Star className="size-5 shrink-0 text-brand" aria-hidden="true" />}
+      <div className={cn('flex min-w-0 flex-1 flex-col', infoCard ? 'gap-1' : 'gap-3')}>
+        <Heading
+          level={2}
+          size={infoCard ? 'sm' : 'lg'}
+          className={infoCard ? 'text-sm leading-5 font-semibold' : 'font-medium text-muted-foreground'}
         >
-          {isFetching ? 'Loading…' : 'Load more reviews'}
-        </Button>
-      )}
+          Reviews
+        </Heading>
+        {reviews.length === 0 ? (
+          <Typography
+            as="p"
+            overrideDefaults
+            className={cn('text-muted-foreground', infoCard ? 'text-sm leading-5 font-medium' : 'text-xs')}
+          >
+            No reviews yet
+          </Typography>
+        ) : (
+          <ul className="flex flex-col gap-4">
+            {reviews.map((review) => (
+              <MarketplaceReviewItem
+                key={`${review.reviewerId}:${review.reviewId}`}
+                review={review}
+                currentUserPubky={currentUserPubky}
+              />
+            ))}
+          </ul>
+        )}
+        {hasMore && (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="self-start rounded-full"
+            disabled={isFetching}
+            onClick={loadMore}
+          >
+            {isFetching ? 'Loading…' : 'Load more reviews'}
+          </Button>
+        )}
+      </div>
     </section>
   );
 }
@@ -239,7 +266,7 @@ function MarketplaceReviewResponseComposer({
       });
       toast({
         title: 'Response published',
-        description: 'Your response is on your homeserver; the index will pick it up.',
+        description: 'Your response is saved and will appear shortly.',
       });
       onPublished(published);
     } catch {

@@ -30,7 +30,10 @@ export function MarketplaceFollowedSellersShelf() {
     <section aria-label="Marketplace listings from sellers you follow" className="flex flex-col gap-3">
       <div className="flex items-end justify-between gap-2">
         <div className="flex flex-col">
-          <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+          <Typography
+            as="span"
+            className="text-[11px] leading-4 font-medium tracking-[1.2px] text-muted-foreground uppercase"
+          >
             Marketplace
           </Typography>
           <Typography as="h2" className="text-base leading-6 font-semibold text-foreground">

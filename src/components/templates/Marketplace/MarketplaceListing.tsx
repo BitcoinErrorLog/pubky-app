@@ -2,7 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Bell, Heart, MapPin, Package, PlaneTakeoff, ShieldCheck, ShoppingCart, Store } from 'lucide-react';
+import {
+  ArrowLeft,
+  Bell,
+  ChevronDown,
+  Hash,
+  Heart,
+  MapPin,
+  Package,
+  PlaneTakeoff,
+  ShieldCheck,
+  ShoppingCart,
+  Store,
+} from 'lucide-react';
 import { APP_ROUTES, getMarketplaceShopRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { TagKind } from '@/application/tag/tag.types';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -49,7 +61,9 @@ import { MarketplaceMediaGallery } from '@/organisms/Marketplace/MarketplaceMedi
 import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceOfferDialog } from '@/organisms/Marketplace/MarketplaceOfferDialog';
 import { MarketplaceReviewsSection } from '@/organisms/Marketplace/MarketplaceReviewsSection';
+import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import { MarketplaceSimilarItems } from '@/organisms/Marketplace/MarketplaceSimilarItems';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceListingDetailSkeleton } from './Marketplace.skeleton';
 
@@ -132,6 +146,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   if (listing === undefined || shop === undefined || (!listing && !isFetchSettled && !error)) {
     return (
       <ContentLayout
+        className="marketplace-surface font-medium"
         showLeftSidebar={false}
         showRightSidebar={false}
         showLeftMobileButton={false}
@@ -147,6 +162,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   if (!listing || error) {
     return (
       <ContentLayout
+        className="marketplace-surface font-medium"
         showLeftSidebar={false}
         showRightSidebar={false}
         showLeftMobileButton={false}
@@ -174,6 +190,19 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const selectedVariant = record.variants.find(({ id }) => id === selectedVariantId) ?? record.variants[0];
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
+  const shippingCopy = formatListingShipping(record);
+  const hasFreeShipping = shippingCopy === 'Shipping: free';
+  const flatShipping =
+    !record.fulfillmentMethods.includes('digital') &&
+    commerceListingFulfillmentMethods(record.fulfillmentMethods).includes('shipping')
+      ? record.shippingOptions.find((option) => option.pricing === 'flat')
+      : undefined;
+  const shippingBadge =
+    hasFreeShipping || flatShipping?.price.amountMinor === 0
+      ? 'Shipping: Free'
+      : flatShipping
+        ? `Shipping: ${formatCommerceMoney(flatShipping.price)}`
+        : null;
   const sellerDisplayName = shop?.record.name ?? `${sellerPubky.slice(0, 10)}…`;
   const recordQuantity = record.variants.reduce(
     (total, variant) => total + (variant.enabled ? variant.quantity : 0),
@@ -239,10 +268,14 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
       showRightSidebar={false}
       showLeftMobileButton={false}
       showRightMobileButton={false}
-      className="pb-28 lg:pb-16"
-      classNameWrapperContent="max-w-7xl"
+      hasGradientBackground={false}
+      className="marketplace-surface pb-28 font-medium lg:pb-16"
+      classNameWrapperContent="max-w-7xl overflow-visible lg:overflow-visible"
     >
-      <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6 lg:px-8">
+      <Container overrideDefaults className="flex w-full flex-col gap-6">
+        <div className="sticky top-24 z-(--z-sticky-header) bg-background after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-16 after:bg-linear-to-b after:from-background/80 after:to-transparent after:content-[''] lg:top-(--header-offset-main)">
+          <MarketplaceSectionNav className="mb-0" />
+        </div>
         <div className="flex w-full items-center justify-between gap-2">
           <Link
             href={APP_ROUTES.MARKETPLACE}
@@ -250,7 +283,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
-            Marketplace
+            Back to results
           </Link>
           {cart.itemCount > 0 && (
             <Link
@@ -268,14 +301,14 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
           )}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)] lg:grid-rows-[auto_1fr]">
           <MarketplaceMediaGallery
             media={record.media}
             saleFormat={record.sale.format}
             auctionPhase={auctionPhase ?? undefined}
           />
 
-          <div className="flex flex-col gap-5">
+          <div className="flex min-w-0 flex-col gap-5 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             {isOwner && (
               <MarketplaceListingOwnerPanel record={record} registrationStatus={listing.registration_status} />
             )}
@@ -290,7 +323,16 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             <div>
               <div className="mb-3 flex flex-wrap gap-2">
                 <Badge variant="secondary">{formatCommerceCondition(record.condition)}</Badge>
-                <MarketplaceFulfillmentBadge methods={commerceListingFulfillmentMethods(record.fulfillmentMethods)} />
+                {shippingBadge ? (
+                  <>
+                    <Badge variant="secondary">{shippingBadge}</Badge>
+                    {commerceListingFulfillmentMethods(record.fulfillmentMethods).includes('pickup') && (
+                      <MarketplaceFulfillmentBadge methods={['pickup']} />
+                    )}
+                  </>
+                ) : (
+                  <MarketplaceFulfillmentBadge methods={commerceListingFulfillmentMethods(record.fulfillmentMethods)} />
+                )}
                 {isSoldOut && record.sale.format === 'fixed_price' && <Badge variant="outline">Sold out</Badge>}
                 {shop?.record.vacationMode && (
                   <Badge variant="outline" className="border-amber-500/50 bg-amber-500/10 text-amber-300">
@@ -300,21 +342,29 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 )}
                 {adapterMode === 'sandbox' && <Badge variant="outline">Sandbox · no real funds</Badge>}
               </div>
-              <Heading level={1} size="xl" className="text-3xl leading-tight sm:text-5xl">
+              <Heading level={1} size="xl" className="text-3xl leading-none sm:text-5xl sm:leading-none">
                 {record.title}
               </Heading>
-              <Typography as="p" className="mt-3 text-3xl font-bold text-brand">
+              <Typography as="p" className="mt-1 text-3xl font-bold text-brand">
                 {record.sale.format === 'auction'
                   ? negotiation.projection?.auction?.bidCount
-                    ? 'Current bid '
-                    : 'Starting at '
+                    ? auctionStatus === 'sold'
+                      ? 'Final bid '
+                      : 'Current bid '
+                    : 'Starting bid '
                   : ''}
                 {formatCommerceMoney(displayPrice)}
               </Typography>
-              <MarketplaceIndicativePrice money={displayPrice} className="text-sm" />
-              <Typography as="p" className="mt-1 text-sm text-muted-foreground">
-                {formatListingShipping(record)}
-              </Typography>
+              <MarketplaceIndicativePrice
+                money={displayPrice}
+                showApproximation={false}
+                className="text-base font-medium text-muted-foreground"
+              />
+              {!shippingBadge && (
+                <Typography as="p" className="mt-1 text-sm text-muted-foreground">
+                  {shippingCopy}
+                </Typography>
+              )}
               {negotiation.projection?.auction && (
                 <Typography as="p" className="mt-1 text-sm text-muted-foreground">
                   {negotiation.projection.auction.bidCount}{' '}
@@ -322,70 +372,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 </Typography>
               )}
             </div>
-
-            <Card className="gap-4 border py-5">
-              <CardContent className="flex flex-col gap-4 px-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1 sm:min-w-[12rem]">
-                  <MarketplaceSellerIdentity
-                    sellerPubky={sellerPubky}
-                    displayName={sellerDisplayName}
-                    avatarUrl={shopAvatarUrl}
-                    avatarAlt={`${shop?.record.name ?? 'Shop'} avatar`}
-                    reputation={sellerReputation}
-                  />
-                  {isOwner && !shop && (
-                    <Typography as="p" className="mt-2 text-sm text-muted-foreground">
-                      You haven&apos;t created a shop yet — buyers only see your key.
-                    </Typography>
-                  )}
-                </div>
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                  {isOwner && !shop ? (
-                    <Button asChild size="sm" className="rounded-full">
-                      <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
-                        Set up your shop
-                      </Link>
-                    </Button>
-                  ) : (
-                    <Button asChild variant="secondary" size="sm" className="rounded-full">
-                      <Link href={getMarketplaceShopRoute(sellerPubky)} overrideDefaults>
-                        View shop
-                      </Link>
-                    </Button>
-                  )}
-                  <div>
-                    <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Typography as="p" className="text-base leading-7 text-muted-foreground">
-              {record.description}
-            </Typography>
-
-            <MarketplaceListingSpecifics record={record} />
-
-            {record.tags.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <Typography as="p" className="text-sm font-semibold">
-                  Seller&apos;s keywords
-                </Typography>
-                <div className="flex flex-wrap gap-2" data-cy="marketplace-seller-keywords">
-                  {record.tags.map((tag) => (
-                    <Badge key={tag} variant="outline">
-                      #{tag}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <MarketplaceCommunityTags
-              target={{ kind: TagKind.LISTING, sellerPubky: record.ownerPubky, listingId: record.listingId }}
-            />
-
-            <MarketplaceReviewsSection sellerPubky={record.ownerPubky} listingId={record.listingId} />
 
             {record.variants.length > 1 && (
               <div>
@@ -412,46 +398,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </div>
             )}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
-                <MapPin className="size-5 text-brand" />
-                <div>
-                  <Typography as="p" className="text-sm font-semibold">
-                    Ships from
-                  </Typography>
-                  <Typography as="p" className="text-sm text-muted-foreground">
-                    {record.location.region ? `${record.location.region}, ` : ''}
-                    {record.location.countryCode}
-                  </Typography>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
-                <ShieldCheck className="size-5 text-brand" />
-                <div>
-                  <Typography as="p" className="text-sm font-semibold">
-                    Owner-signed
-                  </Typography>
-                  <Typography as="p" className="text-sm text-muted-foreground">
-                    Revision {record.revision}
-                  </Typography>
-                </div>
-              </div>
-              {record.package && (
-                <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
-                  <Package className="size-5 text-brand" />
-                  <div>
-                    <Typography as="p" className="text-sm font-semibold">
-                      Package
-                    </Typography>
-                    <Typography as="p" className="text-sm text-muted-foreground">
-                      {formatWeight(record.package.weightGrams, measurementSystem)} ·{' '}
-                      {formatPackageDimensions(record.package, measurementSystem)}
-                    </Typography>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {record.digitalLock && <MarketplaceDigitalDeliveryNotice adapterMode={adapterMode} />}
 
             {record.sale.format === 'auction' && (
@@ -465,10 +411,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               />
             )}
 
-            {/* flex-wrap: four buttons exceed narrow viewports' min-content width,
-                and a non-wrapping row would overflow the grid column — clipping
-                the watch and collection buttons off-screen entirely. */}
-            <div className="mt-auto flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               {record.sale.format === 'auction' ? (
                 <div className="[&_[data-slot=button]]:border-brand [&_[data-slot=button]]:bg-brand [&_[data-slot=button]]:text-background [&_[data-slot=button]:hover]:bg-brand/90">
                   <MarketplaceBidDialog
@@ -485,7 +428,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               ) : (
                 <>
                   {viewerHoldOrder ? (
-                    <Button asChild size="lg" className="flex-1 rounded-full">
+                    <Button asChild size="default" className="w-fit rounded-full">
                       <Link
                         href={`${MARKETPLACE_ROUTES.ORDERS}#${viewerHoldOrder.orderId}`}
                         overrideDefaults
@@ -496,8 +439,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     </Button>
                   ) : (
                     <Button
-                      size="lg"
-                      className="flex-1 rounded-full"
+                      size="default"
+                      className="w-fit rounded-full"
                       disabled={
                         availabilityNeedsSession
                           ? isOwner || adapterMode === 'unavailable'
@@ -540,9 +483,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 </>
               )}
               <Button
-                size="lg"
+                size="icon"
                 variant="secondary"
-                className="rounded-full"
+                className="size-10 rounded-full"
                 aria-label={favorite.isFavorite ? 'Remove from watchlist' : 'Add to watchlist'}
                 aria-pressed={favorite.isFavorite}
                 disabled={favorite.isMutating}
@@ -571,6 +514,124 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   : negotiation.error}
               </Typography>
             )}
+            <Card className="py-5">
+              <CardContent className="flex flex-col gap-3 px-5">
+                <div className="min-w-0 flex-1 sm:min-w-[12rem]">
+                  <MarketplaceSellerIdentity
+                    variant="card"
+                    sellerPubky={sellerPubky}
+                    displayName={sellerDisplayName}
+                    avatarUrl={shopAvatarUrl}
+                    avatarAlt={`${shop?.record.name ?? 'Shop'} avatar`}
+                    reputation={sellerReputation}
+                  />
+                  {isOwner && !shop && (
+                    <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                      You haven&apos;t created a shop yet — buyers only see your key.
+                    </Typography>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {isOwner && !shop ? (
+                    <Button asChild size="sm" className="rounded-full">
+                      <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
+                        Set up your shop
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button asChild variant="secondary" size="sm" className="rounded-full">
+                      <Link href={getMarketplaceShopRoute(sellerPubky)} overrideDefaults>
+                        <Store className="mr-2 size-4" aria-hidden="true" />
+                        View shop
+                      </Link>
+                    </Button>
+                  )}
+                  <div>
+                    <MarketplaceMessageDialog sellerPubky={sellerPubky} listingId={listingId} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <section aria-label="Fulfillment and listing information" className="flex min-w-0 flex-col gap-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MarketplaceListingSpecifics record={record} />
+                {!record.fulfillmentMethods.includes('digital') && (
+                  <div className="flex items-start gap-3 rounded-xl bg-card p-5 text-card-foreground shadow-sm">
+                    <MapPin className="size-5 shrink-0 text-brand" aria-hidden="true" />
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <Typography as="p" className="text-sm leading-5 font-semibold">
+                        {commerceListingFulfillmentMethods(record.fulfillmentMethods).includes('shipping')
+                          ? 'Ships from'
+                          : 'Pickup location'}
+                      </Typography>
+                      <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+                        {record.location.region ? `${record.location.region}, ` : ''}
+                        {record.location.countryCode}
+                      </Typography>
+                    </div>
+                  </div>
+                )}
+                <details className="group/signature rounded-xl bg-card text-card-foreground shadow-sm">
+                  <summary className="flex cursor-pointer list-none items-start gap-3 rounded-xl p-5 focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+                    <ShieldCheck className="size-5 shrink-0 text-brand" aria-hidden="true" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <Typography as="p" className="text-sm leading-5 font-semibold">
+                        Owner-signed
+                      </Typography>
+                      <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+                        Revision {record.revision}
+                      </Typography>
+                    </div>
+                    <ChevronDown
+                      className="size-4 shrink-0 self-center text-muted-foreground transition-transform group-open/signature:rotate-180 motion-reduce:transition-none"
+                      aria-hidden="true"
+                    />
+                  </summary>
+                  <p className="px-5 pb-5 text-sm leading-5 font-medium text-muted-foreground">
+                    Signed by the listing owner. This does not verify the item&apos;s authenticity.
+                  </p>
+                </details>
+                {record.package && (
+                  <div className="flex items-start gap-3 rounded-xl bg-card p-5 text-card-foreground shadow-sm">
+                    <Package className="size-5 shrink-0 text-brand" aria-hidden="true" />
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <Typography as="p" className="text-sm leading-5 font-semibold">
+                        Package
+                      </Typography>
+                      <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+                        {formatWeight(record.package.weightGrams, measurementSystem)} ·{' '}
+                        {formatPackageDimensions(record.package, measurementSystem).replace(/ ([^ ]+)$/, '\u00a0$1')}
+                      </Typography>
+                    </div>
+                  </div>
+                )}
+                {record.tags.length > 0 && (
+                  <div className="marketplace-item-details flex min-w-0 items-start gap-3 rounded-xl bg-card p-5 text-card-foreground shadow-sm">
+                    <Hash className="size-5 shrink-0 text-brand" aria-hidden="true" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <Heading level={2} size="sm" className="text-sm leading-5 font-semibold">
+                        Seller&apos;s keywords
+                      </Heading>
+                      <div className="flex flex-wrap gap-1" data-cy="marketplace-seller-keywords">
+                        {record.tags.map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-muted-foreground">
+                            #{tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <MarketplaceCommunityTags
+                  variant="info-card"
+                  target={{ kind: TagKind.LISTING, sellerPubky: record.ownerPubky, listingId: record.listingId }}
+                />
+                <MarketplaceReviewsSection sellerPubky={record.ownerPubky} listingId={record.listingId} infoCard />
+              </div>
+            </section>
+          </div>
+          <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+            <MarketplaceSimilarItems categoryId={record.categoryId} sellerPubky={sellerPubky} listingId={listingId} />
           </div>
         </div>
       </Container>
@@ -579,11 +640,14 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
 }
 
 function formatListingShipping(record: CommerceListingRecord): string {
+  const methods = commerceListingFulfillmentMethods(record.fulfillmentMethods);
+  if (record.fulfillmentMethods.includes('digital')) return 'Digital delivery';
+  if (!methods.includes('shipping')) return 'Local pickup only';
   const flat = record.shippingOptions.find((option) => option.pricing === 'flat');
   if (flat) return `Shipping: ${formatShippingOption(flat)} ${formatCommerceMoney(flat.price)}`;
 
   const free = record.shippingOptions.find((option) => option.pricing === 'free');
-  if (free) return `Shipping: ${formatShippingOption(free)}`;
+  if (free) return 'Shipping: free';
 
   return 'Shipping: calculated at checkout';
 }

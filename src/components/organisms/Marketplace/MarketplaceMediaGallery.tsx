@@ -50,7 +50,7 @@ export function MarketplaceMediaGallery({ media, saleFormat, auctionPhase = 'liv
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="relative flex min-h-[440px] items-center justify-center overflow-hidden rounded-2xl border bg-linear-to-br from-brand/35 via-purple-500/15 to-card lg:min-h-[640px]">
+      <div className="relative flex h-[min(28svh,240px)] min-h-48 items-center justify-center overflow-hidden rounded-2xl bg-linear-to-br from-brand/35 via-purple-500/15 to-card sm:h-[440px] lg:h-[600px]">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.18),transparent_32%)]" />
         {selected ? (
           selected.item.type === 'video' ? (

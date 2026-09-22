@@ -78,8 +78,8 @@ export function MarketplaceBidDialog({
     >
       <DialogTrigger asChild>
         <Button
-          size="lg"
-          className="flex-1 rounded-full"
+          size="default"
+          className="w-fit rounded-full"
           disabled={isOwner || auctionPhase === 'ended' || (!projection?.auction && !isSessionRequired)}
         >
           <Gavel className="mr-2 size-4" />

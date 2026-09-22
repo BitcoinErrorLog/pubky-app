@@ -54,8 +54,7 @@ export function DropStudioHome() {
             Drops
           </Heading>
           <Typography as="p" className="mt-3 max-w-2xl text-muted-foreground">
-            Timed, limited releases of your listings. The announcement is a seller-signed record on your homeserver; the
-            clock, the caps, and every state come from the transaction service.
+            Create timed releases of your listings with limited quantities.
           </Typography>
         </div>
 
@@ -66,8 +65,7 @@ export function DropStudioHome() {
                 Drops are unavailable in this mode
               </Typography>
               <Typography as="p" className="text-sm text-muted-foreground">
-                Drops require the durable transaction service — server time is the feature. The sandbox cannot honestly
-                simulate a server-enforced schedule, so nothing here pretends to.
+                Creating and managing drops is unavailable here.
               </Typography>
             </CardContent>
           </Card>
@@ -106,8 +104,7 @@ export function DropStudioHome() {
                 </ul>
               )}
               <Typography as="p" className="text-xs text-muted-foreground">
-                Listed from the drops directory on your homeserver, so drops published from any device appear here. Each
-                row is re-read from your homeserver record and the transaction service before anything renders.
+                Drops published from any device appear here.
               </Typography>
             </section>
 
@@ -153,7 +150,7 @@ function DropStudioHomeRow({ row, onRetry }: { row: OwnDropRow; onRetry: () => v
           <Typography as="p" className="text-sm text-muted-foreground">
             {startsAtMs !== null
               ? `Launch ${new Date(startsAtMs).toLocaleString()}${endsAtMs !== null ? ` → ends ${new Date(endsAtMs).toLocaleString()}` : ' → runs until sell-out or cancel'}`
-              : 'The record could not be read from your homeserver.'}
+              : 'This drop could not be loaded.'}
           </Typography>
         </div>
         {projection.status === 'loaded' ? (

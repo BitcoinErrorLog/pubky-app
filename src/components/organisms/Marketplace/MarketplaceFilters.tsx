@@ -423,7 +423,10 @@ function MarketplaceAttributeFacets({
     <div className="flex flex-col gap-2" data-cy="marketplace-attribute-facets">
       {rows.map(({ key, values }) => (
         <div key={key} className="flex items-center gap-2 overflow-x-auto pb-1">
-          <Typography as="span" className="shrink-0 text-xs font-medium text-muted-foreground uppercase">
+          <Typography
+            as="span"
+            className="shrink-0 text-[11px] leading-4 font-medium tracking-[1.2px] text-muted-foreground uppercase"
+          >
             {commerceAttributeLabel(key)}
           </Typography>
           {values.map(({ value, count }) => {

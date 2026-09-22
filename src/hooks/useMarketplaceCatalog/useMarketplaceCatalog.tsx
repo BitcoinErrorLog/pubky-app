@@ -12,23 +12,33 @@ import {
   applyMarketplaceAttributeFilters,
   buildMarketplaceCatalogItems,
   filterMarketplaceCatalog,
+  type MarketplaceCatalogFilters,
   type MarketplaceCatalogItem,
 } from './useMarketplaceCatalog.utils';
 
 export function useMarketplaceCatalog(
   initialListings: MarketplaceCatalogItem[] = [],
   initialShops: CommerceShopRecord[] = [],
+  filters?: MarketplaceCatalogFilters,
 ) {
   const { isReady: isDatabaseReady } = useContext(DatabaseContext);
-  const query = useCommerceStore((state) => state.query);
-  const categoryId = useCommerceStore((state) => state.categoryId);
+  const storedQuery = useCommerceStore((state) => state.query);
+  const query = filters ? filters.query : storedQuery;
+  const storedCategoryId = useCommerceStore((state) => state.categoryId);
+  const categoryId = filters ? filters.categoryId : storedCategoryId;
   const attributeFilters = useCommerceStore((state) => state.attributeFilters);
-  const saleFormat = useCommerceStore((state) => state.saleFormat);
-  const conditions = useCommerceStore((state) => state.conditions);
-  const minimumPriceMinor = useCommerceStore((state) => state.minimumPriceMinor);
-  const maximumPriceMinor = useCommerceStore((state) => state.maximumPriceMinor);
-  const countryCode = useCommerceStore((state) => state.countryCode);
-  const sort = useCommerceStore((state) => state.sort);
+  const storedSaleFormat = useCommerceStore((state) => state.saleFormat);
+  const saleFormat = filters ? filters.saleFormat : storedSaleFormat;
+  const storedConditions = useCommerceStore((state) => state.conditions);
+  const conditions = filters ? filters.conditions : storedConditions;
+  const storedMinimumPriceMinor = useCommerceStore((state) => state.minimumPriceMinor);
+  const minimumPriceMinor = filters ? filters.minimumPriceMinor : storedMinimumPriceMinor;
+  const storedMaximumPriceMinor = useCommerceStore((state) => state.maximumPriceMinor);
+  const maximumPriceMinor = filters ? filters.maximumPriceMinor : storedMaximumPriceMinor;
+  const storedCountryCode = useCommerceStore((state) => state.countryCode);
+  const countryCode = filters ? filters.countryCode : storedCountryCode;
+  const storedSort = useCommerceStore((state) => state.sort);
+  const sort = filters ? filters.sort : storedSort;
   const adapterMode = getCommerceAdapterMode();
 
   // Sandbox catalogs are seeded locally and never query Nexus (see
@@ -106,7 +116,7 @@ export function useMarketplaceCatalog(
     countryCode: null,
     sort,
   });
-  const listings = applyMarketplaceAttributeFilters(facetPool, attributeFilters);
+  const listings = applyMarketplaceAttributeFilters(facetPool, filters ? {} : attributeFilters);
   const shopsBySeller = new Map<string, (typeof initialShops)[number]>(
     initialShops.map((shop) => [shop.ownerPubky, shop]),
   );

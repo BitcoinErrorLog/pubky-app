@@ -49,7 +49,13 @@ export function Fab() {
 
   // Show FAB for authenticated users OR unauthenticated users on public explore routes
   const shouldShow = isFullyAuthenticated || isPublicExploreRoute;
-  if (isLoading || !shouldShow || isReorderActive || hideOnCheckout) {
+  if (
+    isLoading ||
+    !shouldShow ||
+    isReorderActive ||
+    hideOnCheckout ||
+    pathname?.startsWith(`${MARKETPLACE_ROUTES.LISTING}/`)
+  ) {
     return null;
   }
   const buttonClasses = cn(
