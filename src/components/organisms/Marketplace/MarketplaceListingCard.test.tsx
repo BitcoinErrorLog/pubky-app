@@ -66,6 +66,16 @@ describe('MarketplaceListingCard', () => {
     expect(shop).not.toHaveClass('text-muted-foreground');
   });
 
+  it('renders card meta in secondary-foreground so small text meets contrast on the card', () => {
+    render(<MarketplaceListingCard listing={catalogItem()} shopName="Satoshi Vintage" />);
+
+    for (const label of ['Price', 'New seller', 'Good']) {
+      const node = screen.getByText(label);
+      expect(node).toHaveClass('text-secondary-foreground');
+      expect(node).not.toHaveClass('text-muted-foreground');
+    }
+  });
+
   it('renders the seller rating aggregate when the catalog projection carries reviews', () => {
     const listing = catalogItemFromCatalogEntry(
       createCommerceCatalogEntryFixture({ reputation: { avg: 4.6, count: 17, verifiedCount: 11 } }),

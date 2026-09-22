@@ -100,9 +100,11 @@ async function runAxe(page, pageId) {
       false,
       blocking
         .map((item) => {
-          const first = item.nodes[0];
-          const where = first ? `${first.target.join(' ')} :: ${first.html}` : '';
-          return `${item.impact}:${item.id}×${item.nodes.length}${where ? ` ${where}` : ''}`;
+          const nodes = item.nodes
+            .slice(0, 24)
+            .map((node) => `${node.target.join(' ')} :: ${node.html}`)
+            .join(' | ');
+          return `${item.impact}:${item.id}×${item.nodes.length}${nodes ? ` ${nodes}` : ''}`;
         })
         .join('; '),
     );

@@ -106,7 +106,7 @@ export function DropCard({
             />
           )}
           <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
-            <Typography as="span" className="text-xs text-muted-foreground">
+            <Typography as="span" className="text-xs text-secondary-foreground">
               Open to confirm service state
             </Typography>
             {entry.total_quantity != null && <Badge variant="secondary">{entry.total_quantity} editions</Badge>}

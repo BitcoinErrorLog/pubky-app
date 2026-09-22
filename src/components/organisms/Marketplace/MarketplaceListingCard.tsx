@@ -169,13 +169,13 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
               {shopName ?? `${listing.sellerId.slice(0, 8)}…`}
             </Typography>
             {isReserved && (
-              <Typography as="p" className="text-xs text-muted-foreground">
+              <Typography as="p" className="text-xs text-secondary-foreground">
                 {CHECKOUT_HOLD_COPY.listingReserved}
               </Typography>
             )}
           </div>
           <div className="space-y-1">
-            <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+            <Typography as="span" className="text-[10px] font-medium tracking-wide text-secondary-foreground uppercase">
               {isAuction ? (hasLiveBid ? 'Current bid' : 'Starting bid') : 'Price'}
             </Typography>
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -183,13 +183,13 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
                 <MarketplaceCardPrice money={hasLiveBid ? bid.currentPrice : listing.price} />
               </Typography>
               {hasLiveBid && (
-                <Typography as="span" className="text-xs text-muted-foreground">
+                <Typography as="span" className="text-xs text-secondary-foreground">
                   {bid.bidCount} {bid.bidCount === 1 ? 'bid' : 'bids'}
                 </Typography>
               )}
             </div>
             {listing.auction?.buyNowPrice && (
-              <Typography as="p" className="text-xs text-muted-foreground">
+              <Typography as="p" className="text-xs text-secondary-foreground">
                 {`Buy now ${formatCommerceMoney(listing.auction.buyNowPrice)}`}
               </Typography>
             )}
@@ -205,16 +205,16 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
               size="sm"
             />
           ) : (
-            <Typography as="p" className="text-xs text-muted-foreground">
+            <Typography as="p" className="text-xs text-secondary-foreground">
               New seller
             </Typography>
           )}
           <CardTopAttributes listing={listing} />
           <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
-            <Typography as="span" className="text-xs text-muted-foreground">
+            <Typography as="span" className="text-xs text-secondary-foreground">
               {formatCommerceCondition(listing.condition)}
             </Typography>
-            <Typography as="span" className="text-xs text-muted-foreground">
+            <Typography as="span" className="text-xs text-secondary-foreground">
               {listing.location.region ? `${listing.location.region}, ` : ''}
               {listing.location.countryCode}
             </Typography>
@@ -243,7 +243,7 @@ function CardTopAttributes({ listing }: { listing: MarketplaceCatalogItem }) {
     .slice(0, 2);
   if (parts.length === 0) return null;
   return (
-    <Typography as="p" className="truncate text-xs text-muted-foreground" data-cy="marketplace-card-attributes">
+    <Typography as="p" className="truncate text-xs text-secondary-foreground" data-cy="marketplace-card-attributes">
       {parts.join(' · ')}
     </Typography>
   );
