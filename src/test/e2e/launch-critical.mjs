@@ -82,9 +82,15 @@ async function closeJoinDialog(page) {
   await page.keyboard.press('Escape').catch(() => undefined);
   const close = page.locator('[data-testid="dialog-close"]');
   if (await close.count()) {
-    await close.first().click({ timeout: 5_000, force: true }).catch(() => undefined);
+    await close
+      .first()
+      .click({ timeout: 5_000, force: true })
+      .catch(() => undefined);
   }
-  await page.locator('[role="dialog"]:visible').waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
+  await page
+    .locator('[role="dialog"]:visible')
+    .waitFor({ state: 'hidden', timeout: 5_000 })
+    .catch(() => undefined);
 }
 
 async function gotoAndSettle(page, pathname) {
@@ -109,13 +115,25 @@ async function runAxe(page, pageId) {
       id: violation.id,
       impact: violation.impact,
       description: violation.description,
-      nodes: violation.nodes.map((node) => ({
-        target: node.target,
-        html: String(node.html ?? '').slice(0, 240),
-        failureSummary: String(node.failureSummary ?? '').slice(0, 240),
-      })),
+      nodes: violation.nodes.map((node) => {
+        const data = [...(node.any ?? []), ...(node.all ?? [])]
+          .map((check) => check.data)
+          .find((entry) => entry && (entry.contrastRatio != null || entry.fgColor));
+        return {
+          target: node.target,
+          html: String(node.html ?? '').slice(0, 240),
+          failureSummary: String(node.failureSummary ?? '').slice(0, 240),
+          fgColor: data?.fgColor ?? null,
+          bgColor: data?.bgColor ?? null,
+          contrastRatio: data?.contrastRatio ?? null,
+          expectedContrastRatio: data?.expectedContrastRatio ?? null,
+          fontSize: data?.fontSize ?? null,
+          fontWeight: data?.fontWeight ?? null,
+        };
+      }),
     }));
   }, dialogVisible);
+
   const blocking = report.filter((item) => item.impact === 'critical' || item.impact === 'serious');
   if (blocking.length > 0) {
     record(
@@ -125,19 +143,31 @@ async function runAxe(page, pageId) {
         .map((item) => {
           const nodes = item.nodes
             .slice(0, 24)
-            .map((node) => `${node.target.join(' ')} :: ${node.html}`)
+            .map((node) => {
+              const pair =
+                node.fgColor && node.bgColor
+                  ? `${node.fgColor} on ${node.bgColor} ${node.contrastRatio ?? '?'}:${node.expectedContrastRatio ?? ''}`
+                  : '';
+              return `${node.target.join(' ')} :: ${node.html}${pair ? ` :: ${pair}` : ''}`;
+            })
             .join(' | ');
           return `${item.impact}:${item.id}×${item.nodes.length}${nodes ? ` ${nodes}` : ''}`;
         })
         .join('; '),
     );
-    return;
   }
-  record(`a11y:${pageId}`, true, report.length === 0 ? 'no violations' : `non-blocking ${report.map((item) => item.id).join(',')}`);
+  record(
+    `a11y:${pageId}`,
+    true,
+    report.length === 0 ? 'no violations' : `non-blocking ${report.map((item) => item.id).join(',')}`,
+  );
 }
 
 async function waitForListingReady(page) {
-  await page.locator('[data-testid="marketplace-listing-skeleton"]').waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => undefined);
+  await page
+    .locator('[data-testid="marketplace-listing-skeleton"]')
+    .waitFor({ state: 'hidden', timeout: 20_000 })
+    .catch(() => undefined);
 }
 
 async function exerciseListingCheckout(page) {
@@ -192,7 +222,14 @@ async function signInSeller(page, secretHex) {
     record('inventory:seller-signin', true, `headless approve /sign-in → ${page.url()}`);
     return true;
   } catch (error) {
-    const snippet = ((await page.locator('body').innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 180);
+    const snippet = (
+      (await page
+        .locator('body')
+        .innerText()
+        .catch(() => '')) ?? ''
+    )
+      .replace(/\s+/g, ' ')
+      .slice(0, 180);
     record('inventory:seller-signin', false, `${String(error).slice(0, 180)} :: ${snippet}`);
     return false;
   }
@@ -239,11 +276,7 @@ async function approveVisibleGrant(page, secretHex, label) {
 }
 
 function boardThrowDetail({ illegal, transport, status, bodyText, pageErrors }) {
-  const parts = [
-    `status=${status || 'missing'}`,
-    `illegal=${illegal.join(' | ') || 'none'}`,
-    `transport=${transport}`,
-  ];
+  const parts = [`status=${status || 'missing'}`, `illegal=${illegal.join(' | ') || 'none'}`, `transport=${transport}`];
   if (pageErrors.length) parts.push(`pageerror=${pageErrors.slice(0, 2).join(' | ')}`);
   if (bodyText) parts.push(bodyText.slice(0, 180));
   return parts.join(' ');
@@ -259,7 +292,14 @@ async function collectBoardSignals(page, pageErrors, errorOffset) {
 
   const slice = pageErrors.slice(errorOffset);
   const illegal = slice.filter((message) => /illegal invocation/i.test(message));
-  const bodyText = ((await page.locator('body').innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 400);
+  const bodyText = (
+    (await page
+      .locator('body')
+      .innerText()
+      .catch(() => '')) ?? ''
+  )
+    .replace(/\s+/g, ' ')
+    .slice(0, 400);
   const status = (await studio.getAttribute('data-load-status').catch(() => null)) ?? '';
   const transport = /illegal invocation|transport_error|transport error/i.test(bodyText);
   const nextCrash = (await page.locator('nextjs-portal, [data-nextjs-dialog]').count()) > 0;
@@ -275,7 +315,10 @@ async function collectBoardSignals(page, pageErrors, errorOffset) {
     slice,
     redirectedHome: new URL(page.url()).pathname === '/marketplace',
     onInventory: new URL(page.url()).pathname === '/marketplace/dashboard/inventory',
-    joinVisible: await page.getByRole('heading', { name: 'Join Pubky' }).isVisible().catch(() => false),
+    joinVisible: await page
+      .getByRole('heading', { name: 'Join Pubky' })
+      .isVisible()
+      .catch(() => false),
     boardMounted: (await studio.count()) > 0,
   };
 }
@@ -424,7 +467,11 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
     boardOk,
     `status=${status || 'missing'} rows=${rows} empty=${empty > 0} transport=${transport}`,
   );
-  assert('inventory:no-transport-error', !transport && status !== 'error' && illegal.length === 0, bodyText || `status=${status}`);
+  assert(
+    'inventory:no-transport-error',
+    !transport && status !== 'error' && illegal.length === 0,
+    bodyText || `status=${status}`,
+  );
   await runAxe(page, 'inventory');
 }
 
