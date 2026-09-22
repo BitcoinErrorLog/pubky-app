@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import type { AddressAutocompleteProvider } from '@/libs/commerce/address-autocomplete';
 import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
 
 const mockProvider: AddressAutocompleteProvider = {
@@ -69,23 +69,25 @@ function AddressFieldsScene({
 
 describe('Marketplace address fields — visual regression', () => {
   it('renders idle US fields labelled State and ZIP', async () => {
-    const screen = await renderForVRT(<AddressFieldsScene provider={null} />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('address-fields-us-idle-desktop');
+    await renderForVRT(<AddressFieldsScene provider={null} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-address-fields')).toMatchScreenshot('address-fields-us-idle-desktop');
   });
 
   it('renders optional Region for GB', async () => {
-    const screen = await renderForVRT(<AddressFieldsScene provider={null} countryCode="GB" />, {
+    await renderForVRT(<AddressFieldsScene provider={null} countryCode="GB" />, {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('address-fields-gb-region-desktop');
+    await expect(expectVrtSurface('marketplace-address-fields')).toMatchScreenshot('address-fields-gb-region-desktop');
   });
 
   it('renders the open US state dropdown', async () => {
     const screen = await renderForVRT(<AddressFieldsScene provider={null} />, { viewport: VRT_VIEWPORT_DESKTOP });
+    expectVrtSurface('marketplace-address-fields');
     const state = screen.getByLabelText('State');
     await userEvent.click(state);
     await userEvent.type(state, 'Mass');
     await waitForTestId('marketplace-region-options');
+    // Absolute list overflows the surface box; crop the VRT root so Massachusetts stays in frame.
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('address-fields-state-dropdown-desktop');
   });
 
@@ -93,6 +95,7 @@ describe('Marketplace address fields — visual regression', () => {
     const screen = await renderForVRT(<AddressFieldsScene provider={mockProvider} />, {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
+    expectVrtSurface('marketplace-address-fields');
     await userEvent.type(screen.getByLabelText('Address line 1'), '42 Union');
     await waitForTestId('marketplace-address-suggestions');
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('address-fields-suggestions-desktop');
