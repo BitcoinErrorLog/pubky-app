@@ -6,6 +6,9 @@ env:
 
 on:
   workflow_dispatch:
+  schedule:
+    # Full Cypress + Docker/GCR stack. Skipped on BitcoinErrorLog (no GCR).
+    - cron: '17 4 * * *'
   push:
     branches:
       - master
@@ -14,6 +17,7 @@ on:
 jobs:
   rebuild_images:
     name: Getting images to rebuild
+    if: github.repository == 'pubky/pubky-app'
     runs-on: ubuntu-latest
     timeout-minutes: 6
     outputs:
@@ -79,6 +83,7 @@ jobs:
 
   set_vars_pubky_app:
     name: Set vars for Pubky App
+    if: github.repository == 'pubky/pubky-app'
     runs-on: ubuntu-latest
     timeout-minutes: 6
     outputs:
@@ -91,6 +96,7 @@ jobs:
           echo platforms=${{ env.platforms }} >> $GITHUB_OUTPUT
 
   rebuild_pubky_app:
+    if: github.repository == 'pubky/pubky-app'
     needs: [ set_vars_pubky_app ]
     uses: ./.github/workflows/build-docker-image.yml
     with:
@@ -99,6 +105,7 @@ jobs:
 
   e2e-test:
     name: End-to-End Tests
+    if: github.repository == 'pubky/pubky-app'
     runs-on: ubuntu-latest
     timeout-minutes: 6
     needs: [rebuild_images, rebuild_pubky_app]

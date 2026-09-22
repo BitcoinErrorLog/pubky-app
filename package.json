@@ -16,6 +16,8 @@
     "start:e2e:mobile": "cypress open -P cypress --config-file cypress.config.mobile.ts",
     "test:e2e": "cypress run -P cypress -b firefox",
     "test:e2e:mobile": "cypress run -P cypress -b firefox --config-file cypress.config.mobile.ts",
+    "test:e2e:launch-critical": "node src/test/e2e/launch-critical.mjs",
+    "test:e2e:launch-critical:ci": "bash scripts/ci-launch-e2e.sh",
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",
     "test:coverage": "vitest run --project unit --coverage",
