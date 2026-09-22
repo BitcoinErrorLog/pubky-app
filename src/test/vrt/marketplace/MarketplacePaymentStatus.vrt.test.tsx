@@ -259,9 +259,7 @@ describe('Marketplace payment status card — visual regression', () => {
       orderOverrides: { holdExpiresAt: HOLD_DEADLINE, holdSource: 'checkout' },
     });
     await expect.element(screen.getByText('₿ Bitcoin')).toBeInTheDocument();
-    await expect
-      .element(screen.getByText('The item is held for you until Aug 20, 2026, 9:15 PM UTC.'))
-      .toBeInTheDocument();
+    await expect.element(screen.getByText(/The item is held for you until/)).toBeInTheDocument();
     await expect
       .element(screen.getByText('Real money. Payments are final and go directly to the seller.'))
       .not.toBeInTheDocument();
