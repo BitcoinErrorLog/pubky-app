@@ -113,7 +113,7 @@ and presets template them:
 - The checkout picker orders addresses default-first, then by most recent
   use; the top address pre-fills the form once (never over typed input), and
   editing a picked address turns the entry back into a new one.
-- Validation follows the per-country table in [`postal-address.ts`](../../src/libs/commerce/postal-address.ts): region is required only where carriers need a subdivision (US/CA/AU/BR/IN/MX and similar), labelled State/Province/Region accordingly, with a type-to-filter list for US/CA/AU. US ZIP fills City + State on-device. US line 1 can suggest via Places Autocomplete (New) when `PUBKY_RUNTIME_GOOGLE_PLACES_API_KEY` is set; see [`checkout-address-design.md`](checkout-address-design.md). A saved address is always submittable.
+- Validation follows the per-country table in [`postal-address.ts`](../../src/libs/commerce/postal-address.ts): region is required only where carriers need a subdivision (US/CA/AU/BR/IN/MX and similar), labelled State/Province/Region accordingly, with a type-to-filter list for US/CA/AU. US ZIP fills City + State on-device. US line 1 can suggest via Places Autocomplete (New) when `PUBKY_RUNTIME_GOOGLE_PLACES_API_KEY` is set; see [`checkout-address-design.md`](checkout-address-design.md) and [`address-autocomplete-design.md`](address-autocomplete-design.md). A saved address is always submittable.
 - The first saved address becomes the default; the default is exclusive and
   changeable from the settings surface.
 

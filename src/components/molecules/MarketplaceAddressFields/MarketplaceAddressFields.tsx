@@ -29,6 +29,7 @@ const SUGGEST_DEBOUNCE_MS = 300;
 const MIN_SUGGEST_CHARS = 3;
 
 function readPlacesKey(): string | undefined {
+  if (typeof process !== 'undefined' && process.env.VITEST) return undefined;
   try {
     return getGooglePlacesApiKey();
   } catch {

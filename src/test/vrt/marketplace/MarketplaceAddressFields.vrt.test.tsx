@@ -1,5 +1,8 @@
+// Intentional import order — browser-mode mocks rely on stable aliases.
+/* eslint-disable simple-import-sort/imports */
 import { useForm } from 'react-hook-form';
 import { describe, expect, it, vi } from 'vitest';
+import { userEvent } from 'vitest/browser';
 import type { AddressAutocompleteProvider } from '@/libs/commerce/address-autocomplete';
 import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
@@ -28,6 +31,17 @@ const mockProvider: AddressAutocompleteProvider = {
   }),
 };
 
+async function waitForTestId(testId: string, timeout = 5000) {
+  await vi.waitFor(
+    () => {
+      if (!document.querySelector(`[data-testid="${testId}"]`)) {
+        throw new Error(`${testId} has not opened yet.`);
+      }
+    },
+    { timeout },
+  );
+}
+
 function AddressFieldsScene({
   provider,
   countryCode = 'US',
@@ -47,7 +61,7 @@ function AddressFieldsScene({
   });
 
   return (
-    <div className="max-w-xl bg-background p-6">
+    <div className="min-h-[720px] max-w-xl bg-background p-6">
       <MarketplaceAddressFields control={form.control} setValue={form.setValue} autocompleteProvider={provider} />
     </div>
   );
@@ -68,13 +82,10 @@ describe('Marketplace address fields — visual regression', () => {
 
   it('renders the open US state dropdown', async () => {
     const screen = await renderForVRT(<AddressFieldsScene provider={null} />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await screen.getByLabelText('State').click();
-    await screen.getByLabelText('State').fill('Mass');
-    await vi.waitFor(() => {
-      if (!screen.container.querySelector('[data-testid="marketplace-region-options"]')) {
-        throw new Error('The state list has not opened yet.');
-      }
-    });
+    const state = screen.getByLabelText('State');
+    await userEvent.click(state);
+    await userEvent.type(state, 'Mass');
+    await waitForTestId('marketplace-region-options');
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('address-fields-state-dropdown-desktop');
   });
 
@@ -82,22 +93,18 @@ describe('Marketplace address fields — visual regression', () => {
     const screen = await renderForVRT(<AddressFieldsScene provider={mockProvider} />, {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
-    await screen.getByLabelText('Address line 1').fill('42 Union');
-    await vi.waitFor(() => {
-      if (!screen.container.querySelector('[data-testid="marketplace-address-suggestions"]')) {
-        throw new Error('The address suggestions have not opened yet.');
-      }
-    });
+    await userEvent.type(screen.getByLabelText('Address line 1'), '42 Union');
+    await waitForTestId('marketplace-address-suggestions');
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('address-fields-suggestions-desktop');
 
-    await screen.getByRole('option', { name: /42 Union Street/ }).click();
+    await userEvent.click(screen.getByRole('option', { name: /42 Union Street/ }));
     await vi.waitFor(() => {
-      const city = screen.container.querySelector('#city');
+      const city = document.querySelector('#city');
       if (!(city instanceof HTMLInputElement) || city.value !== 'New Bedford') {
         throw new Error('Selecting a suggestion did not fill the city.');
       }
     });
-    expect((screen.container.querySelector('#region') as HTMLInputElement).value).toBe('MA');
-    expect((screen.container.querySelector('#postalCode') as HTMLInputElement).value).toBe('02740');
+    expect((document.querySelector('#region') as HTMLInputElement).value).toBe('MA');
+    expect((document.querySelector('#postalCode') as HTMLInputElement).value).toBe('02740');
   });
 });
