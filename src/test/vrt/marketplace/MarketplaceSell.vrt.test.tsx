@@ -687,8 +687,11 @@ describe('Marketplace sell studio — visual regression', () => {
     );
     expect(connect).toBeDefined();
     await connect!.click();
+    // DialogContent portals out of the VRT root — assert against document.
     await vi.waitFor(() => {
-      if (!screen.container.textContent?.includes('The approval expired before it was completed. Try again.')) {
+      const dialog = document.querySelector('[role="dialog"]');
+      if (!dialog) throw new Error('The grant dialog has not opened yet.');
+      if (!dialog.textContent?.includes('The approval expired before it was completed. Try again.')) {
         throw new Error('The grant expiry copy has not rendered yet.');
       }
     });
