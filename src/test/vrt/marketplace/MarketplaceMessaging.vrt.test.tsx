@@ -1,11 +1,12 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { preloadImages, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, preloadImages, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_FROZEN_NOW_MS } from '@/test-utils/vrt.clock';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { Button } from '@/atoms/Button/Button';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
+import { MarketplaceMessageDialog } from '@/organisms/Marketplace/MarketplaceMessageDialog';
 import { MarketplaceMessagingEnableDialog } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
 import type { CommerceMessagingMessageModelSchema } from '@/models/messaging/messaging.schema';
 
@@ -81,13 +82,34 @@ const enableView = vi.hoisted(() => ({
   isOpeningRing: false,
 }));
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-  usePathname: () => '/marketplace/messages',
+const listingMode = vi.hoisted(() => ({
+  mode: 'sandbox' as string,
+  currentUserPubky: 'b'.repeat(52),
+}));
+
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return { ...actual, getCommerceAdapterMode: () => listingMode.mode };
+});
+
+vi.mock('@/stores/auth/auth.store', () => ({
+  useAuthStore: Object.assign(
+    (selector: (state: { currentUserPubky: string }) => unknown) =>
+      selector({ currentUserPubky: listingMode.currentUserPubky }),
+    {
+      getState: () => ({ currentUserPubky: listingMode.currentUserPubky }),
+      setState: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
+    },
+  ),
 }));
 
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: <T,>(action: () => T) => action() }),
+}));
+
+vi.mock('@/hooks/useUserDetails/useUserDetails', () => ({
+  useUserDetails: () => ({ userDetails: { name: 'Ada' }, isLoading: false }),
 }));
 
 vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
@@ -172,6 +194,8 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     enableView.authorizationUrl = '';
     enableView.errorMessage = null;
     enableView.isOpeningRing = false;
+    listingMode.mode = 'sandbox';
+    listingMode.currentUserPubky = BUYER;
     if (!document.getElementById('__vrt_messaging_stabilizer__')) {
       const styleEl = document.createElement('style');
       styleEl.id = '__vrt_messaging_stabilizer__';
@@ -212,7 +236,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-conversation-ready-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-conversation-ready-desktop',
+    );
   });
 
   it('renders the active conversation at mobile viewport', async () => {
@@ -223,7 +249,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_MOBILE });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-conversation-ready-mobile');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-conversation-ready-mobile',
+    );
   });
 
   it('renders the over-budget composer state at desktop viewport', async () => {
@@ -232,7 +260,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-conversation-over-budget-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-conversation-over-budget-desktop',
+    );
   });
 
   it('renders the send-failure state with the kept draft at desktop viewport', async () => {
@@ -243,7 +273,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-conversation-send-failed-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-conversation-send-failed-desktop',
+    );
   });
 
   it('renders the waiting-for-counterparty handshake state at desktop viewport', async () => {
@@ -251,7 +283,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-handshake-initiator-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-handshake-initiator-desktop',
+    );
   });
 
   it('renders queued messages with cancel affordances while the handshake is pending at desktop viewport', async () => {
@@ -267,7 +301,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-queued-pending-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-queued-pending-desktop',
+    );
   });
 
   it('renders a queued message whose last flush attempt failed (honest retry note) at desktop viewport', async () => {
@@ -283,7 +319,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-queued-retrying-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-queued-retrying-desktop',
+    );
   });
 
   it('renders the answering-handshake (responder) state at desktop viewport', async () => {
@@ -291,7 +329,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-handshake-responder-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-handshake-responder-desktop',
+    );
   });
 
   it('renders the counterparty-not-enrolled state at desktop viewport', async () => {
@@ -299,7 +339,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-not-enrolled-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-not-enrolled-desktop',
+    );
   });
 
   it('renders the in-conversation enable step when no session exists at desktop viewport', async () => {
@@ -309,7 +351,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     await preloadImages(QR_LOGO_URLS);
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-needs-enable-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-needs-enable-desktop',
+    );
   });
 
   it('renders the transport error state at desktop viewport', async () => {
@@ -318,7 +362,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
 
     const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-error-desktop');
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot('messaging-error-desktop');
   });
 
   it('renders the standalone enable dialog awaiting Ring approval at desktop viewport', async () => {
@@ -347,5 +391,84 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     );
     await openDialog(screen.getByRole('button', { name: 'Reconnect encrypted messaging' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-enable-error-desktop');
+  });
+
+  it('renders the counterparty-not-enrolled state at mobile viewport', async () => {
+    conversationView.status = 'not-enrolled';
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_MOBILE });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-not-enrolled-mobile',
+    );
+  });
+
+  it('renders queued messages at mobile viewport', async () => {
+    conversationView.status = 'handshaking-initiator';
+    conversationView.thread = [
+      fixedQueued('00000000-0000-4000-8000-000000000901', 'Is this still available?', VRT_FROZEN_NOW_MS - 2 * 60_000),
+    ];
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_MOBILE });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-queued-pending-mobile',
+    );
+  });
+
+  it('renders the handshake initiator state at mobile viewport', async () => {
+    conversationView.status = 'handshaking-initiator';
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_MOBILE });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-handshake-initiator-mobile',
+    );
+  });
+
+  it('renders the listing disclosure on an open durable conversation at desktop viewport', async () => {
+    const screen = await renderForVRT(
+      <Harness>
+        <MarketplaceEncryptedConversationDialog
+          sellerPubky={SELLER}
+          buyerPubky={BUYER}
+          listingId={LISTING_ID}
+          counterpartyPubky={SELLER}
+          showListingDisclosure
+          trigger={<Button variant="secondary">Message seller</Button>}
+        />
+      </Harness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-listing-disclosure-desktop',
+    );
+  });
+
+  it('renders the seller-disabled listing CTA at desktop viewport', async () => {
+    listingMode.mode = 'transaction-service';
+    listingMode.currentUserPubky = SELLER;
+
+    const screen = await renderForVRT(
+      <Harness>
+        <MarketplaceMessageDialog sellerPubky={SELLER} listingId={LISTING_ID} />
+      </Harness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-seller-disabled-desktop');
+  });
+
+  it('renders the seller-disabled listing CTA at mobile viewport', async () => {
+    listingMode.mode = 'transaction-service';
+    listingMode.currentUserPubky = SELLER;
+
+    const screen = await renderForVRT(
+      <Harness>
+        <MarketplaceMessageDialog sellerPubky={SELLER} listingId={LISTING_ID} />
+      </Harness>,
+      { viewport: VRT_VIEWPORT_MOBILE },
+    );
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messaging-seller-disabled-mobile');
   });
 });

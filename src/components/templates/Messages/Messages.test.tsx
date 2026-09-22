@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import type { UseEncryptedConversationReturn } from '@/hooks/useEncryptedConversation/useEncryptedConversation.types';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { Messages } from './Messages';
 import { MessagesConversation } from './MessagesConversation';
 
@@ -173,11 +174,7 @@ describe('MessagesConversation pending-handshake composer', () => {
 
     expect(screen.getByLabelText('Message')).toBeEnabled();
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Their messenger hasn't responded yet — messages you send are queued on this device and deliver automatically when it does.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText(MESSAGING_COPY.handshakeInitiator)).toBeInTheDocument();
   });
 
   it('keeps the composer enabled while answering an inbound handshake', () => {
@@ -186,10 +183,6 @@ describe('MessagesConversation pending-handshake composer', () => {
     render(<MessagesConversation counterpartyPubky={COUNTERPARTY} />);
 
     expect(screen.getByLabelText('Message')).toBeEnabled();
-    expect(
-      screen.getByText(
-        'Still securing this conversation — messages you send are queued on this device and deliver automatically once the encrypted handshake completes.',
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText(MESSAGING_COPY.handshakeResponder)).toBeInTheDocument();
   });
 });

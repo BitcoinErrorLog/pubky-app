@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import {
   createOrderFixture,
@@ -16,6 +17,7 @@ const OTHER_USER = 'o'.repeat(52);
 const ordersState = vi.hoisted(() => ({
   currentUserPubky: 'b'.repeat(52),
   orders: [] as unknown[],
+  adapterMode: 'sandbox' as string,
 }));
 
 vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
@@ -24,10 +26,36 @@ vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
     isLoading: false,
     error: null,
     needsSession: false,
-    adapterMode: 'sandbox',
+    adapterMode: ordersState.adapterMode,
     refresh: vi.fn(),
     advancePayment: vi.fn(),
     actOnOrder: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({ requireAuth: <T,>(action: () => T) => action() }),
+}));
+
+vi.mock('@/hooks/useUserDetails/useUserDetails', () => ({
+  useUserDetails: () => ({ userDetails: null, isLoading: false }),
+}));
+
+vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
+  useEncryptedConversation: () => ({
+    status: 'ready',
+    errorMessage: null,
+    thread: [],
+    receiverProvisioned: false,
+    draft: '',
+    setDraft: vi.fn(),
+    bodyBudgetBytes: 620,
+    draftBytes: 0,
+    isSending: false,
+    sendError: null,
+    send: vi.fn(async () => 'queued'),
+    cancelQueued: vi.fn(async () => {}),
+    refresh: vi.fn(),
   }),
 }));
 
@@ -120,6 +148,7 @@ describe('MarketplaceOrders tabs', () => {
   beforeEach(() => {
     ordersState.currentUserPubky = CURRENT_USER;
     ordersState.orders = [];
+    ordersState.adapterMode = 'sandbox';
     useMarketplaceDisplayStore.setState({ showFxEstimate: false, measurementSystem: null });
   });
 
@@ -516,19 +545,34 @@ describe('MarketplaceOrders tabs', () => {
 
     const assumedCard = screen.getByText(/Bought assumed boots/).closest('[data-slot="card"]');
     const confirmedCard = screen.getByText(/Bought confirmed coat/).closest('[data-slot="card"]');
-    expect(
-      within(assumedCard as HTMLElement).getByText(/Marked delivered automatically after the delivery window/),
-    ).toBeInTheDocument();
-    expect(within(assumedCard as HTMLElement).getByRole('link', { name: 'Message seller' })).toHaveAttribute(
+    expect(within(assumedCard as HTMLElement).getByText(MESSAGING_COPY.assumedDelivery)).toBeInTheDocument();
+    expect(within(assumedCard as HTMLElement).getByRole('link', { name: MESSAGING_COPY.orderCta })).toHaveAttribute(
       'href',
-      '/marketplace/messages',
+      expect.stringMatching(/^\/marketplace\/messages\?conversation=/),
     );
     expect(
       within(assumedCard as HTMLElement).getByText(/Completes automatically after the return window/),
     ).toBeInTheDocument();
+    expect(within(confirmedCard as HTMLElement).queryByText(MESSAGING_COPY.assumedDelivery)).not.toBeInTheDocument();
     expect(
-      within(confirmedCard as HTMLElement).queryByText(/Marked delivered automatically after the delivery window/),
-    ).not.toBeInTheDocument();
+      within(confirmedCard as HTMLElement).getByRole('link', { name: MESSAGING_COPY.orderCta }),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the listing conversation dialog from a durable order card', async () => {
+    const user = userEvent.setup();
+    ordersState.adapterMode = 'transaction-service';
+    ordersState.orders = [orderView('paid', 'Bought paid boots', 'buyer', { nextActor: 'none' })];
+
+    render(<MarketplaceOrders />);
+    await user.click(screen.getByRole('tab', { name: /All 1/i }));
+
+    const card = screen.getByText(/Bought paid boots/).closest('[data-slot="card"]');
+    expect(within(card as HTMLElement).queryByRole('link', { name: MESSAGING_COPY.orderCta })).not.toBeInTheDocument();
+    expect((card as HTMLElement).querySelector('[data-surface="marketplace-order-message-cta"]')).toBeTruthy();
+    await user.click(within(card as HTMLElement).getByRole('button', { name: MESSAGING_COPY.orderCta }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(document.querySelector('[data-surface="marketplace-encrypted-conversation"]')).toBeTruthy();
   });
 
   it('keeps icon-only order card buttons accessible when they render', () => {

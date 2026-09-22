@@ -173,6 +173,10 @@ describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
             : 'order:018f47d2-6a27-7c23-c62f-000000000002';
 
     expect(MarketplaceNotificationNormalizer.toDeepLink(type, aggregateId)).toBe(expectedRoutes[type]);
+    if (type === 'message_received') {
+      expect(MarketplaceNotificationNormalizer.toDeepLink(type, aggregateId)).toBe(MARKETPLACE_ROUTES.MESSAGES);
+      expect(MarketplaceNotificationNormalizer.toDeepLink(type, aggregateId)).not.toContain('conversation=');
+    }
   });
 
   it.each(['order:018f47d2-6a27-7c23-c62f-000000000002', 'listing:', 'listing:_x', 'listing:noseparator'])(

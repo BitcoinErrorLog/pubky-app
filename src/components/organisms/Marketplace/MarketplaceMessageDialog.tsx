@@ -8,6 +8,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useMarketplaceMessages } from '@/hooks/useMarketplaceMessages/useMarketplaceMessages';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { cn } from '@/libs/utils/utils';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -41,11 +42,11 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
             onClick={() => requireAuth(() => undefined)}
           >
             <MessageCircle className="mr-2 size-4" />
-            Message seller
+            {MESSAGING_COPY.listingCta}
           </Button>
           {isSeller && (
             <Typography as="p" className="mt-2 text-center text-xs text-muted-foreground">
-              This is your listing. Buyer conversations appear in your marketplace messages.
+              {MESSAGING_COPY.listingOwn}
             </Typography>
           )}
         </div>
@@ -57,10 +58,11 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
         buyerPubky={currentUserPubky}
         listingId={listingId}
         counterpartyPubky={sellerPubky}
+        showListingDisclosure
         trigger={
           <Button variant="secondary" className="w-full rounded-full">
             <MessageCircle className="mr-2 size-4" />
-            Message seller
+            {MESSAGING_COPY.listingCta}
           </Button>
         }
       />
@@ -73,10 +75,10 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
       <div>
         <Button variant="secondary" className="w-full rounded-full" disabled>
           <MessageCircle className="mr-2 size-4" />
-          Message seller
+          {MESSAGING_COPY.listingCta}
         </Button>
         <Typography as="p" className="mt-2 text-center text-xs text-muted-foreground">
-          Messaging is not available in this deployment mode.
+          {MESSAGING_COPY.unavailable}
         </Typography>
       </div>
     );
@@ -100,7 +102,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
           disabled={Boolean(currentUserPubky && currentUserPubky === sellerPubky)}
         >
           <MessageCircle className="mr-2 size-4" />
-          Message seller
+          {MESSAGING_COPY.listingCta}
         </Button>
       </DialogTrigger>
       <DialogContent className="border-border bg-popover sm:max-w-xl">
@@ -108,8 +110,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
           <DialogTitle>Listing conversation</DialogTitle>
         </DialogHeader>
         <Typography as="p" className="text-xs text-muted-foreground">
-          Sandbox messages are not encrypted: they are stored in plaintext in the sandbox service&apos;s memory and are
-          readable by whoever runs it. Do not share anything private.
+          {MESSAGING_COPY.sandboxWarning}
         </Typography>
         <div aria-live="polite" className="max-h-80 space-y-3 overflow-y-auto rounded-xl border bg-card/50 p-4">
           {messages.conversation?.messages.length ? (
@@ -137,7 +138,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
             })
           ) : (
             <Typography as="p" className="py-8 text-center text-sm text-muted-foreground">
-              Ask about condition, shipping, or item details. Do not share payment credentials.
+              {MESSAGING_COPY.listingEmptyThread}
             </Typography>
           )}
         </div>
