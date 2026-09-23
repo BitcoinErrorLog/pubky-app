@@ -8,6 +8,7 @@ export const CHECKOUT_HOLD_COPY = {
   listingReserved:
     'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
   heldForYouCta: 'Held for you · view your order',
+  heldForYouOfferCta: 'Held for you · continue checkout',
   heldWhileAnotherPays: 'Held while another buyer pays',
   expiredNoLateMoney: 'Payment window elapsed. The item is available again.',
   lateCompleteBuyer:
@@ -19,9 +20,9 @@ export const CHECKOUT_HOLD_COPY = {
     'Return the observed bitcoin to the buyer. This marketplace cannot reverse Bitcoin. Message the buyer for a return address, send the transaction, then record it as an external refund.',
   refundRequiredPaypalSeller:
     'Refund this PayPal payment from your PayPal account. This marketplace cannot refund PayPal. Then record the refund.',
-  refundRequiredStripeSeller: 'Refund this Stripe payment from your Stripe Dashboard. Then record the refund.',
-  stripeRefundSubmitted: 'Refund submitted to Stripe.',
-  stripeRefundRefused: 'Stripe refused the refund (this key cannot refund). Refund from the Stripe Dashboard.',
+  refundRequiredStripeSeller: 'Refund this card payment from the account that received it. Then record the refund.',
+  stripeRefundSubmitted: 'Refund submitted.',
+  stripeRefundRefused: 'The refund was refused. Refund it from the account that received the payment.',
 } as const;
 
 export function formatHoldDeadline(holdExpiresAt: string | null | undefined): string | null {
@@ -107,6 +108,35 @@ export function findViewerPendingHoldOrder(
     if (order.state !== 'pending_payment') continue;
     if (!order.lines.some((line) => line.listingAggregateId === listingAggregateId)) continue;
     return { orderId: order.id };
+  }
+  return null;
+}
+
+type ViewerAcceptedOffer = {
+  id: string;
+  state: string;
+  buyerPubky: string;
+  listingAggregateId: string;
+  award?: { state: string } | null;
+};
+
+/**
+ * Match a reserved listing to the viewer's accepted offer award.
+ * Compare `offer.buyerPubky` to `MarketplaceSessionService.getActiveSession().pubky`.
+ * A pending-payment order hold wins over this match.
+ */
+export function findViewerAcceptedOfferHold(
+  offers: readonly ViewerAcceptedOffer[],
+  listingAggregateId: string,
+  sessionPubky: string | null | undefined,
+): { offerId: string } | null {
+  if (!sessionPubky) return null;
+  for (const offer of offers) {
+    if (offer.buyerPubky !== sessionPubky) continue;
+    if (offer.state !== 'accepted') continue;
+    if (offer.listingAggregateId !== listingAggregateId) continue;
+    if (offer.award?.state !== 'active') continue;
+    return { offerId: offer.id };
   }
   return null;
 }

@@ -4,8 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommerceSellerReputationOverview } from '@/application/commerce/commerce';
 import { CAPABILITIES } from '@/config/app';
 import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
+import { getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
+import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { createCommerceListingFixture, createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel, toCommerceShopModel } from '@/test/fixtures/commerce/listing-models';
+import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
 import { createOrderFixture } from '@/test/fixtures/commerce/orders';
 import { createListingProjectionFixture } from '@/test/fixtures/commerce/projections';
 import { MarketplaceListing } from './MarketplaceListing';
@@ -19,6 +22,9 @@ const authState = vi.hoisted(() => ({
   currentUserPubky: 'b'.repeat(52) as string | null,
   setShowSignInDialog: vi.fn(),
 }));
+const sessionState = vi.hoisted(() => ({
+  pubky: null as string | null,
+}));
 
 const view = vi.hoisted(() => ({
   listing: null as ReturnType<typeof toCommerceListingModel> | null,
@@ -28,6 +34,7 @@ const view = vi.hoisted(() => ({
   needsSession: false,
   hasFullHomeserverGrant: false,
   orders: [] as Array<{ order: ReturnType<typeof createOrderFixture> }>,
+  offers: [] as MarketplaceOffer[],
 }));
 
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({ useMarketplaceCartCount: () => 0 }));
@@ -98,6 +105,22 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   }),
 }));
 
+vi.mock('@/services/marketplace/marketplace-session', () => ({
+  MarketplaceSessionService: {
+    getActiveSession: () => (sessionState.pubky ? { pubky: sessionState.pubky } : null),
+  },
+}));
+
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({
+    offers: view.offers,
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
   useMarketplaceOrders: () => ({
     orders: view.orders,
@@ -163,6 +186,8 @@ describe('MarketplaceListing', () => {
     view.needsSession = false;
     view.hasFullHomeserverGrant = false;
     view.orders = [];
+    view.offers = [];
+    sessionState.pubky = null;
     sellerReputation.value = { status: 'new_seller' };
     cartAdd.mockClear();
     projectionRefresh.mockClear();
@@ -425,11 +450,20 @@ describe('MarketplaceListing', () => {
       reservedQuantity: 1,
     });
     view.orders = [{ order: ownHold }];
+    view.offers = [
+      {
+        ...parseContractFaithfulOffer('accepted', 'active'),
+        buyerPubky: authState.currentUserPubky ?? '',
+        listingAggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+      },
+    ];
+    sessionState.pubky = authState.currentUserPubky;
 
     renderListing();
 
     const link = screen.getByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouCta });
     expect(link).toHaveAttribute('href', `/marketplace/checkout#${ownHold.id}`);
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: CHECKOUT_HOLD_COPY.heldForYouCta })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Held by another buyer' })).not.toBeInTheDocument();
     expect(
@@ -437,6 +471,87 @@ describe('MarketplaceListing', () => {
         'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
       ),
     ).not.toBeInTheDocument();
+  });
+
+  function acceptedOfferForListing(
+    listingAggregateId: string,
+    buyerPubky: string,
+    awardState: 'active' | 'expired' = 'active',
+  ) {
+    return {
+      ...parseContractFaithfulOffer('accepted', awardState),
+      buyerPubky,
+      listingAggregateId,
+    };
+  }
+
+  function reserveCurrentListing() {
+    const listing = view.listing;
+    if (!listing) return { listing: view.listing, aggregateId: '' };
+    const aggregateId = `listing:${listing.seller_id}_${listing.listing_id}`;
+    view.projection = createListingProjectionFixture({
+      aggregateId,
+      sellerPubky: listing.seller_id,
+      listingId: listing.listing_id,
+      state: 'reserved',
+      availableQuantity: 0,
+      reservedQuantity: 1,
+    });
+    return { listing, aggregateId };
+  }
+
+  it('links the award buyer to checkout when the accepted offer buyerPubky matches the session pubky', () => {
+    const { aggregateId } = reserveCurrentListing();
+    const sessionPubky = 'b'.repeat(52);
+    sessionState.pubky = sessionPubky;
+    const offer = acceptedOfferForListing(aggregateId, sessionPubky);
+    view.offers = [offer];
+
+    renderListing();
+
+    expect(document.querySelector('[data-surface="marketplace-listing-purchase"]')).toBeTruthy();
+    const link = screen.getByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta });
+    expect(link).toHaveAttribute('href', getMarketplaceOfferCheckoutRoute(offer.id));
+    expect(screen.queryByRole('button', { name: 'Held by another buyer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: CHECKOUT_HOLD_COPY.heldWhileAnotherPays })).not.toBeInTheDocument();
+    expect(screen.queryByText(CHECKOUT_HOLD_COPY.listingReserved)).not.toBeInTheDocument();
+  });
+
+  it("does not treat another pubky accepted offer as the viewer's hold", () => {
+    const { aggregateId } = reserveCurrentListing();
+    sessionState.pubky = 'b'.repeat(52);
+    view.offers = [acceptedOfferForListing(aggregateId, 'c'.repeat(52))];
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta })).not.toBeInTheDocument();
+  });
+
+  it('does not claim an offer hold without an active session pubky', () => {
+    const { aggregateId } = reserveCurrentListing();
+    sessionState.pubky = null;
+    view.offers = [acceptedOfferForListing(aggregateId, 'b'.repeat(52))];
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta })).not.toBeInTheDocument();
+  });
+
+  it('ignores an accepted offer that does not hold this listing', () => {
+    const { aggregateId } = reserveCurrentListing();
+    const sessionPubky = 'b'.repeat(52);
+    sessionState.pubky = sessionPubky;
+    view.offers = [
+      acceptedOfferForListing('listing:other_item', sessionPubky),
+      acceptedOfferForListing(aggregateId, sessionPubky, 'expired'),
+    ];
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta })).not.toBeInTheDocument();
   });
 
   function renderAuctionListingNeedingSession() {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Banknote, Check, CreditCard, LoaderCircle, WalletCards } from 'lucide-react';
+import { Banknote, Check, LoaderCircle, WalletCards } from 'lucide-react';
 import { Controller, useWatch } from 'react-hook-form';
 import { APP_ROUTES, getMarketplaceDropRoute, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
@@ -62,11 +62,17 @@ type AwardPayOutcome = 'expired' | 'converted' | 'error' | 'success' | 'unavaila
 
 const EMPTY_CHECKOUT_ITEMS: MarketplaceCartItem[] = [];
 
-const METHOD_COPY: Record<PaymentMethodKind, string> = {
+const CHECKOUT_RAILS = ['bitcoin', 'paypal'] as const;
+type CheckoutRail = (typeof CHECKOUT_RAILS)[number];
+
+const METHOD_COPY: Record<CheckoutRail, string> = {
   bitcoin: '₿ Bitcoin',
-  stripe: 'Card (Stripe)',
   paypal: 'PayPal',
 };
+
+function checkoutRails(methods: readonly PaymentMethodKind[]): CheckoutRail[] {
+  return CHECKOUT_RAILS.filter((method) => methods.includes(method));
+}
 
 export function MarketplaceCheckout() {
   return <MarketplaceCartCheckout />;
@@ -724,24 +730,21 @@ function MarketplaceCartCheckout() {
                       </Typography>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        {(isSandbox ? (['bitcoin', 'stripe', 'paypal'] as PaymentMethodKind[]) : sharedMethods).map(
-                          (method) => (
-                            <Button
-                              key={method}
-                              type="button"
-                              size="sm"
-                              variant={selectedMethod === method ? 'default' : 'secondary'}
-                              className="rounded-full"
-                              data-testid={`marketplace-checkout-method-${method}`}
-                              onClick={() => setSelectedMethod(method)}
-                            >
-                              {method === 'bitcoin' && <WalletCards className="mr-2 size-4" />}
-                              {method === 'stripe' && <CreditCard className="mr-2 size-4" />}
-                              {method === 'paypal' && <Banknote className="mr-2 size-4" />}
-                              {METHOD_COPY[method]}
-                            </Button>
-                          ),
-                        )}
+                        {checkoutRails(isSandbox ? CHECKOUT_RAILS : sharedMethods).map((method) => (
+                          <Button
+                            key={method}
+                            type="button"
+                            size="sm"
+                            variant={selectedMethod === method ? 'default' : 'secondary'}
+                            className="rounded-full"
+                            data-testid={`marketplace-checkout-method-${method}`}
+                            onClick={() => setSelectedMethod(method)}
+                          >
+                            {method === 'bitcoin' && <WalletCards className="mr-2 size-4" />}
+                            {method === 'paypal' && <Banknote className="mr-2 size-4" />}
+                            {METHOD_COPY[method]}
+                          </Button>
+                        ))}
                       </div>
                     )}
                   </div>

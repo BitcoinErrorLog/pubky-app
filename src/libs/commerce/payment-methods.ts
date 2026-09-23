@@ -26,11 +26,14 @@ export const sellerPaymentConfigSchema = z.object({
 
 export type SellerPaymentConfig = z.infer<typeof sellerPaymentConfigSchema>;
 
-/** Methods the buyer can actually choose, in the order the UI renders them. */
+/**
+ * Methods the buyer can actually choose, in the order the UI renders them.
+ * Card payments are paused: a stored Stripe link is kept on the service and
+ * is never offered.
+ */
 export function availablePaymentMethods(config: SellerPaymentConfig): PaymentMethodKind[] {
   const methods: PaymentMethodKind[] = [];
   if (config.bitcoinAvailable && config.bitcoinOfferAvailable) methods.push('bitcoin');
-  if (config.stripePaymentLink) methods.push('stripe');
   if (config.paypalMerchantEmail) methods.push('paypal');
   return methods;
 }

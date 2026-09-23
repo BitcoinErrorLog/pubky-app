@@ -4,7 +4,7 @@ Read this before evaluating the marketplace. It exists so nobody has to reverse-
 
 For the complete hierarchical feature inventory, see [`FEATURES.md`](FEATURES.md).
 
-Shop is deployed in production at <https://shop.pubky.app> (Vercel), using the production homeserver, Nexus, and Railway marketplace services. Checkout is **seller-direct**: Bitcoin binds through mainnet Paykit (`paykit-shop.pubky.app`); Stripe and PayPal settle into the seller\u2019s own processor accounts. The marketplace never holds funds. Lightning is not a Shop checkout rail.
+Shop is deployed in production at <https://shop.pubky.app> (Vercel), using the production homeserver, Nexus, and Railway marketplace services. Checkout is **seller-direct**: Bitcoin binds through mainnet Paykit (`paykit-shop.pubky.app`); PayPal settles into the seller’s own PayPal account. Card payments are paused in the shop and are not offered. The marketplace never holds funds. Lightning is not a Shop checkout rail.
 
 Last updated: 2026-09-21.
 
