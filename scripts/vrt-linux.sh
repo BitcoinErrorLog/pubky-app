@@ -18,6 +18,24 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+# A host node_modules symlink is followed by the bind mount. npm ci then
+# deletes that symlink and writes a real directory into the worktree.
+# Replace it with an empty mountpoint for the volume, and restore the link.
+NM_LINK=""
+if [ -L "$ROOT/node_modules" ]; then
+  NM_LINK="$(readlink "$ROOT/node_modules")"
+  rm "$ROOT/node_modules"
+  mkdir "$ROOT/node_modules"
+fi
+restore_nm() {
+  rm -rf "$ROOT/.vitest-attachments"
+  if [ -n "$NM_LINK" ]; then
+    rm -rf "$ROOT/node_modules"
+    ln -s "$NM_LINK" "$ROOT/node_modules"
+  fi
+}
+trap restore_nm EXIT
+
 quote_list() {
   local out="" spec
   for spec in "$@"; do
