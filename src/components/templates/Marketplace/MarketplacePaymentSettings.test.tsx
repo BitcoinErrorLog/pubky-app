@@ -371,7 +371,16 @@ describe('MarketplacePaymentSettings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
     expect(screen.getAllByText(helper)).toHaveLength(2);
-    expect(screen.getByText(/Bitkit 2.5 or newer is required/)).toBeInTheDocument();
+    expect(
+      screen.getByText('Scan the code with Bitkit, or open this page on your phone and tap Open in Bitkit.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Bitkit 2\.5 or newer is required/)).not.toBeInTheDocument();
+    const iframe = screen.getByTitle('Connect Bitkit');
+    const dialog = iframe.closest('[data-testid="dialog-content"]');
+    expect(dialog?.className).toMatch(/overflow-y-auto/);
+    expect(dialog?.className).not.toMatch(/overflow-hidden/);
+    expect(iframe.className).not.toMatch(/overflow-y-auto|overflow-auto|h-\[min\(22rem/);
+    expect(iframe).toHaveAttribute('scrolling', 'no');
   });
 
   it('validates the Bitkit setup callback', async () => {

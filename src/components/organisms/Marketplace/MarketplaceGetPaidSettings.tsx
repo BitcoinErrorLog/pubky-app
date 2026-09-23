@@ -58,8 +58,7 @@ type MarketplaceGetPaidSettingsProps = {
 type PaykitSetupStatus = 'idle' | 'error' | 'mismatch' | 'verifying' | 'timeout';
 
 const PAYKIT_SETUP_TIMEOUT_MS = 6 * 60 * 1_000;
-const PAYKIT_SETUP_EXPLANATION =
-  'Scan the code with Bitkit, or open this page on your phone and tap Open in Bitkit. Bitkit 2.5 or newer is required.';
+const PAYKIT_SETUP_EXPLANATION = 'Scan the code with Bitkit, or open this page on your phone and tap Open in Bitkit.';
 const PAYKIT_RING_IDENTITY_HELPER =
   'Your Shop identity must live in Bitkit. Signed up with Pubky Ring? Create a new Shop account by scanning the sign-up QR with Bitkit — Ring import is coming to Bitkit.';
 
@@ -521,7 +520,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
       </Dialog>
 
       <Dialog open={paykitSetupOpen} onOpenChange={(open) => (open ? setPaykitSetupOpen(true) : closePaykitSetup())}>
-        <DialogContent className="w-full max-w-lg overflow-hidden" centered>
+        <DialogContent className="w-full max-w-lg" centered>
           <DialogHeader>
             <DialogTitle>Connect Bitkit</DialogTitle>
           </DialogHeader>
@@ -539,7 +538,8 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               title="Connect Bitkit"
               sandbox="allow-scripts allow-same-origin allow-forms"
               referrerPolicy="no-referrer"
-              className="h-[min(22rem,45vh)] w-full rounded-lg border bg-popover"
+              scrolling="no"
+              className="h-[40rem] w-full rounded-lg border bg-popover"
             />
           )}
           {paykitSetupStatus !== 'idle' && (
