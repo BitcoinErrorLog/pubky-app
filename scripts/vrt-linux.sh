@@ -8,6 +8,12 @@
 # running both leaves the second project with a closed browser: the first
 # Vitest process hangs on close, and the next process in that container
 # loses the browser before any test runs.
+#
+# Each container also needs a large /dev/shm. Docker's default is 64MB.
+# The vrt project starts Chromium and Firefox for every spec at once, and
+# Chromium's font service aborts with ENOSPC ("No space left on device")
+# while those pages are opening. Vitest then reports a closed browser
+# before any test runs. Fonts are installed; the cache has nowhere to go.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -64,6 +70,7 @@ run_project() {
   fi
   echo "vrt-linux: container ${project}"
   docker run --rm \
+    --shm-size="${VRT_LINUX_SHM_SIZE:-2g}" \
     -e COPYFILE_DISABLE=1 \
     -e VRT_BROWSERS="${VRT_BROWSERS:-chromium,firefox}" \
     -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
