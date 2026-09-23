@@ -143,6 +143,7 @@ vi.mock('@/libs/vibe-session/auto-restore', async (importOriginal) => {
   return {
     ...actual,
     isVibeSessionAutoRestoreSuppressed: () => mocks.autoRestoreSuppressed,
+    isVibeSessionBridgeLegSkipped: () => mocks.autoRestoreSuppressed,
   };
 });
 vi.mock('@/controllers/auth/auth', () => ({
