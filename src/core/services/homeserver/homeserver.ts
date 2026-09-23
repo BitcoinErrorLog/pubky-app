@@ -42,7 +42,7 @@ import type {
   TSignupTokenVerificationStatus,
 } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { extractStatusCode, handleError } from './error.utils';
+import { extractStatusCode, grantKeyRemovalFailed, handleError } from './error.utils';
 import type {
   TGenerateSignupAuthUrlParams,
   THomeserverFetchParams,
@@ -692,11 +692,6 @@ export class HomeserverService {
     return Boolean(session && session.grant !== undefined);
   }
 
-  /** Whether the current in-memory session is grant-backed. */
-  static currentSessionIsGrant(): boolean {
-    return this.isGrantSession(useAuthStore.getState().selectSession());
-  }
-
   /** Persists a completed grant session in IndexedDB and returns its record id. */
   static async saveGrantSession(session: Session): Promise<string> {
     try {
@@ -716,22 +711,51 @@ export class HomeserverService {
     }
   }
 
-  /** Drops one stored grant session record and its key. */
+  /**
+   * Drops one stored grant session record and its delegated key, then reads
+   * the store back. Rejects while the record is still listed, so a caller
+   * never drops its pointer to key material that is still on disk.
+   */
   static async removeGrantSession(recordId: string): Promise<void> {
+    const store = this.getPubkySdk().browserSessionStore;
+    let removeError: unknown;
     try {
-      await this.getPubkySdk().browserSessionStore.remove(recordId);
+      await store.remove(recordId);
     } catch (error) {
-      Logger.warn('Failed to remove a stored grant session', { error });
+      removeError = error;
     }
+    let remaining: string[];
+    try {
+      remaining = (await store.list()).map((record) => record.id);
+    } catch (error) {
+      throw grantKeyRemovalFailed('removeGrantSession', error);
+    }
+    if (remaining.includes(recordId)) throw grantKeyRemovalFailed('removeGrantSession', removeError);
+    if (removeError) Logger.warn('Grant session remove reported an error, but the record is gone', { removeError });
   }
 
-  /** Drops every stored grant session record and delegated key for this origin. */
+  /**
+   * Drops every stored grant session record and delegated key for this
+   * origin, then reads the store back. Rejects while any record is still
+   * listed. A browser without IndexedDB persistence holds no records.
+   */
   static async clearGrantSessions(): Promise<void> {
+    const store = this.getPubkySdk().browserSessionStore;
+    let clearError: unknown;
     try {
-      await this.getPubkySdk().browserSessionStore.clearAll();
+      if (!(await store.isAvailable())) return;
+      await store.clearAll();
     } catch (error) {
-      Logger.warn('Failed to clear stored grant sessions', { error });
+      clearError = error;
     }
+    let remaining: number;
+    try {
+      remaining = (await store.list()).length;
+    } catch (error) {
+      throw grantKeyRemovalFailed('clearGrantSessions', error);
+    }
+    if (remaining > 0) throw grantKeyRemovalFailed('clearGrantSessions', clearError);
+    if (clearError) Logger.warn('Grant session clear reported an error, but no record remains', { clearError });
   }
 
   /**

@@ -48,7 +48,7 @@ import { NotificationNormalizer } from '@/pipes/notification/notification.normal
 import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
 import { SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
 import { clearRouteGuardReturnTo } from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
-import { createCanceledError } from '@/services/homeserver/error.utils';
+import { createCanceledError, isGrantKeyRemovalError } from '@/services/homeserver/error.utils';
 import type { TGenerateAuthUrlResult, THomeserverSessionResult } from '@/services/homeserver/homeserver.types';
 import type { MarketplaceSessionFlow } from '@/services/marketplace/marketplace-session';
 import {
@@ -283,6 +283,13 @@ export class AuthController {
       cleanedUp = true;
       return { status: 'signed-out' };
     } catch (error) {
+      if (isGrantKeyRemovalError(error)) {
+        // The grant record and its key are still stored: keep the pointer so
+        // the next restore or sign-out retries the removal. Not signed-out.
+        Logger.error('Grant session key could not be removed; keeping its record for a retry', { error });
+        authStore.setSessionRestoreDeferred(true);
+        return { status: 'deferred' };
+      }
       const appError = toAppError(error, ErrorService.Local, 'restorePersistedSession');
       if (!cleanedUp) {
         await this.finalizeSignedOutUnderLock({
@@ -1155,27 +1162,35 @@ export class AuthController {
     authStore.setSessionRestoreDeferred(false);
 
     let session = authStore.session;
+    let signedOut = false;
 
     try {
       // Fresh loads can still have a persisted session export before the live session is restored.
       // Reuse the restore flow so /logout performs a real homeserver sign-out before local cleanup.
       if (!session && (authStore.sessionExport || authStore.grantSessionRecordId || isVibeSessionConsumerEnabled())) {
+        let restoreResult: TRestorePersistedSessionResult;
         try {
-          const restoreResult = await this.restorePersistedSession();
-          if (restoreResult.status === 'signed-out') {
-            return;
-          }
-          if (restoreResult.status === 'deferred') {
-            Logger.warn('Homeserver logout failed, clearing local state anyway', {
-              error: 'Session restore deferred; homeserver sign-out could not run',
-            });
-            await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
-            return;
-          }
+          restoreResult = await this.restorePersistedSession();
         } catch (error) {
           // restorePersistedSession already cleaned up local state; a wrong-environment
           // rejection needs no toast here — the user asked to log out anyway.
           Logger.warn('Persisted session restore during logout failed; local state already cleaned up', { error });
+          await this.removeGrantKeysUnderLock();
+          signedOut = true;
+          return;
+        }
+        if (restoreResult.status === 'signed-out') {
+          await this.removeGrantKeysUnderLock();
+          signedOut = true;
+          return;
+        }
+        if (restoreResult.status === 'deferred') {
+          Logger.warn('Homeserver logout failed, clearing local state anyway', {
+            error: 'Session restore deferred; homeserver sign-out could not run',
+          });
+          await this.removeGrantKeysUnderLock();
+          await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
+          signedOut = true;
           return;
         }
         authStore = useAuthStore.getState();
@@ -1190,15 +1205,21 @@ export class AuthController {
         }
       }
 
+      // After the homeserver sign-out (it needs the grant key) and before the
+      // record pointer is cleared: a key that cannot be removed keeps the
+      // pointer and fails the logout instead of reporting signed-out.
+      await this.removeGrantKeysUnderLock();
       // Serialized with restore finalization and sign-in identity persists.
       // Cleanup is keyed to the identity captured at logout start: a
       // different live pubky means that sign-in now owns origin-scoped Dexie.
       await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
+      signedOut = true;
     } finally {
-      // After the homeserver sign-out (or a failed cold restore): drop every
-      // stored grant key and fence other tabs, then tell them to let go.
-      await this.clearGrantPersistenceUnderLock();
-      broadcastSignedOut();
+      if (signedOut) {
+        broadcastSignedOut();
+      } else {
+        useAuthStore.getState().setIsLoggingOut(false);
+      }
       // The internal restore's init() clears the auto-restore suppression
       // set above. If the homeserver sign-out then failed, the marker must
       // not stay cleared: a later reload in consumer mode would
@@ -1211,10 +1232,11 @@ export class AuthController {
   }
 
   /**
-   * Bumps the auth epoch and clears BrowserSessionStore under the finalization
-   * lock, so no tab can save a grant key after this sign-out.
+   * Bumps the auth epoch and removes every stored grant session and key under
+   * the finalization lock, so no tab can save a grant key after this sign-out.
+   * Rejects while any stored record remains.
    */
-  private static async clearGrantPersistenceUnderLock(): Promise<void> {
+  private static async removeGrantKeysUnderLock(): Promise<void> {
     await withAuthFinalizationLock(async () => {
       bumpAuthEpoch();
       await AuthApplication.clearGrantSessions();
@@ -1230,13 +1252,24 @@ export class AuthController {
   }
 
   static async handleCrossTabSignOut(): Promise<void> {
-    const session = useAuthStore.getState().session;
+    const { session, grantSessionRecordId } = useAuthStore.getState();
     if (!AuthApplication.isGrantSession(session) || !session) return;
     const captured = this.captureAuthIdentity();
     await AuthApplication.logout({ session }).catch((error) => {
       Logger.warn('Cross-tab grant sign-out could not reach the homeserver', { error });
     });
     this.cancelActiveAuthFlow();
+    if (grantSessionRecordId) {
+      try {
+        // Only this tab's record: a newer sign-in in another tab keeps its key.
+        await AuthApplication.removeGrantSession(grantSessionRecordId);
+      } catch (error) {
+        Logger.error('Cross-tab sign-out could not remove the grant key of this tab; keeping it signed in', {
+          error,
+        });
+        return;
+      }
+    }
     await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
   }
 

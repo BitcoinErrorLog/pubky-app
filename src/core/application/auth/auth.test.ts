@@ -14,6 +14,7 @@ import * as vibeSessionBridge from '@/libs/vibe-session/bridge';
 import * as vibeSessionConfig from '@/libs/vibe-session/config';
 import * as vibeSessionFragment from '@/libs/vibe-session/fragment';
 import type { Pubky } from '@/models/models.types';
+import { grantKeyRemovalFailed, isGrantKeyRemovalError } from '@/services/homeserver/error.utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { THomeserverSignUpParams } from '@/services/homeserver/homeserver.types';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
@@ -309,6 +310,34 @@ describe('AuthApplication', () => {
 
         expect(result).toEqual({ status: 'signed-out' });
         expect(removeSpy).toHaveBeenCalledWith('rec-1');
+      });
+
+      it('expiry cleanup rejects instead of signing out when the grant key cannot be removed', async () => {
+        vi.spyOn(HomeserverService, 'restoreGrantSession').mockRejectedValue(createAuthError());
+        const removeSpy = vi
+          .spyOn(HomeserverService, 'removeGrantSession')
+          .mockRejectedValue(grantKeyRemovalFailed('removeGrantSession', null));
+
+        const failure = await AuthApplication.restorePersistedSession({ authStore: grantStore() }).catch(
+          (error: unknown) => error,
+        );
+
+        expect(isGrantKeyRemovalError(failure)).toBe(true);
+        // One attempt plus two retries before giving up.
+        expect(removeSpy).toHaveBeenCalledTimes(3);
+      });
+
+      it('expiry cleanup signs out once a retried removal succeeds', async () => {
+        vi.spyOn(HomeserverService, 'restoreGrantSession').mockRejectedValue(createAuthError());
+        const removeSpy = vi
+          .spyOn(HomeserverService, 'removeGrantSession')
+          .mockRejectedValueOnce(grantKeyRemovalFailed('removeGrantSession', null))
+          .mockResolvedValueOnce(undefined);
+
+        await expect(AuthApplication.restorePersistedSession({ authStore: grantStore() })).resolves.toEqual({
+          status: 'signed-out',
+        });
+        expect(removeSpy).toHaveBeenCalledTimes(2);
       });
 
       it('keeps the record on a transient restore failure', async () => {

@@ -186,7 +186,8 @@ export class AuthApplication {
   /**
    * Restores a grant session from its BrowserSessionStore record. A transient
    * failure keeps the record (deferred); a definitive one removes it and signs
-   * out. There is no cookie fallback for a grant sign-in.
+   * out, and a failed removal rejects so the record pointer is kept. There is
+   * no cookie fallback for a grant sign-in.
    */
   private static async restoreGrantSession(recordId: string): TRestoreSessionResult {
     let session: Session | null = null;
@@ -201,7 +202,7 @@ export class AuthApplication {
             Logger.warn('Failed to sign out wrong-environment grant session', { logoutError });
           });
         }
-        await HomeserverService.removeGrantSession(recordId);
+        await this.removeGrantSession(recordId);
         throw error;
       }
       if (session === null && !isDefinitiveSessionAuthFailure(error) && isAppError(error) && isRetryable(error)) {
@@ -209,7 +210,8 @@ export class AuthApplication {
         return { status: 'deferred' };
       }
       Logger.info('Grant session could not be restored; removing its record', { error });
-      await HomeserverService.removeGrantSession(recordId);
+      // Rejects while the record is still stored: the caller keeps the pointer.
+      await this.removeGrantSession(recordId);
       return { status: 'signed-out' };
     }
   }
@@ -364,8 +366,30 @@ export class AuthApplication {
     return await HomeserverService.saveGrantSession(session);
   }
 
+  /** Removes one stored grant session and its key; rejects while it is still stored. */
+  static async removeGrantSession(recordId: string): Promise<void> {
+    await this.withGrantKeyRemovalRetry(() => HomeserverService.removeGrantSession(recordId));
+  }
+
+  /** Removes every stored grant session and key for this origin; rejects while any remains. */
   static async clearGrantSessions(): Promise<void> {
-    await HomeserverService.clearGrantSessions();
+    await this.withGrantKeyRemovalRetry(() => HomeserverService.clearGrantSessions());
+  }
+
+  private static readonly GRANT_KEY_REMOVAL_RETRY_DELAYS_MS = [100, 400];
+
+  private static async withGrantKeyRemovalRetry(remove: () => Promise<void>): Promise<void> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await remove();
+        return;
+      } catch (error) {
+        const delay = this.GRANT_KEY_REMOVAL_RETRY_DELAYS_MS[attempt];
+        if (delay === undefined) throw error;
+        Logger.warn('Grant key removal failed; retrying', { attempt: attempt + 1 });
+        await sleep(delay);
+      }
+    }
   }
 
   static startDirectSignInFlow(): TGenerateAuthTokenFlowResult {

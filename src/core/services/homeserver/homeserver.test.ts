@@ -44,6 +44,10 @@ const mockState = vi.hoisted(() => ({
   restoreSession: vi.fn(),
   sessionRestore: vi.fn(),
   grantStartDelegated: vi.fn(),
+  grantStoreRemove: vi.fn(),
+  grantStoreClearAll: vi.fn(),
+  grantStoreList: vi.fn(),
+  grantStoreIsAvailable: vi.fn(),
   startAuthFlow: vi.fn(),
   authFlowKindSignin: vi.fn(),
   authTokenFromBytes: vi.fn(),
@@ -96,6 +100,12 @@ vi.mock('@synonymdev/pubky', () => {
     eventStreamForUser: (...args: unknown[]) => mockState.eventStreamForUser(...args),
     client: {
       fetch: (...args: unknown[]) => mockState.clientFetch(...args),
+    },
+    browserSessionStore: {
+      remove: (...args: unknown[]) => mockState.grantStoreRemove(...args),
+      clearAll: (...args: unknown[]) => mockState.grantStoreClearAll(...args),
+      list: (...args: unknown[]) => mockState.grantStoreList(...args),
+      isAvailable: (...args: unknown[]) => mockState.grantStoreIsAvailable(...args),
     },
     publicStorage: {
       get: (...args: unknown[]) => mockState.publicStorageGet(...args),
@@ -887,6 +897,74 @@ describe('HomeserverService', () => {
 
       it('reports grant sign-in availability from the SDK', () => {
         expect(HomeserverService.isGrantSignInAvailable()).toBe(true);
+      });
+    });
+
+    describe('grant key removal (sign-out and expiry cleanup)', () => {
+      // After the module reset above: the error class must come from the same graph.
+      let isGrantKeyRemovalError: typeof import('./error.utils').isGrantKeyRemovalError;
+
+      beforeEach(async () => {
+        ({ isGrantKeyRemovalError } = await import('./error.utils'));
+        mockState.grantStoreRemove.mockReset().mockResolvedValue(undefined);
+        mockState.grantStoreClearAll.mockReset().mockResolvedValue(undefined);
+        mockState.grantStoreList.mockReset().mockResolvedValue([]);
+        mockState.grantStoreIsAvailable.mockReset().mockResolvedValue(true);
+      });
+
+      it('remove rejects while the record is still stored, even when the SDK call resolved', async () => {
+        mockState.grantStoreList.mockResolvedValue([{ id: 'rec-1' }]);
+
+        const failure = await HomeserverService.removeGrantSession('rec-1').catch((error: unknown) => error);
+
+        expect(isGrantKeyRemovalError(failure)).toBe(true);
+        expect(mockState.grantStoreRemove).toHaveBeenCalledWith('rec-1');
+      });
+
+      it('remove rejects when the SDK delete fails and the record is still stored', async () => {
+        mockState.grantStoreRemove.mockRejectedValue(new Error('IndexedDB delete failed'));
+        mockState.grantStoreList.mockResolvedValue([{ id: 'rec-1' }, { id: 'rec-2' }]);
+
+        const failure = await HomeserverService.removeGrantSession('rec-1').catch((error: unknown) => error);
+
+        expect(isGrantKeyRemovalError(failure)).toBe(true);
+      });
+
+      it('remove rejects when the store cannot be read back', async () => {
+        mockState.grantStoreList.mockRejectedValue(new Error('IndexedDB unavailable'));
+
+        const failure = await HomeserverService.removeGrantSession('rec-1').catch((error: unknown) => error);
+
+        expect(isGrantKeyRemovalError(failure)).toBe(true);
+      });
+
+      it('remove resolves once the record is gone, even if the SDK delete reported an error', async () => {
+        mockState.grantStoreRemove.mockRejectedValue(new Error('already deleted'));
+        mockState.grantStoreList.mockResolvedValue([{ id: 'rec-2' }]);
+
+        await expect(HomeserverService.removeGrantSession('rec-1')).resolves.toBeUndefined();
+      });
+
+      it('clearAll rejects while any record is still stored', async () => {
+        mockState.grantStoreClearAll.mockRejectedValue(new Error('IndexedDB clear failed'));
+        mockState.grantStoreList.mockResolvedValue([{ id: 'rec-1' }]);
+
+        const failure = await HomeserverService.clearGrantSessions().catch((error: unknown) => error);
+
+        expect(isGrantKeyRemovalError(failure)).toBe(true);
+      });
+
+      it('clearAll resolves when the store reads back empty', async () => {
+        await expect(HomeserverService.clearGrantSessions()).resolves.toBeUndefined();
+        expect(mockState.grantStoreClearAll).toHaveBeenCalledTimes(1);
+        expect(mockState.grantStoreList).toHaveBeenCalledTimes(1);
+      });
+
+      it('clearAll is a no-op without IndexedDB persistence', async () => {
+        mockState.grantStoreIsAvailable.mockResolvedValue(false);
+
+        await expect(HomeserverService.clearGrantSessions()).resolves.toBeUndefined();
+        expect(mockState.grantStoreClearAll).not.toHaveBeenCalled();
       });
     });
 
