@@ -49,7 +49,11 @@ type LocksConnectView = {
   connectedCreator: string | null;
   isExchanging: boolean;
   error: string | null;
+  connectOpen?: boolean;
+  connectUrl?: string | null;
+  setConnectIframe?: (element: HTMLIFrameElement | null) => void;
   openConnect: () => void;
+  closeConnect?: () => void;
 };
 
 type MarketplaceGetPaidSettingsProps = {
@@ -130,6 +134,16 @@ function MethodCard({
  * receives funds on any rail.
  */
 export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: MarketplaceGetPaidSettingsProps) {
+  const {
+    connectedCreator,
+    isExchanging,
+    error: locksError,
+    connectOpen,
+    connectUrl,
+    setConnectIframe,
+    openConnect,
+    closeConnect,
+  } = locksConnect;
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const payments = useMarketplaceSellerPaymentConfig();
@@ -229,7 +243,12 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   };
 
   const onSave = async () => {
-    const saved = await payments.save({ bitcoinEnabled, stripePaymentLink, stripeRestrictedKey, paypalMerchantEmail });
+    const saved = await payments.save({
+      bitcoinEnabled: bitcoinStatus === 'connected' && bitcoinEnabled,
+      stripePaymentLink,
+      stripeRestrictedKey,
+      paypalMerchantEmail,
+    });
     if (saved) {
       setStripeRestrictedKey('');
       onSaved?.(saved);
@@ -266,13 +285,13 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   const paypalStatus = derivePaypalStatus(payments.config);
   const stripeStatus = deriveStripeStatus(payments.config);
   const bitcoinStatus = deriveBitcoinStatus({
-    connectedCreator: locksConnect.connectedCreator,
+    connectedCreator,
     accountClaimed: payments.accountClaimed,
-    locksError: locksConnect.error,
+    locksError,
     claimError: payments.claimError,
   });
   const readyCount = countReadyPaymentMethods([paypalStatus, stripeStatus, bitcoinStatus]);
-  const step1NeedsPrimary = !locksConnect.connectedCreator && bitcoinStatus === 'needs_attention';
+  const step1NeedsPrimary = !connectedCreator && bitcoinStatus === 'needs_attention';
 
   // Stored rails need the marketplace session and the loaded config; the
   // bitcoin connect steps above them do not, so they render unconditionally.
@@ -421,19 +440,19 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               Approve the connection in Pubky Ring. The Lock Server can then lock your content for buyers — it never
               sees your identity secret.
             </Typography>
-            {locksConnect.connectedCreator && (
+            {connectedCreator && (
               <Typography as="p" className="mt-2 flex items-center gap-2 text-sm text-brand">
                 <CheckCircle2 className="size-4" />
-                Creator authority connected: {locksConnect.connectedCreator.slice(0, 12)}…
+                Creator authority connected: {connectedCreator.slice(0, 12)}…
               </Typography>
             )}
-            {locksConnect.error && (
+            {locksError && (
               <Typography as="p" role="alert" className="mt-2 text-sm text-amber-300">
-                {locksConnect.error}
+                {locksError}
               </Typography>
             )}
           </div>
-          {locksConnect.connectedCreator ? (
+          {connectedCreator ? (
             <Badge variant="secondary" className="justify-self-start sm:justify-self-auto">
               Connected
             </Badge>
@@ -441,12 +460,11 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
             <Button
               variant={step1NeedsPrimary ? 'default' : 'secondary'}
               className="rounded-full"
-              disabled={locksConnect.isExchanging}
-              onClick={locksConnect.openConnect}
+              disabled={isExchanging}
+              onClick={openConnect}
             >
-              {locksConnect.isExchanging ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : null}
+              {isExchanging ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : null}
               Open Locks connect
-              <ExternalLink className="ml-2 size-4" />
             </Button>
           )}
         </div>
@@ -494,8 +512,11 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               </div>
               <Switch
                 id="get-paid-bitcoin"
-                checked={bitcoinEnabled}
-                onCheckedChange={setBitcoinEnabled}
+                checked={bitcoinStatus === 'connected' && bitcoinEnabled}
+                onCheckedChange={(enabled) => {
+                  if (bitcoinStatus !== 'connected') return;
+                  setBitcoinEnabled(enabled);
+                }}
                 disabled={bitcoinStatus !== 'connected'}
                 aria-label="Accept bitcoin"
               />
@@ -561,6 +582,55 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
           </>,
         )}
       </MethodCard>
+
+      <Dialog
+        open={Boolean(connectOpen)}
+        onOpenChange={(open) => {
+          if (open) openConnect();
+          else closeConnect?.();
+        }}
+      >
+        <DialogContent className="w-full max-w-lg overflow-hidden" centered>
+          <DialogHeader>
+            <DialogTitle>Connect Lock Server</DialogTitle>
+          </DialogHeader>
+          <Typography as="p" className="text-sm text-muted-foreground">
+            Scan the code with Pubky Ring. The Lock Server can then lock your content for buyers — it never sees your
+            identity secret.
+          </Typography>
+          {connectUrl && (
+            <iframe
+              ref={setConnectIframe}
+              key={connectUrl}
+              src={connectUrl}
+              title="Connect Lock Server"
+              sandbox="allow-scripts allow-same-origin allow-forms"
+              referrerPolicy="no-referrer"
+              className="h-[min(22rem,45vh)] w-full rounded-lg border bg-popover"
+            />
+          )}
+          {locksError && (
+            <div role="alert" className="grid gap-3 rounded-lg border border-amber-500/40 p-3 text-sm">
+              <Typography as="p">{locksError}</Typography>
+              <Button variant="secondary" className="w-fit rounded-full" onClick={openConnect}>
+                <RefreshCw className="mr-2 size-4" />
+                Retry
+              </Button>
+            </div>
+          )}
+          {isExchanging && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+              <Loader2 className="size-4 animate-spin" />
+              Confirming your Lock Server connection…
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" className="rounded-full" onClick={() => closeConnect?.()}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={paykitSetupOpen} onOpenChange={(open) => (open ? setPaykitSetupOpen(true) : closePaykitSetup())}>
         <DialogContent className="w-full max-w-lg overflow-hidden" centered>

@@ -36,7 +36,7 @@ export function deriveStripeStatus(config: SellerPaymentConfigOwnView | null): P
 /**
  * Bitcoin is connected only when both live signals are present:
  * - Lock Server authorization: `connectedCreator` from `useMarketplaceLocksConnect`
- *   (in-memory; absent after reload until the seller reconnects)
+ *   (restored from localStorage and revalidated with the Lock Server after reload)
  * - Paykit claim: `accountClaimed === true` from `useMarketplaceSellerPaymentConfig`
  */
 export function deriveBitcoinStatus(args: {
