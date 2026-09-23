@@ -6,8 +6,6 @@ import { expectVrtSurface, parkVrtHover, renderForVRT, VRT_DENSE_CHROME_SCREENSH
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
 
-const VRT_VIEWPORT_LAPTOP = { width: 1280, height: 800 };
-
 // Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
 // estimates render from this fixed value, never from the network.
 vi.mock('@/hooks/useIndicativeBtcRate/useIndicativeBtcRate', () => ({
@@ -107,73 +105,12 @@ const view = vi.hoisted(() => ({
   items: [] as unknown[],
   offers: [] as unknown[],
   isLoading: false,
-  adapterMode: 'sandbox' as string,
-  deployEnv: 'staging' as 'production' | 'staging' | undefined,
-  hasMarketplaceSession: false,
-  addresses: [] as unknown[],
-  selectedAddressId: null as string | null,
-  fulfillmentEffective: {} as Record<string, 'shipping' | 'pickup'>,
-  requiresDeliveryAddress: true,
 }));
-
-// Two saved delivery addresses for the picker baseline (device-local rows;
-// the shape mirrors CommerceDeliveryAddressModelSchema).
-const savedAddresses = vi.hoisted(() => {
-  const owner = 'b'.repeat(52);
-  return [
-    {
-      id: `${owner}:addr_home`,
-      owner_id: owner,
-      label: 'Home',
-      name: 'Alice Buyer',
-      line1: '1 Market Street',
-      line2: '',
-      city: 'New York',
-      region: 'NY',
-      postal_code: '10001',
-      country_code: 'US',
-      is_default: true,
-      last_used_at: 1_755_000_000_000,
-      created_at: 1_754_000_000_000,
-      updated_at: 1_755_000_000_000,
-    },
-    {
-      id: `${owner}:addr_work`,
-      owner_id: owner,
-      label: 'Work',
-      name: 'Alice Buyer',
-      line1: '77 Broadway, Floor 4',
-      line2: '',
-      city: 'New York',
-      region: 'NY',
-      postal_code: '10006',
-      country_code: 'US',
-      is_default: false,
-      last_used_at: null,
-      created_at: 1_754_100_000_000,
-      updated_at: 1_754_100_000_000,
-    },
-  ];
-});
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => '/marketplace/cart',
 }));
-
-vi.mock('@/config/commerce', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/config/commerce')>();
-  return { ...actual, getCommerceAdapterMode: () => view.adapterMode };
-});
-
-// The checkout staging amber is gated on the deploy environment, not the
-// adapter mode. Each scene names its environment explicitly: staging (test
-// rails, no real funds) is the default; the locks-paykit scene runs on
-// production, where the muted helper is "Paid directly to the seller."
-vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>();
-  return { ...actual, getDeployEnv: () => view.deployEnv };
-});
 
 vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/useMarketplaceCart/useMarketplaceCart')>();
@@ -211,30 +148,6 @@ vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
   useMarketplaceOffers: () => ({ offers: view.offers, isLoading: false, error: null, needsSession: false }),
 }));
 
-vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
-  const { useForm } = await import('react-hook-form');
-  const { marketplaceCheckoutDefaults } = await import('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types');
-  return {
-    useMarketplaceCheckout: () => ({
-      form: useForm({ defaultValues: marketplaceCheckoutDefaults }),
-      submit: vi.fn(async () => false),
-      needsSession: false,
-      sessionError: null,
-      hasMarketplaceSession: view.hasMarketplaceSession,
-      addresses: view.addresses,
-      selectedAddressId: view.selectedAddressId,
-      selectAddress: vi.fn(),
-      // The fixture listings ship only, so no fulfillment choice renders.
-      fulfillmentOptionsForSeller: () => ['shipping' as const],
-      fulfillmentForSeller: (sellerPubky: string) => view.fulfillmentEffective[sellerPubky] ?? 'shipping',
-      setFulfillmentChoice: vi.fn(),
-      requiresDeliveryAddress: view.requiresDeliveryAddress,
-      hasFulfillmentConflict: false,
-      orderCount: 1,
-    }),
-  };
-});
-
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
@@ -253,14 +166,7 @@ vi.mock('@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary', () =>
 beforeEach(async () => {
   const { useMarketplaceDisplayStore } = await import('@/stores/marketplace-display/marketplace-display.store');
   useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
-  view.hasMarketplaceSession = false;
-  view.adapterMode = 'sandbox';
-  view.deployEnv = 'staging';
-  view.addresses = [];
   view.offers = [];
-  view.selectedAddressId = null;
-  view.fulfillmentEffective = {};
-  view.requiresDeliveryAddress = true;
   view.isLoading = false;
 });
 
@@ -297,16 +203,14 @@ describe('Marketplace cart — visual regression', () => {
     const surface = document.querySelector('[data-surface="marketplace-cart"]');
     if (!(surface instanceof HTMLElement)) throw new Error('VRT geometry rejected: production cart surface is missing');
 
-    const labels = ['1 Approve in Pubky Ring', '2 Delivery address', '3 Place order', 'Guarantee'];
-    const regions = labels.map((label) => {
-      const region = surface.querySelector(`[aria-label="${label}"]`);
-      if (!(region instanceof HTMLElement)) throw new Error(`VRT geometry rejected: missing ${label} region`);
-      return region;
-    });
-    expect(regions.map((region) => region.getBoundingClientRect().top)).toEqual(
-      [...regions].map((region) => region.getBoundingClientRect().top).sort((left, right) => left - right),
-    );
-    expect(regions[3].getBoundingClientRect().bottom - surface.getBoundingClientRect().top).toBeLessThanOrEqual(
+    const items = surface.querySelector('[data-testid="marketplace-cart-items"]');
+    const summary = surface.querySelector('[data-testid="marketplace-cart-summary"]');
+    const checkout = surface.querySelector('[aria-label="Checkout"]');
+    if (!(items instanceof HTMLElement) || !(summary instanceof HTMLElement) || !(checkout instanceof HTMLElement)) {
+      throw new Error('VRT geometry rejected: missing cart items, summary, or Checkout region');
+    }
+    expect(items.getBoundingClientRect().top).toBeLessThanOrEqual(summary.getBoundingClientRect().top);
+    expect(checkout.getBoundingClientRect().bottom - surface.getBoundingClientRect().top).toBeLessThanOrEqual(
       surface.scrollHeight,
     );
   }
@@ -347,25 +251,6 @@ describe('Marketplace cart — visual regression', () => {
     expectDesktopSummaryGeometry(VRT_VIEWPORT_DESKTOP.height);
   });
 
-  it('keeps total and Place order above the pickup guarantee at laptop width', async () => {
-    const { singleSeller } = await fixtures;
-    view.items = singleSeller;
-    view.isLoading = false;
-    view.fulfillmentEffective = { [singleSeller[0].listing.record.ownerPubky]: 'pickup' };
-    view.requiresDeliveryAddress = false;
-
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_LAPTOP });
-    await captureCart('cart-pickup-laptop-1280');
-    expectDesktopSummaryGeometry(VRT_VIEWPORT_LAPTOP.height);
-
-    const order = screen.container.querySelector('[aria-label="3 Place order"]');
-    const guarantee = screen.container.querySelector('[aria-label="Guarantee"]');
-    if (!(order instanceof HTMLElement) || !(guarantee instanceof HTMLElement)) {
-      throw new Error('VRT geometry rejected: order summary or guarantee is missing');
-    }
-    expect(order.getBoundingClientRect().bottom).toBeLessThanOrEqual(guarantee.getBoundingClientRect().top);
-  });
-
   it('rejects the old row-coupled desktop summary geometry', async () => {
     const { singleSeller } = await fixtures;
     view.items = singleSeller;
@@ -388,7 +273,7 @@ describe('Marketplace cart — visual regression', () => {
     await captureCart('cart-multi-seller-mobile');
   });
 
-  it('keeps mobile checkout regions in natural workflow order', async () => {
+  it('keeps mobile cart items above the Checkout summary', async () => {
     const { singleSeller } = await fixtures;
     view.items = singleSeller;
     view.isLoading = false;
@@ -406,34 +291,6 @@ describe('Marketplace cart — visual regression', () => {
     await captureCart('cart-stale-item-desktop');
   });
 
-  // The address book picker: two saved addresses with the default applied,
-  // so the picker renders and the save-for-next-time controls stay hidden.
-  it('renders the checkout with the saved-address picker at desktop viewport', async () => {
-    const { singleSeller } = await fixtures;
-    view.items = singleSeller;
-    view.isLoading = false;
-    view.addresses = savedAddresses;
-    view.selectedAddressId = (savedAddresses[0] as { id: string }).id;
-
-    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await captureCart('cart-address-picker-desktop');
-    view.addresses = [];
-    view.selectedAddressId = null;
-  });
-
-  it('renders the checkout with the saved-address picker at mobile viewport', async () => {
-    const { singleSeller } = await fixtures;
-    view.items = singleSeller;
-    view.isLoading = false;
-    view.addresses = savedAddresses;
-    view.selectedAddressId = (savedAddresses[0] as { id: string }).id;
-
-    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
-    await captureCart('cart-address-picker-mobile');
-    view.addresses = [];
-    view.selectedAddressId = null;
-  });
-
   it('renders the empty cart at desktop viewport', async () => {
     view.items = [];
     view.isLoading = false;
@@ -448,75 +305,6 @@ describe('Marketplace cart — visual regression', () => {
 
     await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
     await captureCart('cart-loading-desktop');
-  });
-
-  // Durable transaction-service mode: no "sandbox" wording on the guarantee
-  // label or submit button — the copy states what is actually true.
-  it('renders the durable-mode checkout labels at desktop viewport', async () => {
-    const { singleSeller } = await fixtures;
-    view.items = singleSeller;
-    view.isLoading = false;
-    view.adapterMode = 'transaction-service';
-
-    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await captureCart('cart-durable-desktop');
-    view.adapterMode = 'sandbox';
-  });
-
-  // locks-paykit mode: real payment rails are live, so the guarantee copy must
-  // NOT claim "no real funds move". The scene is framed as production, so there
-  // is no staging amber; checkout shows the muted seller-direct helper only.
-  it('renders the locks-paykit checkout labels at desktop viewport', async () => {
-    const { singleSeller } = await fixtures;
-    view.items = singleSeller;
-    view.isLoading = false;
-    view.adapterMode = 'locks-paykit';
-    view.deployEnv = 'production';
-
-    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await captureCart('cart-locks-paykit-desktop');
-    view.adapterMode = 'sandbox';
-    view.deployEnv = 'staging';
-  });
-
-  // Durable mode with no marketplace session: step 1 shows the Ring approval
-  // card and Place order stays disabled. Fixtured via adapterMode + the
-  // checkout mock's hasMarketplaceSession flag (same seam as other cart VRTs).
-  it('renders the unapproved durable cart at desktop viewport', async () => {
-    const { singleSeller } = await fixtures;
-    view.items = singleSeller;
-    view.isLoading = false;
-    view.adapterMode = 'transaction-service';
-    view.hasMarketplaceSession = false;
-
-    await renderForVRT(<MarketplaceCart />, { viewport: { width: 1440, height: 1600 } });
-    await captureCart('cart-durable-unapproved-desktop');
-    view.adapterMode = 'sandbox';
-    view.hasMarketplaceSession = false;
-  });
-
-  it('renders the logged-out durable cart at desktop viewport', async () => {
-    const { singleSeller } = await fixtures;
-    view.items = singleSeller;
-    view.isLoading = false;
-    view.adapterMode = 'transaction-service';
-    view.hasMarketplaceSession = false;
-
-    await renderForVRT(<MarketplaceCart />, { viewport: { width: 1440, height: 1600 } });
-    await captureCart('cart-logged-out-desktop');
-    view.adapterMode = 'sandbox';
-  });
-
-  it('renders the logged-out durable cart at mobile viewport', async () => {
-    const { singleSeller } = await fixtures;
-    view.items = singleSeller;
-    view.isLoading = false;
-    view.adapterMode = 'transaction-service';
-    view.hasMarketplaceSession = false;
-
-    await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_MOBILE });
-    await captureCart('cart-logged-out-mobile');
-    view.adapterMode = 'sandbox';
   });
 
   it('renders an accepted-offer group without mixing it into ordinary checkout', async () => {

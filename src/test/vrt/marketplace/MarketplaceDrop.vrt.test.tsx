@@ -221,7 +221,7 @@ describe('Marketplace drop page — visual regression', () => {
       ]),
     });
     const screen = await renderDropPage();
-    await expect.element(screen.getByText('Claimed — open Orders')).toBeVisible();
+    await expect.element(screen.getByText('Claimed — Continue checkout')).toBeVisible();
     await expect.element(screen.getByText(/Complete payment by/i)).toBeVisible();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-live-claimed-deadline-desktop');
   });

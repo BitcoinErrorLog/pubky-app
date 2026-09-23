@@ -88,6 +88,7 @@ export class MarketplaceNotificationNormalizer {
         return listing ? getMarketplaceListingRoute(listing.sellerPubky, listing.listingId) : APP_ROUTES.MARKETPLACE;
       }
       case 'order_created':
+        return MARKETPLACE_ROUTES.CHECKOUT;
       case 'payment_confirmed':
       case 'order_cancelled':
       case 'order_cancelled_terms_change':

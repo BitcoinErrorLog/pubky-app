@@ -1,13 +1,21 @@
+import { redirect } from 'next/navigation';
 import { gatedMarketplaceMetadata } from '@/app/marketplace/gated-metadata';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
-import { MarketplaceAwardCheckout } from '@/templates/Marketplace/MarketplaceAwardCheckout';
+import { getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
 
 export function generateMetadata() {
   return gatedMarketplaceMetadata(
-    'Place order | Pubky Marketplace',
+    'Checkout | Pubky Marketplace',
     'Review and pay the terms accepted for your marketplace offer.',
-    MARKETPLACE_ROUTES.AWARD_CHECKOUT,
+    MARKETPLACE_ROUTES.CHECKOUT,
   );
 }
 
-export default MarketplaceAwardCheckout;
+export default async function AwardCheckoutRedirectPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ offer?: string }>;
+}) {
+  const { offer } = await searchParams;
+  redirect(getMarketplaceOfferCheckoutRoute(offer));
+}

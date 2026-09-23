@@ -179,7 +179,7 @@ export function MarketplaceOrderActions({
           (['pending_payment', 'paid', 'processing'].includes(order.state) ||
             (isPickup && order.state === 'ready_for_pickup')) && (
             <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('cancel')}>
-              Cancel order
+              {order.state === 'pending_payment' ? 'Cancel checkout' : 'Cancel order'}
             </Button>
           )}
         {canReveal && <MarketplacePickupRevealDialog order={order} />}
@@ -288,7 +288,7 @@ export function MarketplaceOrderActions({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-full max-w-lg border-border bg-popover" centered>
           <DialogHeader>
-            <DialogTitle>{actionTitle(actionType)}</DialogTitle>
+            <DialogTitle>{actionTitle(actionType, order.state)}</DialogTitle>
           </DialogHeader>
           {actionType === 'cancel' && (
             <Typography as="p" className="text-sm text-muted-foreground">
@@ -492,10 +492,10 @@ function externalRefundReferenceLabel(paymentMethod: MarketplaceOrder['paymentMe
   }
 }
 
-function actionTitle(action: MarketplaceOrderActionData['action']): string {
+function actionTitle(action: MarketplaceOrderActionData['action'], orderState?: string): string {
   switch (action) {
     case 'cancel':
-      return 'Cancel order';
+      return orderState === 'pending_payment' ? 'Cancel checkout' : 'Cancel order';
     case 'ship':
       return 'Add shipment tracking';
     case 'return':

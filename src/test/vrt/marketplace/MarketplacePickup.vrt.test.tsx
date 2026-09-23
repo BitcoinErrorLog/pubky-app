@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP } from '@/test-utils/vrt.viewports';
-import { MarketplaceCart } from '@/templates/Marketplace/MarketplaceCart';
+import { MarketplaceCheckout } from '@/templates/Marketplace/MarketplaceCheckout';
 import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
 import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListingCard';
 import { MarketplacePickupDetailsEditor } from '@/organisms/Marketplace/MarketplacePickupDetailsEditor';
@@ -153,6 +153,7 @@ const fixtures = vi.hoisted(async () => {
 const view = vi.hoisted(() => ({
   orders: [] as unknown[],
   cartItems: [] as unknown[],
+  pathname: '/marketplace/orders',
 }));
 
 // The controller seam: the studio reads the capability + owner read; the
@@ -170,18 +171,41 @@ vi.mock('@/controllers/commerce/commerce', async () => {
       // The badge-cards scene renders real listing cards: their favorite
       // toggle reads through the controller seam.
       isFavorite: vi.fn(async () => false),
-      // The cart scene runs the REAL useMarketplaceCheckout (no wholesale mock):
+      // The checkout scene runs the REAL useMarketplaceCheckout (no wholesale mock):
       // the fulfillment derivation is exercised from the listing fixtures.
       hasActiveMarketplaceSession: vi.fn(() => true),
       clearMarketplaceSession: vi.fn(),
       getDeliveryAddresses: vi.fn(async () => []),
+      getSellerPaymentConfig: vi.fn(async () => ({
+        bitcoinAvailable: true,
+        bitcoinOfferAvailable: true,
+        stripePaymentLink: 'https://buy.stripe.com/test_checkout',
+        paypalMerchantEmail: 'seller@example.com',
+      })),
+      getIndicativeBtcRate: vi.fn(async () => null),
     },
   };
 });
 
+vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
+  useMarketplaceSessionConnect: () => ({
+    status: 'idle',
+    authorizationUrl: '',
+    errorMessage: null,
+    requestsFullGrant: true,
+    requestsGrantReconnect: false,
+    start: vi.fn(),
+    cancel: vi.fn(),
+    copyAuthUrl: vi.fn(async () => {}),
+    openInRing: vi.fn(),
+    isOpeningRing: false,
+  }),
+}));
+
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-  usePathname: () => '/marketplace/orders',
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => view.pathname,
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/stores/auth/auth.store', async () => {
@@ -209,6 +233,22 @@ vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({ offers: [], isLoading: false, refresh: vi.fn(async () => {}) }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () => ({
+  useMarketplaceOfferCheckout: () => ({ submit: vi.fn(), isSubmitting: false }),
+}));
+
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
+  useMarketplaceCartCount: () => 3,
+}));
+
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 2,
+}));
+
 vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/useMarketplaceCart/useMarketplaceCart')>();
   const { sumMoneyByAsset } = await import('@/libs/commerce/pricing');
@@ -231,6 +271,8 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', async (importOriginal) 
       }>;
       return {
         items,
+        ordinaryItems: items,
+        awardItems: [],
         itemCount: items.reduce((total, item) => total + item.quantity, 0),
         subtotals: sumMoneyByAsset(
           items.flatMap((item) => {
@@ -280,6 +322,8 @@ beforeEach(async () => {
   useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
   view.orders = [];
   view.cartItems = [];
+  view.pathname = '/marketplace/orders';
+  window.history.replaceState(null, '', '/marketplace/orders');
 });
 
 describe('Marketplace local pickup — visual regression', () => {
@@ -317,11 +361,13 @@ describe('Marketplace local pickup — visual regression', () => {
     await expect(expectVrtSurface('pickup-reveal-dialog')).toMatchScreenshot('orders-pickup-reveal-desktop');
   });
 
-  it('renders the cart with a pickup group: the choice, the note, no address step', async () => {
+  it('renders the checkout with a pickup group: the choice, the note, no address step', async () => {
     const { pickupCartItems } = await fixtures;
     view.cartItems = pickupCartItems;
+    view.pathname = '/marketplace/checkout';
+    window.history.replaceState(null, '', '/marketplace/checkout');
 
-    const screen = await renderForVRT(<MarketplaceCart />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
     // The REAL checkout hook derives the group's options from the listing
     // fixture (publishes shipping AND pickup) — the capture chooses pickup
     // through the rendered select, never a mocked derivation.
@@ -345,11 +391,11 @@ describe('Marketplace local pickup — visual regression', () => {
       .find((option) => option.textContent === 'Local pickup')!
       .click();
     await vi.waitFor(() => {
-      if (!document.querySelector('[data-surface="cart-pickup-group"]')) {
+      if (!document.querySelector('[data-surface="checkout-pickup-group"]')) {
         throw new Error('The pickup group has not rendered yet.');
       }
     });
-    await expect(expectVrtSurface('cart-pickup-group')).toMatchScreenshot('cart-pickup-group-desktop');
+    await expect(expectVrtSurface('checkout-pickup-group')).toMatchScreenshot('checkout-pickup-group-desktop');
   });
 
   it('renders the fulfillment badge vocabulary on cards: Local pickup, Pickup or shipping, Shipping', async () => {
@@ -371,6 +417,6 @@ describe('Marketplace local pickup — visual regression', () => {
     });
     expect(() => expectVrtSurface('pickup-details-editor')).toThrow(/no production \[data-surface/);
     expect(() => expectVrtSurface('pickup-reveal-dialog')).toThrow(/no production \[data-surface/);
-    expect(() => expectVrtSurface('cart-pickup-group')).toThrow(/no production \[data-surface/);
+    expect(() => expectVrtSurface('checkout-pickup-group')).toThrow(/no production \[data-surface/);
   });
 });

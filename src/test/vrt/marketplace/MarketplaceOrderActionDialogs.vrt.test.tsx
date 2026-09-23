@@ -134,7 +134,7 @@ describe('Marketplace order action dialogs — visual regression', () => {
       </ActionsHarness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
-    await openDialog(screen.getByRole('button', { name: 'Cancel order' }));
+    await openDialog(screen.getByRole('button', { name: 'Cancel checkout' }));
     await expect(screen.getByTestId('dialog-content')).toMatchScreenshot('dialog-order-cancel-shipping-open-desktop');
   });
 
@@ -152,7 +152,7 @@ describe('Marketplace order action dialogs — visual regression', () => {
       </ActionsHarness>,
       { viewport: { width: 1280, height: 900 } },
     );
-    await openDialog(screen.getByRole('button', { name: 'Cancel order' }));
+    await openDialog(screen.getByRole('button', { name: 'Cancel checkout' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
       'dialog-order-cancel-shipping-open-desktop-viewport',
     );

@@ -33,7 +33,13 @@ const ITEMS: readonly MarketplaceSectionItem[] = [
   { label: 'Messages', href: MARKETPLACE_ROUTES.MESSAGES, icon: MessageCircle },
   { label: 'Offers', href: MARKETPLACE_ROUTES.OFFERS, icon: HandCoins },
   { label: 'Watchlist', href: MARKETPLACE_ROUTES.WATCHLIST, icon: Heart },
-  { label: 'Cart', href: MARKETPLACE_ROUTES.CART, icon: ShoppingCart, badge: 'cart' },
+  {
+    label: 'Cart',
+    href: MARKETPLACE_ROUTES.CART,
+    icon: ShoppingCart,
+    badge: 'cart',
+    activePrefixes: [MARKETPLACE_ROUTES.CART, MARKETPLACE_ROUTES.CHECKOUT, MARKETPLACE_ROUTES.AWARD_CHECKOUT],
+  },
   { label: 'Orders', href: MARKETPLACE_ROUTES.ORDERS, icon: ReceiptText },
   { label: 'Activity', href: MARKETPLACE_ROUTES.NOTIFICATIONS, icon: Bell, badge: 'activity' },
   {

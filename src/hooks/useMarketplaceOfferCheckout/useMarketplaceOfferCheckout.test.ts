@@ -10,6 +10,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getMarketplaceOffers: vi.fn(),
     commitOfferCheckout: vi.fn(),
+    bindPaymentMethod: vi.fn(),
+    executeMarketplaceCommand: vi.fn(),
   },
 }));
 
@@ -85,6 +87,7 @@ describe('useMarketplaceOfferCheckout', () => {
       await expect(result.current.submit(offer, address)).resolves.toEqual({
         ok: true,
         orderId: '00000000-0000-4000-8000-000000000703',
+        boundOrder: null,
       });
     });
 
@@ -104,9 +107,9 @@ describe('useMarketplaceOfferCheckout', () => {
   });
 
   it.each([
-    ['AWARD_EXPIRED', 'This accepted offer expired before the order was placed. Nothing was ordered.'],
-    ['AWARD_ALREADY_CONVERTED', 'This accepted offer has already been converted to an order.'],
-    ['REVISION_CONFLICT', 'This accepted offer has already been converted to an order.'],
+    ['AWARD_EXPIRED', 'This accepted offer expired before checkout. Nothing was reserved.'],
+    ['AWARD_ALREADY_CONVERTED', 'This accepted offer has already been converted.'],
+    ['REVISION_CONFLICT', 'This accepted offer has already been converted.'],
     ['AWARD_QUANTITY_MISMATCH', 'The checkout quantity does not match the accepted offer.'],
     ['AWARD_VARIANT_MISMATCH', 'The checkout variant does not match the accepted offer.'],
     ['AWARD_LISTING_CHANGED', 'The listing snapshot does not match the offer terms.'],

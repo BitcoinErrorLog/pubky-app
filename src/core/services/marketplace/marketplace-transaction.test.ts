@@ -1130,7 +1130,7 @@ describe('MarketplaceTransactionService read projections', () => {
       );
 
       await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'stripe')).rejects.toMatchObject({
-        message: 'A payment method is already bound to this order.',
+        message: 'A payment method is already bound to this checkout.',
       });
     });
 

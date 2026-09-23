@@ -145,7 +145,7 @@ describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
     outbid: getMarketplaceListingRoute(SELLER, 'boots_01'),
     auction_won: getMarketplaceListingRoute(SELLER, 'boots_01'),
     auction_ended: getMarketplaceListingRoute(SELLER, 'boots_01'),
-    order_created: MARKETPLACE_ROUTES.ORDERS,
+    order_created: MARKETPLACE_ROUTES.CHECKOUT,
     payment_confirmed: MARKETPLACE_ROUTES.ORDERS,
     order_cancelled: MARKETPLACE_ROUTES.ORDERS,
     order_cancelled_terms_change: MARKETPLACE_ROUTES.ORDERS,

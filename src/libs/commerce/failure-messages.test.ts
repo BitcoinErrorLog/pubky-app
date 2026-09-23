@@ -216,6 +216,33 @@ describe('marketplacePaymentMethodFailureMessage', () => {
     expect(marketplacePaymentMethodReasonMessage('constructor')).toBe('The payment method request was refused.');
     expect(marketplacePaymentMethodReasonMessage(undefined)).toBe('The payment method request was refused.');
   });
+
+  it('maps a bind hold-loser from the service 409 wire shape to listingReserved', () => {
+    const wire = {
+      ok: false,
+      error: {
+        code: 'INVALID_STATE',
+        message: 'SENTINEL_HOLDING_COPY Another buyer is currently paying for this item.',
+        reason: 'held',
+      },
+    };
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: marketplacePaymentMethodReasonMessage(wire.error.reason),
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: wire.error.reason, serviceCode: wire.error.code },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, MARKETPLACE_FAILURE_MESSAGES.checkout)).toBe(
+      CHECKOUT_HOLD_COPY.listingReserved,
+    );
+    expect(marketplacePaymentMethodFailureMessage(error, MARKETPLACE_FAILURE_MESSAGES.checkout)).not.toBe(
+      MARKETPLACE_FAILURE_MESSAGES.checkout,
+    );
+    expect(error.message).not.toContain('SENTINEL');
+    expect(error.message).toBe(CHECKOUT_HOLD_COPY.listingReserved);
+  });
 });
 
 describe('marketplaceOfferCheckoutFailureMessage', () => {

@@ -37,6 +37,7 @@ import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasuremen
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { getAuctionPhase } from '@/libs/commerce/auction-phase';
 import { CHECKOUT_HOLD_COPY, findViewerPendingHoldOrder } from '@/libs/commerce/checkout-hold';
+import { getMarketplaceCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
@@ -429,7 +430,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                   {viewerHoldOrder ? (
                     <Button asChild size="default" className="w-fit rounded-full">
                       <Link
-                        href={`${MARKETPLACE_ROUTES.ORDERS}#${viewerHoldOrder.orderId}`}
+                        href={getMarketplaceCheckoutRoute(viewerHoldOrder.orderId)}
                         overrideDefaults
                         data-cy="marketplace-listing-held-for-you"
                       >
