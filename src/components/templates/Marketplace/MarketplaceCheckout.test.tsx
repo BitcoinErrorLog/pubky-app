@@ -166,7 +166,7 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       setFulfillmentChoice: checkoutActions.setFulfillmentChoice,
       requiresDeliveryAddress: view.requiresDeliveryAddress,
       hasFulfillmentConflict: view.hasFulfillmentConflict,
-      isPickupCapabilityLoading: view.isPickupCapabilityLoading,
+      isPickupCapabilityLoadingForSeller: () => view.isPickupCapabilityLoading,
       orderCount: view.orderCount,
     }),
   };

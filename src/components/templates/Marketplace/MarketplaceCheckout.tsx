@@ -449,6 +449,7 @@ function MarketplaceCartCheckout() {
                 const fulfillmentOptions = checkout.fulfillmentOptionsForSeller(group.sellerPubky);
                 const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
                 const isPickupGroup = fulfillment === 'pickup';
+                const isPickupCapabilityLoading = checkout.isPickupCapabilityLoadingForSeller(group.sellerPubky);
                 return (
                   <section
                     key={group.sellerPubky}
@@ -457,14 +458,14 @@ function MarketplaceCartCheckout() {
                     data-surface={isPickupGroup ? 'checkout-pickup-group' : undefined}
                   >
                     {displayGroups.length > 1 && <MarketplaceCheckoutSellerHeader group={group} />}
-                    {checkout.isPickupCapabilityLoading ? (
+                    {isPickupCapabilityLoading ? (
                       <Skeleton
                         className="h-16 w-full"
                         data-testid="pickup-capability-skeleton"
                         aria-label="Checking pickup availability"
                       />
                     ) : null}
-                    {!checkout.isPickupCapabilityLoading && fulfillmentOptions.length > 1 && fulfillment && (
+                    {!isPickupCapabilityLoading && fulfillmentOptions.length > 1 && fulfillment && (
                       <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
                         <Label htmlFor={`fulfillment-${group.sellerPubky}`}>Fulfillment</Label>
                         <Select
@@ -493,7 +494,7 @@ function MarketplaceCartCheckout() {
                         </Select>
                       </div>
                     )}
-                    {!checkout.isPickupCapabilityLoading && isPickupGroup && (
+                    {!isPickupCapabilityLoading && isPickupGroup && (
                       <Typography
                         as="p"
                         className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground"
@@ -502,7 +503,7 @@ function MarketplaceCartCheckout() {
                         after payment confirms.
                       </Typography>
                     )}
-                    {!checkout.isPickupCapabilityLoading && fulfillmentOptions.length === 0 && (
+                    {!isPickupCapabilityLoading && fulfillmentOptions.length === 0 && (
                       <Typography
                         as="p"
                         role="alert"
