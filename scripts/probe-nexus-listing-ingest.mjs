@@ -17,22 +17,31 @@ const signupToken = (await tokenResponse.text()).trim();
 const keypair = Keypair.random();
 const pubky = new Pubky();
 const signer = pubky.signer(keypair);
-await signer.signup(PublicKey.from(HOMESERVER_PUBKY), signupToken);
+await signer.signupCookie(PublicKey.from(HOMESERVER_PUBKY), signupToken);
 const who = keypair.publicKey.z32();
 console.log(`identity: ${who}`);
 
-const flow = pubky.startAuthFlow('/pub/pubky.app/:rw', AuthFlowKind.signin(), HTTP_RELAY);
+const flow = pubky.startCookieAuthFlow('/pub/pubky.app/:rw', AuthFlowKind.signin(), HTTP_RELAY);
 const approval = flow.awaitApproval();
 await signer.approveAuthRequest(flow.authorizationUrl);
 const session = await approval;
 
 // Profile first so the listing's seller dependency exists.
-await session.storage.putJson('/pub/pubky.app/profile.json', { name: 'Nexus ingest probe', bio: '', image: '', links: [], status: '' });
+await session.storage.putJson('/pub/pubky.app/profile.json', {
+  name: 'Nexus ingest probe',
+  bio: '',
+  image: '',
+  links: [],
+  status: '',
+});
 
 // Clone the known-good canonical record, re-owned.
-const source = await fetch(`https://homeserver.staging.pubky.app/pub/pubky.app/marketplace/v1/listings/${SOURCE_LISTING}`, {
-  headers: { 'pubky-host': SOURCE_SELLER },
-});
+const source = await fetch(
+  `https://homeserver.staging.pubky.app/pub/pubky.app/marketplace/v1/listings/${SOURCE_LISTING}`,
+  {
+    headers: { 'pubky-host': SOURCE_SELLER },
+  },
+);
 const record = await source.json();
 const newId = crypto.randomUUID().replaceAll('-', '');
 record.listingId = newId;
