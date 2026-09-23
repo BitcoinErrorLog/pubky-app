@@ -5,6 +5,7 @@ import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/er
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceBootstrapFailureMessage,
   marketplaceCheckoutRefusalMessage,
   marketplaceDropRefusalMessage,
   marketplaceFailureMessage,
@@ -286,5 +287,43 @@ describe('marketplaceOfferFailureMessage', () => {
     expect(marketplaceOfferFailureMessage('INVALID_STATE', 'sentinel-drop-copy')).toBe(
       MARKETPLACE_FAILURE_MESSAGES.sendOffer,
     );
+  });
+});
+
+describe('Bitkit purchase bootstrap reason codes', () => {
+  it.each([
+    ['origin_denied', 'This request did not come from the Shop. Reload and try again.'],
+    ['invalid_request', 'Something went wrong. Try again.'],
+    ['grant_unavailable', 'Bitkit approvals are unavailable right now. Try again later.'],
+    ['retry_later', 'Too many attempts. Wait a minute and try again.'],
+    ['challenge_not_found', 'This approval expired. Start again.'],
+    ['challenge_consumed', 'This approval was already used. Start again.'],
+    ['homeserver_proof_invalid', 'Your homeserver could not confirm this sign-in. Start again.'],
+    ['flow_expired', 'This approval expired. Start again.'],
+    ['flow_cancelled', 'Approval cancelled.'],
+    ['result_denied', 'This approval could not be completed. Start again.'],
+    [
+      'identity_mismatch',
+      "This approval came from a different account. Approve with the account you're signed in with.",
+    ],
+    ['fresh_approval_required', 'Approve again in Bitkit.'],
+    ['flow_binding_missing', 'This approval belongs to another tab. Start again here.'],
+    ['flow_binding_denied', 'This approval belongs to another tab. Start again here.'],
+    ['flow_not_found', 'This approval expired. Start again.'],
+    ['claim_in_progress', 'Finishing your approval…'],
+    ['shop_session_expired', 'Your Shop session ended. Sign in again.'],
+    ['approval_invalid', 'That approval could not be verified. Approve again in Bitkit.'],
+  ])('bootstrap reason code %s maps to copy', (code, copy) => {
+    expect(marketplaceBootstrapFailureMessage(code)).toBe(copy);
+  });
+
+  it('keeps the reconnect copy for shop_session_expired outside the bootstrap', () => {
+    expect(marketplaceFailureMessage('shop_session_expired', MARKETPLACE_FAILURE_MESSAGES.sessionStart)).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.sessionCookieExpired,
+    );
+  });
+
+  it('an unknown bootstrap code falls back to static copy, never the code', () => {
+    expect(marketplaceBootstrapFailureMessage('something_new')).toBe(MARKETPLACE_FAILURE_MESSAGES.sessionStart);
   });
 });

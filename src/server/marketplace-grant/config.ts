@@ -88,6 +88,20 @@ export type CliGrantConfig = MarketplaceGrantConfig & z.infer<typeof cliExtrasSc
 
 let cached: MarketplaceGrantConfig | null | undefined;
 let cachedCli: CliGrantConfig | null | undefined;
+let cachedBrowser: CliGrantConfig | null | undefined;
+
+function cliExtrasFromEnv(): z.infer<typeof cliExtrasSchema> {
+  return cliExtrasSchema.parse({
+    challengeTtlSeconds: process.env.SHOP_BFF_CLI_GRANT_CHALLENGE_TTL_SECONDS,
+    createPerIpPerMinute: process.env.SHOP_BFF_CLI_GRANT_CREATE_PER_IP_PER_MINUTE,
+    createPerPubkyPerMinute: process.env.SHOP_BFF_CLI_GRANT_CREATE_PER_PUBKY_PER_MINUTE,
+    verifyPerIpPerMinute: process.env.SHOP_BFF_CLI_GRANT_VERIFY_PER_IP_PER_MINUTE,
+    statusPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_STATUS_PER_TOKEN_PER_MINUTE,
+    resultPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_RESULT_PER_TOKEN_PER_MINUTE,
+    homeserverFetchTimeoutMs: process.env.SHOP_BFF_CLI_HOMESERVER_FETCH_TIMEOUT_MILLISECONDS,
+    trustedProxyCount: process.env.SHOP_BFF_CLI_TRUSTED_PROXY_COUNT,
+  });
+}
 
 export function marketplaceGrantEnabled(): boolean {
   return process.env.SHOP_BFF_GRANT_FLOW_ENABLED === 'true';
@@ -139,23 +153,23 @@ export function getCliGrantConfig(): CliGrantConfig | null {
     cachedCli = null;
     return null;
   }
-  cachedCli = {
-    ...base,
-    ...cliExtrasSchema.parse({
-      challengeTtlSeconds: process.env.SHOP_BFF_CLI_GRANT_CHALLENGE_TTL_SECONDS,
-      createPerIpPerMinute: process.env.SHOP_BFF_CLI_GRANT_CREATE_PER_IP_PER_MINUTE,
-      createPerPubkyPerMinute: process.env.SHOP_BFF_CLI_GRANT_CREATE_PER_PUBKY_PER_MINUTE,
-      verifyPerIpPerMinute: process.env.SHOP_BFF_CLI_GRANT_VERIFY_PER_IP_PER_MINUTE,
-      statusPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_STATUS_PER_TOKEN_PER_MINUTE,
-      resultPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_RESULT_PER_TOKEN_PER_MINUTE,
-      homeserverFetchTimeoutMs: process.env.SHOP_BFF_CLI_HOMESERVER_FETCH_TIMEOUT_MILLISECONDS,
-      trustedProxyCount: process.env.SHOP_BFF_CLI_TRUSTED_PROXY_COUNT,
-    }),
-  };
+  cachedCli = { ...base, ...cliExtrasFromEnv() };
   return cachedCli;
+}
+
+/**
+ * Browser purchase bootstrap (Bitkit sign-in): the CLI verifier's parameters,
+ * gated only by `SHOP_BFF_GRANT_FLOW_ENABLED`, never by the CLI flag.
+ */
+export function getBrowserBootstrapConfig(): CliGrantConfig | null {
+  if (cachedBrowser !== undefined) return cachedBrowser;
+  const base = getMarketplaceGrantConfig();
+  cachedBrowser = base ? { ...base, ...cliExtrasFromEnv() } : null;
+  return cachedBrowser;
 }
 
 export function resetMarketplaceGrantConfigForTests(): void {
   cached = undefined;
   cachedCli = undefined;
+  cachedBrowser = undefined;
 }

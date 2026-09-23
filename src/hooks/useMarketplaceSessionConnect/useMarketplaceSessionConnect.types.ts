@@ -56,6 +56,12 @@ export interface UseMarketplaceSessionConnectReturn {
    * must render this instead of re-reading the grant flag.
    */
   requestsGrantReconnect: boolean;
+  /**
+   * True while `start()` is running (or about to run) the browser bootstrap:
+   * a Bitkit (grant) sign-in with no marketplace bearer yet. Its approval is a
+   * Bitkit grant, so the dialog shows Bitkit copy, never the Ring prompt.
+   */
+  requestsGrantBootstrap: boolean;
   /** Begins a fresh flow, cancelling any in-flight one. */
   start: () => void;
   /** Cancels the in-flight flow (frees it) and returns to `idle`. */

@@ -327,6 +327,58 @@ export type CliStateContext = {
   version: 1;
 };
 
+const BROWSER_BOOTSTRAP_SALT = utf8.encode('shop-bff/browser-bootstrap/hkdf-salt/v1');
+
+function browserSeedKey(config: MarketplaceGrantConfig, epoch: number): Uint8Array {
+  return hkdf(
+    sha256,
+    rootForEpoch(config, epoch),
+    BROWSER_BOOTSTRAP_SALT,
+    concat(utf8.encode('shop-bff/browser-bootstrap/seed-key/v1'), u16(epoch)),
+    32,
+  );
+}
+
+export type BrowserBootstrapSecrets = {
+  resultPopSeed: Uint8Array;
+  resultCpk: string;
+  resultDeliveryId: Uint8Array;
+};
+
+/**
+ * The browser bootstrap's result PoP seed and delivery id are a pure function
+ * of the state key epoch and the challenge id, so verify can recompute them
+ * without storing a secret on the challenge row. Anyone holding the epoch's
+ * state key can recompute them; a public challenge id alone cannot.
+ */
+export function deriveBrowserBootstrap(
+  config: MarketplaceGrantConfig,
+  epoch: number,
+  challengeId: string,
+): BrowserBootstrapSecrets {
+  const key = browserSeedKey(config, epoch);
+  const id = uuidBytes(challengeId);
+  const resultPopSeed = hmac(sha256, key, concat(utf8.encode('shop-bff/browser-bootstrap/result-pop-seed/v1'), id));
+  const resultDeliveryId = hmac(
+    sha256,
+    key,
+    concat(utf8.encode('shop-bff/browser-bootstrap/result-delivery-id/v1'), id),
+  );
+  return { resultPopSeed, resultCpk: resultPublicKey(resultPopSeed), resultDeliveryId };
+}
+
+/** Test-only: the raw browser bootstrap key, for the key-separation vector. */
+export function browserSeedKeyForTests(config: MarketplaceGrantConfig, epoch: number): Uint8Array {
+  return browserSeedKey(config, epoch);
+}
+
+export type BrowserStateContext = {
+  kind: 'browser';
+  resultDeliveryId: string;
+  resultPopSeed: string;
+  version: 2;
+};
+
 function cliFlowAad(stateId: string, pubky: string, epoch: number): Uint8Array {
   const pubkyBytes = utf8.encode(pubky);
   return concat(
@@ -354,6 +406,64 @@ export function sealCliFlowContext(
     utf8.encode(canonicalJson(context)),
     cliFlowAad(stateId, pubky, config.stateKeyEpoch),
   );
+}
+
+export function sealBrowserFlowContext(
+  config: MarketplaceGrantConfig,
+  stateId: string,
+  pubky: string,
+  context: BrowserStateContext,
+): Uint8Array {
+  return seal(
+    config,
+    config.stateKeyEpoch,
+    utf8.encode(canonicalJson(context)),
+    cliFlowAad(stateId, pubky, config.stateKeyEpoch),
+  );
+}
+
+export class BrowserContextRefused extends Error {
+  constructor(readonly reason: 'epoch_unavailable' | 'not_browser') {
+    super(reason);
+  }
+}
+
+/**
+ * Opens a browser bootstrap context. An epoch whose key is gone is
+ * `epoch_unavailable` (fresh approval); anything that is not a canonical
+ * `{version: 2, kind: 'browser'}` envelope, including a CLI context, is
+ * `not_browser` (result denied).
+ */
+export function openBrowserFlowContext(
+  config: MarketplaceGrantConfig,
+  stateId: string,
+  pubky: string,
+  epoch: number,
+  sealed: Uint8Array,
+): BrowserStateContext {
+  try {
+    rootForEpoch(config, epoch);
+  } catch {
+    throw new BrowserContextRefused('epoch_unavailable');
+  }
+  let parsed: BrowserStateContext;
+  let text: string;
+  try {
+    text = new TextDecoder().decode(open(config, epoch, sealed, cliFlowAad(stateId, pubky, epoch)));
+    parsed = JSON.parse(text) as BrowserStateContext;
+  } catch {
+    throw new BrowserContextRefused('not_browser');
+  }
+  if (
+    parsed.version !== 2 ||
+    parsed.kind !== 'browser' ||
+    canonicalJson(parsed) !== text ||
+    decodeBase64Url32(parsed.resultDeliveryId).length !== 32 ||
+    decodeBase64Url32(parsed.resultPopSeed).length !== 32
+  ) {
+    throw new BrowserContextRefused('not_browser');
+  }
+  return parsed;
 }
 
 export function openCliFlowContext(

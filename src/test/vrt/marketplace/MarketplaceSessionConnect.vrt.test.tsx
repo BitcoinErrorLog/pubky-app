@@ -34,7 +34,11 @@ const view = vi.hoisted(() => ({
   errorMessage: null as string | null,
   isOpeningRing: false,
   grantEnabled: false,
+  bootstrap: false,
 }));
+
+const VRT_BOOTSTRAP_URL =
+  'pubkyauth://signin_grant?caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw&relay=https%3A%2F%2Fvrt.invalid%2Finbox&secret=vrt-fixed-secret&cid=vrt.invalid&cpk=vrt-fixed-cpk';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -59,7 +63,8 @@ vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () 
     // Bridged / narrow-grant arrival: the full-grant copy (mirrors the
     // CommerceController.hasFullHomeserverGrant mock above).
     requestsFullGrant: true,
-    requestsGrantReconnect: view.grantEnabled,
+    requestsGrantReconnect: view.grantEnabled && !view.bootstrap,
+    requestsGrantBootstrap: view.bootstrap,
     start: vi.fn(),
     cancel: vi.fn(),
     copyAuthUrl: vi.fn(async () => {}),
@@ -91,6 +96,22 @@ describe('Marketplace session connect — visual regression', () => {
     view.errorMessage = null;
     view.isOpeningRing = false;
     view.grantEnabled = false;
+    view.bootstrap = false;
+  });
+
+  it('renders the Bitkit purchase bootstrap approval at desktop viewport', async () => {
+    view.grantEnabled = true;
+    view.bootstrap = true;
+    view.authorizationUrl = VRT_BOOTSTRAP_URL;
+
+    const screen = await renderForVRT(
+      <Harness>
+        <MarketplaceSessionConnectDialog triggerLabel="Approve purchases" />
+      </Harness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await openDialog(screen.getByRole('button', { name: 'Approve purchases' }));
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('session-connect-bitkit-bootstrap-desktop');
   });
 
   it('renders the awaiting-approval QR state at desktop viewport', async () => {

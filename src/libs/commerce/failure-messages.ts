@@ -108,6 +108,42 @@ const CHECKOUT_REFUSAL_MESSAGES: ReadonlyMap<string, string> = new Map([
   ],
 ]);
 
+/**
+ * Copy for the Bitkit purchase bootstrap. `shop_session_expired` here means
+ * the grant sign-in itself ended (its homeserver write was refused), not a
+ * marketplace cookie, so it must not use the reconnect copy.
+ */
+const BOOTSTRAP_APPROVAL_EXPIRED = 'This approval expired. Start again.';
+const BOOTSTRAP_OTHER_TAB = 'This approval belongs to another tab. Start again here.';
+
+export const MARKETPLACE_BOOTSTRAP_CODE_MESSAGES: ReadonlyMap<string, string> = new Map([
+  ['origin_denied', 'This request did not come from the Shop. Reload and try again.'],
+  ['invalid_request', 'Something went wrong. Try again.'],
+  ['grant_unavailable', 'Bitkit approvals are unavailable right now. Try again later.'],
+  ['retry_later', 'Too many attempts. Wait a minute and try again.'],
+  ['challenge_not_found', BOOTSTRAP_APPROVAL_EXPIRED],
+  ['challenge_consumed', 'This approval was already used. Start again.'],
+  ['homeserver_proof_invalid', 'Your homeserver could not confirm this sign-in. Start again.'],
+  ['flow_expired', BOOTSTRAP_APPROVAL_EXPIRED],
+  ['flow_cancelled', 'Approval cancelled.'],
+  ['result_denied', 'This approval could not be completed. Start again.'],
+  ['identity_mismatch', "This approval came from a different account. Approve with the account you're signed in with."],
+  ['fresh_approval_required', 'Approve again in Bitkit.'],
+  ['flow_binding_missing', BOOTSTRAP_OTHER_TAB],
+  ['flow_binding_denied', BOOTSTRAP_OTHER_TAB],
+  ['flow_not_found', BOOTSTRAP_APPROVAL_EXPIRED],
+  ['claim_in_progress', 'Finishing your approval…'],
+  ['shop_session_expired', 'Your Shop session ended. Sign in again.'],
+  ['approval_invalid', 'That approval could not be verified. Approve again in Bitkit.'],
+]);
+
+export function marketplaceBootstrapFailureMessage(code: MarketplaceFailureCode): string {
+  return (
+    (code && MARKETPLACE_BOOTSTRAP_CODE_MESSAGES.get(code)) ||
+    marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sessionStart)
+  );
+}
+
 export function marketplaceCheckoutRefusalMessage(code: MarketplaceFailureCode, message: unknown): string | null {
   if (typeof code !== 'string' || typeof message !== 'string') return null;
   return CHECKOUT_REFUSAL_MESSAGES.get(`${code}:${message}`) ?? null;

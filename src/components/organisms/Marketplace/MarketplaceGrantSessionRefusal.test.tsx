@@ -55,17 +55,34 @@ describe('classic Pubky Ring approvals refuse a grant session', () => {
     state.messagingStart.mockClear();
   });
 
-  it('grant session sees refusal not classic qr (inventory grant)', () => {
+  it('grant session sees inventory refusal', () => {
     render(<MarketplaceInventoryGrantDialog autoOpen />);
 
-    expect(screen.getByTestId('grant-session-refusal')).toBeInTheDocument();
+    expect(screen.getByTestId('grant-session-refusal')).toHaveTextContent(
+      'Inventory edits need a Pubky Ring sign-in for now.',
+    );
+    expect(screen.queryByTestId('qr-auth-url')).not.toBeInTheDocument();
     expect(state.inventoryStart).not.toHaveBeenCalled();
   });
 
-  it('grant session sees refusal not classic qr (messaging enable)', () => {
+  it('inventory copy names Ring only', () => {
+    state.isGrantSession = false;
+    render(<MarketplaceInventoryGrantDialog autoOpen />);
+
+    expect(
+      screen.getByText('Approve this grant in Pubky Ring; it does not replace your purchase session.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Bitkit/)).not.toBeInTheDocument();
+    expect(state.inventoryStart).toHaveBeenCalled();
+  });
+
+  it('grant session sees messaging refusal without qr', () => {
     render(<MarketplaceMessagingEnablePanel reconnect={false} />);
 
-    expect(screen.getByTestId('grant-session-refusal')).toBeInTheDocument();
+    expect(screen.getByTestId('grant-session-refusal')).toHaveTextContent(
+      'Messages need a Pubky Ring sign-in for now.',
+    );
+    expect(screen.queryByTestId('qr-auth-url')).not.toBeInTheDocument();
     expect(state.messagingStart).not.toHaveBeenCalled();
   });
 
