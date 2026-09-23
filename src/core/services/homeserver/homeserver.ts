@@ -189,7 +189,7 @@ export class HomeserverService {
     if (postResponse?.ok) {
       try {
         const body = new Uint8Array(await postResponse.arrayBuffer());
-        return await this.restoreSession({ sessionExport: bytesToBase64(body) });
+        return await Session.restore(bytesToBase64(body), client);
       } catch {
         throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Sign-in failed. Scan again.', {
           service: ErrorService.Homeserver,
@@ -209,7 +209,7 @@ export class HomeserverService {
     if (getResponse?.ok) {
       try {
         const body = new Uint8Array(await getResponse.arrayBuffer());
-        return await this.restoreSession({ sessionExport: bytesToBase64(body) });
+        return await Session.restore(bytesToBase64(body), client);
       } catch {
         throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Sign-in failed. Scan again.', {
           service: ErrorService.Homeserver,
@@ -308,7 +308,7 @@ export class HomeserverService {
     try {
       const homeserverPublicKey = PublicKey.from(getHomeserver());
       const signer = this.getSigner(keypair);
-      const session = await signer.signup(homeserverPublicKey, signupToken);
+      const session = await signer.signupCookie(homeserverPublicKey, signupToken);
 
       Logger.debug('Signup successful', { session });
 
@@ -326,7 +326,7 @@ export class HomeserverService {
   /**
    * Staging signup that bypasses PKARR resolution of the homeserver key.
    *
-   * `signer.signup()` builds `https://<homeserver-z32>/signup` and needs the
+   * `signer.signupCookie()` builds `https://<homeserver-z32>/signup` and needs the
    * homeserver's OWN PKARR record to carry an HTTPS endpoint for that bare-key
    * hostname. The staging homeserver's record does not resolve that way (the
    * same reason {@link verifySignupToken} already uses {@link getHomeserverUrl}
@@ -334,7 +334,7 @@ export class HomeserverService {
    * PKARR record" while everything else — which rides `_pubky.<user>` URLs —
    * kept working.
    *
-   * This path replicates what `signer.signup()` does, without that lookup:
+   * This path replicates what `signer.signupCookie()` does, without that lookup:
    * 1. Sign a root-capability AuthToken locally (see `libs/identity/auth-token`)
    *    and POST it to `{homeserverUrl}/signup?signup_token=…`. The response body
    *    is the serialized SessionInfo and the session cookie is set by the browser.
@@ -342,7 +342,8 @@ export class HomeserverService {
    *    (required by {@link assertUserHomeserverAllowed} and by Nexus).
    * 3. Hydrate a Session from the signup response (retried briefly: the
    *    hydration revalidates via `_pubky.<user>`, which needs the record from
-   *    step 2 to propagate to the relays).
+   *    step 2 to propagate to the relays). If hydration still fails, sign in
+   *    to the account the spent invite just created before giving up.
    *
    * Retry safety: the invite is consumed by a successful POST in step 1. If a
    * later step fails, the thrown error is retryable, and a retried call whose
@@ -399,7 +400,7 @@ export class HomeserverService {
       });
     }
 
-    const session = await this.restoreSignupSession(sessionInfoBytes, errorParams);
+    const session = await this.restoreSignupSession(keypair, sessionInfoBytes, errorParams);
     return { session };
   }
 
@@ -410,6 +411,7 @@ export class HomeserverService {
    * propagation of the just-published user record.
    */
   private static async restoreSignupSession(
+    keypair: Keypair,
     sessionInfoBytes: Uint8Array,
     errorParams: { service: ErrorService; operation: string },
   ): Promise<Session> {
@@ -418,7 +420,7 @@ export class HomeserverService {
     let lastError: unknown;
     for (let attempt = 1; attempt <= SIGNUP_SESSION_RESTORE_ATTEMPTS; attempt++) {
       try {
-        return await this.getPubkySdk().restoreSession(sessionExport);
+        return await Session.restore(sessionExport, this.getPubkySdk().client);
       } catch (error) {
         lastError = error;
         Logger.warn('Signup session restore attempt failed', { attempt, error });
@@ -426,6 +428,14 @@ export class HomeserverService {
           await new Promise((resolve) => setTimeout(resolve, SIGNUP_SESSION_RESTORE_DELAY_MS * attempt));
         }
       }
+    }
+
+    // The invite is already spent, so a retried signup would be rejected:
+    // recover the session from the account this signup just created.
+    const recovered = await this.trySignInExistingAccount(keypair);
+    if (recovered) {
+      Logger.info('Signup session restore failed; recovered via sign-in');
+      return recovered.session;
     }
 
     throw Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, 'Signed up, but could not establish your session yet.', {
@@ -446,7 +456,7 @@ export class HomeserverService {
     try {
       const signer = this.getSigner(keypair);
       await signer.pkdns.publishHomeserverForce(PublicKey.from(getHomeserver()));
-      const session = await signer.signin();
+      const session = await signer.signinCookie();
       return { session };
     } catch (error) {
       Logger.debug('No existing account to recover during signup', { error });
@@ -542,7 +552,7 @@ export class HomeserverService {
     }
 
     try {
-      const session = await signer.signin();
+      const session = await signer.signinCookie();
       return { session };
     } catch (signinError) {
       return await this.republishConfiguredHomeserver({ signer, keypair, originalError: signinError });
@@ -582,7 +592,7 @@ export class HomeserverService {
 
     try {
       const pubkySdk = this.getPubkySdk();
-      const flow = pubkySdk.startAuthFlow(capabilities, AuthFlowKind.signin(), getDefaultHttpRelay());
+      const flow = pubkySdk.startCookieAuthFlow(capabilities, AuthFlowKind.signin(), getDefaultHttpRelay());
       const approval = createCancelableAuthApproval(flow);
 
       return {
@@ -615,7 +625,7 @@ export class HomeserverService {
   static generateAuthTokenFlow(capabilities: Capabilities = ''): TGenerateAuthTokenFlowResult {
     try {
       const pubkySdk = this.getPubkySdk();
-      const flow = pubkySdk.startAuthFlow(capabilities, AuthFlowKind.signin(), getDefaultHttpRelay());
+      const flow = pubkySdk.startCookieAuthFlow(capabilities, AuthFlowKind.signin(), getDefaultHttpRelay());
       const authorizationUrl = flow.authorizationUrl;
       let freed = false;
       const free = () => {
@@ -938,7 +948,10 @@ export class HomeserverService {
   static async restoreSession({ sessionExport }: THomeserverRestoreSessionParams): Promise<Session> {
     try {
       const pubkySdk = this.getPubkySdk();
-      return await pubkySdk.restoreSession(sessionExport);
+      // `Pubky.restoreSession` parses secret tokens (`exportLocalSecret()`);
+      // `Session.restore` decodes `session.export()` metadata and revalidates
+      // it against the browser-held HttpOnly cookie.
+      return await Session.restore(sessionExport, pubkySdk.client);
     } catch (error) {
       return handleError({
         error,
