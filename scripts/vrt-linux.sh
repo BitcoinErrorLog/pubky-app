@@ -9,11 +9,11 @@
 # Vitest process hangs on close, and the next process in that container
 # loses the browser before any test runs.
 #
-# Each container also needs a large /dev/shm. Docker's default is 64MB.
-# The vrt project starts Chromium and Firefox for every spec at once, and
-# Chromium's font service aborts with ENOSPC ("No space left on device")
-# while those pages are opening. Vitest then reports a closed browser
-# before any test runs. Fonts are installed; the cache has nowhere to go.
+# Docker's default /dev/shm is 64MB. Firefox uses it, and a plain Chromium
+# (not Playwright's headless shell) aborts in the font service with ENOSPC
+# once enough desktop pages are open. Playwright's Chromium is launched
+# with --disable-dev-shm-usage, so this size is not what closes the Vitest
+# socket. The vrt project also runs one file at a time for that.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
