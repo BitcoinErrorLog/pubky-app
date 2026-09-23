@@ -1,4 +1,5 @@
 import type { SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
+import { locksCreatorMatchesShopPubky } from '@/services/locks/locks-frontend-session';
 
 /** Plain-language setup state shown as the status pill on each method card. */
 export type PaymentMethodStatus = 'not_set_up' | 'connected' | 'email_saved' | 'needs_attention';
@@ -41,12 +42,13 @@ export function deriveStripeStatus(config: SellerPaymentConfigOwnView | null): P
  */
 export function deriveBitcoinStatus(args: {
   connectedCreator: string | null;
+  accountPubky: string | null | undefined;
   accountClaimed: boolean | null;
   locksError: string | null;
   claimError: string | null;
 }): PaymentMethodStatus {
   if (args.locksError || args.claimError) return 'needs_attention';
-  const locksAuthorized = Boolean(args.connectedCreator);
+  const locksAuthorized = locksCreatorMatchesShopPubky(args.connectedCreator, args.accountPubky);
   const paykitClaimed = args.accountClaimed === true;
   if (locksAuthorized && paykitClaimed) return 'connected';
   if (!locksAuthorized && !paykitClaimed) return 'not_set_up';

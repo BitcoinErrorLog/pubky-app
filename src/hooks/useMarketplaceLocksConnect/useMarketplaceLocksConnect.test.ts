@@ -8,11 +8,13 @@ import { HttpStatusCode } from '@/libs/http/http.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import {
   LOCKS_CONNECT_CALLBACK_TYPE,
+  LOCKS_CONNECT_IDENTITY_ERROR,
   LOCKS_CONNECT_USER_ERROR,
   useMarketplaceLocksConnect,
 } from './useMarketplaceLocksConnect';
 
 const PUBKY = 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco';
+const OTHER = 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u';
 const LOCKS_ORIGIN = 'https://locks.example.com';
 
 vi.mock('@/config/commerce', async () => {
@@ -273,5 +275,66 @@ describe('useMarketplaceLocksConnect', () => {
     await waitFor(() => expect(result.current.error).toBe(LOCKS_CONNECT_USER_ERROR));
     expect(result.current.connectedCreator).toBe(PUBKY);
     expect(mockedController.clearLocksFrontendSession).not.toHaveBeenCalled();
+  });
+
+  it('marks Connected when the Lock Server creator is the signed-in Shop pubky', async () => {
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+    const source = {} as WindowProxy;
+
+    act(() => {
+      result.current.openConnect();
+    });
+    const state = new URL(result.current.connectUrl ?? '').searchParams.get('state');
+    act(() => {
+      result.current.setConnectIframe({ contentWindow: source } as HTMLIFrameElement);
+    });
+
+    await act(async () => {
+      dispatchLocksCallback(source, { type: LOCKS_CONNECT_CALLBACK_TYPE, state, code: 'one-time-code' });
+    });
+
+    await waitFor(() => expect(result.current.connectedCreator).toBe(PUBKY));
+    expect(result.current.error).toBeNull();
+    expect(mockedController.clearLocksFrontendSession).not.toHaveBeenCalled();
+  });
+
+  it('does not store a foreign Lock Server creator and shows the identity error', async () => {
+    mockedController.createLocksFrontendSession.mockResolvedValue({
+      session_token: 'session-token',
+      creator: `pubky${OTHER}`,
+    });
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+    const source = {} as WindowProxy;
+
+    act(() => {
+      result.current.openConnect();
+    });
+    const state = new URL(result.current.connectUrl ?? '').searchParams.get('state');
+    act(() => {
+      result.current.setConnectIframe({ contentWindow: source } as HTMLIFrameElement);
+    });
+
+    await act(async () => {
+      dispatchLocksCallback(source, { type: LOCKS_CONNECT_CALLBACK_TYPE, state, code: 'one-time-code' });
+    });
+
+    await waitFor(() => expect(result.current.error).toBe(LOCKS_CONNECT_IDENTITY_ERROR));
+    expect(result.current.connectedCreator).toBeNull();
+    expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled();
+  });
+
+  it('clears a restored blob whose Lock Server creator is not the signed-in Shop pubky', async () => {
+    mockedController.restoreLocksFrontendSession.mockReturnValue({
+      token: 'session-token',
+      creator: `pubky${OTHER}`,
+      pubky: PUBKY,
+    });
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled());
+    expect(result.current.connectedCreator).toBeNull();
+    expect(result.current.error).toBe(LOCKS_CONNECT_IDENTITY_ERROR);
+    expect(mockedController.getLocksCreatorAuthorityStatus).not.toHaveBeenCalled();
   });
 });

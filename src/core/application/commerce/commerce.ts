@@ -114,7 +114,7 @@ import {
   type MarketplaceTagKind,
 } from '@/services/local/tag/marketplace/tag.marketplace';
 import { LocksGatewayService } from '@/services/locks/locks';
-import { LocksFrontendSessionStore } from '@/services/locks/locks-frontend-session';
+import { locksCreatorMatchesShopPubky, LocksFrontendSessionStore } from '@/services/locks/locks-frontend-session';
 import {
   MarketplaceGatewayService,
   type MarketplaceOrder,
@@ -1174,13 +1174,15 @@ export class CommerceApplication {
    */
   static async createLocksFrontendSession(code: string, state: string, accountPubky?: string) {
     const session = await LocksGatewayService.createFrontendSession(code, state);
-    if (accountPubky) {
-      LocksFrontendSessionStore.save({
-        token: session.session_token,
-        creator: session.creator,
-        pubky: accountPubky,
-      });
+    if (!accountPubky || !locksCreatorMatchesShopPubky(session.creator, accountPubky)) {
+      LocksFrontendSessionStore.clear();
+      return session;
     }
+    LocksFrontendSessionStore.save({
+      token: session.session_token,
+      creator: session.creator,
+      pubky: accountPubky,
+    });
     return session;
   }
 

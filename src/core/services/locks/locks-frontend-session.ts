@@ -16,6 +16,20 @@ const storedSessionSchema = z.object({
 
 export type LocksFrontendSessionRecord = z.infer<typeof storedSessionSchema>;
 
+/** Strip a leading `pubky` prefix so Lock Server creators compare to Shop z32. */
+export function normalizeLocksPubky(value: string): string {
+  return value.replace(/^pubky/i, '');
+}
+
+/** True only when the Lock Server creator is the signed-in Shop identity. */
+export function locksCreatorMatchesShopPubky(
+  creator: string | null | undefined,
+  shopPubky: string | null | undefined,
+): boolean {
+  if (!creator || !shopPubky) return false;
+  return normalizeLocksPubky(creator) === normalizeLocksPubky(shopPubky);
+}
+
 /**
  * Holds the Lock Server creator frontend session so Bitcoin Step 1 stays
  * Connected across reload. Same storage contract as the marketplace session:
@@ -23,7 +37,8 @@ export type LocksFrontendSessionRecord = z.infer<typeof storedSessionSchema>;
  *  - Written ONLY to `localStorage` under {@link LOCKS_FRONTEND_SESSION_STORAGE_KEY}.
  *  - Never IndexedDB, never cookies, never logged (the token is creator bearer).
  *  - Restore is account-scoped: {@link restore} drops the blob unless its pubky
- *    matches the signed-in Shop account. Sign-out and account switch funnel
+ *    matches the signed-in Shop account AND the Lock Server `creator` is that
+ *    same identity. Sign-out and account switch funnel
  *    through `CommerceApplication.clearMarketplaceSession()`, which calls
  *    {@link clear}.
  *  - A restored token the Lock Server no longer accepts (401/403/404 or
@@ -37,6 +52,7 @@ export class LocksFrontendSessionStore {
   static save(record: LocksFrontendSessionRecord): void {
     const parsed = storedSessionSchema.safeParse(record);
     if (!parsed.success) return;
+    if (!locksCreatorMatchesShopPubky(parsed.data.creator, parsed.data.pubky)) return;
     if (typeof window === 'undefined') return;
     try {
       window.localStorage.setItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY, JSON.stringify(parsed.data));
@@ -56,7 +72,11 @@ export class LocksFrontendSessionStore {
       return null;
     }
     const parsed = storedSessionSchema.safeParse(json);
-    if (!parsed.success || parsed.data.pubky !== expectedPubky) {
+    if (
+      !parsed.success ||
+      parsed.data.pubky !== expectedPubky ||
+      !locksCreatorMatchesShopPubky(parsed.data.creator, expectedPubky)
+    ) {
       this.clear();
       return null;
     }

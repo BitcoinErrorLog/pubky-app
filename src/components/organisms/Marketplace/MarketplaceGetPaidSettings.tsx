@@ -33,6 +33,7 @@ import { copyToClipboard } from '@/libs/utils/utils';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
+import { locksCreatorMatchesShopPubky } from '@/services/locks/locks-frontend-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import {
@@ -286,12 +287,14 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   const stripeStatus = deriveStripeStatus(payments.config);
   const bitcoinStatus = deriveBitcoinStatus({
     connectedCreator,
+    accountPubky: currentUserPubky,
     accountClaimed: payments.accountClaimed,
     locksError,
     claimError: payments.claimError,
   });
   const readyCount = countReadyPaymentMethods([paypalStatus, stripeStatus, bitcoinStatus]);
-  const step1NeedsPrimary = !connectedCreator && bitcoinStatus === 'needs_attention';
+  const step1Connected = locksCreatorMatchesShopPubky(connectedCreator, currentUserPubky);
+  const step1NeedsPrimary = !step1Connected && bitcoinStatus === 'needs_attention';
 
   // Stored rails need the marketplace session and the loaded config; the
   // bitcoin connect steps above them do not, so they render unconditionally.
@@ -440,10 +443,10 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               Approve the connection in Pubky Ring. The Lock Server can then lock your content for buyers — it never
               sees your identity secret.
             </Typography>
-            {connectedCreator && (
+            {step1Connected && (
               <Typography as="p" className="mt-2 flex items-center gap-2 text-sm text-brand">
                 <CheckCircle2 className="size-4" />
-                Creator authority connected: {connectedCreator.slice(0, 12)}…
+                Creator authority connected: {connectedCreator?.slice(0, 12)}…
               </Typography>
             )}
             {locksError && (
@@ -452,7 +455,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               </Typography>
             )}
           </div>
-          {connectedCreator ? (
+          {step1Connected ? (
             <Badge variant="secondary" className="justify-self-start sm:justify-self-auto">
               Connected
             </Badge>

@@ -300,6 +300,32 @@ describe('MarketplacePaymentSettings', () => {
     );
   });
 
+  it('will not save Accept bitcoin when Step 1 names a different Lock Server creator', async () => {
+    const user = userEvent.setup();
+    view.locksConnect = {
+      connectedCreator: 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u',
+      isExchanging: false,
+      error: null,
+      connectOpen: false,
+      connectUrl: null,
+    };
+    mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+
+    await renderSettings();
+
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin' })).toBeDisabled();
+    expect(screen.queryByText(/Creator authority connected/)).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalled());
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ bitcoinEnabled: false }),
+    );
+  });
+
   it('renders the Lock Server connect dialog instead of a raw error page', async () => {
     view.locksConnect = {
       connectedCreator: null,

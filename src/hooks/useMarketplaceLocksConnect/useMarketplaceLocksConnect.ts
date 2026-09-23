@@ -6,6 +6,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { LocksGatewayService } from '@/services/locks/locks';
+import { locksCreatorMatchesShopPubky, normalizeLocksPubky } from '@/services/locks/locks-frontend-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
@@ -22,10 +23,15 @@ export const LOCKS_CONNECT_CALLBACK_TYPE = 'locks-auth-callback';
 /** One-sentence, no developer text — shown for every failed Step 1 attempt. */
 export const LOCKS_CONNECT_USER_ERROR = 'This Lock Server connection did not finish. Approve it again from this page.';
 
+/** Shown when the Lock Server names a creator that is not the signed-in Shop account. */
+export const LOCKS_CONNECT_IDENTITY_ERROR =
+  "This Bitcoin connection belongs to a different account. Connect with the account you're signed in with.";
+
 const LOCKS_CONNECT_TIMEOUT_MS = 6 * 60 * 1_000;
 
-function stripPubkyPrefix(value: string): string {
-  return value.replace(/^pubky/, '');
+function rejectMismatchedCreator(): void {
+  CommerceController.clearLocksFrontendSession();
+  window.localStorage.removeItem(LOCKS_CONNECT_STATE_STORAGE_KEY);
 }
 
 function locksOrigin(): string {
@@ -78,7 +84,7 @@ export function useMarketplaceLocksConnect() {
   const applySession = useCallback((creator: string) => {
     window.localStorage.removeItem(LOCKS_CONNECT_STATE_STORAGE_KEY);
     pendingStateRef.current = null;
-    setConnectedCreator(stripPubkyPrefix(creator));
+    setConnectedCreator(normalizeLocksPubky(creator));
     setError(null);
     setConnectOpen(false);
     setConnectUrl(null);
@@ -90,6 +96,15 @@ export function useMarketplaceLocksConnect() {
       setError(null);
       try {
         const session = await CommerceController.createLocksFrontendSession(code, state, currentUserPubky ?? undefined);
+        if (!locksCreatorMatchesShopPubky(session.creator, currentUserPubky)) {
+          rejectMismatchedCreator();
+          pendingStateRef.current = null;
+          setConnectedCreator(null);
+          setError(LOCKS_CONNECT_IDENTITY_ERROR);
+          setConnectOpen(false);
+          setConnectUrl(null);
+          return;
+        }
         applySession(session.creator);
       } catch {
         setError(LOCKS_CONNECT_USER_ERROR);
@@ -121,7 +136,11 @@ export function useMarketplaceLocksConnect() {
       return;
     }
     const stored = CommerceController.restoreLocksFrontendSession(currentUserPubky);
-    if (!stored) {
+    if (!stored || !locksCreatorMatchesShopPubky(stored.creator, currentUserPubky)) {
+      if (stored) {
+        rejectMismatchedCreator();
+        setError(LOCKS_CONNECT_IDENTITY_ERROR);
+      }
       setConnectedCreator(null);
       return;
     }
@@ -129,11 +148,17 @@ export function useMarketplaceLocksConnect() {
     void CommerceController.getLocksCreatorAuthorityStatus(stored.token)
       .then((status) => {
         if (!active || generation !== restoreGenerationRef.current) return;
-        if (status.authorized) {
-          setConnectedCreator(stripPubkyPrefix(status.creator || stored.creator));
+        const creator = status.creator || stored.creator;
+        if (status.authorized && locksCreatorMatchesShopPubky(creator, currentUserPubky)) {
+          setConnectedCreator(normalizeLocksPubky(creator));
           return;
         }
-        CommerceController.clearLocksFrontendSession();
+        if (status.authorized) {
+          rejectMismatchedCreator();
+          setError(LOCKS_CONNECT_IDENTITY_ERROR);
+        } else {
+          CommerceController.clearLocksFrontendSession();
+        }
         setConnectedCreator(null);
       })
       .catch((error) => {
