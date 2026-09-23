@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect } from 'react';
-import { ArrowLeft, Bell, Eye, Gavel, HandCoins, MessageCircle } from 'lucide-react';
-import { APP_ROUTES, MARKETPLACE_ROUTES } from '@/app/routes';
+import { Bell, Eye, Gavel, HandCoins, MessageCircle } from 'lucide-react';
+import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
@@ -88,21 +88,13 @@ export function MarketplaceNotifications() {
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
         <MarketplaceSectionNav />
-        <Link
-          href={APP_ROUTES.MARKETPLACE}
-          overrideDefaults
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Marketplace
-        </Link>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
               Transaction history
             </Heading>
             <Typography as="p" className="mt-2 text-muted-foreground">
-              Durable events recorded by the transaction service: orders, payments, offers, bids.
+              Updates on your orders, payments, offers, and bids.
             </Typography>
           </div>
           {canMarkRead ? (
@@ -111,8 +103,7 @@ export function MarketplaceNotifications() {
             </Button>
           ) : (
             <Typography as="p" className="max-w-64 text-right text-xs text-muted-foreground">
-              The durable marketplace service delivers notifications but does not store read state or preferences yet,
-              so they cannot be marked read or filtered here.
+              Marking notifications as read and filtering them are not available yet.
             </Typography>
           )}
         </div>

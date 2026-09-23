@@ -4,8 +4,8 @@ import type React from 'react';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
-import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { cn } from '@/libs/utils/utils';
+import { EnvironmentLabel } from '@/molecules/EnvironmentLabel/EnvironmentLabel';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { Logo } from '../Logo/Logo';
 
@@ -63,9 +63,7 @@ export function MobileHeader({
 
         <div className="relative">
           <Logo />
-          {getDeployEnv() === 'staging' && (
-            <span className="absolute top-full left-7 text-xs tracking-wide text-muted-foreground">STAGING</span>
-          )}
+          <EnvironmentLabel />
         </div>
 
         {/* Right icon - always Activity; action depends on auth */}

@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   AlertTriangle,
-  ArrowLeft,
   Copy,
   Download,
   History,
@@ -18,12 +17,7 @@ import {
   Store,
   TrendingUp,
 } from 'lucide-react';
-import {
-  APP_ROUTES,
-  getMarketplaceListingEditRoute,
-  getMarketplaceListingRoute,
-  MARKETPLACE_ROUTES,
-} from '@/app/routes';
+import { getMarketplaceListingEditRoute, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -136,14 +130,6 @@ export function MarketplaceDashboard() {
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
         <MarketplaceSectionNav />
-        <Link
-          href={APP_ROUTES.MARKETPLACE}
-          overrideDefaults
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Marketplace
-        </Link>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Heading level={1} size="xl" className="text-4xl sm:text-6xl">

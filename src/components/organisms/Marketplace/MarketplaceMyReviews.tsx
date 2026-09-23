@@ -82,7 +82,7 @@ export function MarketplaceMyReviews({ className }: { className?: string }) {
                   <Badge
                     variant="outline"
                     className="text-amber-400"
-                    title="The public record has not reached your homeserver yet; publication retries when this page loads."
+                    title="Publication is pending. Reopening this page will retry."
                   >
                     Publication pending
                   </Badge>

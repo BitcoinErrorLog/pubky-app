@@ -254,7 +254,7 @@ describe('Marketplace public reviews — visual regression', () => {
       </main>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
-    await waitForText('No reviews yet.');
+    await waitForText('No reviews yet');
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('reviews-section-empty-desktop');
   });
 

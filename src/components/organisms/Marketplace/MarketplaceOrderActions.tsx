@@ -468,10 +468,10 @@ function MarketplaceStarRatingInput({ value, onChange }: { value: string; onChan
  */
 function reviewRecordStatus(record: CommerceReviewModelSchema | null): string {
   if (record === null) {
-    return 'Your review is saved with the marketplace service. The public publication status will appear when its durable record is available.';
+    return 'Your review is saved. Its publication status will appear shortly.';
   }
   if (record.sync_status === 'pending') {
-    return 'Your review is saved; publishing the public record to your homeserver is still pending and will retry.';
+    return 'Your review is saved. Publication is pending and will retry automatically.';
   }
   if (record.attestation_verified && record.attestation_iss !== null) {
     return `Verified purchase — your published review embeds a purchase attestation signed by attestor ${record.attestation_iss.slice(0, 8)}….`;

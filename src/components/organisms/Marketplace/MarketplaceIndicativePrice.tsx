@@ -18,7 +18,15 @@ import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketp
  * on, the price's asset has a rate source (USD or BTC), and the rate fetch
  * succeeded. No rate, no estimate — never an error state, never a fallback.
  */
-export function MarketplaceIndicativePrice({ money, className }: { money: CommerceMoney; className?: string }) {
+export function MarketplaceIndicativePrice({
+  money,
+  className,
+  showApproximation = true,
+}: {
+  money: CommerceMoney;
+  className?: string;
+  showApproximation?: boolean;
+}) {
   const showFxEstimate = useMarketplaceDisplayStore((state) => state.showFxEstimate);
   const isConvertible = money.currency === 'USD' || money.currency === 'BTC';
   const rate = useIndicativeBtcRate(showFxEstimate && isConvertible);
@@ -31,7 +39,7 @@ export function MarketplaceIndicativePrice({ money, className }: { money: Commer
     <Tooltip>
       <TooltipTrigger asChild>
         <Typography as="span" className={cn('cursor-help text-xs text-muted-foreground', className)}>
-          {label}
+          {showApproximation ? label : label.replace(/^≈\s*/, '')}
         </Typography>
       </TooltipTrigger>
       <TooltipContent>At current rate, indicative only</TooltipContent>
