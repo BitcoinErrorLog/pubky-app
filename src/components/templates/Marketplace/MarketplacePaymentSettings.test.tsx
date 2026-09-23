@@ -41,7 +41,6 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getMyPaymentConfig: vi.fn(),
     isOwnPaykitAccountClaimed: vi.fn(),
     putMyPaymentConfig: vi.fn(),
-    beginPaykitClaimFlow: vi.fn(),
     beginMarketplaceSessionConnect: vi.fn(),
     createLocksFrontendSession: vi.fn(),
   },
@@ -75,8 +74,6 @@ const EMPTY_CONFIG: SellerPaymentConfigOwnView = {
   updatedAt: '2026-08-22T12:00:00.000Z',
 };
 
-const PLAUSIBLE_XPUB = `zpub${'r'.repeat(107)}`;
-
 beforeEach(() => {
   vi.useRealTimers();
   mockedToast.mockReset();
@@ -105,11 +102,6 @@ beforeEach(() => {
     stripeRestrictedKeySet: Boolean('stripeRestrictedKey' in input && input.stripeRestrictedKey),
     updatedAt: '2026-08-22T12:30:00.000Z',
   }));
-  mockedController.beginPaykitClaimFlow.mockReset().mockReturnValue({
-    authorizationUrl: 'https://auth.example/claim',
-    awaitClaim: () => new Promise<{ creator: string; accountIndex: number }>(() => {}),
-    cancel: vi.fn(),
-  });
   // A marketplace session makes the stored-rail forms render; the page is the
   // seller's own settings, never a guest surface.
   useCommerceStore.setState({
@@ -245,7 +237,9 @@ describe('MarketplacePaymentSettings', () => {
 
     expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText(/watch-only BIP84 account claim/)).toBeInTheDocument();
-    expect(screen.getByText(/account xpub/)).toBeInTheDocument();
+    expect(screen.getByText(/Use Open Bitkit setup above/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Account xpub')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Claim with signer' })).not.toBeInTheDocument();
     expect(screen.getByText(/^Lock Server:/)).toBeInTheDocument();
   });
 
@@ -300,7 +294,7 @@ describe('MarketplacePaymentSettings', () => {
     );
   });
 
-  it('will not save Accept bitcoin when Step 1 names a different Lock Server creator', async () => {
+  it('preserves server bitcoin when Step 1 names a different Lock Server creator', async () => {
     const user = userEvent.setup();
     view.locksConnect = {
       connectedCreator: 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u',
@@ -322,7 +316,7 @@ describe('MarketplacePaymentSettings', () => {
 
     await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalled());
     expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
-      expect.objectContaining({ bitcoinEnabled: false }),
+      expect.objectContaining({ bitcoinEnabled: true }),
     );
   });
 
@@ -571,16 +565,104 @@ describe('MarketplacePaymentSettings', () => {
     removeSpy.mockRestore();
   });
 
-  it('starts the watch-only claim with the pasted xpub, payload unchanged', async () => {
+  it('keeps Save unavailable until the server payment config has loaded', async () => {
+    mockedController.getMyPaymentConfig.mockReturnValue(new Promise(() => {}));
+    render(<MarketplacePaymentSettings />);
+
+    expect(await screen.findAllByText('Loading payment settings…')).toHaveLength(3);
+    expect(document.querySelector('[data-surface="marketplace-get-paid"]')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save payment settings' })).not.toBeInTheDocument();
+  });
+
+  it('preserves server bitcoin when Accept bitcoin was not toggled', async () => {
+    const user = userEvent.setup();
+    mockedController.getMyPaymentConfig.mockResolvedValue({
+      ...EMPTY_CONFIG,
+      bitcoinEnabled: true,
+      paypalMerchantEmail: 'kept@example.com',
+      stripePaymentLink: 'https://buy.stripe.com/test_kept',
+    });
+
+    await renderSettings();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Save payment settings' })[2]).toBeEnabled());
+
+    const accept = screen.getByRole('switch', { name: 'Accept bitcoin' });
+    expect(accept).toBeDisabled();
+    expect(accept).not.toBeChecked();
+
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        bitcoinEnabled: true,
+        paypalMerchantEmail: 'kept@example.com',
+        stripePaymentLink: 'https://buy.stripe.com/test_kept',
+      }),
+    );
+  });
+
+  it('saves an explicit Accept bitcoin off after the seller toggles it', async () => {
+    const user = userEvent.setup();
+    view.locksConnect = {
+      connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      isExchanging: false,
+      error: null,
+      connectOpen: false,
+      connectUrl: null,
+    };
+    mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+
+    await renderSettings();
+
+    const accept = screen.getByRole('switch', { name: 'Accept bitcoin' });
+    await waitFor(() => expect(accept).toBeEnabled());
+    expect(accept).toBeChecked();
+    await user.click(accept);
+    expect(accept).not.toBeChecked();
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalled());
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ bitcoinEnabled: false }),
+    );
+  });
+
+  it('does not clear an untouched Stripe link when PayPal is saved', async () => {
+    const user = userEvent.setup();
+    mockedController.getMyPaymentConfig.mockResolvedValue({
+      ...EMPTY_CONFIG,
+      stripePaymentLink: 'https://buy.stripe.com/test_keep',
+    });
+
+    await renderSettings();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Save payment settings' })[0]).toBeEnabled());
+    expect(screen.getByLabelText('Stripe payment link')).toHaveValue('https://buy.stripe.com/test_keep');
+
+    await user.type(screen.getByLabelText('PayPal merchant email'), 'seller@example.com');
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[0]);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        paypalMerchantEmail: 'seller@example.com',
+        stripePaymentLink: 'https://buy.stripe.com/test_keep',
+        bitcoinEnabled: false,
+      }),
+    );
+  });
+
+  it('does not offer Claim with signer', async () => {
     const user = userEvent.setup();
     await renderSettings();
 
     await user.click(screen.getByRole('button', { name: 'Technical details' }));
-    await user.type(screen.getByLabelText('Account xpub'), PLAUSIBLE_XPUB);
-    await user.click(screen.getByRole('button', { name: 'Claim with signer' }));
 
-    expect(mockedController.beginPaykitClaimFlow).toHaveBeenCalledTimes(1);
-    expect(mockedController.beginPaykitClaimFlow.mock.calls).toMatchSnapshot();
+    expect(screen.queryByRole('button', { name: 'Claim with signer' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Account xpub')).not.toBeInTheDocument();
+    expect(screen.getByText(/Use Open Bitkit setup above/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Open Bitkit setup/ })).toBeInTheDocument();
   });
 
   it('shows a disabled return path into the listing composer until a method is configured', async () => {

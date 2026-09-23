@@ -8,6 +8,7 @@ export const CHECKOUT_HOLD_COPY = {
   listingReserved:
     'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
   heldForYouCta: 'Held for you · view your order',
+  heldForYouOfferCta: 'Held for you · continue checkout',
   heldWhileAnotherPays: 'Held while another buyer pays',
   expiredNoLateMoney: 'Payment window elapsed. The item is available again.',
   lateCompleteBuyer:
@@ -107,6 +108,35 @@ export function findViewerPendingHoldOrder(
     if (order.state !== 'pending_payment') continue;
     if (!order.lines.some((line) => line.listingAggregateId === listingAggregateId)) continue;
     return { orderId: order.id };
+  }
+  return null;
+}
+
+type ViewerAcceptedOffer = {
+  id: string;
+  state: string;
+  buyerPubky: string;
+  listingAggregateId: string;
+  award?: { state: string } | null;
+};
+
+/**
+ * Match a reserved listing to the viewer's accepted offer award.
+ * Compare `offer.buyerPubky` to `MarketplaceSessionService.getActiveSession().pubky`.
+ * A pending-payment order hold wins over this match.
+ */
+export function findViewerAcceptedOfferHold(
+  offers: readonly ViewerAcceptedOffer[],
+  listingAggregateId: string,
+  sessionPubky: string | null | undefined,
+): { offerId: string } | null {
+  if (!sessionPubky) return null;
+  for (const offer of offers) {
+    if (offer.buyerPubky !== sessionPubky) continue;
+    if (offer.state !== 'accepted') continue;
+    if (offer.listingAggregateId !== listingAggregateId) continue;
+    if (offer.award?.state !== 'active') continue;
+    return { offerId: offer.id };
   }
   return null;
 }

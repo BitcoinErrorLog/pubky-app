@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
@@ -8,7 +8,6 @@ import {
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
 import {
-  isPlausibleAccountXpub,
   isStripePaymentLink,
   isStripeRestrictedKey,
   type SellerPaymentConfigOwnView,
@@ -17,15 +16,10 @@ import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
-type ClaimStatus = 'idle' | 'awaiting' | 'claimed' | 'error';
-
-type ClaimFlow = ReturnType<typeof CommerceController.beginPaykitClaimFlow>;
-
 /**
  * The seller's "Get paid" configuration: stored rails (loaded from the
- * durable service), the save action, and the manual watch-only claim flow.
- * Claim state (`accountClaimed`) is read from paykit-server, so it reflects
- * the Bitkit-driven setup and the manual claim alike.
+ * durable service) and the save action. Watch-only registration is the
+ * Bitkit setup grant; `accountClaimed` is read from paykit-server.
  */
 export function useMarketplaceSellerPaymentConfig() {
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
@@ -35,10 +29,6 @@ export function useMarketplaceSellerPaymentConfig() {
   const [accountClaimed, setAccountClaimed] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [claimStatus, setClaimStatus] = useState<ClaimStatus>('idle');
-  const [claimAuthorizationUrl, setClaimAuthorizationUrl] = useState('');
-  const [claimError, setClaimError] = useState<string | null>(null);
-  const activeClaimRef = useRef<ClaimFlow | null>(null);
   const load = useCallback(async (): Promise<boolean | null> => {
     setIsLoading(true);
     setLoadError(null);
@@ -158,72 +148,6 @@ export function useMarketplaceSellerPaymentConfig() {
     }
   }, [config]);
 
-  const cancelClaim = useCallback(() => {
-    const flow = activeClaimRef.current;
-    activeClaimRef.current = null;
-    if (flow) flow.cancel();
-    setClaimStatus('idle');
-    setClaimAuthorizationUrl('');
-    setClaimError(null);
-  }, []);
-
-  const startClaim = useCallback((accountXpub: string) => {
-    const trimmed = accountXpub.trim();
-    if (!isPlausibleAccountXpub(trimmed)) {
-      setClaimError(MARKETPLACE_FAILURE_MESSAGES.watchOnlyClaimInvalid);
-      setClaimStatus('error');
-      return;
-    }
-    const previous = activeClaimRef.current;
-    activeClaimRef.current = null;
-    if (previous) previous.cancel();
-    setClaimError(null);
-
-    let flow: ClaimFlow;
-    try {
-      flow = CommerceController.beginPaykitClaimFlow(trimmed);
-    } catch (error) {
-      Logger.error('Failed to start the watch-only claim flow', { error });
-      setClaimError(
-        marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.watchOnlyClaimStart),
-      );
-      setClaimStatus('error');
-      return;
-    }
-    activeClaimRef.current = flow;
-    setClaimAuthorizationUrl(flow.authorizationUrl);
-    setClaimStatus('awaiting');
-
-    flow
-      .awaitClaim()
-      .then(() => {
-        if (activeClaimRef.current !== flow) return;
-        activeClaimRef.current = null;
-        setClaimAuthorizationUrl('');
-        setClaimStatus('claimed');
-        setAccountClaimed(true);
-        toast({ title: 'Watch-only account claimed', description: 'Bitcoin payment requests now use this account.' });
-      })
-      .catch((error: unknown) => {
-        if (activeClaimRef.current !== flow) return;
-        activeClaimRef.current = null;
-        Logger.error('Watch-only claim failed', { error });
-        setClaimAuthorizationUrl('');
-        setClaimError(
-          marketplaceFailureMessage(marketplaceErrorCode(error), MARKETPLACE_FAILURE_MESSAGES.watchOnlyClaimComplete),
-        );
-        setClaimStatus('error');
-      });
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      const flow = activeClaimRef.current;
-      activeClaimRef.current = null;
-      if (flow) flow.cancel();
-    };
-  }, []);
-
   return {
     isLoading,
     isSaving,
@@ -232,11 +156,6 @@ export function useMarketplaceSellerPaymentConfig() {
     loadError,
     save,
     clearStripeKey,
-    claimStatus,
-    claimAuthorizationUrl,
-    claimError,
-    startClaim,
-    cancelClaim,
     refresh: load,
   };
 }

@@ -5,14 +5,12 @@ import {
   Bitcoin,
   CheckCircle2,
   ChevronDown,
-  Copy,
   CreditCard,
   ExternalLink,
   HandCoins,
   Loader2,
   LoaderCircle,
   RefreshCw,
-  Smartphone,
   Trash2,
 } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
@@ -28,9 +26,6 @@ import { getLocksUrl } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceSellerPaymentConfig } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
 import { type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
-import { Logger } from '@/libs/logger/logger';
-import { copyToClipboard } from '@/libs/utils/utils';
-import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
 import { locksCreatorMatchesShopPubky } from '@/services/locks/locks-frontend-session';
@@ -157,12 +152,13 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   const [paykitSetupCreator, setPaykitSetupCreator] = useState<string | null>(null);
   const [paykitSetupStatus, setPaykitSetupStatus] = useState<PaykitSetupStatus>('idle');
 
-  const [bitcoinEnabled, setBitcoinEnabled] = useState(false);
-  const [stripePaymentLink, setStripePaymentLink] = useState('');
   const [stripeRestrictedKey, setStripeRestrictedKey] = useState('');
-  const [paypalMerchantEmail, setPaypalMerchantEmail] = useState('');
-  const [xpubInput, setXpubInput] = useState('');
-  const [claimDialogOpen, setClaimDialogOpen] = useState(false);
+  const [railDraft, setRailDraft] = useState<{
+    bitcoin: boolean | null;
+    paypal: string | null;
+    stripe: string | null;
+  }>({ bitcoin: null, paypal: null, stripe: null });
+  const [draftBaseline, setDraftBaseline] = useState<string | null>(null);
 
   function closePaykitSetup() {
     paykitSetupGenerationRef.current = null;
@@ -173,16 +169,14 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
     setPaykitSetupStatus('idle');
   }
 
-  useEffect(() => {
-    if (!payments.config) return;
-    setBitcoinEnabled(payments.config.bitcoinEnabled);
-    setStripePaymentLink(payments.config.stripePaymentLink ?? '');
-    setPaypalMerchantEmail(payments.config.paypalMerchantEmail ?? '');
-  }, [payments.config]);
-
-  useEffect(() => {
-    if (payments.claimStatus === 'claimed') setClaimDialogOpen(false);
-  }, [payments.claimStatus]);
+  const serverConfig = payments.config;
+  const serverBaseline = serverConfig
+    ? `${serverConfig.updatedAt}\0${serverConfig.bitcoinEnabled}\0${serverConfig.paypalMerchantEmail ?? ''}\0${serverConfig.stripePaymentLink ?? ''}`
+    : null;
+  if (serverBaseline !== draftBaseline) {
+    setDraftBaseline(serverBaseline);
+    setRailDraft({ bitcoin: null, paypal: null, stripe: null });
+  }
 
   useEffect(() => {
     if (!paykitSetupOpen || !paykitSetupUrl || !paykitSetupState) return;
@@ -244,11 +238,12 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   };
 
   const onSave = async () => {
+    if (!serverConfig || payments.isLoading || serverBaseline !== draftBaseline) return;
     const saved = await payments.save({
-      bitcoinEnabled: bitcoinStatus === 'connected' && bitcoinEnabled,
-      stripePaymentLink,
+      bitcoinEnabled: railDraft.bitcoin ?? serverConfig.bitcoinEnabled,
+      stripePaymentLink: railDraft.stripe ?? serverConfig.stripePaymentLink ?? '',
       stripeRestrictedKey,
-      paypalMerchantEmail,
+      paypalMerchantEmail: railDraft.paypal ?? serverConfig.paypalMerchantEmail ?? '',
     });
     if (saved) {
       setStripeRestrictedKey('');
@@ -256,28 +251,13 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
     }
   };
 
-  const onStartClaim = () => {
-    setClaimDialogOpen(true);
-    payments.startClaim(xpubInput);
-  };
-
-  const onCloseClaimDialog = (open: boolean) => {
-    setClaimDialogOpen(open);
-    if (!open) payments.cancelClaim();
-  };
-
-  const copyClaimUrl = async () => {
-    try {
-      await copyToClipboard({ text: payments.claimAuthorizationUrl });
-      toast({ variant: 'info', title: 'Authorization link copied' });
-    } catch (error) {
-      Logger.error('Failed to copy the claim authorization link', { error });
-      toast({ variant: 'error', description: 'Could not copy to clipboard' });
-    }
-  };
+  const saveReady =
+    Boolean(serverConfig) && !payments.isLoading && !payments.loadError && serverBaseline === draftBaseline;
+  const paypalValue = railDraft.paypal ?? serverConfig?.paypalMerchantEmail ?? '';
+  const stripeValue = railDraft.stripe ?? serverConfig?.stripePaymentLink ?? '';
 
   const saveButton = (
-    <Button className="w-fit rounded-full" disabled={payments.isSaving} onClick={() => void onSave()}>
+    <Button className="w-fit rounded-full" disabled={payments.isSaving || !saveReady} onClick={() => void onSave()}>
       {payments.isSaving ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : null}
       Save payment settings
     </Button>
@@ -290,8 +270,10 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
     accountPubky: currentUserPubky,
     accountClaimed: payments.accountClaimed,
     locksError,
-    claimError: payments.claimError,
+    claimError: null,
   });
+  const serverBitcoin = serverConfig?.bitcoinEnabled ?? false;
+  const bitcoinValue = railDraft.bitcoin ?? serverBitcoin;
   const readyCount = countReadyPaymentMethods([paypalStatus, stripeStatus, bitcoinStatus]);
   const step1Connected = locksCreatorMatchesShopPubky(connectedCreator, currentUserPubky);
   const step1NeedsPrimary = !step1Connected && bitcoinStatus === 'needs_attention';
@@ -328,7 +310,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   };
 
   return (
-    <section aria-label="Payment methods" className="flex flex-col gap-6">
+    <section aria-label="Payment methods" className="flex flex-col gap-6" data-surface="marketplace-get-paid">
       <Typography as="p" className="text-muted-foreground" data-testid="payment-methods-ready-summary">
         {atLeastOneMethodSentence(readyCount)}
       </Typography>
@@ -353,8 +335,8 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               <Input
                 id="get-paid-paypal"
                 type="email"
-                value={paypalMerchantEmail}
-                onChange={(event) => setPaypalMerchantEmail(event.target.value)}
+                value={paypalValue}
+                onChange={(event) => setRailDraft((draft) => ({ ...draft, paypal: event.target.value }))}
                 placeholder="you@example.com"
                 autoComplete="off"
                 className="h-10 max-w-md"
@@ -388,8 +370,8 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               </div>
               <Input
                 id="get-paid-stripe-link"
-                value={stripePaymentLink}
-                onChange={(event) => setStripePaymentLink(event.target.value)}
+                value={stripeValue}
+                onChange={(event) => setRailDraft((draft) => ({ ...draft, stripe: event.target.value }))}
                 placeholder="https://buy.stripe.com/…"
                 autoComplete="off"
                 className="h-10 max-w-md"
@@ -515,10 +497,10 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               </div>
               <Switch
                 id="get-paid-bitcoin"
-                checked={bitcoinStatus === 'connected' && bitcoinEnabled}
+                checked={bitcoinStatus === 'connected' && bitcoinValue}
                 onCheckedChange={(enabled) => {
                   if (bitcoinStatus !== 'connected') return;
-                  setBitcoinEnabled(enabled);
+                  setRailDraft((draft) => ({ ...draft, bitcoin: enabled }));
                 }}
                 disabled={bitcoinStatus !== 'connected'}
                 aria-label="Accept bitcoin"
@@ -546,37 +528,11 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
                   Lock Server: {getLocksUrl()}
                 </Typography>
                 {payments.accountClaimed !== true && (
-                  <div className="grid gap-2">
-                    <Typography as="p" className="text-sm text-muted-foreground">
-                      {payments.accountClaimed === null
-                        ? 'The Paykit server could not report your account state right now; claiming again is safe.'
-                        : 'No watch-only account is claimed yet. Connect through Bitkit above, or paste your BIP84 account xpub — the same registration, without the wallet app. The xpub is watch-only: it can derive receiving addresses, never spend.'}
-                    </Typography>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Input
-                        value={xpubInput}
-                        onChange={(event) => setXpubInput(event.target.value)}
-                        placeholder="Account xpub (zpub/vpub/xpub/tpub…)"
-                        autoComplete="off"
-                        spellCheck={false}
-                        className="h-10 max-w-md font-mono text-xs"
-                        aria-label="Account xpub"
-                      />
-                      <Button
-                        variant="secondary"
-                        className="rounded-full"
-                        disabled={!xpubInput.trim()}
-                        onClick={onStartClaim}
-                      >
-                        Claim with signer
-                      </Button>
-                    </div>
-                    {payments.claimStatus === 'error' && payments.claimError && (
-                      <Typography as="p" role="alert" className="text-sm text-amber-300">
-                        {payments.claimError}
-                      </Typography>
-                    )}
-                  </div>
+                  <Typography as="p" className="text-sm text-muted-foreground">
+                    {payments.accountClaimed === null
+                      ? 'The Paykit server could not report your account state right now.'
+                      : 'No watch-only account is claimed yet. Use Open Bitkit setup above. Spending keys stay in Bitkit.'}
+                  </Typography>
                 )}
               </CollapsibleContent>
             </Collapsible>
@@ -676,81 +632,6 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
           )}
           <DialogFooter>
             <Button variant="secondary" className="rounded-full" onClick={closePaykitSetup}>
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={claimDialogOpen} onOpenChange={onCloseClaimDialog}>
-        <DialogContent className="border-border bg-popover">
-          <DialogHeader>
-            <DialogTitle>Claim watch-only account</DialogTitle>
-          </DialogHeader>
-          <Typography as="p" className="text-sm text-muted-foreground">
-            Approving on your signer registers the pasted account xpub with the Paykit server — exactly what
-            Bitkit&rsquo;s setup does. The approval is scoped to the Paykit receiver path and grants nothing else.
-          </Typography>
-          {payments.claimStatus === 'error' ? (
-            <div className="grid gap-3">
-              <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
-                {payments.claimError}
-              </div>
-              <Button className="w-fit rounded-full" onClick={onStartClaim}>
-                <RefreshCw className="mr-2 size-4" />
-                Try again
-              </Button>
-            </div>
-          ) : (
-            <div className="grid justify-items-center gap-4">
-              <button
-                type="button"
-                className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
-                onClick={() => void copyClaimUrl()}
-                disabled={!payments.claimAuthorizationUrl}
-                aria-label="Copy authorization link"
-              >
-                <QrCodeSlot
-                  isLoading={payments.claimStatus !== 'awaiting'}
-                  isExpired={false}
-                  url={payments.claimAuthorizationUrl}
-                  generatingLabel="Generating QR Code..."
-                  clickToReloadLabel="Click to reload"
-                  activeQrHasHoverEffect
-                />
-              </button>
-              {payments.claimStatus === 'awaiting' && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                  <Loader2 className="size-4 animate-spin" />
-                  Waiting for approval on your signer…
-                </div>
-              )}
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button
-                  variant="secondary"
-                  className="rounded-full"
-                  onClick={() => {
-                    window.location.href = payments.claimAuthorizationUrl;
-                  }}
-                  disabled={!payments.claimAuthorizationUrl}
-                >
-                  <Smartphone className="mr-2 size-4" />
-                  Open in Pubky Ring
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="rounded-full"
-                  onClick={() => void copyClaimUrl()}
-                  disabled={!payments.claimAuthorizationUrl}
-                >
-                  <Copy className="mr-2 size-4" />
-                  Copy link
-                </Button>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="secondary" className="rounded-full" onClick={() => onCloseClaimDialog(false)}>
               Cancel
             </Button>
           </DialogFooter>

@@ -985,15 +985,6 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.confirmFiatReceived(actorPubky, orderId);
   }
 
-  /**
-   * Manual watch-only account claim against paykit-server — the same
-   * registration Bitkit performs, driven by a pasted xpub plus a
-   * claim-scoped signer approval. The identity secret never enters the app.
-   */
-  static beginPaykitClaimFlow(accountXpub: string) {
-    return MarketplacePaykitClaimService.beginClaimFlow(accountXpub);
-  }
-
   static async isPaykitAccountClaimed(pubky: string) {
     return await MarketplacePaykitClaimService.isAccountClaimed(pubky);
   }
