@@ -46,7 +46,10 @@ export function useMarketplaceOrdersAttention(): number {
       return;
     }
     let active = true;
-    CommerceController.getMarketplaceOrders()
+    // A stubbed controller (tests) throws before a promise exists. That is a
+    // failed load: the badge stays at zero.
+    Promise.resolve()
+      .then(() => CommerceController.getMarketplaceOrders())
       .then((orders) => {
         if (!active) return;
         setCount(countOrdersNeedingAttention(orders, currentUserPubky, seenAt));

@@ -161,6 +161,30 @@ describe('useMarketplaceActivityUnread', () => {
     await waitFor(() => expect(result.current).toBe(1));
   });
 
+  it('contributes zero when the local watch query throws', async () => {
+    vi.mocked(CommerceController.getWatchAlerts).mockImplementation(() => {
+      throw new TypeError('CommerceController.getWatchAlerts is not a function');
+    });
+
+    const { result } = renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(CommerceController.getWatchAlerts).toHaveBeenCalled());
+    expect(result.current).toBe(0);
+    expect(CommerceController.getMarketplaceNotifications).not.toHaveBeenCalled();
+  });
+
+  it('contributes zero when the notification fetch throws before a promise', async () => {
+    vi.mocked(CommerceController.getActivityReadCheckpoint).mockResolvedValue(0);
+    vi.mocked(CommerceController.getMarketplaceNotifications).mockImplementation(() => {
+      throw new TypeError('CommerceController.getMarketplaceNotifications is not a function');
+    });
+
+    const { result } = renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(CommerceController.getMarketplaceNotifications).toHaveBeenCalled());
+    expect(result.current).toBe(0);
+  });
+
   it('returns zero without fetching when signed out', async () => {
     state.currentUserPubky = null;
 

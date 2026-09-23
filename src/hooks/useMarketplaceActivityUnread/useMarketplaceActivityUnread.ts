@@ -41,14 +41,22 @@ export function useMarketplaceActivityUnread(): number {
 
   const local = useLiveQuery(async () => {
     if (!currentUserPubky) return { unseenAlertCount: 0, checkpoint: 0 };
-    const [alerts, checkpoint] = await Promise.all([
-      CommerceController.getWatchAlerts(),
-      CommerceController.getActivityReadCheckpoint(),
-    ]);
-    return {
-      unseenAlertCount: alerts.filter(({ seen_at }) => seen_at === null).length,
-      checkpoint,
-    };
+    try {
+      const [alerts, checkpoint] = await Promise.all([
+        CommerceController.getWatchAlerts(),
+        CommerceController.getActivityReadCheckpoint(),
+      ]);
+      return {
+        unseenAlertCount: alerts.filter(({ seen_at }) => seen_at === null).length,
+        checkpoint,
+      };
+    } catch (error) {
+      // A stubbed controller throws before a promise exists. Leaving the
+      // checkpoint unset keeps the service count at zero instead of treating
+      // every row as new.
+      Logger.warn('Failed to load the marketplace activity badge count', { error });
+      return { unseenAlertCount: 0, checkpoint: undefined };
+    }
   }, [currentUserPubky]);
 
   const checkpoint = local?.checkpoint;
@@ -59,7 +67,10 @@ export function useMarketplaceActivityUnread(): number {
       return;
     }
     let active = true;
-    CommerceController.getMarketplaceNotifications()
+    // A stubbed controller throws before a promise exists. That is a failed
+    // load: the badge stays at zero.
+    Promise.resolve()
+      .then(() => CommerceController.getMarketplaceNotifications())
       .then((notifications) => {
         if (!active) return;
         setNotificationCount(
