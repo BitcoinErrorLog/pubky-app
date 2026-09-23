@@ -12,8 +12,10 @@ concurrency:
 # Path filter is the `paths` job, not `on.pull_request.paths`.
 # A workflow skipped by a trigger path filter leaves the required check
 # `vrt-marketplace` Pending. A job skipped by `if` reports Success.
-# Patterns: src/**, src/test/vrt/**, src/test-utils/vrt.tsx,
-# src/test/mocks/**, **/*.css, postcss.config.mjs, package-lock.json,
+# An unrelated pull request sets run=false and skips the job on purpose.
+# A failed or cancelled path filter must not skip it: the job runs and exits 1.
+# Patterns: src/**, public/** (rendered assets such as /images/*),
+# **/*.css, postcss.config.mjs, package-lock.json, vitest.config.ts,
 # plus this workflow and the VRT scripts it runs.
 jobs:
   paths:
@@ -38,7 +40,7 @@ jobs:
           while IFS= read -r file; do
             [ -n "$file" ] || continue
             case "$file" in
-              src/*|*.css|postcss.config.mjs|package-lock.json|vitest.config.ts|.github/workflows/vrt-marketplace.yml|scripts/ci-vrt-marketplace.sh|scripts/vrt-linux.sh|scripts/vrt-related.mjs|scripts/vrt-revert-outside.sh)
+              src/*|public/*|*.css|postcss.config.mjs|package-lock.json|vitest.config.ts|.github/workflows/vrt-marketplace.yml|scripts/ci-vrt-marketplace.sh|scripts/vrt-linux.sh|scripts/vrt-related.mjs|scripts/vrt-revert-outside.sh)
                 run=true
                 break
                 ;;
@@ -50,7 +52,7 @@ jobs:
   vrt-marketplace:
     name: vrt-marketplace
     needs: paths
-    if: needs.paths.outputs.run == 'true'
+    if: always() && (needs.paths.result != 'success' || needs.paths.outputs.run == 'true')
     runs-on: ubuntu-latest
     # Same image as local Linux proof (`package-lock.json` playwright 1.60.0).
     container:
@@ -63,6 +65,12 @@ jobs:
     timeout-minutes: 25
 
     steps:
+      - name: Fail closed when the path filter did not succeed
+        if: needs.paths.result != 'success'
+        run: |
+          echo "Path filter result is ${{ needs.paths.result }}. vrt-marketplace fails closed."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v4
 

@@ -20,6 +20,8 @@ concurrency:
 # Path filter is the `paths` job, not `on.pull_request.paths`.
 # A workflow skipped by a trigger path filter leaves the required check
 # `Check NextJS Build` Pending. A job skipped by `if` reports Success.
+# An unrelated pull request sets run=false and skips the build on purpose.
+# A failed or cancelled path filter must not skip it: the job runs and exits 1.
 # Push, merge_group, and workflow_dispatch always build.
 jobs:
   paths:
@@ -62,7 +64,7 @@ jobs:
   build:
     name: Check NextJS Build
     needs: paths
-    if: needs.paths.outputs.run == 'true'
+    if: always() && (needs.paths.result != 'success' || needs.paths.outputs.run == 'true')
     runs-on: ubuntu-latest
     # Last-10 median was 47 min because paykit-wasm-smoke held the event loop
     # after "passed". Post-fix remainder is install (~40s) + next build (~3 min)
@@ -70,6 +72,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Fail closed when the path filter did not succeed
+        if: needs.paths.result != 'success'
+        run: |
+          echo "Path filter result is ${{ needs.paths.result }}. Check NextJS Build fails closed."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v4
 
