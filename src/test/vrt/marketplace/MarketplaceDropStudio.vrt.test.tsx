@@ -9,7 +9,7 @@ import { DropStudioHome } from '@/organisms/Marketplace/DropStudioHome';
 const view = vi.hoisted(() => ({
   filled: false,
   catalog: 'loaded' as 'loaded' | 'unavailable',
-  projection: 'loaded' as 'loaded' | 'session-unavailable',
+  projection: 'loaded' as 'loaded' | 'session-unavailable' | 'unavailable',
   publishStatus: { record: 'idle', sync: 'idle' } as { record: string; sync: string },
   publishErrors: [] as string[],
   publishedDropId: null as string | null,
@@ -75,6 +75,21 @@ vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: createMarketplaceVrtAuthStore({ currentUserPubky: 'y'.repeat(52), selectSession: () => null }),
 }));
 
+vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
+  useMarketplaceSessionConnect: () => ({
+    status: 'idle',
+    authorizationUrl: '',
+    errorMessage: null,
+    requestsFullGrant: false,
+    requestsGrantReconnect: false,
+    start: vi.fn(),
+    cancel: vi.fn(),
+    copyAuthUrl: vi.fn(async () => {}),
+    openInRing: vi.fn(),
+    isOpeningRing: false,
+  }),
+}));
+
 vi.mock('@/hooks/useOwnDrops/useOwnDrops', () => ({
   useOwnDrops: () => ({
     isLoading: false,
@@ -92,7 +107,9 @@ vi.mock('@/hooks/useOwnDrops/useOwnDrops', () => ({
         projection:
           view.projection === 'loaded'
             ? { status: 'loaded', drop: { dropId: 'drop-live', state: 'live', revision: 3 } }
-            : { status: 'session-unavailable' },
+            : view.projection === 'session-unavailable'
+              ? { status: 'session-unavailable' }
+              : { status: 'unavailable' },
       },
       {
         dropId: 'drop-unregistered',
@@ -261,13 +278,62 @@ describe('Marketplace Drop Studio — visual regression', () => {
     view.filled = false;
     view.catalog = 'loaded';
     view.projection = 'session-unavailable';
+    view.publishStatus = { record: 'idle', sync: 'idle' };
+    view.publishErrors = [];
+    view.publishedDropId = null;
 
     installStableDatetimePlaceholderStyle();
     const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
-    await expect(screen.getByText('Approve purchases in Pubky Ring')).toBeVisible();
-    Array.from(screen.container.querySelectorAll('h2'))
-      .find((element) => element.textContent === 'Approve purchases in Pubky Ring')
-      ?.scrollIntoView({ block: 'start' });
+    await expect.element(screen.getByText('Connect a marketplace session to read drop status.')).toBeVisible();
+    await expect.element(screen.getByRole('link', { name: 'New drop' })).toBeVisible();
+    expect(screen.container.textContent).not.toContain('Status unavailable');
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-session-unavailable-desktop');
+  });
+
+  it('keeps New drop above the fold when a marketplace session is required at mobile viewport', async () => {
+    view.filled = false;
+    view.catalog = 'loaded';
+    view.projection = 'session-unavailable';
+    view.publishStatus = { record: 'idle', sync: 'idle' };
+    view.publishErrors = [];
+    view.publishedDropId = null;
+
+    installStableDatetimePlaceholderStyle();
+    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect.element(screen.getByRole('link', { name: 'New drop' })).toBeVisible();
+    await expect.element(screen.getByText('Connect a marketplace session to read drop status.')).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-session-unavailable-mobile');
+  });
+
+  it('renders a single transient-status row with Retry and New drop above the fold', async () => {
+    view.filled = false;
+    view.catalog = 'loaded';
+    view.projection = 'unavailable';
+    view.publishStatus = { record: 'idle', sync: 'idle' };
+    view.publishErrors = [];
+    view.publishedDropId = null;
+
+    installStableDatetimePlaceholderStyle();
+    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect.element(screen.getByText("Could not read this drop's status.")).toBeVisible();
+    await expect.element(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect.element(screen.getByRole('link', { name: 'New drop' })).toBeVisible();
+    expect(screen.container.textContent).not.toContain('Status unavailable');
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-status-unavailable-desktop');
+  });
+
+  it('keeps New drop above the fold when drop status is unavailable at mobile viewport', async () => {
+    view.filled = false;
+    view.catalog = 'loaded';
+    view.projection = 'unavailable';
+    view.publishStatus = { record: 'idle', sync: 'idle' };
+    view.publishErrors = [];
+    view.publishedDropId = null;
+
+    installStableDatetimePlaceholderStyle();
+    const screen = await renderForVRT(<DropStudioHome />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect.element(screen.getByRole('link', { name: 'New drop' })).toBeVisible();
+    await expect.element(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('drop-studio-status-unavailable-mobile');
   });
 });

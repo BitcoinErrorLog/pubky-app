@@ -626,6 +626,7 @@ export class MarketplaceTransactionService {
   static async getDrop(actor: string, aggregateId: string): Promise<MarketplaceSellerDrop | null> {
     const raw = await this.readProjection('getDrop', actor, `/v1/drops/${encodeURIComponent(aggregateId)}`, {
       nullOnNotFound: true,
+      noStore: true,
     });
     if (raw === null) return null;
     return this.parseProjection(

@@ -42,6 +42,7 @@
     "test:marketplace:watchlist": "vitest run --config vitest.watchlist.staging.config.ts",
     "test:marketplace:reviews": "vitest run --config vitest.reviews.config.ts",
     "test:marketplace:drops": "vitest run --config vitest.drops.config.ts",
+    "test:marketplace:drop-status": "vitest run --config vitest.drop-status-studio.config.ts",
     "test:marketplace:inventory": "vitest run --config vitest.inventory.config.ts",
     "vrt:gallery": "node scripts/vrt-gallery.mjs",
     "test:marketplace:dm": "vitest run --config vitest.dm.config.ts"
