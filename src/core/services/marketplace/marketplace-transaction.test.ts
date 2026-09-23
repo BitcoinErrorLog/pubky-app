@@ -7,6 +7,7 @@ import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/
 import { Logger } from '@/libs/logger/logger';
 import { scrubSensitiveData } from '@/libs/observability/sentry.utils';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
+import sellerDropCapture from '@/test/fixtures/commerce/live/seller-drop-v0621.json';
 import { LIVE_ORDERS_WIRE_FIXTURE } from '@/test/fixtures/commerce/orders.wire';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH, marketplaceNotificationSchema } from './marketplace-projections';
@@ -1804,6 +1805,66 @@ describe('MarketplaceTransactionService.getHealth (the pickup_available capabili
       expect.objectContaining({ endpoint: 'http://127.0.0.1:8080/health' }),
     );
     expect(JSON.stringify(loggerError.mock.calls[0])).not.toContain('responseText');
+    loggerError.mockRestore();
+  });
+});
+
+describe('MarketplaceTransactionService.getDrop (the seller drop projection)', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  const restoreRedactedIdentities = (value: unknown): unknown => {
+    if (typeof value === 'string') return value.replaceAll('…', 'z'.repeat(44));
+    if (Array.isArray(value)) return value.map(restoreRedactedIdentities);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, restoreRedactedIdentities(entry)]));
+    }
+    return value;
+  };
+
+  function liveSellerDropBody() {
+    return restoreRedactedIdentities(sellerDropCapture.response.body) as { drop: Record<string, unknown> };
+  }
+
+  it('parses the pinned live seller drop, reading the exact count from remaining_quantity', async () => {
+    await establishSession();
+    const body = liveSellerDropBody();
+    const aggregateId = String(body.drop.aggregate_id);
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(sellerDropCapture.response.status, body));
+
+    const drop = await MarketplaceTransactionService.getDrop(ACTOR, aggregateId);
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/drops/${encodeURIComponent(aggregateId)}`);
+    expect(init.cache).toBe('no-store');
+    expect(drop).toMatchObject({
+      aggregateId,
+      state: 'live',
+      stockDisplay: 'exact',
+      totalQuantity: 1,
+      perBuyerLimit: 1,
+      remaining: 1,
+      paidQuantity: 0,
+      buyerCount: 0,
+      listingIds: ['461aabf9c07e42bbbd0e212dc85e4cd8'],
+      revision: 5,
+      serverTime: '2026-09-23T09:17:09.589Z',
+    });
+  });
+
+  it('fails closed when the seller read carries no exact count', async () => {
+    const loggerError = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    await establishSession();
+    const body = liveSellerDropBody();
+    delete body.drop.remaining_quantity;
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, body));
+
+    await expect(MarketplaceTransactionService.getDrop(ACTOR, String(body.drop.aggregate_id))).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+      message: 'Marketplace returned an invalid drop projection.',
+    });
     loggerError.mockRestore();
   });
 });
