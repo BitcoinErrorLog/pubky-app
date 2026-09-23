@@ -111,6 +111,8 @@ if [ "${#changed[@]}" -gt 0 ]; then
   done < <(node scripts/vrt-related.mjs "${changed[@]}")
 fi
 
+# Linux baselines from the pinned container are the only VRT gate.
+# *-darwin.png files are not compared and are not regenerated.
 if [ "${#vrt_specs[@]}" -gt 0 ]; then
   echo "prepush: linux vrt (${#vrt_specs[@]} specs)"
   printf '  %s\n' "${vrt_specs[@]}"

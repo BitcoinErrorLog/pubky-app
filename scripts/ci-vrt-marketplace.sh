@@ -4,7 +4,7 @@
 # Compares against committed *-linux.png baselines. Missing linux baselines
 # are recorded and uploaded as an artifact, then the job FAILS — commit the
 # recorded *-linux.png from the artifact. Pixel mismatch against an existing
-# linux baseline also fails. *-darwin.png files are never written or updated.
+# linux baseline also fails. Darwin PNGs are not part of this gate.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,8 +15,6 @@ REPORT_DIR="${VRT_REPORT_DIR:-${ROOT}/.vrt-marketplace-ci}"
 REPORT_JSON="${REPORT_DIR}/report.json"
 NEW_LINUX_DIR="${REPORT_DIR}/new-linux-baselines"
 mkdir -p "$REPORT_DIR" "$NEW_LINUX_DIR"
-
-git checkout -- 'src/test/vrt/**/*-darwin.png' 2>/dev/null || true
 
 run_vrt() {
   local extra=()
@@ -139,7 +137,6 @@ echo "$CLASS_OUT"
 echo "Vitest exit=${VRT_EXIT} classify=${CLASS_EXIT}"
 
 restore_committed_pngs() {
-  git checkout -- 'src/test/vrt/**/*-darwin.png' 2>/dev/null || true
   git diff --name-only -- 'src/test/vrt/**/*-linux.png' | while IFS= read -r file; do
     [ -n "$file" ] || continue
     git checkout -- "$file"
@@ -158,7 +155,7 @@ stage_new_linux() {
 }
 
 record_missing_linux() {
-  echo "Recording missing Linux baselines for the artifact (no darwin writes; committed linux restored)."
+  echo "Recording missing Linux baselines for the artifact. Committed Linux files are restored after the record pass."
   set +e
   run_vrt update
   set -e
