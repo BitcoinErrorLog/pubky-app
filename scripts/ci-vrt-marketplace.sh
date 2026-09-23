@@ -189,3 +189,4 @@ fi
 echo "Marketplace VRT failed on a non-screenshot error."
 restore_committed_pngs
 exit 1
+
