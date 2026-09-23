@@ -9,9 +9,48 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Path filter is the `paths` job, not `on.pull_request.paths`.
+# A workflow skipped by a trigger path filter leaves the required check
+# `vrt-marketplace` Pending. A job skipped by `if` reports Success.
+# Patterns: src/**, src/test/vrt/**, src/test-utils/vrt.tsx,
+# src/test/mocks/**, **/*.css, postcss.config.mjs, package-lock.json,
+# plus this workflow and the VRT scripts it runs.
 jobs:
+  paths:
+    name: Path filter
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Match VRT paths
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git diff --name-only "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed.txt"
+          run=false
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            case "$file" in
+              src/*|*.css|postcss.config.mjs|package-lock.json|vitest.config.ts|.github/workflows/vrt-marketplace.yml|scripts/ci-vrt-marketplace.sh|scripts/vrt-linux.sh|scripts/vrt-related.mjs|scripts/vrt-revert-outside.sh)
+                run=true
+                break
+                ;;
+            esac
+          done < "$RUNNER_TEMP/changed.txt"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "vrt paths match: $run"
+
   vrt-marketplace:
     name: vrt-marketplace
+    needs: paths
+    if: needs.paths.outputs.run == 'true'
     runs-on: ubuntu-latest
     # Same image as local Linux proof (`package-lock.json` playwright 1.60.0).
     container:
