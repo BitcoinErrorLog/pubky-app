@@ -741,7 +741,7 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
     const { result } = renderHook(() => useMarketplaceCheckout([itemWithFulfillment(['pickup'])], clear));
 
     await waitFor(() => {
-      expect(result.current.isPickupCapabilityLoading).toBe(false);
+      expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false);
       expect(result.current.requiresDeliveryAddress).toBe(false);
     });
     expect(result.current.fulfillmentForSeller(listing.ownerPubky)).toBe('pickup');
@@ -767,7 +767,7 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
     const clear = vi.fn(async () => {});
     const { result } = renderHook(() => useMarketplaceCheckout([shippingItem, bothWaysItem], clear));
 
-    await waitFor(() => expect(result.current.isPickupCapabilityLoading).toBe(false));
+    await waitFor(() => expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false));
 
     // The buyer collects from the both-ways seller; the other seller ships.
     act(() => {
@@ -839,7 +839,7 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
       ),
     );
 
-    expect(result.current.isPickupCapabilityLoading).toBe(true);
+    expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(true);
     expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual(['shipping']);
     expect(result.current.fulfillmentForSeller(listing.ownerPubky)).toBe('shipping');
 
@@ -847,9 +847,36 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
       release(true);
     });
     await waitFor(() => {
-      expect(result.current.isPickupCapabilityLoading).toBe(false);
+      expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false);
     });
     expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual(['shipping', 'pickup']);
+  });
+
+  it('never reports pickup capability as loading for a group whose lines only ship', async () => {
+    let release: (value: boolean) => void = () => {};
+    vi.mocked(CommerceController.fetchPickupAvailable).mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [itemWithFulfillment(['physical'], OTHER_SELLER), itemWithFulfillment(['physical', 'shipping', 'pickup'])],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    expect(result.current.isPickupCapabilityLoadingForSeller(OTHER_SELLER)).toBe(false);
+    expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(true);
+    expect(result.current.fulfillmentOptionsForSeller(OTHER_SELLER)).toEqual(['shipping']);
+
+    await act(async () => {
+      release(false);
+    });
+    await waitFor(() => {
+      expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false);
+    });
+    expect(result.current.isPickupCapabilityLoadingForSeller(OTHER_SELLER)).toBe(false);
   });
 
   it('maps server and thrown sentinel failures to static copy', async () => {
