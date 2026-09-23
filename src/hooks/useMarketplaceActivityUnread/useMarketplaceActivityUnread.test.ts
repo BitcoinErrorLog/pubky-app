@@ -93,6 +93,19 @@ describe('useMarketplaceActivityUnread', () => {
     await waitFor(() => expect(result.current).toBe(2));
   });
 
+  it('does not badge informational rows such as a confirmed payment', async () => {
+    vi.mocked(CommerceController.getActivityReadCheckpoint).mockResolvedValue(0);
+    vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
+      notification('offer', '2026-08-20T01:00:00.000Z'),
+      { ...notification('paid', '2026-08-21T09:30:00.000Z'), type: 'payment_confirmed' as const },
+    ]);
+
+    const { result } = renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(CommerceController.getMarketplaceNotifications).toHaveBeenCalled());
+    await waitFor(() => expect(result.current).toBe(1));
+  });
+
   it('adds unseen watch alerts on top of the checkpoint count', async () => {
     vi.mocked(CommerceController.getActivityReadCheckpoint).mockResolvedValue(Date.parse('2026-08-20T00:00:00.000Z'));
     vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([

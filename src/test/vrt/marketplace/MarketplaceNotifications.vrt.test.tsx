@@ -43,6 +43,15 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/marketplace/notifications',
 }));
 
+vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
+  useMarketplaceOrders: () => ({
+    orders: [],
+    isLoading: false,
+    error: null,
+    needsSession: false,
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceNotifications/useMarketplaceNotifications', () => ({
   useMarketplaceNotifications: () => ({
     notifications: view.notifications,

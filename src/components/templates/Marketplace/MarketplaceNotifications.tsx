@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { Bell, Eye, Gavel, HandCoins, MessageCircle } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
@@ -13,9 +13,11 @@ import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceNotifications } from '@/hooks/useMarketplaceNotifications/useMarketplaceNotifications';
+import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
+import { activityRowHref, returnActivityTitles } from '@/libs/commerce/activity-links';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -52,6 +54,22 @@ export function MarketplaceNotifications() {
     (notification) => 'kind' in notification && isIntegrityGapActivityType(notification.type),
   ).length;
   const watchAlerts = useMarketplaceWatchAlertFeed();
+  const { orders, isLoading: ordersLoading } = useMarketplaceOrders();
+  const returnTitles = returnActivityTitles(
+    notifications.flatMap((notification) =>
+      'kind' in notification || notification.type !== 'return_updated'
+        ? []
+        : [
+            {
+              id: notification.id,
+              aggregateId: notification.aggregateId,
+              createdAt: notification.createdAt,
+            },
+          ],
+    ),
+    new Map(orders.map(({ order }) => [order.id, order.returnRequest?.reason ?? null])),
+    !ordersLoading,
+  );
   // Opening the commerce activity page also runs the bounded watchlist check.
   useMarketplaceWatchDetection();
 
@@ -191,7 +209,15 @@ export function MarketplaceNotifications() {
                   createdAt={notification.createdAt}
                 />
               ) : (
-                <NotificationCard key={notification.id} notification={notification} />
+                <NotificationCard
+                  key={notification.id}
+                  notification={notification}
+                  title={
+                    notification.type === 'return_updated'
+                      ? (returnTitles.get(notification.id) ?? 'Return updated')
+                      : undefined
+                  }
+                />
               ),
             )}
           </div>
@@ -227,29 +253,31 @@ function KnownOrGapActivityRow({ type, createdAt }: { type: string; createdAt: s
       </Card>
     );
   }
+  const href = activityRowHref(type as MarketplaceNotification['type'], null);
   return (
-    <Card className="border py-4">
-      <CardContent className="flex items-center gap-4 px-4">
-        <div className="rounded-full bg-brand/15 p-3 text-brand">
-          <HandCoins className="size-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <Typography as="p" className="font-semibold">
-            {label}
-          </Typography>
-        </div>
-        <time dateTime={createdAt} className="text-xs text-muted-foreground">
-          {new Date(createdAt).toLocaleDateString('en-US')}
-        </time>
-      </CardContent>
-    </Card>
+    <ActivityRowLink href={href} label={label}>
+      <Card className="border py-4">
+        <CardContent className="flex items-center gap-4 px-4">
+          <div className="rounded-full bg-brand/15 p-3 text-brand">
+            <HandCoins className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Typography as="p" className="font-semibold">
+              {label}
+            </Typography>
+          </div>
+          <time dateTime={createdAt} className="text-xs text-muted-foreground">
+            {new Date(createdAt).toLocaleDateString('en-US')}
+          </time>
+        </CardContent>
+      </Card>
+    </ActivityRowLink>
   );
 }
 
-function NotificationCard({ notification }: { notification: MarketplaceNotification }) {
-  const offerId = notification.aggregateId.startsWith('offer:')
-    ? notification.aggregateId.slice('offer:'.length)
-    : null;
+function NotificationCard({ notification, title }: { notification: MarketplaceNotification; title?: string }) {
+  const label = title ?? notificationLabel(notification.type);
+  const href = activityRowHref(notification.type, notification.aggregateId);
   const content = (
     <Card className="border py-4">
       <CardContent className="flex items-center gap-4 px-4">
@@ -258,7 +286,7 @@ function NotificationCard({ notification }: { notification: MarketplaceNotificat
         </div>
         <div className="min-w-0 flex-1">
           <Typography as="p" className="font-semibold">
-            {notificationLabel(notification.type)}
+            {label}
             {/* §8-permitted monetary context (offer amount, auction
                             visible price), formatted per BIP-177 for bitcoin. */}
             {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
@@ -273,17 +301,23 @@ function NotificationCard({ notification }: { notification: MarketplaceNotificat
       </CardContent>
     </Card>
   );
-  return notification.type === 'offer_received' && offerId ? (
-    <Link
-      href={`${MARKETPLACE_ROUTES.OFFERS}#offer-${offerId}`}
-      overrideDefaults
-      className="block rounded-xl hover:ring-1 hover:ring-brand/40"
-      aria-label="Open new offer"
-    >
+  return (
+    <ActivityRowLink href={href} label={label}>
       {content}
+    </ActivityRowLink>
+  );
+}
+
+function ActivityRowLink({ href, label, children }: { href: string; label: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      overrideDefaults
+      aria-label={label}
+      className="block rounded-xl outline-none hover:ring-1 hover:ring-brand/40 focus-visible:ring-2 focus-visible:ring-brand"
+    >
+      {children}
     </Link>
-  ) : (
-    content
   );
 }
 

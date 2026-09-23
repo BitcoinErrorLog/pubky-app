@@ -291,6 +291,21 @@ describe('MarketplaceOrderActions refund reference labels', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Record external refund' }));
     expect(screen.getByLabelText(label)).toBeInTheDocument();
   });
+
+  it('tells a PayPal seller to refund in PayPal before recording the return', () => {
+    const order = createOrderFixture('return_received', { paymentMethod: 'paypal' });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Record external refund' })).toBeInTheDocument();
+    expect(screen.getByTestId('paypal-refund-hint')).toHaveTextContent('Refund in PayPal, then record it here');
+  });
 });
 
 describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
@@ -334,6 +349,23 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     );
     return { order, actOnOrder, onChanged };
   }
+
+  it('hints that Mark return received is for a pickup the buyer brought back', () => {
+    const order = createOrderFixture('return_approved', { fulfillment: 'pickup' });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Mark return received' })).toBeInTheDocument();
+    expect(screen.getByTestId('mark-return-received-hint')).toHaveTextContent(
+      'Press when the buyer has brought it back',
+    );
+  });
 
   it('offers the seller Mark ready for pickup and Confirm handover from paid — and no shipping actions', () => {
     renderPickupActions({ state: 'paid', isBuyer: false });

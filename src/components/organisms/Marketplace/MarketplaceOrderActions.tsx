@@ -278,6 +278,19 @@ export function MarketplaceOrderActions({
           </Button>
         )}
       </div>
+      {!isBuyer && order.state === 'return_approved' && order.fulfillment === 'pickup' && (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="mark-return-received-hint">
+          Press when the buyer has brought it back
+        </p>
+      )}
+      {!isBuyer &&
+        order.paymentMethod === 'paypal' &&
+        ['return_received', 'cancelled'].includes(order.state) &&
+        !order.externalRefund && (
+          <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-refund-hint">
+            Refund in PayPal, then record it here
+          </p>
+        )}
 
       {ownReview && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="own-review-status">
