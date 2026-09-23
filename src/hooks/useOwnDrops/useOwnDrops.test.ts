@@ -26,6 +26,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     fetchDrop: vi.fn(),
     getOwnDrop: vi.fn(),
     listOwnDropIds: vi.fn(async () => []),
+    restorePersistedMarketplaceSession: vi.fn(() => null),
   },
 }));
 
@@ -197,5 +198,63 @@ describe('useOwnDrops', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.rows[0]).toMatchObject({ projection: { status: 'unregistered' } });
+  });
+
+  it('treats a 401 protected read as session-unavailable, not Draft or a dead status', async () => {
+    rememberOwnDrop(SELLER, 'drop1');
+    vi.mocked(CommerceController.fetchDrop).mockResolvedValue({
+      dropId: 'drop1',
+      startsAt: '2026-08-01T10:00:00.000Z',
+    } as never);
+    vi.mocked(CommerceController.getOwnDrop).mockRejectedValue(
+      new AppError({
+        category: ErrorCategory.Auth,
+        code: AuthErrorCode.UNAUTHORIZED,
+        message: 'unauthorized',
+        service: ErrorService.Marketplace,
+        operation: 'getDrop',
+        context: { statusCode: 401 },
+      }),
+    );
+
+    const { result } = renderHook(() => useOwnDrops());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(CommerceController.restorePersistedMarketplaceSession).toHaveBeenCalledWith(SELLER);
+    expect(result.current.rows[0]).toMatchObject({ projection: { status: 'session-unavailable' } });
+    expect(result.current.rows[0].projection).not.toMatchObject({ status: 'unregistered' });
+    expect(result.current.rows[0].projection).not.toMatchObject({ status: 'unavailable' });
+  });
+
+  it('Retry restores the persisted session and re-reads drop status', async () => {
+    rememberOwnDrop(SELLER, 'drop1');
+    vi.mocked(CommerceController.fetchDrop).mockResolvedValue({
+      dropId: 'drop1',
+      startsAt: '2026-08-01T10:00:00.000Z',
+    } as never);
+    vi.mocked(CommerceController.getOwnDrop)
+      .mockRejectedValueOnce(
+        new AppError({
+          category: ErrorCategory.Server,
+          code: ServerErrorCode.INTERNAL_ERROR,
+          message: 'service failed',
+          service: ErrorService.Marketplace,
+          operation: 'getDrop',
+        }),
+      )
+      .mockResolvedValueOnce({ dropId: 'drop1', state: 'live', revision: 2 } as never);
+
+    const { result } = renderHook(() => useOwnDrops());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.rows[0]).toMatchObject({ projection: { status: 'unavailable' } });
+
+    await result.current.refresh();
+    await waitFor(() => expect(result.current.rows[0].projection.status).toBe('loaded'));
+
+    expect(CommerceController.restorePersistedMarketplaceSession).toHaveBeenCalledTimes(2);
+    expect(CommerceController.getOwnDrop).toHaveBeenCalledTimes(2);
+    expect(result.current.rows[0]).toMatchObject({
+      projection: { status: 'loaded', drop: expect.objectContaining({ state: 'live' }) },
+    });
   });
 });

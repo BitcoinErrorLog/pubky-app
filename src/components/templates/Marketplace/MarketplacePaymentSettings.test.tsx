@@ -13,6 +13,8 @@ const view = vi.hoisted(() => ({
     connectedCreator: null as string | null,
     isExchanging: false,
     error: null as string | null,
+    connectOpen: false,
+    connectUrl: null as string | null,
   },
 }));
 const navigation = vi.hoisted(() => ({
@@ -52,7 +54,9 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
 vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', () => ({
   useMarketplaceLocksConnect: () => ({
     ...view.locksConnect,
+    setConnectIframe: vi.fn(),
     openConnect: vi.fn(),
+    closeConnect: vi.fn(),
   }),
 }));
 
@@ -79,7 +83,13 @@ beforeEach(() => {
   sessionStorage.clear();
   navigation.push.mockReset();
   navigation.searchParams = new URLSearchParams();
-  view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+  view.locksConnect = {
+    connectedCreator: null,
+    isExchanging: false,
+    error: null,
+    connectOpen: false,
+    connectUrl: null,
+  };
   mockedController.getSellerPaymentConfig.mockReset().mockResolvedValue({
     bitcoinAvailable: false,
     bitcoinOfferAvailable: true,
@@ -176,6 +186,8 @@ describe('MarketplacePaymentSettings', () => {
       connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
       isExchanging: false,
       error: null,
+      connectOpen: false,
+      connectUrl: null,
     };
     mockedController.getMyPaymentConfig.mockResolvedValue({
       ...EMPTY_CONFIG,
@@ -207,7 +219,13 @@ describe('MarketplacePaymentSettings', () => {
   });
 
   it('needs attention when the Lock Server connect errored', async () => {
-    view.locksConnect = { connectedCreator: null, isExchanging: false, error: 'connect rejected' };
+    view.locksConnect = {
+      connectedCreator: null,
+      isExchanging: false,
+      error: 'connect rejected',
+      connectOpen: false,
+      connectUrl: null,
+    };
 
     await renderSettings();
 
@@ -231,6 +249,18 @@ describe('MarketplacePaymentSettings', () => {
     expect(screen.getByText(/^Lock Server:/)).toBeInTheDocument();
   });
 
+  it('keeps Accept bitcoin off and disabled until both bitcoin steps are Connected', async () => {
+    mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+
+    await renderSettings();
+
+    const accept = screen.getByRole('switch', { name: 'Accept bitcoin' });
+    expect(accept).toBeDisabled();
+    expect(accept).not.toBeChecked();
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
+  });
+
   it('saves the Stripe and PayPal rails with the unchanged payload shape', async () => {
     const user = userEvent.setup();
     await renderSettings();
@@ -238,12 +268,84 @@ describe('MarketplacePaymentSettings', () => {
     await user.type(screen.getByLabelText('PayPal merchant email'), 'seller@example.com');
     await user.type(screen.getByLabelText('Stripe payment link'), 'https://buy.stripe.com/test_abc');
     await user.type(screen.getByLabelText('Stripe restricted key'), 'rk_test_12345678');
-    await user.click(screen.getByRole('switch', { name: 'Accept bitcoin' }));
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin' })).toBeDisabled();
 
     await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[0]);
 
     await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
     expect(mockedController.putMyPaymentConfig.mock.calls).toMatchSnapshot();
+  });
+
+  it('saves Accept bitcoin only after both bitcoin steps are Connected', async () => {
+    const user = userEvent.setup();
+    view.locksConnect = {
+      connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      isExchanging: false,
+      error: null,
+      connectOpen: false,
+      connectUrl: null,
+    };
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+
+    await renderSettings();
+
+    const accept = screen.getByRole('switch', { name: 'Accept bitcoin' });
+    expect(accept).toBeEnabled();
+    await user.click(accept);
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalled());
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ bitcoinEnabled: true }),
+    );
+  });
+
+  it('will not save Accept bitcoin when Step 1 names a different Lock Server creator', async () => {
+    const user = userEvent.setup();
+    view.locksConnect = {
+      connectedCreator: 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u',
+      isExchanging: false,
+      error: null,
+      connectOpen: false,
+      connectUrl: null,
+    };
+    mockedController.getMyPaymentConfig.mockResolvedValue({ ...EMPTY_CONFIG, bitcoinEnabled: true });
+    mockedController.isOwnPaykitAccountClaimed.mockResolvedValue(true);
+
+    await renderSettings();
+
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin' })).toBeDisabled();
+    expect(screen.queryByText(/Creator authority connected/)).not.toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalled());
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ bitcoinEnabled: false }),
+    );
+  });
+
+  it('renders the Lock Server connect dialog instead of a raw error page', async () => {
+    view.locksConnect = {
+      connectedCreator: null,
+      isExchanging: false,
+      error: 'This Lock Server connection did not finish. Approve it again from this page.',
+      connectOpen: true,
+      connectUrl: 'https://locks.example.com/connect?delivery=postmessage&state=abc',
+    };
+
+    await renderSettings();
+
+    expect(screen.getByTitle('Connect Lock Server')).toBeInTheDocument();
+    expect(screen.getByTitle('Connect Lock Server')).toHaveAttribute(
+      'src',
+      'https://locks.example.com/connect?delivery=postmessage&state=abc',
+    );
+    expect(
+      screen.getAllByRole('alert').some((el) => el.textContent?.includes('Approve it again from this page.')),
+    ).toBe(true);
+    expect(screen.queryByText(/creator_connect_flow_unavailable/)).not.toBeInTheDocument();
   });
 
   it('refuses to send a non-Stripe checkout link to the service', async () => {

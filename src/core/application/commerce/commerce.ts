@@ -114,6 +114,7 @@ import {
   type MarketplaceTagKind,
 } from '@/services/local/tag/marketplace/tag.marketplace';
 import { LocksGatewayService } from '@/services/locks/locks';
+import { locksCreatorMatchesShopPubky, LocksFrontendSessionStore } from '@/services/locks/locks-frontend-session';
 import {
   MarketplaceGatewayService,
   type MarketplaceOrder,
@@ -833,9 +834,11 @@ export class CommerceApplication {
    * The published-receipt memo backs the user-visible `published` status, so
    * it is cleared here too — session teardown matches the store reset, and a
    * later account re-reads its receipts instead of trusting a prior session.
+   * The Lock Server creator frontend session is wiped here for the same reason.
    */
   static clearMarketplaceSession(): void {
     MarketplaceSessionService.clearSession('cleared');
+    LocksFrontendSessionStore.clear();
     this.publishedReceiptUrls.clear();
     this.ownReviewHomeserverMisses.clear();
   }
@@ -1164,12 +1167,35 @@ export class CommerceApplication {
   }
 
   /**
-   * Exchanges a Lock Server legacy-connect completion (`code`/`state` on the
-   * return URL) for a creator frontend session — the seller-setup "connected"
-   * proof. The bearer token stays with the caller, in memory.
+   * Exchanges a Lock Server legacy-connect completion (`code`/`state`) for a
+   * creator frontend session — the seller-setup "connected" proof. When
+   * `accountPubky` is the signed-in Shop identity the bearer is persisted so
+   * Step 1 survives reload; sign-out still wipes it via {@link clearMarketplaceSession}.
    */
-  static async createLocksFrontendSession(code: string, state: string) {
-    return await LocksGatewayService.createFrontendSession(code, state);
+  static async createLocksFrontendSession(code: string, state: string, accountPubky?: string) {
+    const session = await LocksGatewayService.createFrontendSession(code, state);
+    if (!accountPubky || !locksCreatorMatchesShopPubky(session.creator, accountPubky)) {
+      LocksFrontendSessionStore.clear();
+      return session;
+    }
+    LocksFrontendSessionStore.save({
+      token: session.session_token,
+      creator: session.creator,
+      pubky: accountPubky,
+    });
+    return session;
+  }
+
+  static async getLocksCreatorAuthorityStatus(sessionToken: string) {
+    return await LocksGatewayService.getCreatorAuthorityStatus(sessionToken);
+  }
+
+  static restoreLocksFrontendSession(accountPubky: string) {
+    return LocksFrontendSessionStore.restore(accountPubky);
+  }
+
+  static clearLocksFrontendSession(): void {
+    LocksFrontendSessionStore.clear();
   }
 
   static async lookupLocksVerification(creatorPubky: string, bundleId: string) {

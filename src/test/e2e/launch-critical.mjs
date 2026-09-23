@@ -535,6 +535,16 @@ async function main() {
     await expectVisible(page, page.getByText(fixture.listingTitle, { exact: false }), 'catalog:fixture-title');
     await runAxe(page, 'catalog');
 
+    await gotoAndSettle(page, '/marketplace/drops');
+    const dropsHeading = page.getByRole('heading', { level: 1, name: 'Drops' });
+    const dropsVisible = await expectVisible(page, dropsHeading, 'drops:heading');
+    const dropsPath = new URL(page.url()).pathname;
+    assert(
+      'drops:guest-stays',
+      dropsVisible && dropsPath === '/marketplace/drops',
+      dropsPath === '/marketplace/drops' ? 'guest drops index' : page.url(),
+    );
+
     await gotoAndSettle(page, listingPath);
     const onListing = /\/marketplace\/listing\//.test(page.url());
     record('listing:open', onListing, onListing ? page.url() : `expected ${listingPath}, got ${page.url()}`);

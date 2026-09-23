@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { readOwnDropIndex } from '@/hooks/useDropStudio/drop-index';
@@ -31,6 +31,40 @@ export interface UseOwnDropsResult {
   refresh: () => Promise<void>;
 }
 
+export type OwnDropReadFailure = Exclude<OwnDropProjection['status'], 'loaded'>;
+
+export function classifyOwnDropReadError(error: unknown): OwnDropReadFailure {
+  if (isMarketplaceSessionRequiredError(error) || hasHttpStatus(error, 401)) return 'session-unavailable';
+  if (hasHttpStatus(error, 404)) return 'unregistered';
+  return 'unavailable';
+}
+
+async function loadOwnDropRows(currentUserPubky: string, isDurable: boolean): Promise<OwnDropRow[]> {
+  // Same restore as Seller Studio publish: a still-valid persisted bearer
+  // must be in memory before the protected drop-status read, or the
+  // transport throws SESSION_EXPIRED and the row never reaches the service.
+  CommerceController.restorePersistedMarketplaceSession(currentUserPubky);
+  const listed = await CommerceController.listOwnDropIds().catch(() => [] as string[]);
+  const remembered = readOwnDropIndex(currentUserPubky);
+  const dropIds = [...new Set([...listed, ...remembered])];
+  const loaded = await Promise.all(
+    dropIds.map(async (dropId): Promise<OwnDropRow> => {
+      const record = await CommerceController.fetchDrop(currentUserPubky, dropId).catch(() => null);
+      if (!isDurable) return { dropId, record, projection: { status: 'unavailable' } };
+      try {
+        const drop = await CommerceController.getOwnDrop(dropId);
+        return drop
+          ? { dropId, record, projection: { status: 'loaded', drop } }
+          : { dropId, record, projection: { status: 'unregistered' } };
+      } catch (error) {
+        return { dropId, record, projection: { status: classifyOwnDropReadError(error) } };
+      }
+    }),
+  );
+  loaded.sort((a, b) => Date.parse(b.record?.startsAt ?? '') - Date.parse(a.record?.startsAt ?? ''));
+  return loaded;
+}
+
 /**
  * The seller's drops for the drops home, enumerated from the homeserver's
  * drops directory (`CommerceController.listOwnDropIds` — authoritative,
@@ -47,46 +81,36 @@ export function useOwnDrops(): UseOwnDropsResult {
   const isDurable = isDurableCommerceMode(getCommerceAdapterMode());
   const [rows, setRows] = useState<OwnDropRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [refreshVersion, setRefreshVersion] = useState(0);
+  const requestIdRef = useRef(0);
 
-  useEffect(() => {
-    let active = true;
-    if (!currentUserPubky) {
-      setRows([]);
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    void (async () => {
-      const listed = await CommerceController.listOwnDropIds().catch(() => [] as string[]);
-      const remembered = readOwnDropIndex(currentUserPubky);
-      const dropIds = [...new Set([...listed, ...remembered])];
-      const loaded = await Promise.all(
-        dropIds.map(async (dropId): Promise<OwnDropRow> => {
-          const record = await CommerceController.fetchDrop(currentUserPubky, dropId).catch(() => null);
-          if (!isDurable) return { dropId, record, projection: { status: 'unavailable' } };
-          try {
-            const drop = await CommerceController.getOwnDrop(dropId);
-            return drop
-              ? { dropId, record, projection: { status: 'loaded', drop } }
-              : { dropId, record, projection: { status: 'unregistered' } };
-          } catch (error) {
-            if (isMarketplaceSessionRequiredError(error))
-              return { dropId, record, projection: { status: 'session-unavailable' } };
-            if (hasHttpStatus(error, 404)) return { dropId, record, projection: { status: 'unregistered' } };
-            return { dropId, record, projection: { status: 'unavailable' } };
-          }
-        }),
-      );
-      loaded.sort((a, b) => Date.parse(b.record?.startsAt ?? '') - Date.parse(a.record?.startsAt ?? ''));
-      if (!active) return;
+  const runLoad = useCallback(
+    async (mode: 'initial' | 'refresh') => {
+      if (!currentUserPubky) {
+        setRows([]);
+        setIsLoading(false);
+        return;
+      }
+      const requestId = ++requestIdRef.current;
+      if (mode === 'initial') setIsLoading(true);
+      const loaded = await loadOwnDropRows(currentUserPubky, isDurable);
+      if (requestId !== requestIdRef.current) return;
       setRows(loaded);
       setIsLoading(false);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [currentUserPubky, isDurable, refreshVersion]);
+    },
+    [currentUserPubky, isDurable],
+  );
 
-  return { rows, isLoading, isDurable, refresh: async () => setRefreshVersion((previous) => previous + 1) };
+  useEffect(() => {
+    void runLoad('initial');
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [runLoad]);
+
+  return {
+    rows,
+    isLoading,
+    isDurable,
+    refresh: () => runLoad('refresh'),
+  };
 }

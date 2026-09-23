@@ -61,15 +61,21 @@ const frontendSessionSchema = z.object({
   creator: z.string().min(1),
 });
 
+const creatorAuthorityStatusSchema = z.object({
+  creator: z.string().min(1),
+  authorized: z.boolean(),
+});
+
 export type LocksVerificationLifecycle = z.infer<typeof lifecycleSchema>;
 export type LocksAccessCredential = z.infer<typeof accessCredentialSchema>;
 
 /**
  * A Lock Server creator frontend session, exchanged from the one-time `code`
- * the hosted legacy-connect flow appends to `return_to`. The token is creator
- * bearer material — callers keep it in memory only.
+ * the hosted legacy-connect flow posts back. The token is creator bearer
+ * material — persist only through `LocksFrontendSessionStore`, never log it.
  */
 export type LocksFrontendSession = z.infer<typeof frontendSessionSchema>;
+export type LocksCreatorAuthorityStatus = z.infer<typeof creatorAuthorityStatusSchema>;
 
 let sdkModulePromise: Promise<LocksSdkModule> | null = null;
 
@@ -242,6 +248,46 @@ export class LocksGatewayService {
       });
     }
     return parsed.data;
+  }
+
+  /**
+   * Revalidates a persisted creator frontend session. The token is bearer
+   * material — callers must not log it, and parse failure must not excerpt
+   * the response body.
+   */
+  static async getCreatorAuthorityStatus(sessionToken: string): Promise<LocksCreatorAuthorityStatus> {
+    const url = `${getLocksUrl()}/creator/authority-status`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { authorization: `Bearer ${sessionToken}` } },
+      ErrorService.Locks,
+      'getCreatorAuthorityStatus',
+    );
+    if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'getCreatorAuthorityStatus', url);
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Locks, 'getCreatorAuthorityStatus', url);
+    const parsed = creatorAuthorityStatusSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Locks returned an invalid authority-status response.', {
+        service: ErrorService.Locks,
+        operation: 'getCreatorAuthorityStatus',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Hosted legacy-connect URL for the seller Bitcoin Step 1 iframe.
+   * `delivery=postmessage` starts the Lock Server poller immediately and posts
+   * `{ type: "locks-auth-callback", state, code }` to this origin instead of
+   * navigating the seller onto a Lock Server JSON error page.
+   */
+  static buildLegacyConnectUrl(returnTo: string, state: string): string {
+    const url = new URL('/connect', getLocksUrl());
+    url.searchParams.set('return_to', returnTo);
+    url.searchParams.set('state', state);
+    url.searchParams.set('delivery', 'postmessage');
+    return url.toString();
   }
 
   static buildPaykitSetupUrl(returnTo: string, state: string, creator: string): string {

@@ -216,6 +216,59 @@ describe('LocksGatewayService', () => {
     loggerError.mockRestore();
   });
 
+  it('revalidates a creator frontend session without excerpting the bearer', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        creator: `pubky${CREATOR}`,
+        authorized: true,
+        auth_kind: 'legacy-cookie',
+        granted_scopes: ['/pub/locks.app/:rw'],
+        session_expires_at: null,
+      }),
+    );
+
+    await expect(LocksGatewayService.getCreatorAuthorityStatus('session-token')).resolves.toEqual({
+      creator: `pubky${CREATOR}`,
+      authorized: true,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://locks.example.com/creator/authority-status',
+      expect.objectContaining({
+        method: 'GET',
+        headers: { authorization: 'Bearer session-token' },
+      }),
+    );
+  });
+
+  it('does not put a truncated authority-status body into error context', async () => {
+    const sentinel = 'locks-authority-status-sentinel';
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(`{"creator":"${sentinel}","authorized":tru`, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const error = (await LocksGatewayService.getCreatorAuthorityStatus('session-token').catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(JSON.stringify(error.context)).not.toContain(sentinel);
+    expect(error.context).not.toHaveProperty('responseText');
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(sentinel);
+    loggerError.mockRestore();
+  });
+
+  it('builds the legacy connect URL with postmessage delivery', () => {
+    expect(
+      LocksGatewayService.buildLegacyConnectUrl('https://shop.pubky.app/marketplace/settings', 'opaque-state'),
+    ).toBe(
+      'https://locks.example.com/connect?return_to=https%3A%2F%2Fshop.pubky.app%2Fmarketplace%2Fsettings&state=opaque-state&delivery=postmessage',
+    );
+  });
+
   it('builds exact-origin Paykit setup callbacks', () => {
     expect(
       LocksGatewayService.buildPaykitSetupUrl(
