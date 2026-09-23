@@ -189,7 +189,7 @@ describe('marketplacePaymentMethodFailureMessage', () => {
       context: { statusCode: 503, reason: 'paykit_unavailable' },
     });
     expect(marketplacePaymentMethodFailureMessage(seller, 'fallback')).toBe(
-      'This seller has not configured a Stripe key.',
+      'This seller has not finished payment setup.',
     );
     expect(marketplacePaymentMethodFailureMessage(unavailable, 'fallback')).toBe(
       'The Paykit server is unavailable. Try again shortly.',

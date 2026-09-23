@@ -76,16 +76,15 @@ export function useMarketplaceSellerPaymentConfig() {
       const stripeRestrictedKey = input.stripeRestrictedKey.trim();
       if (stripePaymentLink && !isStripePaymentLink(stripePaymentLink)) {
         toast({
-          title: 'Invalid Stripe payment link',
-          description: 'Paste the https://buy.stripe.com/… link from your Stripe dashboard.',
+          title: 'Payment settings were not saved',
+          description: 'The stored payment link could not be kept.',
         });
         return false;
       }
       if (stripeRestrictedKey && !isStripeRestrictedKey(stripeRestrictedKey)) {
         toast({
-          title: 'Invalid Stripe key',
-          description:
-            'Paste a restricted key (rk_…) with read access to Checkout Sessions. Secret keys (sk_…) are refused and should never leave your Stripe account.',
+          title: 'Payment settings were not saved',
+          description: 'The payment key is not a restricted key.',
         });
         return false;
       }
@@ -130,12 +129,12 @@ export function useMarketplaceSellerPaymentConfig() {
         paypalMerchantEmail: config.paypalMerchantEmail,
       });
       setConfig(saved);
-      toast({ title: 'Stripe key removed' });
+      toast({ title: 'Payment key removed' });
       return true;
     } catch (error) {
       Logger.error('Failed to remove the Stripe key', { error });
       toast({
-        title: 'Removing the Stripe key failed',
+        title: 'Removing the payment key failed',
         description: marketplaceFailureMessage(
           marketplaceErrorCode(error),
           MARKETPLACE_FAILURE_MESSAGES.stripeKeyRemoval,

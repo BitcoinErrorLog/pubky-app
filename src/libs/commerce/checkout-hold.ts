@@ -20,9 +20,9 @@ export const CHECKOUT_HOLD_COPY = {
     'Return the observed bitcoin to the buyer. This marketplace cannot reverse Bitcoin. Message the buyer for a return address, send the transaction, then record it as an external refund.',
   refundRequiredPaypalSeller:
     'Refund this PayPal payment from your PayPal account. This marketplace cannot refund PayPal. Then record the refund.',
-  refundRequiredStripeSeller: 'Refund this Stripe payment from your Stripe Dashboard. Then record the refund.',
-  stripeRefundSubmitted: 'Refund submitted to Stripe.',
-  stripeRefundRefused: 'Stripe refused the refund (this key cannot refund). Refund from the Stripe Dashboard.',
+  refundRequiredStripeSeller: 'Refund this card payment from the account that received it. Then record the refund.',
+  stripeRefundSubmitted: 'Refund submitted.',
+  stripeRefundRefused: 'The refund was refused. Refund it from the account that received the payment.',
 } as const;
 
 export function formatHoldDeadline(holdExpiresAt: string | null | undefined): string | null {

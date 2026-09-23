@@ -12,7 +12,7 @@ const TPUB =
 
 describe('payment-methods', () => {
   describe('availablePaymentMethods', () => {
-    it('renders methods in bitcoin, stripe, paypal order and only when configured', () => {
+    it('renders methods in bitcoin, paypal order and only when configured', () => {
       expect(
         availablePaymentMethods({
           bitcoinAvailable: true,
@@ -20,7 +20,7 @@ describe('payment-methods', () => {
           stripePaymentLink: 'https://buy.stripe.com/test_abc',
           paypalMerchantEmail: 'seller@example.com',
         }),
-      ).toEqual(['bitcoin', 'stripe', 'paypal']);
+      ).toEqual(['bitcoin', 'paypal']);
       expect(
         availablePaymentMethods({
           bitcoinAvailable: false,
@@ -59,6 +59,24 @@ describe('payment-methods', () => {
       });
 
       expect(availablePaymentMethods(config)).toEqual([]);
+    });
+
+    it('never includes Stripe in the checkout rail list', () => {
+      const withLink = availablePaymentMethods({
+        bitcoinAvailable: true,
+        bitcoinOfferAvailable: true,
+        stripePaymentLink: 'https://buy.stripe.com/aBcDeF123456',
+        paypalMerchantEmail: 'seller@example.com',
+      });
+      const stripeOnly = availablePaymentMethods({
+        bitcoinAvailable: false,
+        bitcoinOfferAvailable: true,
+        stripePaymentLink: 'https://buy.stripe.com/aBcDeF123456',
+        paypalMerchantEmail: null,
+      });
+
+      expect(withLink).not.toContain('stripe');
+      expect(stripeOnly).toEqual([]);
     });
 
     it('keeps Bitcoin when the rail-wide offer gate is on', () => {

@@ -5,13 +5,11 @@ import {
   Bitcoin,
   CheckCircle2,
   ChevronDown,
-  CreditCard,
   ExternalLink,
   HandCoins,
   Loader2,
   LoaderCircle,
   RefreshCw,
-  Trash2,
 } from 'lucide-react';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -36,7 +34,6 @@ import {
   countReadyPaymentMethods,
   deriveBitcoinStatus,
   derivePaypalStatus,
-  deriveStripeStatus,
   PAYMENT_METHOD_STATUS_LABELS,
   type PaymentMethodStatus,
 } from './MarketplaceGetPaidSettings.utils';
@@ -123,11 +120,11 @@ function MethodCard({
 }
 
 /**
- * The seller's "How you get paid" methods, in buyer-familiar order: PayPal,
- * card via Stripe, then bitcoin. Every rail is seller-direct — bitcoin
- * settles to the seller's own claimed watch-only account, Stripe/PayPal
- * settle into the seller's own processor accounts. This marketplace never
- * receives funds on any rail.
+ * The seller's "How you get paid" methods: PayPal, then bitcoin. Card
+ * payments are paused, so a stored card configuration is not shown and is
+ * written back unchanged when another rail is saved. Bitcoin settles to the
+ * seller's own claimed watch-only account. PayPal settles into the seller's
+ * own account. This marketplace never receives funds on any rail.
  */
 export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: MarketplaceGetPaidSettingsProps) {
   const {
@@ -152,12 +149,10 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   const [paykitSetupCreator, setPaykitSetupCreator] = useState<string | null>(null);
   const [paykitSetupStatus, setPaykitSetupStatus] = useState<PaykitSetupStatus>('idle');
 
-  const [stripeRestrictedKey, setStripeRestrictedKey] = useState('');
   const [railDraft, setRailDraft] = useState<{
     bitcoin: boolean | null;
     paypal: string | null;
-    stripe: string | null;
-  }>({ bitcoin: null, paypal: null, stripe: null });
+  }>({ bitcoin: null, paypal: null });
   const [draftBaseline, setDraftBaseline] = useState<string | null>(null);
 
   function closePaykitSetup() {
@@ -175,7 +170,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
     : null;
   if (serverBaseline !== draftBaseline) {
     setDraftBaseline(serverBaseline);
-    setRailDraft({ bitcoin: null, paypal: null, stripe: null });
+    setRailDraft({ bitcoin: null, paypal: null });
   }
 
   useEffect(() => {
@@ -241,20 +236,16 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
     if (!serverConfig || payments.isLoading || serverBaseline !== draftBaseline) return;
     const saved = await payments.save({
       bitcoinEnabled: railDraft.bitcoin ?? serverConfig.bitcoinEnabled,
-      stripePaymentLink: railDraft.stripe ?? serverConfig.stripePaymentLink ?? '',
-      stripeRestrictedKey,
+      stripePaymentLink: serverConfig.stripePaymentLink ?? '',
+      stripeRestrictedKey: '',
       paypalMerchantEmail: railDraft.paypal ?? serverConfig.paypalMerchantEmail ?? '',
     });
-    if (saved) {
-      setStripeRestrictedKey('');
-      onSaved?.(saved);
-    }
+    if (saved) onSaved?.(saved);
   };
 
   const saveReady =
     Boolean(serverConfig) && !payments.isLoading && !payments.loadError && serverBaseline === draftBaseline;
   const paypalValue = railDraft.paypal ?? serverConfig?.paypalMerchantEmail ?? '';
-  const stripeValue = railDraft.stripe ?? serverConfig?.stripePaymentLink ?? '';
 
   const saveButton = (
     <Button className="w-fit rounded-full" disabled={payments.isSaving || !saveReady} onClick={() => void onSave()}>
@@ -264,7 +255,6 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   );
 
   const paypalStatus = derivePaypalStatus(payments.config);
-  const stripeStatus = deriveStripeStatus(payments.config);
   const bitcoinStatus = deriveBitcoinStatus({
     connectedCreator,
     accountPubky: currentUserPubky,
@@ -274,7 +264,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   });
   const serverBitcoin = serverConfig?.bitcoinEnabled ?? false;
   const bitcoinValue = railDraft.bitcoin ?? serverBitcoin;
-  const readyCount = countReadyPaymentMethods([paypalStatus, stripeStatus, bitcoinStatus]);
+  const readyCount = countReadyPaymentMethods([paypalStatus, bitcoinStatus]);
   const step1Connected = locksCreatorMatchesShopPubky(connectedCreator, currentUserPubky);
   const step1NeedsPrimary = !step1Connected && bitcoinStatus === 'needs_attention';
 
@@ -342,67 +332,6 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
                 className="h-10 max-w-md"
                 aria-label="PayPal merchant email"
               />
-            </div>
-            {saveButton}
-          </>,
-        )}
-      </MethodCard>
-
-      <MethodCard
-        icon={CreditCard}
-        title="Card via Stripe"
-        promise="Take card payments through your own Stripe payment link — payouts land in your Stripe account."
-        status={stripeStatus}
-        statusTestId="payment-method-status-stripe"
-      >
-        {renderStoredRailBody(
-          <>
-            <div className="grid gap-3 rounded-xl border p-4">
-              <div>
-                <Label htmlFor="get-paid-stripe-link" className="font-medium">
-                  Stripe
-                </Label>
-                <Typography as="p" className="text-sm text-muted-foreground">
-                  Buyers pay through your own Stripe payment link. The restricted key (rk_…, read-only) lets the
-                  marketplace verify a payment against your Stripe account — it is stored server-side, never shown
-                  again, and cannot move money.
-                </Typography>
-              </div>
-              <Input
-                id="get-paid-stripe-link"
-                value={stripeValue}
-                onChange={(event) => setRailDraft((draft) => ({ ...draft, stripe: event.target.value }))}
-                placeholder="https://buy.stripe.com/…"
-                autoComplete="off"
-                className="h-10 max-w-md"
-                aria-label="Stripe payment link"
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  type="password"
-                  value={stripeRestrictedKey}
-                  onChange={(event) => setStripeRestrictedKey(event.target.value)}
-                  placeholder={payments.config?.stripeRestrictedKeySet ? 'Key stored — paste to replace' : 'rk_…'}
-                  autoComplete="off"
-                  className="h-10 max-w-md"
-                  aria-label="Stripe restricted key"
-                />
-                {payments.config?.stripeRestrictedKeySet && (
-                  <>
-                    <Badge variant="secondary">Key stored</Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="rounded-full"
-                      disabled={payments.isSaving}
-                      onClick={() => void payments.clearStripeKey()}
-                    >
-                      <Trash2 className="mr-2 size-4" />
-                      Remove key
-                    </Button>
-                  </>
-                )}
-              </div>
             </div>
             {saveButton}
           </>,

@@ -98,7 +98,7 @@ export function useMarketplaceOrderPayment({
         toast({
           title: 'Payment not found yet',
           description:
-            'Stripe has not reported a matching payment on the seller\u2019s account. If you just paid, wait a moment and verify again.',
+            'No matching payment has been reported on the seller\u2019s account. If you just paid, wait a moment and verify again.',
         });
       }
     });

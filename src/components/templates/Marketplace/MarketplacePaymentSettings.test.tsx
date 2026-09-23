@@ -142,14 +142,16 @@ describe('MarketplacePaymentSettings', () => {
     expect(screen.queryByText(/this prototype/i)).not.toBeInTheDocument();
   });
 
-  it('renders the three method cards in buyer-familiar order', async () => {
+  it('renders PayPal and Bitcoin and does not show a card rail', async () => {
     await renderSettings();
 
     const methodsSection = screen.getByRole('region', { name: 'Payment methods' });
     const titles = within(methodsSection)
       .getAllByRole('heading', { level: 2 })
       .map((heading) => heading.textContent);
-    expect(titles).toEqual(['PayPal', 'Card via Stripe', 'Bitcoin wallet']);
+    expect(titles).toEqual(['PayPal', 'Bitcoin wallet']);
+    expect(screen.queryByText(/Stripe/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Stripe payment link')).not.toBeInTheDocument();
   });
 
   it('derives each status pill from the loaded configuration state', async () => {
@@ -164,7 +166,7 @@ describe('MarketplacePaymentSettings', () => {
     await renderSettings();
 
     expect(screen.getByTestId('payment-method-status-paypal')).toHaveTextContent('Email saved');
-    expect(screen.getByTestId('payment-method-status-stripe')).toHaveTextContent('Needs attention');
+    expect(screen.queryByTestId('payment-method-status-stripe')).not.toBeInTheDocument();
     // Claim without Lock Server authorization is not Connected.
     expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
     expect(screen.getByRole('button', { name: /Open Locks connect/ })).toBeInTheDocument();
@@ -192,10 +194,10 @@ describe('MarketplacePaymentSettings', () => {
     await renderSettings();
 
     expect(screen.getByTestId('payment-method-status-paypal')).toHaveTextContent('Email saved');
-    expect(screen.getByTestId('payment-method-status-stripe')).toHaveTextContent('Connected');
+    expect(screen.queryByTestId('payment-method-status-stripe')).not.toBeInTheDocument();
     expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Connected');
     expect(screen.getByTestId('payment-methods-ready-summary')).toHaveTextContent(
-      '3 methods are ready to accept payments.',
+      '2 methods are ready to accept payments.',
     );
   });
 
@@ -203,7 +205,7 @@ describe('MarketplacePaymentSettings', () => {
     await renderSettings();
 
     expect(screen.getByTestId('payment-method-status-paypal')).toHaveTextContent('Not set up');
-    expect(screen.getByTestId('payment-method-status-stripe')).toHaveTextContent('Not set up');
+    expect(screen.queryByTestId('payment-method-status-stripe')).not.toBeInTheDocument();
     expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Not set up');
     expect(screen.getByTestId('payment-methods-ready-summary')).toHaveTextContent(
       'Set up at least one method below to start selling.',
@@ -255,19 +257,21 @@ describe('MarketplacePaymentSettings', () => {
     expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
   });
 
-  it('saves the Stripe and PayPal rails with the unchanged payload shape', async () => {
+  it('saves PayPal without writing a card key', async () => {
     const user = userEvent.setup();
     await renderSettings();
 
     await user.type(screen.getByLabelText('PayPal merchant email'), 'seller@example.com');
-    await user.type(screen.getByLabelText('Stripe payment link'), 'https://buy.stripe.com/test_abc');
-    await user.type(screen.getByLabelText('Stripe restricted key'), 'rk_test_12345678');
     expect(screen.getByRole('switch', { name: 'Accept bitcoin' })).toBeDisabled();
 
     await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[0]);
 
     await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
-    expect(mockedController.putMyPaymentConfig.mock.calls).toMatchSnapshot();
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith({
+      bitcoinEnabled: false,
+      paypalMerchantEmail: 'seller@example.com',
+      stripePaymentLink: null,
+    });
   });
 
   it('saves Accept bitcoin only after both bitcoin steps are Connected', async () => {
@@ -286,7 +290,7 @@ describe('MarketplacePaymentSettings', () => {
     const accept = screen.getByRole('switch', { name: 'Accept bitcoin' });
     expect(accept).toBeEnabled();
     await user.click(accept);
-    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[1]);
 
     await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalled());
     expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
@@ -312,7 +316,7 @@ describe('MarketplacePaymentSettings', () => {
     expect(screen.getByRole('switch', { name: 'Accept bitcoin' })).toBeDisabled();
     expect(screen.queryByText(/Creator authority connected/)).not.toBeInTheDocument();
 
-    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[1]);
 
     await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalled());
     expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
@@ -342,15 +346,19 @@ describe('MarketplacePaymentSettings', () => {
     expect(screen.queryByText(/creator_connect_flow_unavailable/)).not.toBeInTheDocument();
   });
 
-  it('refuses to send a non-Stripe checkout link to the service', async () => {
-    const user = userEvent.setup();
+  it('does not offer a card rail to a seller who already saved one', async () => {
+    mockedController.getMyPaymentConfig.mockResolvedValue({
+      ...EMPTY_CONFIG,
+      stripePaymentLink: 'https://buy.stripe.com/test_kept',
+      stripeRestrictedKeySet: true,
+    });
+
     await renderSettings();
 
-    await user.type(screen.getByLabelText('Stripe payment link'), 'https://evil.example/checkout');
-    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[0]);
-
-    // The payload contract is unchanged: invalid input never leaves the browser.
-    expect(mockedController.putMyPaymentConfig).not.toHaveBeenCalled();
+    expect(screen.queryByText('Card via Stripe')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Stripe payment link')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Stripe restricted key')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Stripe/)).not.toBeInTheDocument();
   });
 
   it('tells Ring-signed-up sellers to create a Shop identity in Bitkit', async () => {
@@ -569,7 +577,7 @@ describe('MarketplacePaymentSettings', () => {
     mockedController.getMyPaymentConfig.mockReturnValue(new Promise(() => {}));
     render(<MarketplacePaymentSettings />);
 
-    expect(await screen.findAllByText('Loading payment settings…')).toHaveLength(3);
+    expect(await screen.findAllByText('Loading payment settings…')).toHaveLength(2);
     expect(document.querySelector('[data-surface="marketplace-get-paid"]')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Save payment settings' })).not.toBeInTheDocument();
   });
@@ -584,13 +592,13 @@ describe('MarketplacePaymentSettings', () => {
     });
 
     await renderSettings();
-    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Save payment settings' })[2]).toBeEnabled());
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Save payment settings' })[1]).toBeEnabled());
 
     const accept = screen.getByRole('switch', { name: 'Accept bitcoin' });
     expect(accept).toBeDisabled();
     expect(accept).not.toBeChecked();
 
-    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[1]);
 
     await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
     expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
@@ -621,7 +629,7 @@ describe('MarketplacePaymentSettings', () => {
     expect(accept).toBeChecked();
     await user.click(accept);
     expect(accept).not.toBeChecked();
-    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[2]);
+    await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[1]);
 
     await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalled());
     expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
@@ -638,7 +646,7 @@ describe('MarketplacePaymentSettings', () => {
 
     await renderSettings();
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Save payment settings' })[0]).toBeEnabled());
-    expect(screen.getByLabelText('Stripe payment link')).toHaveValue('https://buy.stripe.com/test_keep');
+    expect(screen.queryByLabelText('Stripe payment link')).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText('PayPal merchant email'), 'seller@example.com');
     await user.click(screen.getAllByRole('button', { name: 'Save payment settings' })[0]);
