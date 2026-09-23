@@ -285,7 +285,7 @@ describe('MarketplacePaymentStatusCard', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('The item is held for you once a payment starts.')).toBeInTheDocument();
     expect(screen.queryByText(/never holds funds/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Card \(Stripe\)/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Stripe/ })).not.toBeInTheDocument();
   });
 
   it.each(['cancelled', 'refunded_external', 'closed', 'completed'] as const)(

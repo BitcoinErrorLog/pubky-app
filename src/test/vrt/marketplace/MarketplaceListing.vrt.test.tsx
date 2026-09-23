@@ -161,6 +161,14 @@ const view = vi.hoisted(() => ({
   orders: [] as Array<{
     order: { id: string; buyerPubky: string; state: string; lines: Array<{ listingAggregateId: string }> };
   }>,
+  offers: [] as Array<{
+    id: string;
+    state: string;
+    buyerPubky: string;
+    listingAggregateId: string;
+    award?: { state: string } | null;
+  }>,
+  sessionPubky: null as string | null,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -247,6 +255,33 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
     update: vi.fn(),
     remove: vi.fn(),
     clear: vi.fn(),
+  }),
+}));
+
+vi.mock('@/services/marketplace/marketplace-session', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/marketplace/marketplace-session')>();
+  const service = actual.MarketplaceSessionService;
+  service.getActiveSession = () => {
+    if (!view.sessionPubky) return null;
+    return {
+      pubky: view.sessionPubky,
+      capabilities: '/pub/pubky.app/:rw',
+      expiresAt: '2026-09-21T12:00:00.000Z',
+      issuedAt: '2026-08-21T12:00:00.000Z',
+      expiresAtMs: Date.now() + 60 * 60 * 1000,
+      token: 'vrt-session',
+    } as ReturnType<typeof service.getActiveSession>;
+  };
+  return actual;
+});
+
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({
+    offers: view.offers,
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    refresh: vi.fn(),
   }),
 }));
 
@@ -337,6 +372,8 @@ async function setView(overrides: Partial<typeof view>) {
   view.listingTags = [];
   view.needsSession = false;
   view.orders = [];
+  view.offers = [];
+  view.sessionPubky = null;
   Object.assign(view, overrides);
 }
 

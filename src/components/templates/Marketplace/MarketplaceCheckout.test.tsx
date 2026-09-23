@@ -308,6 +308,19 @@ describe('MarketplaceCheckout', () => {
     resetCheckoutView();
   });
 
+  it('never includes Stripe in the checkout rail list', async () => {
+    seededCart();
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = true;
+
+    render(<MarketplaceCheckout />);
+
+    expect(await screen.findByTestId('marketplace-checkout-method-bitcoin')).toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-checkout-method-paypal')).toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-checkout-method-stripe')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Stripe/ })).not.toBeInTheDocument();
+  });
+
   it('disables Pay without a marketplace session in durable mode', () => {
     seededCart();
     view.adapterMode = 'transaction-service';

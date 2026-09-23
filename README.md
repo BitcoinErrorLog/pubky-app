@@ -25,8 +25,8 @@ protocol shape settles; deploy line: branch `marketplace/pr25-ux`, live at
   concurrency, idempotent command envelopes.
 - **Real payments, out of band** — Bitcoin via Locks + Paykit (regtest,
   proven end to end including a real Bitkit wallet swipe-to-pay), and
-  Stripe/PayPal test rails behind a payment-agnostic Locks fiat gateway.
-  The app never holds or moves funds, and says so.
+  PayPal behind a payment-agnostic Locks fiat gateway. Card payments are
+  paused in the shop. The app never holds or moves funds, and says so.
 - **Drops** (ADR 0026) — timed, limited releases with server-enforced
   schedules and caps, honest stock display, and attested edition numbers
   ("7 of 100") that live in the buyer's own private receipt documents.
