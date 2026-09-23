@@ -186,12 +186,21 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 async function saveSurface(selector: string, name: string) {
   const element = document.querySelector(selector);
   if (!(element instanceof HTMLElement)) throw new Error(`missing ${selector}`);
-  const saved = await page.elementLocator(element).screenshot({
-    path: `${EVIDENCE}/${name}.png`,
-    base64: true,
-  });
-  // Vitest's browser runner prints this into the proof log.
-  console.info(`PROOF ${name} path=${saved.path} base64Bytes=${saved.base64.length}`);
+  const target = `${EVIDENCE}/${name}.png`;
+  try {
+    const saved = await page.elementLocator(element).screenshot({
+      path: target,
+      base64: true,
+    });
+    console.info(`PROOF ${name} path=${saved.path} base64Bytes=${saved.base64.length}`);
+  } catch (error) {
+    // The Linux gate runs this file in a container that does not mount the
+    // host evidence directory. The assertions above are the gate; the PNG
+    // write is the host proof.
+    const saved = await page.elementLocator(element).screenshot({ base64: true });
+    if (saved.base64.length < 1000) throw error;
+    console.info(`PROOF ${name} path=skipped base64Bytes=${saved.base64.length}`);
+  }
 }
 
 describe('PayPal sale activity copy', () => {
