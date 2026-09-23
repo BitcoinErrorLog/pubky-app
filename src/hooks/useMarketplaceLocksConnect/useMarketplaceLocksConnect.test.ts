@@ -1,6 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
+import { HttpStatusCode } from '@/libs/http/http.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import {
   LOCKS_CONNECT_CALLBACK_TYPE,
@@ -142,11 +146,32 @@ describe('useMarketplaceLocksConnect', () => {
       creator: `pubky${PUBKY}`,
       pubky: PUBKY,
     });
-    mockedController.getLocksCreatorAuthorityStatus.mockRejectedValue(new Error('gone'));
+    mockedController.getLocksCreatorAuthorityStatus.mockRejectedValue(
+      Err.auth(AuthErrorCode.UNAUTHORIZED, 'Lock Server session is invalid.', {
+        service: ErrorService.Locks,
+        operation: 'getCreatorAuthorityStatus',
+        context: { statusCode: HttpStatusCode.UNAUTHORIZED },
+      }),
+    );
 
     const { result } = renderHook(() => useMarketplaceLocksConnect());
 
     await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled());
+    expect(result.current.connectedCreator).toBeNull();
+  });
+
+  it('keeps a persisted connection when authority-status cannot be reached', async () => {
+    mockedController.restoreLocksFrontendSession.mockReturnValue({
+      token: 'session-token',
+      creator: `pubky${PUBKY}`,
+      pubky: PUBKY,
+    });
+    mockedController.getLocksCreatorAuthorityStatus.mockRejectedValue(new Error('network'));
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(mockedController.getLocksCreatorAuthorityStatus).toHaveBeenCalled());
+    expect(mockedController.clearLocksFrontendSession).not.toHaveBeenCalled();
     expect(result.current.connectedCreator).toBeNull();
   });
 
@@ -193,5 +218,60 @@ describe('useMarketplaceLocksConnect', () => {
     expect(mockedController.createLocksFrontendSession).not.toHaveBeenCalled();
     expect(result.current.connectedCreator).toBeNull();
     expect(result.current.error).toBe(LOCKS_CONNECT_USER_ERROR);
+  });
+
+  it('ignores a callback whose source is not the connect iframe', async () => {
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+    const iframeSource = {} as WindowProxy;
+    const otherSource = {} as WindowProxy;
+
+    act(() => {
+      result.current.openConnect();
+    });
+    const state = new URL(result.current.connectUrl ?? '').searchParams.get('state');
+    act(() => {
+      result.current.setConnectIframe({ contentWindow: iframeSource } as HTMLIFrameElement);
+    });
+
+    await act(async () => {
+      dispatchLocksCallback(otherSource, { type: LOCKS_CONNECT_CALLBACK_TYPE, state, code: 'one-time-code' });
+    });
+
+    expect(mockedController.createLocksFrontendSession).not.toHaveBeenCalled();
+    expect(result.current.connectedCreator).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+
+  it('does not wipe a persisted connection when a later connect exchange fails', async () => {
+    mockedController.restoreLocksFrontendSession.mockReturnValue({
+      token: 'session-token',
+      creator: `pubky${PUBKY}`,
+      pubky: PUBKY,
+    });
+    mockedController.getLocksCreatorAuthorityStatus.mockResolvedValue({
+      creator: `pubky${PUBKY}`,
+      authorized: true,
+    });
+    mockedController.createLocksFrontendSession.mockRejectedValue(new Error('exchange-failed'));
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+    await waitFor(() => expect(result.current.connectedCreator).toBe(PUBKY));
+
+    const source = {} as WindowProxy;
+    act(() => {
+      result.current.openConnect();
+    });
+    const state = new URL(result.current.connectUrl ?? '').searchParams.get('state');
+    act(() => {
+      result.current.setConnectIframe({ contentWindow: source } as HTMLIFrameElement);
+    });
+
+    await act(async () => {
+      dispatchLocksCallback(source, { type: LOCKS_CONNECT_CALLBACK_TYPE, state, code: 'one-time-code' });
+    });
+
+    await waitFor(() => expect(result.current.error).toBe(LOCKS_CONNECT_USER_ERROR));
+    expect(result.current.connectedCreator).toBe(PUBKY);
+    expect(mockedController.clearLocksFrontendSession).not.toHaveBeenCalled();
   });
 });

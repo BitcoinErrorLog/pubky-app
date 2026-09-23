@@ -157,7 +157,8 @@ describe('Marketplace payment settings — visual regression', () => {
     });
 
     const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(screen.getByText(/Approve it again from this page/)).toBeVisible();
+    await expect(screen.getByTitle('Connect Lock Server')).toBeVisible();
+    await expect(screen.getByTestId('dialog-content').getByText(/Approve it again from this page/)).toBeVisible();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-locks-connect-error-desktop');
     setLocksConnect();
   });

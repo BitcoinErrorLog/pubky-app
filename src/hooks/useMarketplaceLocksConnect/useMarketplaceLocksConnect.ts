@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getLocksUrl } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { hasHttpStatus } from '@/libs/error/error.utils';
+import { HttpStatusCode } from '@/libs/http/http.types';
 import { LocksGatewayService } from '@/services/locks/locks';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -34,6 +36,14 @@ function isLocksAuthCallback(data: unknown): data is { type: string; state?: str
   return typeof data === 'object' && data !== null && 'type' in data;
 }
 
+function isRejectedLocksSession(error: unknown): boolean {
+  return (
+    hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED) ||
+    hasHttpStatus(error, HttpStatusCode.FORBIDDEN) ||
+    hasHttpStatus(error, HttpStatusCode.NOT_FOUND)
+  );
+}
+
 /**
  * Seller-side Lock Server connection: embeds the hosted legacy-connect flow with
  * `delivery=postmessage` so the Lock Server poller starts immediately (the
@@ -59,6 +69,7 @@ export function useMarketplaceLocksConnect() {
 
   const closeConnect = useCallback(() => {
     pendingStateRef.current = null;
+    window.localStorage.removeItem(LOCKS_CONNECT_STATE_STORAGE_KEY);
     setConnectOpen(false);
     setConnectUrl(null);
     setIsExchanging(false);
@@ -81,7 +92,6 @@ export function useMarketplaceLocksConnect() {
         const session = await CommerceController.createLocksFrontendSession(code, state, currentUserPubky ?? undefined);
         applySession(session.creator);
       } catch {
-        CommerceController.clearLocksFrontendSession();
         setError(LOCKS_CONNECT_USER_ERROR);
       } finally {
         setIsExchanging(false);
@@ -126,8 +136,9 @@ export function useMarketplaceLocksConnect() {
         CommerceController.clearLocksFrontendSession();
         setConnectedCreator(null);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!active || generation !== restoreGenerationRef.current) return;
+        if (!isRejectedLocksSession(error)) return;
         CommerceController.clearLocksFrontendSession();
         setConnectedCreator(null);
       });

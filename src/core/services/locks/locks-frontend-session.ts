@@ -26,8 +26,10 @@ export type LocksFrontendSessionRecord = z.infer<typeof storedSessionSchema>;
  *    matches the signed-in Shop account. Sign-out and account switch funnel
  *    through `CommerceApplication.clearMarketplaceSession()`, which calls
  *    {@link clear}.
- *  - A restored token the Lock Server no longer accepts is dropped by the
- *    connect hook after `GET /creator/authority-status` fails.
+ *  - A restored token the Lock Server no longer accepts (401/403/404 or
+ *    `authorized: false`) is dropped by the connect hook after
+ *    `GET /creator/authority-status`. A network or 5xx failure leaves the
+ *    blob so a later reload can revalidate.
  */
 export class LocksFrontendSessionStore {
   private constructor() {}
