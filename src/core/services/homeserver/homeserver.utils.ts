@@ -169,7 +169,7 @@ export const parseResponseOrUndefined = async <T>({
  * @returns CancelableAuthApproval with awaitApproval promise and cancel function
  */
 export const createCancelableAuthApproval = (
-  flow: AuthFlow,
+  flow: Pick<AuthFlow, 'tryPollOnce' | 'free'>,
   options?: { pollIntervalMs?: number; maxPollAttempts?: number },
 ): CancelableAuthApproval => {
   const pollIntervalMs = options?.pollIntervalMs ?? AUTH_POLL_INTERVAL_MS;

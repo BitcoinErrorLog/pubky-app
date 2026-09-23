@@ -53,6 +53,7 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
   const hasHydrated = useAuthStore((state) => state.hasHydrated);
   const session = useAuthStore((state) => state.session);
   const sessionExport = useAuthStore((state) => state.sessionExport);
+  const grantSessionRecordId = useAuthStore((state) => state.grantSessionRecordId);
   const isRestoringSession = useAuthStore((state) => state.isRestoringSession);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const wasDbReset = useMigrationStore((state) => state.wasDbReset);
@@ -64,6 +65,9 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
   // still running; skip so a second restore cannot race the first init.
   const isSessionRestoreInFlightRef = useRef(false);
 
+  // Another tab signed out: a grant session held in this tab lets go too.
+  useEffect(() => AuthController.subscribeCrossTabSignOut(), []);
+
   // Attempt to restore an existing session snapshot on fresh loads.
   useEffect(() => {
     if (!hasHydrated) return;
@@ -72,7 +76,7 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
     // Shared with auth-store rehydrate so `isRestoringSession` is only set when
     // this effect will actually run restore (persist, or consumer + not suppressed
     // / pending `#s=`). After logout, suppression + empty persist skips both.
-    if (!shouldAttemptSessionRestore(sessionExport)) {
+    if (!grantSessionRecordId && !shouldAttemptSessionRestore(sessionExport)) {
       // Rehydrate set isRestoringSession when the predicate read true; if the
       // situation changed before this effect ran (e.g. logout suppression
       // landed in between), no restore will run — clear the flag so it cannot
@@ -97,7 +101,7 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
       .finally(() => {
         isSessionRestoreInFlightRef.current = false;
       });
-  }, [hasHydrated, session, sessionExport, isRestoringSession]);
+  }, [hasHydrated, session, sessionExport, grantSessionRecordId, isRestoringSession]);
 
   // Post-migration re-sync: fetch critical homeserver data after DB recreation
   // TODO: Consider using BroadcastChannel to notify other browser tabs when DB was recreated / resync completed

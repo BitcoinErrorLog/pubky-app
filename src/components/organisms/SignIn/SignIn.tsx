@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { CheckCircle, Circle, Key, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
@@ -10,6 +10,7 @@ import { Link } from '@/atoms/Link/Link';
 import { PageHeader } from '@/atoms/PageHeader/PageHeader';
 import { PageSubtitle } from '@/atoms/PageSubtitle/PageSubtitle';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useGrantSignInAvailable } from '@/hooks/useGrantSignInAvailable/useGrantSignInAvailable';
 import { useMobileAuth } from '@/hooks/useMobileAuth/useMobileAuth';
 import { Logger } from '@/libs/logger/logger';
 import { cn } from '@/libs/utils/utils';
@@ -90,28 +91,135 @@ const SignInProgress = () => {
     </Container>
   );
 };
+async function copyWithToast(copy: () => Promise<void>) {
+  try {
+    await copy();
+    toast({
+      variant: 'info',
+      title: 'Authentication link copied',
+    });
+  } catch (error) {
+    Logger.error('Failed to copy auth URL to clipboard:', error);
+    toast({
+      variant: 'error',
+      description: 'Could not copy to clipboard',
+    });
+  }
+}
+
+/**
+ * Bitkit sign-in: a grant QR (`pubkyauth://signin_grant`). Mounting it starts
+ * the grant flow, which supersedes the Ring QR's flow.
+ */
+const SignInGrantPanel = ({ onUseRing }: { onUseRing: () => void }) => {
+  const { url, isLoading, isExpired, fetchUrl, copyAuthUrl, isOpeningRing, onAuthorizeClick } = useMobileAuth({
+    type: 'grant',
+  });
+  const isMobileLaunching = isLoading || isOpeningRing;
+  const handleQRClick = async () => {
+    if (!url) return;
+    await copyWithToast(copyAuthUrl);
+  };
+  const ringSwitch = (
+    <Button variant="link" onClick={onUseRing} data-testid="sign-in-use-ring">
+      {'Use Pubky Ring instead'}
+    </Button>
+  );
+
+  return (
+    <>
+      <Container size="container" className="hidden md:flex">
+        <SignInHeader signer="bitkit" />
+        <BalancedQrCard
+          data-testid="sign-in-grant-qr-card"
+          illustration={
+            <Image
+              priority
+              src="/images/scan.webp"
+              alt="Phone scanning a QR code"
+              width={192}
+              height={192}
+              className="size-48"
+            />
+          }
+        >
+          <button
+            type="button"
+            className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
+            onClick={isExpired ? fetchUrl : handleQRClick}
+            disabled={isLoading || (!url && !isExpired)}
+            aria-label={isExpired ? 'Reload Bitkit sign-in QR code' : 'Copy Bitkit authentication link'}
+          >
+            <QrCodeSlot
+              isLoading={isLoading}
+              isExpired={isExpired}
+              url={url}
+              generatingLabel={'Generating QR Code...'}
+              clickToReloadLabel={'Click to reload'}
+              activeQrHasHoverEffect
+              showRingLogo={false}
+            />
+          </button>
+        </BalancedQrCard>
+        <Container className="flex-row items-center gap-2">
+          <Typography as="span" className="text-muted-foreground">
+            {'Scan with Bitkit 2.5 or newer.'}
+          </Typography>
+          {ringSwitch}
+        </Container>
+      </Container>
+
+      <Container size="container" className="md:hidden">
+        <SignInHeader signer="bitkit" />
+        <ContentCard layout="column">
+          <Container className="flex-col items-center justify-center gap-6">
+            <Button
+              className="w-full"
+              size="lg"
+              onClick={onAuthorizeClick}
+              disabled={isMobileLaunching || (!url && !isExpired)}
+              aria-busy={isMobileLaunching}
+              data-testid="sign-in-grant-button"
+            >
+              {isMobileLaunching ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  <Typography as="span" overrideDefaults aria-live="polite">
+                    {isOpeningRing ? 'Opening Bitkit...' : 'Generating...'}
+                  </Typography>
+                </>
+              ) : isExpired ? (
+                <>
+                  <RefreshCw className="mr-2 size-4" />
+                  {'Click to reload'}
+                </>
+              ) : (
+                <>
+                  <Key className="mr-2 size-4" />
+                  {'Authorize with Bitkit'}
+                </>
+              )}
+            </Button>
+            {ringSwitch}
+          </Container>
+        </ContentCard>
+      </Container>
+    </>
+  );
+};
+
 export const SignInContent = () => {
   const { url, isLoading, isExpired, fetchUrl, copyAuthUrl, isOpeningRing, onAuthorizeClick } = useMobileAuth();
   const authUrlResolved = useSignInStore((state) => state.authUrlResolved);
+  const isGrantSignInAvailable = useGrantSignInAvailable();
+  const [signer, setSigner] = useState<'ring' | 'bitkit'>('ring');
   useEffect(() => {
     // Clear onboarding storage when sign-in flow begins to prevent backup reminders from showing for existing users
     useOnboardingStore.getState().reset();
   }, []);
   const handleQRClick = async () => {
     if (!url) return;
-    try {
-      await copyAuthUrl();
-      toast({
-        variant: 'info',
-        title: 'Authentication link copied',
-      });
-    } catch (error) {
-      Logger.error('Failed to copy auth URL to clipboard:', error);
-      toast({
-        variant: 'error',
-        description: 'Could not copy to clipboard',
-      });
-    }
+    await copyWithToast(copyAuthUrl);
   };
   const isMobileLaunching = isLoading || isOpeningRing;
   const mobileAuthorizeContent = isMobileLaunching ? (
@@ -144,6 +252,22 @@ export const SignInContent = () => {
       </Container>
     );
   }
+  if (signer === 'bitkit') {
+    return (
+      <SignInGrantPanel
+        onUseRing={() => {
+          setSigner('ring');
+          // The grant flow superseded the Ring flow; mint a fresh Ring QR.
+          void fetchUrl();
+        }}
+      />
+    );
+  }
+  const bitkitSwitch = isGrantSignInAvailable ? (
+    <Button variant="link" onClick={() => setSigner('bitkit')} data-testid="sign-in-use-grant">
+      {'Signing in with Bitkit? Use Bitkit instead'}
+    </Button>
+  ) : null;
   return (
     <>
       <Container size="container" className="hidden md:flex">
@@ -178,6 +302,7 @@ export const SignInContent = () => {
             />
           </button>
         </BalancedQrCard>
+        {bitkitSwitch}
       </Container>
 
       {/** Mobile view */}
@@ -196,6 +321,7 @@ export const SignInContent = () => {
             >
               {mobileAuthorizeContent}
             </Button>
+            {bitkitSwitch}
           </Container>
         </ContentCard>
       </Container>
@@ -215,7 +341,7 @@ export const SignInFooter = () => {
     </FooterLinks>
   );
 };
-export const SignInHeader = () => {
+export const SignInHeader = ({ signer = 'ring' }: { signer?: 'ring' | 'bitkit' }) => {
   return (
     <PageHeader>
       <PageTitle size="large">
@@ -224,7 +350,7 @@ export const SignInHeader = () => {
       </PageTitle>
       <PageSubtitle>
         {'Authorize with '}
-        <span className="text-brand">{'Pubky Ring'}</span>
+        <span className="text-brand">{signer === 'bitkit' ? 'Bitkit' : 'Pubky Ring'}</span>
         {' to sign in.'}
       </PageSubtitle>
     </PageHeader>

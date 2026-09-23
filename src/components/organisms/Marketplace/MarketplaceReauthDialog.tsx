@@ -5,8 +5,10 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useStepUpReauth } from '@/hooks/useStepUpReauth/useStepUpReauth';
 import { Logger } from '@/libs/logger/logger';
+import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -45,13 +47,14 @@ export function MarketplaceReauthDialog({
   // Referencing `reauth.start`/`reauth.cancel` directly keeps the effect
   // dependency-stable: both are useCallback-memoized in the hook.
   const { start, cancel } = reauth;
+  const isGrantSession = useIsGrantSession();
   useEffect(() => {
     if (open) {
-      start();
+      if (!isGrantSession) start();
       return;
     }
     cancel();
-  }, [open, start, cancel]);
+  }, [open, start, cancel, isGrantSession]);
 
   const copyUrl = async () => {
     try {
@@ -80,7 +83,9 @@ export function MarketplaceReauthDialog({
           Sign in again for this device.
         </Typography>
 
-        {reauth.status === 'error' ? (
+        {isGrantSession ? (
+          <GrantSessionRefusal />
+        ) : reauth.status === 'error' ? (
           <div className="grid gap-3">
             <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
               {reauth.errorMessage}

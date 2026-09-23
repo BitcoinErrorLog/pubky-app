@@ -1,3 +1,4 @@
+import type { Session } from '@synonymdev/pubky';
 import { LastReadResult } from 'pubky-app-specs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
@@ -6,6 +7,7 @@ import { CommerceApplication } from '@/application/commerce/commerce';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
 import { MUTE_SYNC_CURSOR_STORAGE_PREFIX } from '@/config/mute-sync';
+import { AUTH_EPOCH_KEY, bumpAuthEpoch, readAuthEpoch, subscribeSignedOut } from '@/controllers/auth/auth-epoch';
 import { resetAuthFinalizationLockForTests } from '@/controllers/auth/auth-finalization-lock';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
@@ -2386,6 +2388,178 @@ describe('AuthController', () => {
 
       expect(verifySpy).toHaveBeenCalledWith('BADC-0DE0-0000');
       expect(result).toBe('invalid');
+    });
+  });
+
+  describe('grant sessions (Bitkit sign-in)', () => {
+    const grantSession = () => buildMockSession({ grant: asOpaque<Session['grant']>({}) });
+
+    const grantAuthStore = (overrides: Partial<AuthStore> = {}): AuthStore =>
+      mockAuthStore({
+        ...storeMocks.getAuthState(),
+        currentUserPubky: TEST_PUBKY as Pubky,
+        session: null,
+        sessionExport: null,
+        grantSessionRecordId: null,
+        hasProfile: false,
+        isRestoringSession: false,
+        isLoggingOut: false,
+        setIsLoggingOut: vi.fn(),
+        setIsRestoringSession: vi.fn(),
+        setSessionRestoreDeferred: vi.fn(),
+        ...overrides,
+      });
+
+    beforeEach(() => {
+      localStorage.removeItem(AUTH_EPOCH_KEY);
+      Object.defineProperty(document, 'cookie', { writable: true, value: '' });
+      mockClearDatabase.mockResolvedValue(undefined);
+      vi.spyOn(Identity, 'z32FromSession').mockReturnValue(TEST_PUBKY as Pubky);
+      vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(false);
+    });
+
+    async function approveGrantSignIn(session: Session) {
+      vi.spyOn(AuthApplication, 'generateGrantAuthUrl').mockResolvedValue({
+        authorizationUrl: 'pubkyauth://signin_grant?caps=x&relay=r&secret=s&cid=shop.pubky.app&cpk=k',
+        awaitApproval: Promise.resolve(session),
+        cancelAuthFlow: vi.fn(),
+      });
+      const { awaitApproval } = await AuthController.getGrantAuthUrl();
+      return await awaitApproval;
+    }
+
+    it('grant sign-in persists record id not export', async () => {
+      const session = grantSession();
+      const authStore = grantAuthStore();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      const saveSpy = vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-1');
+
+      await AuthController.initializeAuthenticatedSession({ session: await approveGrantSignIn(session) });
+
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      expect(saveSpy).toHaveBeenCalledWith(session);
+      expect(authStore.init).toHaveBeenCalledWith(
+        expect.objectContaining({ session, currentUserPubky: TEST_PUBKY, grantSessionRecordId: 'rec-1' }),
+      );
+    });
+
+    it('save aborts after a sign-out since QR start', async () => {
+      const session = grantSession();
+      const authStore = grantAuthStore();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      const saveSpy = vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-1');
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+
+      const approved = await approveGrantSignIn(session);
+      // Another tab (or this one) signed out between QR start and completion.
+      bumpAuthEpoch();
+
+      await expect(AuthController.initializeAuthenticatedSession({ session: approved })).rejects.toBeDefined();
+      expect(saveSpy).not.toHaveBeenCalled();
+      expect(authStore.init).not.toHaveBeenCalled();
+      expect(logoutSpy).toHaveBeenCalledWith({ session });
+    });
+
+    it('second tab cannot save after sign-out', async () => {
+      // Tab B started its grant QR; tab A then signed out (epoch bumped under the lock).
+      const session = grantSession();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore());
+      const saveSpy = vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-2');
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      const approved = await approveGrantSignIn(session);
+      localStorage.setItem(AUTH_EPOCH_KEY, String(readAuthEpoch() + 1));
+
+      await expect(AuthController.initializeAuthenticatedSession({ session: approved })).rejects.toBeDefined();
+      expect(saveSpy).not.toHaveBeenCalled();
+    });
+
+    it('signout calls signout then clearAll under lock', async () => {
+      const order: string[] = [];
+      const session = grantSession();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore({ session, grantSessionRecordId: 'rec-1' }));
+      vi.spyOn(AuthApplication, 'logout').mockImplementation(async () => {
+        order.push('signout');
+      });
+      vi.spyOn(AuthApplication, 'clearGrantSessions').mockImplementation(async () => {
+        order.push('clearAll');
+      });
+      const epochBefore = readAuthEpoch();
+
+      await AuthController.logout();
+
+      expect(order).toEqual(['signout', 'clearAll']);
+      expect(readAuthEpoch()).toBe(epochBefore + 1);
+    });
+
+    it('cold logout calls signout before clearAll', async () => {
+      const order: string[] = [];
+      const session = grantSession();
+      const authStore = grantAuthStore({ session: null, grantSessionRecordId: 'rec-1' });
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthController, 'restorePersistedSession').mockImplementation(async () => {
+        order.push('restore');
+        authStore.session = session;
+        return { status: 'restored' };
+      });
+      vi.spyOn(AuthApplication, 'logout').mockImplementation(async () => {
+        order.push('signout');
+      });
+      vi.spyOn(AuthApplication, 'clearGrantSessions').mockImplementation(async () => {
+        order.push('clearAll');
+      });
+
+      await AuthController.logout();
+
+      expect(order).toEqual(['restore', 'signout', 'clearAll']);
+    });
+
+    it('cold logout still clears grant keys when the restore fails', async () => {
+      const authStore = grantAuthStore({ session: null, grantSessionRecordId: 'rec-1' });
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthController, 'restorePersistedSession').mockResolvedValue({ status: 'signed-out' });
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      const clearSpy = vi.spyOn(AuthApplication, 'clearGrantSessions').mockResolvedValue(undefined);
+
+      await AuthController.logout();
+
+      expect(logoutSpy).not.toHaveBeenCalled();
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('logout tells other tabs to let go', async () => {
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore({ session: grantSession() }));
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      vi.spyOn(AuthApplication, 'clearGrantSessions').mockResolvedValue(undefined);
+      const received = new Promise<void>((resolve) => {
+        const unsubscribe = subscribeSignedOut(() => {
+          unsubscribe();
+          resolve();
+        });
+      });
+
+      await AuthController.logout();
+
+      await expect(received).resolves.toBeUndefined();
+    });
+
+    it('second tab drops live grant session on broadcast', async () => {
+      const session = grantSession();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore({ session }));
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+
+      await AuthController.handleCrossTabSignOut();
+
+      expect(logoutSpy).toHaveBeenCalledWith({ session });
+      expect(storeMocks.resetAuthStore).toHaveBeenCalled();
+    });
+
+    it('a cookie session ignores the cross-tab broadcast', async () => {
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore({ session: buildMockSession() }));
+      const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+
+      await AuthController.handleCrossTabSignOut();
+
+      expect(logoutSpy).not.toHaveBeenCalled();
     });
   });
 });

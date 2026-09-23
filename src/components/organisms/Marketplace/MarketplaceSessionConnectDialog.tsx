@@ -5,9 +5,11 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceSessionConnect } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect';
 import { Logger } from '@/libs/logger/logger';
 import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
+import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -51,13 +53,14 @@ export function MarketplaceSessionConnectDialog({
     if (autoOpen) setOpen(true);
   }, [autoOpen]);
 
+  const isGrantSession = useIsGrantSession();
   useEffect(() => {
     if (open) {
-      start();
+      if (!isGrantSession) start();
       return;
     }
     cancel();
-  }, [open, start, cancel]);
+  }, [open, start, cancel, isGrantSession]);
 
   const copyUrl = async () => {
     try {
@@ -96,7 +99,9 @@ export function MarketplaceSessionConnectDialog({
               : 'Approve purchases for this device.'}
         </Typography>
 
-        {['error', 'mismatch', 'expired', 'cancelled'].includes(session.status) ? (
+        {isGrantSession ? (
+          <GrantSessionRefusal />
+        ) : ['error', 'mismatch', 'expired', 'cancelled'].includes(session.status) ? (
           <div className="grid gap-3">
             <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
               {session.status === 'mismatch'

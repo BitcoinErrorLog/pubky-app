@@ -18,6 +18,7 @@ import type {
   TLoginWithMnemonicParams,
   TSignUpParams,
 } from '@/controllers/auth/auth.types';
+import { broadcastSignedOut, bumpAuthEpoch, readAuthEpoch, subscribeSignedOut } from '@/controllers/auth/auth-epoch';
 import { withAuthFinalizationLock } from '@/controllers/auth/auth-finalization-lock';
 import {
   captureAuthIdentityFromStore,
@@ -106,6 +107,9 @@ export class AuthController {
    * pending `#s=` fragment, and that restore must init.
    */
   private static logoutGeneration = 0;
+
+  /** `authEpoch` read when each grant sign-in QR started, keyed by its approved session. */
+  private static grantEpochAtStart = new WeakMap<Session, number>();
 
   /**
    * Single-run guard for cleanupLocalState: concurrent Controller invocations
@@ -199,6 +203,9 @@ export class AuthController {
     // Application restore is in flight invalidates this invocation's
     // restored-branch finalization (compared again right before `init`).
     const logoutGenerationAtStart = this.logoutGeneration;
+    // Captured before cleanup can reset the store: a restored grant session
+    // keeps its BrowserSessionStore record (restore never saves).
+    const restoredGrantRecordId = authStore.grantSessionRecordId;
     // The Controller owns the restore loading flag for the whole flow: set once
     // before restore begins, cleared once after finalization. With a fresh-vibe
     // bridge restore (sessionExport === null) the isSessionRestorePending
@@ -244,6 +251,7 @@ export class AuthController {
             session,
             currentUserPubky: pubky,
             hasProfile,
+            grantSessionRecordId: AuthApplication.isGrantSession(session) ? restoredGrantRecordId : null,
           });
         });
         if (!persisted) {
@@ -454,8 +462,19 @@ export class AuthController {
       // the persisted identity and skips. A different account that signed in
       // after this ceremony captured local state aborts persist rather than
       // overwriting that account's Dexie rows.
-      const persisted = await this.persistIdentityUnderLock(pubky, this.pendingLocalStateCapture, () => {
-        authStore.init({ session, currentUserPubky: pubky, hasProfile: null });
+      const persisted = await this.persistIdentityUnderLock(pubky, this.pendingLocalStateCapture, async () => {
+        let grantSessionRecordId: string | null = null;
+        if (AuthApplication.isGrantSession(session)) {
+          // Inside the finalization lock: a sign-out since this QR started
+          // (any tab) bumped the epoch, and the key must not be saved back.
+          const epochAtStart = this.grantEpochAtStart.get(session);
+          if (epochAtStart === undefined || epochAtStart !== readAuthEpoch()) {
+            return false;
+          }
+          grantSessionRecordId = await AuthApplication.saveGrantSession(session);
+        }
+        authStore.init({ session, currentUserPubky: pubky, hasProfile: null, grantSessionRecordId });
+        return true;
       });
       if (!persisted) {
         persistAborted = true;
@@ -641,7 +660,7 @@ export class AuthController {
   private static async persistIdentityUnderLock(
     newPubky: string,
     captured: CapturedAuthIdentity | null,
-    persist: () => void,
+    persist: () => void | boolean | Promise<boolean>,
   ): Promise<boolean> {
     return await withAuthFinalizationLock(async () => {
       const currentPubky = nonEmptyPubky(useAuthStore.getState().currentUserPubky);
@@ -655,7 +674,10 @@ export class AuthController {
       if (persistedPubky && persistedPubky !== newPubky) {
         clearPersistedAuthIdentity();
       }
-      persist();
+      if ((await persist()) === false) {
+        this.pendingLocalStateCapture = null;
+        return false;
+      }
       this.markLocalStateDirty();
       this.pendingLocalStateCapture = null;
       return true;
@@ -767,6 +789,27 @@ export class AuthController {
       return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl());
     }
     return this.wrapDirectSignInCeremony({ preserveLocalState: false });
+  }
+
+  /**
+   * Bitkit sign-in: a grant QR (`pubkyauth://signin_grant`) beside the Ring
+   * cookie QR. The approved grant session skips the marketplace redeem (it
+   * carries no AuthToken) and is saved to BrowserSessionStore at completion.
+   */
+  static async getGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    const epochAtStart = readAuthEpoch();
+    const result = await this.wrapAuthFlow(() => AuthApplication.generateGrantAuthUrl());
+    return {
+      ...result,
+      awaitApproval: result.awaitApproval.then((session) => {
+        this.grantEpochAtStart.set(session, epochAtStart);
+        return session;
+      }),
+    };
+  }
+
+  static isGrantSignInAvailable(): boolean {
+    return AuthApplication.isGrantSignInAvailable();
   }
 
   static async getStepUpAuthUrl(): Promise<TGenerateAuthUrlResult> {
@@ -1109,7 +1152,7 @@ export class AuthController {
     try {
       // Fresh loads can still have a persisted session export before the live session is restored.
       // Reuse the restore flow so /logout performs a real homeserver sign-out before local cleanup.
-      if (!session && (authStore.sessionExport || isVibeSessionConsumerEnabled())) {
+      if (!session && (authStore.sessionExport || authStore.grantSessionRecordId || isVibeSessionConsumerEnabled())) {
         try {
           const restoreResult = await this.restorePersistedSession();
           if (restoreResult.status === 'signed-out') {
@@ -1145,6 +1188,10 @@ export class AuthController {
       // different live pubky means that sign-in now owns origin-scoped Dexie.
       await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
     } finally {
+      // After the homeserver sign-out (or a failed cold restore): drop every
+      // stored grant key and fence other tabs, then tell them to let go.
+      await this.clearGrantPersistenceUnderLock();
+      broadcastSignedOut();
       // The internal restore's init() clears the auto-restore suppression
       // set above. If the homeserver sign-out then failed, the marker must
       // not stay cleared: a later reload in consumer mode would
@@ -1154,6 +1201,36 @@ export class AuthController {
         suppressVibeSessionAutoRestore();
       }
     }
+  }
+
+  /**
+   * Bumps the auth epoch and clears BrowserSessionStore under the finalization
+   * lock, so no tab can save a grant key after this sign-out.
+   */
+  private static async clearGrantPersistenceUnderLock(): Promise<void> {
+    await withAuthFinalizationLock(async () => {
+      bumpAuthEpoch();
+      await AuthApplication.clearGrantSessions();
+    });
+  }
+
+  /**
+   * Another tab signed out. A tab still holding a grant session in memory
+   * signs it out and drops local state; cookie sessions are left alone.
+   */
+  static subscribeCrossTabSignOut(): () => void {
+    return subscribeSignedOut(() => void this.handleCrossTabSignOut());
+  }
+
+  static async handleCrossTabSignOut(): Promise<void> {
+    const session = useAuthStore.getState().session;
+    if (!AuthApplication.isGrantSession(session) || !session) return;
+    const captured = this.captureAuthIdentity();
+    await AuthApplication.logout({ session }).catch((error) => {
+      Logger.warn('Cross-tab grant sign-out could not reach the homeserver', { error });
+    });
+    this.cancelActiveAuthFlow();
+    await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
   }
 
   /**

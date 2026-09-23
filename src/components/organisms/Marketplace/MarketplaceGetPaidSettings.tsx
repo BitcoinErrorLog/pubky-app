@@ -26,10 +26,12 @@ import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getLocksUrl } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceSellerPaymentConfig } from '@/hooks/useMarketplaceSellerPaymentConfig/useMarketplaceSellerPaymentConfig';
 import { type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { Logger } from '@/libs/logger/logger';
 import { copyToClipboard } from '@/libs/utils/utils';
+import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
@@ -147,6 +149,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   } = locksConnect;
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
+  const isGrantSession = useIsGrantSession();
   const payments = useMarketplaceSellerPaymentConfig();
   const refreshPaymentConfig = payments.refresh;
   const paykitIframeRef = useRef<HTMLIFrameElement>(null);
@@ -258,7 +261,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
 
   const onStartClaim = () => {
     setClaimDialogOpen(true);
-    payments.startClaim(xpubInput);
+    if (!isGrantSession) payments.startClaim(xpubInput);
   };
 
   const onCloseClaimDialog = (open: boolean) => {
@@ -691,7 +694,9 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
             Approving on your signer registers the pasted account xpub with the Paykit server — exactly what
             Bitkit&rsquo;s setup does. The approval is scoped to the Paykit receiver path and grants nothing else.
           </Typography>
-          {payments.claimStatus === 'error' ? (
+          {isGrantSession ? (
+            <GrantSessionRefusal />
+          ) : payments.claimStatus === 'error' ? (
             <div className="grid gap-3">
               <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
                 {payments.claimError}

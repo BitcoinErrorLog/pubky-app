@@ -19,6 +19,7 @@ export function QrCodeSlot({
   size = DEFAULT_QR_SIZE,
   activeQrHasHoverEffect = false,
   expiredReloadAction,
+  showRingLogo = true,
 }: QrCodeSlotProps) {
   const ringLogoSize = Math.round((DEFAULT_RING_LOGO_SIZE / DEFAULT_QR_SIZE) * size);
 
@@ -68,16 +69,18 @@ export function QrCodeSlot({
   return (
     <span data-testid="qr-auth-url" data-auth-url={url} className="contents">
       <QRCodeSVG value={url} size={size} className={cn(activeQrHasHoverEffect && HOVER_OPACITY)} />
-      <Image
-        src="/images/ring-logo.svg"
-        alt="Pubky Ring"
-        width={ringLogoSize}
-        height={ringLogoSize}
-        className={cn(
-          'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
-          activeQrHasHoverEffect && HOVER_OPACITY,
-        )}
-      />
+      {showRingLogo && (
+        <Image
+          src="/images/ring-logo.svg"
+          alt="Pubky Ring"
+          width={ringLogoSize}
+          height={ringLogoSize}
+          className={cn(
+            'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
+            activeQrHasHoverEffect && HOVER_OPACITY,
+          )}
+        />
+      )}
     </span>
   );
 }

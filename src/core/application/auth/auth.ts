@@ -87,6 +87,20 @@ export class AuthApplication {
       return await this.restoreSessionPromise;
     }
 
+    // A grant session (Bitkit sign-in) restores from BrowserSessionStore only:
+    // it has no cookie export and never takes the bridge or fragment legs.
+    const grantRecordId = authStore.grantSessionRecordId;
+    if (grantRecordId) {
+      this.restoreSessionPromise = (async () => {
+        try {
+          return await this.restoreGrantSession(grantRecordId);
+        } finally {
+          this.restoreSessionPromise = null;
+        }
+      })();
+      return await this.restoreSessionPromise;
+    }
+
     const consumerOrigin = getVibeSessionBridgeOrigin();
     const persistedExport = authStore.sessionExport;
 
@@ -167,6 +181,37 @@ export class AuthApplication {
 
   private static unresolvedConsumerRestore(keepPersistedExport: boolean): TRestoreSessionOutcome {
     return keepPersistedExport ? { status: 'deferred' } : { status: 'signed-out' };
+  }
+
+  /**
+   * Restores a grant session from its BrowserSessionStore record. A transient
+   * failure keeps the record (deferred); a definitive one removes it and signs
+   * out. There is no cookie fallback for a grant sign-in.
+   */
+  private static async restoreGrantSession(recordId: string): TRestoreSessionResult {
+    let session: Session | null = null;
+    try {
+      session = await HomeserverService.restoreGrantSession(recordId);
+      await HomeserverService.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
+      return { status: 'restored', session };
+    } catch (error) {
+      if (isWrongEnvironmentHomeserverError(error)) {
+        if (session) {
+          await HomeserverService.logout({ session }).catch((logoutError) => {
+            Logger.warn('Failed to sign out wrong-environment grant session', { logoutError });
+          });
+        }
+        await HomeserverService.removeGrantSession(recordId);
+        throw error;
+      }
+      if (session === null && !isDefinitiveSessionAuthFailure(error) && isAppError(error) && isRetryable(error)) {
+        Logger.warn('Grant session restore failed with a transient error; keeping the record', { error });
+        return { status: 'deferred' };
+      }
+      Logger.info('Grant session could not be restored; removing its record', { error });
+      await HomeserverService.removeGrantSession(recordId);
+      return { status: 'signed-out' };
+    }
   }
 
   private static async restoreSessionFromExport(
@@ -300,6 +345,27 @@ export class AuthApplication {
    */
   static async generateAuthUrl(): Promise<TGenerateAuthUrlResult> {
     return await HomeserverService.generateAuthUrl();
+  }
+
+  /** Grant sign-in URL (`pubkyauth://signin_grant`) for signers such as Bitkit. */
+  static async generateGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    return await HomeserverService.generateGrantAuthUrl();
+  }
+
+  static isGrantSignInAvailable(): boolean {
+    return HomeserverService.isGrantSignInAvailable();
+  }
+
+  static isGrantSession(session: Session | null | undefined): boolean {
+    return HomeserverService.isGrantSession(session);
+  }
+
+  static async saveGrantSession(session: Session): Promise<string> {
+    return await HomeserverService.saveGrantSession(session);
+  }
+
+  static async clearGrantSessions(): Promise<void> {
+    await HomeserverService.clearGrantSessions();
   }
 
   static startDirectSignInFlow(): TGenerateAuthTokenFlowResult {

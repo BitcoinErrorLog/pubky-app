@@ -4,6 +4,7 @@ import {
   AuthToken,
   Capabilities,
   Client,
+  GrantAuthFlow,
   Keypair,
   Pubky,
   PublicKey,
@@ -12,7 +13,7 @@ import {
   Signer,
 } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
-import { CAPABILITIES, capabilitiesMatchFullGrant } from '@/config/app';
+import { CAPABILITIES, capabilitiesMatchFullGrant, SHOP_GRANT_CLIENT_ID } from '@/config/app';
 import {
   getDefaultHttpRelay,
   getDeployEnv,
@@ -647,6 +648,89 @@ export class HomeserverService {
       return { authorizationUrl, awaitToken, cancelAuthFlow: free };
     } catch (error) {
       return handleError({ error, additionalContext: { relay: getDefaultHttpRelay() } });
+    }
+  }
+
+  /**
+   * Whether this browser can hold a grant key that JavaScript cannot read
+   * (secure context, IndexedDB, WebCrypto Ed25519). Without it the Shop does
+   * not offer the Bitkit sign-in.
+   */
+  static isGrantSignInAvailable(): boolean {
+    try {
+      return GrantAuthFlow.isDelegationAvailable;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Starts a grant sign-in (`pubkyauth://signin_grant`) for signers that only
+   * accept grant URLs, such as Bitkit. The proof-of-possession key is a
+   * non-extractable WebCrypto key in IndexedDB; the approved session is
+   * grant-backed and never exported to JS-readable storage.
+   */
+  static async generateGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    try {
+      const flow = await GrantAuthFlow.startDelegated(CAPABILITIES, AuthFlowKind.signin(), {
+        clientId: SHOP_GRANT_CLIENT_ID,
+        relay: getDefaultHttpRelay(),
+      });
+      const approval = createCancelableAuthApproval(flow);
+      return {
+        authorizationUrl: flow.authorizationUrl,
+        awaitApproval: approval.awaitApproval,
+        cancelAuthFlow: approval.cancel,
+      };
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'generateGrantAuthUrl' } });
+    }
+  }
+
+  /** Whether a session is backed by a grant (Bitkit sign-in) rather than a homeserver cookie. */
+  static isGrantSession(session: Session | null | undefined): boolean {
+    return Boolean(session && session.grant !== undefined);
+  }
+
+  /** Whether the current in-memory session is grant-backed. */
+  static currentSessionIsGrant(): boolean {
+    return this.isGrantSession(useAuthStore.getState().selectSession());
+  }
+
+  /** Persists a completed grant session in IndexedDB and returns its record id. */
+  static async saveGrantSession(session: Session): Promise<string> {
+    try {
+      const stored = await this.getPubkySdk().browserSessionStore.save(session);
+      return stored.id;
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'saveGrantSession' } });
+    }
+  }
+
+  /** Restores a grant session saved by {@link saveGrantSession}. Never saves. */
+  static async restoreGrantSession(recordId: string): Promise<Session> {
+    try {
+      return await this.getPubkySdk().browserSessionStore.restore(recordId);
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'restoreGrantSession' } });
+    }
+  }
+
+  /** Drops one stored grant session record and its key. */
+  static async removeGrantSession(recordId: string): Promise<void> {
+    try {
+      await this.getPubkySdk().browserSessionStore.remove(recordId);
+    } catch (error) {
+      Logger.warn('Failed to remove a stored grant session', { error });
+    }
+  }
+
+  /** Drops every stored grant session record and delegated key for this origin. */
+  static async clearGrantSessions(): Promise<void> {
+    try {
+      await this.getPubkySdk().browserSessionStore.clearAll();
+    } catch (error) {
+      Logger.warn('Failed to clear stored grant sessions', { error });
     }
   }
 
