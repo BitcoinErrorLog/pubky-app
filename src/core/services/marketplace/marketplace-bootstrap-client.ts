@@ -40,6 +40,9 @@ const pollSchema = z.object({
   expires_at: z.string().optional(),
 });
 
+/** The only capability the marketplace bootstrap grant may ask Bitkit for. */
+export const MARKETPLACE_BOOTSTRAP_CAPABILITIES = '/pub/pubky.app/marketplace-service/v1/:rw';
+
 function bootstrapFailure(code: string) {
   return Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, code, {
     service: ErrorService.Marketplace,
@@ -97,6 +100,17 @@ export async function beginMarketplaceBootstrapFlow({ pubky }: { pubky: string }
     });
   }
 
+  const cancelFlow = async () => {
+    await post(`/api/marketplace/bootstrap-flows/${verified.state_id}/cancel`, {}).catch(() => undefined);
+  };
+  // Never show Bitkit a QR that asks for more than purchases.
+  if (
+    new URL(verified.authorization_url).searchParams.getAll('caps').join(',') !== MARKETPLACE_BOOTSTRAP_CAPABILITIES
+  ) {
+    await cancelFlow();
+    throw bootstrapFailure('result_denied');
+  }
+
   let cancelled = false;
   return {
     authorizationUrl: verified.authorization_url,
@@ -119,7 +133,7 @@ export async function beginMarketplaceBootstrapFlow({ pubky }: { pubky: string }
     cancel: async () => {
       if (cancelled) return;
       cancelled = true;
-      await post(`/api/marketplace/bootstrap-flows/${verified.state_id}/cancel`, {}).catch(() => undefined);
+      await cancelFlow();
     },
   };
 }

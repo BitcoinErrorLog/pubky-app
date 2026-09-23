@@ -38,8 +38,11 @@ function challenge(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const BOOTSTRAP_URL =
+  'pubkyauth://signin_grant?caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw&relay=https%3A%2F%2Frelay.example%2Finbox&secret=s&cid=shop.example&cpk=k';
+
 const verified = {
-  authorization_url: 'pubkyauth://signin_grant?caps=x',
+  authorization_url: BOOTSTRAP_URL,
   expires_at: new Date(Date.now() + 120_000).toISOString(),
   state_id: STATE_ID,
   status: 'awaiting',
@@ -142,6 +145,26 @@ describe('marketplace purchase bootstrap client', () => {
       `/api/marketplace/bootstrap-flows/${STATE_ID}/status`,
       `/api/marketplace/bootstrap-flows/${STATE_ID}/status`,
     ]);
+  });
+
+  it('refuses and cancels a bootstrap QR that asks Bitkit for more than purchases', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(challenge(), 201))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...verified,
+          authorization_url: BOOTSTRAP_URL.replace(
+            'caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw',
+            'caps=%2Fpub%2Fpubky.app%2F%3Arw',
+          ),
+        }),
+      )
+      .mockResolvedValue(new Response(null, { status: 204 }));
+
+    await expect(beginMarketplaceBootstrapFlow({ pubky: PUBKY })).rejects.toThrow('result_denied');
+    expect(fetchMock.mock.calls.map((call) => call[0])).toContain(
+      `/api/marketplace/bootstrap-flows/${STATE_ID}/cancel`,
+    );
   });
 
   it('cancel posts to the bootstrap cancel route once', async () => {
