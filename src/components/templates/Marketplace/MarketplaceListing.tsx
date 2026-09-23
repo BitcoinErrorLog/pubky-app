@@ -357,7 +357,6 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               </Typography>
               <MarketplaceIndicativePrice
                 money={displayPrice}
-                showApproximation={false}
                 className="text-base font-medium text-muted-foreground"
               />
               {!shippingBadge && (
