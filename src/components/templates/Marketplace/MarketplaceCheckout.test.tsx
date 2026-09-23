@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { MarketplaceCheckout } from './MarketplaceCheckout';
 
 beforeAll(() => {
@@ -534,6 +535,78 @@ describe('MarketplaceCheckout local pickup (Wave 7, §A2)', () => {
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText(/Local pickup — no delivery address/)).not.toBeInTheDocument();
+  });
+});
+
+describe('MarketplaceCheckout with no usable payment method', () => {
+  const ALL_RAILS = {
+    bitcoinAvailable: true,
+    bitcoinOfferAvailable: true,
+    stripePaymentLink: 'https://buy.stripe.com/test_checkout',
+    paypalMerchantEmail: 'seller@example.com',
+  };
+  const NO_RAILS = {
+    bitcoinAvailable: false,
+    bitcoinOfferAvailable: true,
+    stripePaymentLink: null,
+    paypalMerchantEmail: null,
+  };
+
+  beforeEach(() => {
+    resetCheckoutView();
+    view.adapterMode = 'locks-paykit';
+    view.hasMarketplaceSession = true;
+  });
+
+  afterEach(() => {
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(async () => ALL_RAILS);
+  });
+
+  it('says the one seller has not set up a method this cart can use, without multi-seller advice', async () => {
+    seededCart();
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(async () => NO_RAILS);
+
+    render(<MarketplaceCheckout />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "This seller hasn't set up a payment method this cart can use, so Pay stays disabled.",
+    );
+    expect(screen.queryByText(/These sellers do not share a payment method/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Remove a seller/)).not.toBeInTheDocument();
+    expect(screen.getByText('Pay unlocks once this seller sets up a payment method.')).toHaveAttribute(
+      'id',
+      'checkout-pay-reason',
+    );
+    expect(screen.getByTestId('marketplace-checkout-pay')).toBeDisabled();
+  });
+
+  it('keeps the shared-rail advice when two sellers have no method in common', async () => {
+    view.items = [
+      { id: 'seller:boots:variant_42', listingId: listing.id, variantId: 'variant_42', quantity: 1, listing },
+      {
+        id: 'other:camera:variant_01',
+        listingId: secondSellerListing.id,
+        variantId: 'variant_01',
+        quantity: 1,
+        listing: secondSellerListing,
+      },
+    ];
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(async (sellerPubky: unknown) =>
+      sellerPubky === listing.record.ownerPubky
+        ? { ...NO_RAILS, paypalMerchantEmail: 'seller@example.com' }
+        : { ...NO_RAILS, stripePaymentLink: 'https://buy.stripe.com/test_checkout' },
+    );
+
+    render(<MarketplaceCheckout />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'These sellers do not share a payment method, so Pay stays disabled. Remove a seller in the cart or ask them to add a shared rail.',
+    );
+    expect(screen.queryByText(/This seller hasn't set up/)).not.toBeInTheDocument();
+    expect(screen.getByText('Choose sellers that share a payment method.')).toHaveAttribute(
+      'id',
+      'checkout-pay-reason',
+    );
   });
 });
 

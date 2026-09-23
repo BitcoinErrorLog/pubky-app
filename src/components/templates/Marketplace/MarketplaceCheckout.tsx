@@ -191,6 +191,7 @@ function MarketplaceCartCheckout() {
     isOfferCheckout && award
       ? award.listing.sellerPubky
       : [...new Set(checkoutItems.map((item) => item.listing.record.ownerPubky))].join('|');
+  const isMultiSeller = sellerKey.includes('|');
   const isPaying = isOfferCheckout ? offerPay.isSubmitting : checkout.isPaying;
   const listingRoute = award && getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
   const backHref =
@@ -717,8 +718,9 @@ function MarketplaceCartCheckout() {
                       <Skeleton className="h-11 w-full" aria-label="Loading payment methods" />
                     ) : sharedMethods.length === 0 && !isSandbox ? (
                       <Typography as="p" role="alert" className="text-sm text-muted-foreground">
-                        These sellers do not share a payment method, so Pay stays disabled. Remove a seller in the cart
-                        or ask them to add a shared rail.
+                        {isMultiSeller
+                          ? 'These sellers do not share a payment method, so Pay stays disabled. Remove a seller in the cart or ask them to add a shared rail.'
+                          : "This seller hasn't set up a payment method this cart can use, so Pay stays disabled. Message the seller to ask them to add one."}
                       </Typography>
                     ) : (
                       <div className="flex flex-wrap gap-2">
@@ -771,7 +773,9 @@ function MarketplaceCartCheckout() {
                       {checkout.hasFulfillmentConflict
                         ? "Some items can't be checked out together — see the note above."
                         : sharedMethods && sharedMethods.length === 0 && !isSandbox
-                          ? 'Choose sellers that share a payment method.'
+                          ? isMultiSeller
+                            ? 'Choose sellers that share a payment method.'
+                            : 'Pay unlocks once this seller sets up a payment method.'
                           : 'Fill in delivery details, accept the guarantee, and choose a payment method to pay.'}
                     </Typography>
                   )}
