@@ -30,14 +30,19 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceFavorite } from '@/hooks/useCommerceFavorite/useCommerceFavorite';
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
+import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceProjection } from '@/hooks/useMarketplaceProjection/useMarketplaceProjection';
 import { useSellerReputation } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { useMeasurementSystem } from '@/hooks/useMeasurementSystem/useMeasurementSystem';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { getAuctionPhase } from '@/libs/commerce/auction-phase';
-import { CHECKOUT_HOLD_COPY, findViewerPendingHoldOrder } from '@/libs/commerce/checkout-hold';
-import { getMarketplaceCheckoutRoute } from '@/libs/commerce/checkout-phase';
+import {
+  CHECKOUT_HOLD_COPY,
+  findViewerAcceptedOfferHold,
+  findViewerPendingHoldOrder,
+} from '@/libs/commerce/checkout-hold';
+import { getMarketplaceCheckoutRoute, getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
@@ -65,6 +70,7 @@ import { MarketplaceReviewsSection } from '@/organisms/Marketplace/MarketplaceRe
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { MarketplaceSimilarItems } from '@/organisms/Marketplace/MarketplaceSimilarItems';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceListingDetailSkeleton } from './Marketplace.skeleton';
 
@@ -91,6 +97,8 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const sellerReputation = useSellerReputation(sellerPubky);
   const cart = useMarketplaceCart();
   const orders = useMarketplaceOrders();
+  const offers = useMarketplaceOffers();
+  const sessionPubky = MarketplaceSessionService.getActiveSession()?.pubky ?? null;
   const measurementSystem = useMeasurementSystem();
   const aggregateId = buildMarketplaceListingAggregateId(sellerPubky, listingId);
 
@@ -214,6 +222,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const viewerHoldOrder = projectionIsReserved
     ? findViewerPendingHoldOrder(orders.orders, aggregateId, currentUserPubky)
     : null;
+  const viewerOfferHold =
+    projectionIsReserved && !viewerHoldOrder
+      ? findViewerAcceptedOfferHold(offers.offers, aggregateId, sessionPubky)
+      : null;
   const projectionIsSoldOut =
     negotiation.projection !== null &&
     (negotiation.projection.state === 'sold' ||
@@ -256,7 +268,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
         : projectionIsReserved
           ? viewerHoldOrder
             ? CHECKOUT_HOLD_COPY.heldForYouCta
-            : 'Held by another buyer'
+            : viewerOfferHold
+              ? CHECKOUT_HOLD_COPY.heldForYouOfferCta
+              : 'Held by another buyer'
           : isSoldOut
             ? 'Sold out'
             : isPurchasable
@@ -411,7 +425,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
               />
             )}
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2" data-surface="marketplace-listing-purchase">
               {record.sale.format === 'auction' ? (
                 <div className="[&_[data-slot=button]]:border-brand [&_[data-slot=button]]:bg-brand [&_[data-slot=button]]:text-background [&_[data-slot=button]:hover]:bg-brand/90">
                   <MarketplaceBidDialog
@@ -437,6 +451,16 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                         {CHECKOUT_HOLD_COPY.heldForYouCta}
                       </Link>
                     </Button>
+                  ) : viewerOfferHold ? (
+                    <Button asChild size="default" className="w-fit rounded-full">
+                      <Link
+                        href={getMarketplaceOfferCheckoutRoute(viewerOfferHold.offerId)}
+                        overrideDefaults
+                        data-cy="marketplace-listing-held-for-you-offer"
+                      >
+                        {CHECKOUT_HOLD_COPY.heldForYouOfferCta}
+                      </Link>
+                    </Button>
                   ) : (
                     <Button
                       size="default"
@@ -459,12 +483,12 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       {purchaseCtaLabel}
                     </Button>
                   )}
-                  {projectionIsReserved && !viewerHoldOrder && (
+                  {projectionIsReserved && !viewerHoldOrder && !viewerOfferHold && (
                     <Typography as="p" className="w-full text-sm text-muted-foreground">
                       {CHECKOUT_HOLD_COPY.listingReserved}
                     </Typography>
                   )}
-                  {record.sale.acceptsOffers && (
+                  {record.sale.acceptsOffers && !viewerOfferHold && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}

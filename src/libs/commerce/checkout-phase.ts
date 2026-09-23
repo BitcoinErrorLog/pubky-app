@@ -150,7 +150,7 @@ export function listingAggregatesFromCheckoutLines(lines: Array<{ listingAggrega
   return lines.flatMap((line) => (line.listingAggregateId ? [line.listingAggregateId] : []));
 }
 
-const PAYMENT_METHOD_ORDER: PaymentMethodKind[] = ['bitcoin', 'stripe', 'paypal'];
+const PAYMENT_METHOD_ORDER: PaymentMethodKind[] = ['bitcoin', 'paypal'];
 
 /** Shared rails across every seller in a cart. Empty means Pay stays disabled. */
 export function intersectPaymentMethods(sets: PaymentMethodKind[][]): PaymentMethodKind[] {

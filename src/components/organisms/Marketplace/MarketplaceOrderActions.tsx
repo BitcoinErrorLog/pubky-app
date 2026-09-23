@@ -486,7 +486,7 @@ function externalRefundReferenceLabel(paymentMethod: MarketplaceOrder['paymentMe
     case 'paypal':
       return 'PayPal transaction reference';
     case 'stripe':
-      return 'Stripe payment reference';
+      return 'External payment reference';
     default:
       return 'External payment reference';
   }
