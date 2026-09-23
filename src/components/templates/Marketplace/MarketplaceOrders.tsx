@@ -253,8 +253,8 @@ export function MarketplaceOrders() {
                     const nextActorHint = getNextActorHint(order, payment, isBuyer);
                     return (
                       <Card key={order.id} className="border py-5">
-                        <CardContent className="grid gap-5 px-5 lg:grid-cols-[1fr_auto] lg:items-center">
-                          <div>
+                        <CardContent className="grid min-w-0 gap-5 px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                          <div className="min-w-0">
                             <div className="mb-3 flex flex-wrap gap-2">
                               <Badge variant="outline" className="border-border/60 text-muted-foreground">
                                 {isBuyer ? 'You bought' : 'You sold'}
@@ -318,20 +318,27 @@ export function MarketplaceOrders() {
                               </div>
                             )}
                             {receipt && (
-                              <div className="mt-3 flex flex-col gap-1">
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  <ReceiptText className="size-4 text-brand" />
+                              <details
+                                className="mt-3 [&:not([open])>:not(summary)]:!hidden"
+                                data-testid="order-receipt-details"
+                              >
+                                <summary className="cursor-pointer text-sm text-muted-foreground">Receipt</summary>
+                                <div
+                                  className="mt-1 flex items-center gap-2 text-sm break-all text-muted-foreground"
+                                  data-testid="order-receipt-hash"
+                                >
+                                  <ReceiptText className="size-4 shrink-0 text-brand" />
                                   Receipt integrity {receipt.contentHash.slice(0, 12)}…
                                 </div>
-                                <DropEditionReceiptLine order={order} />
-                                {receiptsPublicationStatus === 'needs_reauth' && (
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                    <Typography as="p" className="text-sm text-muted-foreground">
-                                      Receipt not saved to your private storage yet — reconnect to save it
-                                    </Typography>
-                                    <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
-                                  </div>
-                                )}
+                              </details>
+                            )}
+                            <DropEditionReceiptLine order={order} />
+                            {receipt && receiptsPublicationStatus === 'needs_reauth' && (
+                              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                <Typography as="p" className="text-sm text-muted-foreground">
+                                  Receipt not saved to your private storage yet — reconnect to save it
+                                </Typography>
+                                <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
                               </div>
                             )}
                             {order.shipment && (
@@ -398,7 +405,7 @@ export function MarketplaceOrders() {
                               </Typography>
                             )}
                             <MarketplaceOrderMessageCta order={order} adapterMode={adapterMode} />
-                            <div className="mt-4">
+                            <div className="mt-4 min-w-0">
                               <MarketplacePaymentStatusCard
                                 order={order}
                                 payment={payment}

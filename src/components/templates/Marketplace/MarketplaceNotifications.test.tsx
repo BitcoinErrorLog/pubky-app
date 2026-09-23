@@ -88,10 +88,30 @@ describe('MarketplaceNotifications', () => {
       },
     ];
 
-    const { getByText } = render(<MarketplaceNotifications />);
+    const { getByText, queryByText } = render(<MarketplaceNotifications />);
 
     expect(getByText('From System')).toBeInTheDocument();
-    expect(getByText('Unrecognized marketplace event — history may be incomplete')).toBeInTheDocument();
+    expect(getByText('Payment method connected')).toBeInTheDocument();
+    expect(queryByText(/history may be incomplete/)).not.toBeInTheDocument();
+    expect(queryByText('Integrity notice')).not.toBeInTheDocument();
+    expect(queryByText(/not available yet/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the incomplete-history banner for a type the Shop has no copy for', () => {
+    marketplaceView.notifications = [
+      {
+        kind: 'unrecognized',
+        id: 'row-gap',
+        type: 'payment_hold_acquired_unknown',
+        createdAt: '2026-08-20T11:02:00.000Z',
+      },
+    ];
+
+    render(<MarketplaceNotifications />);
+
+    expect(screen.getByRole('status')).toHaveTextContent(/history may be incomplete/);
+    expect(screen.getByText('Integrity notice')).toBeInTheDocument();
+    expect(screen.getByText('Unrecognized marketplace event')).toBeInTheDocument();
   });
 
   it('links a new offer activity row to its offer anchor', () => {

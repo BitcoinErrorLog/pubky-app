@@ -147,6 +147,8 @@ describe('marketplace journeys', () => {
       cy.contains('detected').should('be.visible');
       cy.contains('button', 'Confirm payment').click();
       cy.contains('paid').should('be.visible');
+      cy.contains('Receipt integrity').should('not.exist');
+      cy.contains('summary', 'Receipt').click();
       cy.contains('Receipt integrity').should('be.visible');
     });
 

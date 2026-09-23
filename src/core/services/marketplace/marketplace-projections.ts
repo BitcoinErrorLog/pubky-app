@@ -259,7 +259,14 @@ export const marketplaceNotificationSchema = z
       'auction_won',
       'auction_ended',
       'order_created',
+      // Hold-at-pay: stock is reserved when the buyer binds a method, before
+      // PayPal (or any rail) confirms. Shop #86 checkout emits this between
+      // checkout started and payment confirmed.
+      'payment_method_bound',
+      'fiat_payment_reported',
       'payment_confirmed',
+      'bitcoin_manual_review',
+      'bitcoin_prepare_voided',
       'order_cancelled',
       'order_shipped',
       'order_delivery_assumed',
@@ -278,6 +285,7 @@ export const marketplaceNotificationSchema = z
       // so the reputation worker excludes it — the notification says why.
       'order_cancelled_terms_change',
       'payment_refund_required',
+      'drop_sold_out',
     ]),
     aggregateId: z.string(),
     // Optional monetary context (ADR-0019 §8: present only where the

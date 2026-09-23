@@ -399,7 +399,7 @@ function MarketplaceCartCheckout() {
             ) : (
               focusedPaying.map(({ order, payment }) => (
                 <Card key={order.id} className="border">
-                  <CardContent className="grid gap-4 px-6">
+                  <CardContent className="grid min-w-0 gap-4 px-6">
                     {isPaidOrLaterState(order.state) ? <Typography as="p">Payment confirmed.</Typography> : null}
                     <MarketplacePaymentStatusCard
                       order={order}

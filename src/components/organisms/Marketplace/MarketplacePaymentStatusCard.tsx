@@ -193,7 +193,7 @@ export function MarketplacePaymentStatusCard({
       : BUYER_VISIBLE_STATUS_LABELS[visibleStatus];
 
   return (
-    <div className="grid gap-3 rounded-xl border p-4" data-surface="marketplace-payment-status-card">
+    <div className="grid min-w-0 gap-3 rounded-xl border p-4" data-surface="marketplace-payment-status-card">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={visibleStatus === 'confirmed' ? 'default' : 'outline'}>{visibleStatusLabel}</Badge>
         {payment.adapter === 'locks' && <Badge variant="secondary">Locks/Paykit</Badge>}
@@ -220,13 +220,17 @@ export function MarketplacePaymentStatusCard({
         </Typography>
       )}
       {visibleStatus === 'confirmed' && order.fiatVerification === 'gateway-notified' && (
-        <Typography as="p" className="text-sm text-muted-foreground">
+        <Typography
+          as="p"
+          data-testid="paypal-verified-explanation"
+          className="min-w-0 text-sm break-words whitespace-normal text-muted-foreground"
+        >
           This payment was confirmed automatically by a verified notification from PayPal&rsquo;s servers, matched
           against the seller&rsquo;s configured PayPal address and the exact order total.
         </Typography>
       )}
       {visibleStatus === 'confirmed' && order.fiatVerification === 'seller-attested' && (
-        <Typography as="p" className="text-sm text-muted-foreground">
+        <Typography as="p" className="min-w-0 text-sm break-words whitespace-normal text-muted-foreground">
           This payment was confirmed by the seller reporting receipt in their own PayPal account — not by automatic
           processor verification. The confirmation is the seller&rsquo;s attestation.
         </Typography>

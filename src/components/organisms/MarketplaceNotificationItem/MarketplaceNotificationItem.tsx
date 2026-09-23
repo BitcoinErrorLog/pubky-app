@@ -13,6 +13,7 @@ import {
 import { RelativeTimestamp } from '@/molecules/RelativeTimestamp/RelativeTimestamp';
 import { getUserProfileLink } from '@/organisms/NotificationItem/NotificationItem.utils';
 import type { MarketplaceFeedNotification } from '@/pipes/marketplaceNotification/marketplaceNotification.types';
+import { isIntegrityGapActivityType, marketplaceActivityLabel } from '@/services/marketplace/marketplace-activity-copy';
 import { getMarketplaceNotificationActionText } from './MarketplaceNotificationItem.utils';
 
 /** Same dimensions as the social NotificationIcon so mixed rows align. */
@@ -41,6 +42,21 @@ export function MarketplaceNotificationItem({ notification, isMobile = false }: 
   const { profile } = useUserProfile(actorPubky);
 
   if ('kind' in notification) {
+    const label = marketplaceActivityLabel(notification.type);
+    if (label && !isIntegrityGapActivityType(notification.type)) {
+      return (
+        <Container
+          overrideDefaults={true}
+          className="flex w-full min-w-0 items-center gap-3 rounded-md p-3"
+          data-cy="marketplace-known-activity"
+        >
+          <Container overrideDefaults={true} className="size-6 shrink-0 rounded-full bg-brand/15" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">{label}</p>
+          </div>
+        </Container>
+      );
+    }
     return (
       <Container
         overrideDefaults={true}
