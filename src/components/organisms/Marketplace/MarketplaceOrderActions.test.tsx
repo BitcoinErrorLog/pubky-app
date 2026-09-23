@@ -274,7 +274,7 @@ describe('MarketplaceOrderActions own-review verified status', () => {
 describe('MarketplaceOrderActions refund reference labels', () => {
   it.each([
     ['bitcoin', 'External Bitcoin transaction reference'],
-    ['paypal', 'PayPal transaction reference'],
+    ['paypal', 'PayPal refund transaction id'],
     ['stripe', 'Stripe payment reference'],
     [undefined, 'External payment reference'],
   ] as const)('uses the %s rail label', async (paymentMethod, label) => {
@@ -288,11 +288,11 @@ describe('MarketplaceOrderActions refund reference labels', () => {
       />,
     );
 
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Record external refund' }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Record refund' }));
     expect(screen.getByLabelText(label)).toBeInTheDocument();
   });
 
-  it('tells a PayPal seller to refund in PayPal before recording the return', () => {
+  it('tells a PayPal seller to refund in PayPal before recording the return', async () => {
     const order = createOrderFixture('return_received', { paymentMethod: 'paypal' });
     render(
       <MarketplaceOrderActions
@@ -303,8 +303,14 @@ describe('MarketplaceOrderActions refund reference labels', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Record external refund' })).toBeInTheDocument();
-    expect(screen.getByTestId('paypal-refund-hint')).toHaveTextContent('Refund in PayPal, then record it here');
+    expect(screen.getByRole('button', { name: 'Record refund' })).toBeInTheDocument();
+    expect(screen.getByTestId('paypal-refund-hint')).toHaveTextContent(
+      'Refund the buyer in PayPal first, then record it here',
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Record refund' }));
+    expect(screen.getByRole('heading', { name: 'Record refund' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Amount (USD)')).toHaveValue('137.00');
+    expect(screen.getByLabelText('PayPal refund transaction id')).toBeInTheDocument();
   });
 });
 

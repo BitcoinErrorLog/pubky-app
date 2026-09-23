@@ -256,7 +256,7 @@ export function MarketplaceOrderActions({
         )}
         {!isBuyer && ['return_received', 'cancelled'].includes(order.state) && !order.externalRefund && (
           <Button size="sm" className="rounded-full" onClick={() => begin('refund')}>
-            Record external refund
+            Record refund
           </Button>
         )}
         {['delivered', 'completed'].includes(order.state) &&
@@ -288,7 +288,7 @@ export function MarketplaceOrderActions({
         ['return_received', 'cancelled'].includes(order.state) &&
         !order.externalRefund && (
           <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-refund-hint">
-            Refund in PayPal, then record it here
+            Refund the buyer in PayPal first, then record it here
           </p>
         )}
 
@@ -497,7 +497,7 @@ function externalRefundReferenceLabel(paymentMethod: MarketplaceOrder['paymentMe
     case 'bitcoin':
       return 'External Bitcoin transaction reference';
     case 'paypal':
-      return 'PayPal transaction reference';
+      return 'PayPal refund transaction id';
     case 'stripe':
       return 'Stripe payment reference';
     default:
@@ -514,7 +514,7 @@ function actionTitle(action: MarketplaceOrderActionData['action'], orderState?: 
     case 'return':
       return 'Request a return';
     case 'refund':
-      return 'Record external refund';
+      return 'Record refund';
     case 'review':
       return 'Leave a review';
     case 'review_edit':
