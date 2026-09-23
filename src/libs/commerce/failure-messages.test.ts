@@ -221,7 +221,7 @@ describe('marketplacePaymentMethodFailureMessage', () => {
     const wire = {
       ok: false,
       error: {
-        code: 'CONFLICT',
+        code: 'INVALID_STATE',
         message: 'SENTINEL_HOLDING_COPY Another buyer is currently paying for this item.',
         reason: 'held',
       },
