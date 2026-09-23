@@ -16,6 +16,11 @@ const view = vi.hoisted(() => ({
   isOpeningRing: false,
   requestsFullGrant: true,
   requestsGrantReconnect: false,
+  isGrantSession: false,
+  start: vi.fn(),
+}));
+vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
+  useIsGrantSession: () => view.isGrantSession,
 }));
 
 vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
@@ -25,7 +30,7 @@ vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () 
     errorMessage: view.errorMessage,
     requestsFullGrant: view.requestsFullGrant,
     requestsGrantReconnect: view.requestsGrantReconnect,
-    start: vi.fn(),
+    start: view.start,
     cancel: vi.fn(),
     copyAuthUrl: vi.fn(async () => {}),
     openInRing: vi.fn(),
@@ -56,6 +61,29 @@ describe('MarketplaceSessionConnectDialog', () => {
     view.isOpeningRing = false;
     view.requestsFullGrant = true;
     view.requestsGrantReconnect = false;
+    view.isGrantSession = false;
+    view.start.mockClear();
+  });
+
+  it('grant session sees refusal not classic qr', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl = 'pubkyauth:///?relay=https%3A%2F%2Frelay.example.com%2Finbox&secret=x';
+    view.isGrantSession = true;
+
+    render(<MarketplaceSessionConnectDialog autoOpen />);
+
+    expect(screen.getByTestId('grant-session-refusal')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Copy authorization link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open in pubky ring/i })).not.toBeInTheDocument();
+    expect(view.start).not.toHaveBeenCalled();
+  });
+
+  it('a cookie session still starts the classic approval when opened', () => {
+    view.status = 'awaiting';
+    render(<MarketplaceSessionConnectDialog autoOpen />);
+
+    expect(view.start).toHaveBeenCalled();
+    expect(screen.queryByTestId('grant-session-refusal')).not.toBeInTheDocument();
   });
 
   it('joined state: honest copy, and no QR slot, Copy, or Open affordances', () => {

@@ -266,6 +266,83 @@ describe('AuthApplication', () => {
       expect(sleepSpy).not.toHaveBeenCalled();
     });
 
+    describe('grant session record (Bitkit sign-in)', () => {
+      const grantStore = () =>
+        mockAuthStore({
+          sessionExport: null,
+          grantSessionRecordId: 'rec-1',
+          isRestoringSession: false,
+          setIsRestoringSession: vi.fn(),
+          init: vi.fn(),
+        });
+      const grantSession = () =>
+        asOpaque<Session>({ grant: {}, info: { publicKey: asOpaque({ z32: () => 'user-pubky' }) } });
+
+      it('reload restores grant session from store', async () => {
+        const session = grantSession();
+        const restoreGrantSpy = vi.spyOn(HomeserverService, 'restoreGrantSession').mockResolvedValue(session);
+        const cookieRestoreSpy = vi.spyOn(HomeserverService, 'restoreSession');
+        vi.spyOn(HomeserverService, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+
+        const result = await AuthApplication.restorePersistedSession({ authStore: grantStore() });
+
+        expect(result).toEqual({ status: 'restored', session });
+        expect(restoreGrantSpy).toHaveBeenCalledWith('rec-1');
+        expect(cookieRestoreSpy).not.toHaveBeenCalled();
+      });
+
+      it('restore never calls save', async () => {
+        vi.spyOn(HomeserverService, 'restoreGrantSession').mockResolvedValue(grantSession());
+        vi.spyOn(HomeserverService, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
+        const saveSpy = vi.spyOn(HomeserverService, 'saveGrantSession');
+
+        await AuthApplication.restorePersistedSession({ authStore: grantStore() });
+
+        expect(saveSpy).not.toHaveBeenCalled();
+      });
+
+      it('reload after grant expiry shows signed-out and drops the record', async () => {
+        vi.spyOn(HomeserverService, 'restoreGrantSession').mockRejectedValue(createAuthError());
+        const removeSpy = vi.spyOn(HomeserverService, 'removeGrantSession').mockResolvedValue(undefined);
+
+        const result = await AuthApplication.restorePersistedSession({ authStore: grantStore() });
+
+        expect(result).toEqual({ status: 'signed-out' });
+        expect(removeSpy).toHaveBeenCalledWith('rec-1');
+      });
+
+      it('keeps the record on a transient restore failure', async () => {
+        vi.spyOn(HomeserverService, 'restoreGrantSession').mockRejectedValue(createNetworkError());
+        const removeSpy = vi.spyOn(HomeserverService, 'removeGrantSession').mockResolvedValue(undefined);
+
+        const result = await AuthApplication.restorePersistedSession({ authStore: grantStore() });
+
+        expect(result).toEqual({ status: 'deferred' });
+        expect(removeSpy).not.toHaveBeenCalled();
+      });
+
+      it('consumer mode ignores grant record id: no bridge, no cookie restore', async () => {
+        const originSpy = vi
+          .spyOn(vibeSessionConfig, 'getVibeSessionBridgeOrigin')
+          .mockReturnValue('https://pubky.app');
+        vi.spyOn(HomeserverService, 'restoreGrantSession').mockRejectedValue(createAuthError());
+        vi.spyOn(HomeserverService, 'removeGrantSession').mockResolvedValue(undefined);
+        const cookieRestoreSpy = vi.spyOn(HomeserverService, 'restoreSession');
+        const bridgeSpy = vi.spyOn(vibeSessionBridge, 'requestFromBridge');
+
+        try {
+          const result = await AuthApplication.restorePersistedSession({ authStore: grantStore() });
+
+          expect(result).toEqual({ status: 'signed-out' });
+          expect(cookieRestoreSpy).not.toHaveBeenCalled();
+          expect(bridgeSpy).not.toHaveBeenCalled();
+        } finally {
+          originSpy.mockRestore();
+          bridgeSpy.mockRestore();
+        }
+      });
+    });
+
     it('should return null when sessionExport is missing', async () => {
       const authStore = createMockAuthStore(null);
 

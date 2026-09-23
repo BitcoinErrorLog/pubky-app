@@ -85,7 +85,10 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     "src/__tests__/page.test.jsx",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next/dev/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

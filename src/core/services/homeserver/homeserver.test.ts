@@ -43,6 +43,7 @@ const mockState = vi.hoisted(() => ({
   getHomeserverOf: vi.fn(),
   restoreSession: vi.fn(),
   sessionRestore: vi.fn(),
+  grantStartDelegated: vi.fn(),
   startAuthFlow: vi.fn(),
   authFlowKindSignin: vi.fn(),
   authTokenFromBytes: vi.fn(),
@@ -118,6 +119,10 @@ vi.mock('@synonymdev/pubky', () => {
     Pubky: MockPubky,
     Session: {
       restore: (...args: unknown[]) => mockState.sessionRestore(...args),
+    },
+    GrantAuthFlow: {
+      startDelegated: (...args: unknown[]) => mockState.grantStartDelegated(...args),
+      isDelegationAvailable: true,
     },
     PublicKey: {
       from: vi.fn().mockReturnValue({
@@ -856,6 +861,32 @@ describe('HomeserverService', () => {
           category: ErrorCategory.Server,
           code: ServerErrorCode.INTERNAL_ERROR,
         });
+      });
+    });
+
+    describe('generateGrantAuthUrl (Bitkit sign-in)', () => {
+      it('bitkit qr is signin_grant with shop caps and cid', async () => {
+        const free = vi.fn();
+        mockState.grantStartDelegated.mockResolvedValue({
+          authorizationUrl: 'pubkyauth://signin_grant?caps=x&relay=r&secret=s&cid=shop.pubky.app&cpk=k',
+          tryPollOnce: vi.fn().mockResolvedValue(undefined),
+          free,
+        });
+
+        const { authorizationUrl, awaitApproval, cancelAuthFlow } = await HomeserverService.generateGrantAuthUrl();
+        awaitApproval.catch(() => undefined);
+        cancelAuthFlow();
+
+        expect(mockState.grantStartDelegated).toHaveBeenCalledWith(CAPABILITIES, 'signin-kind', {
+          clientId: 'shop.pubky.app',
+          relay: expect.any(String),
+        });
+        expect(authorizationUrl.startsWith('pubkyauth://signin_grant')).toBe(true);
+        expect(free).toHaveBeenCalled();
+      });
+
+      it('reports grant sign-in availability from the SDK', () => {
+        expect(HomeserverService.isGrantSignInAvailable()).toBe(true);
       });
     });
 
