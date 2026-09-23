@@ -221,7 +221,7 @@ describe('MarketplaceOrders tabs', () => {
       orderView('delivered', 'Bought delivered hat', 'buyer', { nextActor: 'none' }),
       orderView('completed', 'Bought completed scarf', 'buyer'),
       orderView('refunded_external', 'Sold refunded belt', 'seller'),
-      orderView('cancelled', 'Bought cancelled mittens', 'buyer'),
+      orderView('cancelled', 'Bought cancelled mittens', 'buyer', { receiptId: null }),
       orderView('return_requested', 'Sold return requested gloves', 'seller'),
     ];
 
@@ -268,7 +268,7 @@ describe('MarketplaceOrders tabs', () => {
       orderView('pending_payment', 'Bought unpaid coat', 'buyer', { nextActor: 'buyer' }, 'awaiting_entitlement'),
       orderView('paid', 'Sold paid bag', 'seller', { nextActor: 'seller' }),
       orderView('pending_payment', 'Sold detected hat', 'seller', { nextActor: 'buyer' }, 'detected'),
-      orderView('cancelled', 'Sold cancelled scarf', 'seller', { nextActor: 'none' }),
+      orderView('cancelled', 'Sold cancelled scarf', 'seller', { nextActor: 'none', receiptId: null }),
     ];
 
     render(<MarketplaceOrders />);
@@ -316,13 +316,31 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Reserved while you pay · 0:00/)).toBeInTheDocument();
   });
 
+  it('keeps a cancelled paid order in buyer and seller history, never Abandoned', async () => {
+    const user = userEvent.setup();
+    ordersState.currentUserPubky = CURRENT_USER;
+    ordersState.orders = [
+      orderView('cancelled', 'Bought paid cancel coat', 'buyer', { nextActor: 'none' }),
+      orderView('cancelled', 'Sold paid cancel scarf', 'seller', { nextActor: 'none' }),
+    ];
+    render(<MarketplaceOrders />);
+    expect(screen.queryByText('Checkout ended before payment.')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-abandoned-checkouts')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Cancelled 2/i })).toBeInTheDocument();
+    expect(screen.getByText(/Bought paid cancel coat/)).toBeInTheDocument();
+    expect(screen.getByText(/Sold paid cancel scarf/)).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Cancelled 2/i }));
+    expect(screen.getByText(/Bought paid cancel coat/)).toBeInTheDocument();
+    expect(screen.getByText(/Sold paid cancel scarf/)).toBeInTheDocument();
+  });
+
   it('does not label an elapsed unpaid order as Your move', () => {
     ordersState.orders = [
       orderView(
         'cancelled',
         'Bought elapsed boots',
         'buyer',
-        { cancellationReason: 'payment window elapsed', nextActor: 'none' },
+        { cancellationReason: 'payment window elapsed', nextActor: 'none', receiptId: null },
         'expired',
       ),
     ];

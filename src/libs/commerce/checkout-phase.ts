@@ -52,13 +52,28 @@ export function isPaidOrLaterState(state: string): boolean {
   return PAID_OR_LATER_STATES.has(state);
 }
 
-/** Buyer history = paid and later. Cancelled unpaid checkouts are not Orders. */
-export function isBuyerOrderHistory(order: { state: string; buyerPubky: string }, buyerPubky: string | null): boolean {
-  return buyerPubky !== null && order.buyerPubky === buyerPubky && isPaidOrLaterState(order.state);
+function hasReceipt(order: { receiptId?: string | null }): boolean {
+  return typeof order.receiptId === 'string' && order.receiptId.length > 0;
 }
 
-export function isAbandonedCheckout(order: { state: string; buyerPubky: string }, buyerPubky: string | null): boolean {
-  return buyerPubky !== null && order.buyerPubky === buyerPubky && order.state === 'cancelled';
+function isPaidOrReceiptedState(order: { state: string; receiptId?: string | null }): boolean {
+  return isPaidOrLaterState(order.state) || (order.state === 'cancelled' && hasReceipt(order));
+}
+
+/** Buyer history = paid and later, plus cancelled rows that already have a receipt. */
+export function isBuyerOrderHistory(
+  order: { state: string; buyerPubky: string; receiptId?: string | null },
+  buyerPubky: string | null,
+): boolean {
+  return buyerPubky !== null && order.buyerPubky === buyerPubky && isPaidOrReceiptedState(order);
+}
+
+/** Unpaid checkout cancel only. A cancelled paid or pickup order keeps its receipt and stays an Order. */
+export function isAbandonedCheckout(
+  order: { state: string; buyerPubky: string; receiptId?: string | null },
+  buyerPubky: string | null,
+): boolean {
+  return buyerPubky !== null && order.buyerPubky === buyerPubky && order.state === 'cancelled' && !hasReceipt(order);
 }
 
 /** Seller unpaid hold — Shop has no `stock_held` field, so pending_payment is the reservation. */
@@ -75,14 +90,14 @@ export function isSellerReservation(
 }
 
 export function isSellerPaidOrder(
-  order: { state: string; sellerPubky: string; buyerPubky: string },
+  order: { state: string; sellerPubky: string; buyerPubky: string; receiptId?: string | null },
   currentUserPubky: string | null,
 ): boolean {
   return (
     currentUserPubky !== null &&
     order.sellerPubky === currentUserPubky &&
     order.buyerPubky !== currentUserPubky &&
-    isPaidOrLaterState(order.state)
+    isPaidOrReceiptedState(order)
   );
 }
 

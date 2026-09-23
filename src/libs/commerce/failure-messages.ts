@@ -156,6 +156,7 @@ export const MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES: ReadonlyMap<string, str
   ['bitcoin_unavailable', 'Bitcoin payments are not available for this seller.'],
   ['capability_required', 'This payment needs a marketplace grant. Approve access on your signer and try again.'],
   ['currency_unsupported', 'This payment method does not support the checkout currency.'],
+  ['held', CHECKOUT_HOLD_COPY.listingReserved],
   ['hold_unavailable', 'The inventory hold for this checkout is no longer available.'],
   ['INTERNAL', MARKETPLACE_FAILURE_MESSAGES.unavailable],
   ['invalid_method', 'That payment method is not valid for this checkout.'],
