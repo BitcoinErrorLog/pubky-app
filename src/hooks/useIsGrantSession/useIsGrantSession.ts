@@ -8,5 +8,5 @@ import { useAuthStore } from '@/stores/auth/auth.store';
  * classic Pubky Ring approvals cannot run for it.
  */
 export function useIsGrantSession(): boolean {
-  return useAuthStore((state) => state.session !== null && state.session.grant !== undefined);
+  return useAuthStore((state) => state.session != null && state.session.grant !== undefined);
 }

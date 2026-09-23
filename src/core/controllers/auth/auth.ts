@@ -251,7 +251,9 @@ export class AuthController {
             session,
             currentUserPubky: pubky,
             hasProfile,
-            grantSessionRecordId: AuthApplication.isGrantSession(session) ? restoredGrantRecordId : null,
+            ...(AuthApplication.isGrantSession(session) && restoredGrantRecordId
+              ? { grantSessionRecordId: restoredGrantRecordId }
+              : {}),
           });
         });
         if (!persisted) {
@@ -473,7 +475,12 @@ export class AuthController {
           }
           grantSessionRecordId = await AuthApplication.saveGrantSession(session);
         }
-        authStore.init({ session, currentUserPubky: pubky, hasProfile: null, grantSessionRecordId });
+        authStore.init({
+          session,
+          currentUserPubky: pubky,
+          hasProfile: null,
+          ...(grantSessionRecordId ? { grantSessionRecordId } : {}),
+        });
         return true;
       });
       if (!persisted) {

@@ -42,7 +42,7 @@ export function Logout() {
   const [viewState, setViewState] = useState<LogoutViewState>('idle');
 
   const isHydrated = onboardingHasHydrated && authHasHydrated;
-  const isSignedOut = session === null && sessionExport === null && grantSessionRecordId === null;
+  const isSignedOut = session === null && sessionExport === null && !grantSessionRecordId;
 
   useEffect(() => {
     if (!isHydrated) return;
