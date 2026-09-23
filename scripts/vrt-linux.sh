@@ -3,6 +3,11 @@
 # Usage: scripts/vrt-linux.sh [spec...]
 # No arguments runs the full Linux suite. Missing *-linux.png baselines fail.
 # This script does not read or write *-darwin.png.
+#
+# vrt-marketplace and vrt each run in their own container. One container
+# running both leaves the second project with a closed browser: the first
+# Vitest process hangs on close, and the next process in that container
+# loses the browser before any test runs.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -44,9 +49,35 @@ quote_list() {
   printf '%s' "$out"
 }
 
-inner="npm ci"
+installed=0
+run_project() {
+  local project="$1"
+  shift
+  local cmd=""
+  if [ "$installed" -eq 0 ]; then
+    cmd="npm ci && "
+    installed=1
+  fi
+  cmd+="npx vitest run --project ${project}"
+  if [ "$#" -gt 0 ]; then
+    cmd+="$(quote_list "$@")"
+  fi
+  echo "vrt-linux: container ${project}"
+  docker run --rm \
+    -e COPYFILE_DISABLE=1 \
+    -e VRT_BROWSERS="${VRT_BROWSERS:-chromium,firefox}" \
+    -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    -e CI=true \
+    -v "$ROOT":/w \
+    -v "${VOLUME}:/w/node_modules" \
+    -w /w \
+    "$IMAGE" \
+    bash -lc "$cmd"
+}
+
 if [ "$#" -eq 0 ]; then
-  inner+=" && npx vitest run --project vrt-marketplace && npx vitest run --project vrt"
+  run_project vrt-marketplace
+  run_project vrt
 else
   market=()
   other=()
@@ -57,20 +88,9 @@ else
     esac
   done
   if [ "${#market[@]}" -gt 0 ]; then
-    inner+=" && npx vitest run --project vrt-marketplace$(quote_list "${market[@]}")"
+    run_project vrt-marketplace "${market[@]}"
   fi
   if [ "${#other[@]}" -gt 0 ]; then
-    inner+=" && npx vitest run --project vrt$(quote_list "${other[@]}")"
+    run_project vrt "${other[@]}"
   fi
 fi
-
-docker run --rm \
-  -e COPYFILE_DISABLE=1 \
-  -e VRT_BROWSERS="${VRT_BROWSERS:-chromium,firefox}" \
-  -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-  -e CI=true \
-  -v "$ROOT":/w \
-  -v "${VOLUME}:/w/node_modules" \
-  -w /w \
-  "$IMAGE" \
-  bash -lc "$inner"
