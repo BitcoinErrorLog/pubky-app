@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Local Linux marketplace VRT in the same Playwright image CI uses.
 #
-# --update is restricted to MISSING *-linux.png baselines only
+# No args: --update is restricted to MISSING *-linux.png baselines only
 # (see scripts/ci-vrt-marketplace.sh + VRT_LINUX_LOCAL=1). Tracked linux
-# files are restored after a record pass. Darwin files are never written.
+# files are restored after a record pass.
+#
+# With spec paths: one Docker --update of those files together. Darwin is
+# never kept; the caller reverts linux files outside the intended spec set.
 # Host darwin node_modules is overlaid so `npm ci` cannot replace the
 # worktree symlink with a nested Linux install.
 set -euo pipefail
@@ -21,6 +24,15 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+INNER='npm ci && bash scripts/ci-vrt-marketplace.sh'
+if [ "$#" -gt 0 ]; then
+  SPEC_LIST=""
+  for spec in "$@"; do
+    SPEC_LIST+=" $(printf '%q' "$spec")"
+  done
+  INNER="npm ci && npx vitest run --project vrt-marketplace${SPEC_LIST} --update"
+fi
+
 docker run --rm \
   -e COPYFILE_DISABLE=1 \
   -e VRT_BROWSERS="${VRT_BROWSERS:-chromium,firefox}" \
@@ -31,4 +43,4 @@ docker run --rm \
   -v "${VOLUME}:/w/node_modules" \
   -w /w \
   "$IMAGE" \
-  bash -lc 'npm ci && bash scripts/ci-vrt-marketplace.sh'
+  bash -lc "$INNER"

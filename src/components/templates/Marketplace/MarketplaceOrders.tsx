@@ -397,6 +397,7 @@ export function MarketplaceOrders() {
                                 Refund recorded from external evidence: {order.externalRefund.transactionId}
                               </Typography>
                             )}
+                            <MarketplaceOrderMessageCta order={order} adapterMode={adapterMode} />
                             <div className="mt-4">
                               <MarketplacePaymentStatusCard
                                 order={order}

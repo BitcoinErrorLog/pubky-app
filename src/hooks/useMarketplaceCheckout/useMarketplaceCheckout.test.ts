@@ -640,10 +640,8 @@ describe('useMarketplaceCheckout', () => {
     expect(clear).toHaveBeenCalled();
 
     vi.mocked(CommerceController.bindPaymentMethod).mockRejectedValueOnce(new Error('bind failed'));
-    await act(async () => {
-      paid = await result.current.pay('bitcoin');
-    });
-    expect(paid?.ok).toBe(false);
+    const paidAfterFail = await act(async () => result.current.pay('bitcoin'));
+    expect(paidAfterFail.ok).toBe(false);
     expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'order.cancel_request',
