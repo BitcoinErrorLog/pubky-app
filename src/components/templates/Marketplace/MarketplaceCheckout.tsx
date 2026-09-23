@@ -51,6 +51,7 @@ import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/M
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
+import { MarketplaceOrderReference } from '@/organisms/Marketplace/MarketplaceOrderReference';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
@@ -401,6 +402,7 @@ function MarketplaceCartCheckout() {
                 <Card key={order.id} className="border">
                   <CardContent className="grid min-w-0 gap-4 px-6">
                     {isPaidOrLaterState(order.state) ? <Typography as="p">Payment confirmed.</Typography> : null}
+                    <MarketplaceOrderReference order={order} isBuyer />
                     <MarketplacePaymentStatusCard
                       order={order}
                       payment={payment}

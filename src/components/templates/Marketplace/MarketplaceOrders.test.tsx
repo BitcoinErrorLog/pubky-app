@@ -495,6 +495,31 @@ describe('MarketplaceOrders tabs', () => {
     const soldCard = screen.getByText(/Sold paid boots/).closest('[data-slot="card"]');
     expect(within(boughtCard as HTMLElement).getByText('You bought')).toBeInTheDocument();
     expect(within(soldCard as HTMLElement).getByText('You sold')).toBeInTheDocument();
+    expect(within(boughtCard as HTMLElement).getByTestId('order-reference-label')).toHaveTextContent('Order test-bou');
+    expect(within(soldCard as HTMLElement).getByTestId('order-reference-label')).toHaveTextContent('Order test-sol');
+  });
+
+  it('opens PayPal for the seller when the order stores a txn id', async () => {
+    ordersState.orders = [
+      orderView('paid', 'Bought paypal coat', 'buyer', {
+        paymentMethod: 'paypal',
+        fiatTransactionRef: '5TY05013RG002845M',
+      }),
+      orderView('paid', 'Sold paypal boots', 'seller', {
+        paymentMethod: 'paypal',
+        fiatTransactionRef: '5TY05013RG002845M',
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+    await userEvent.setup().click(screen.getByRole('tab', { name: /All 2/i }));
+
+    const boughtCard = screen.getByText(/Bought paypal coat/).closest('[data-slot="card"]') as HTMLElement;
+    const soldCard = screen.getByText(/Sold paypal boots/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(boughtCard).queryByTestId('open-in-paypal')).toBeNull();
+    const link = within(soldCard).getByTestId('open-in-paypal');
+    expect(link).toHaveTextContent('Open in PayPal');
+    expect(link).toHaveAttribute('href', 'https://www.paypal.com/myaccount/activities/details/5TY05013RG002845M');
   });
 
   it('shows next-actor hints from the signed-in user perspective', async () => {

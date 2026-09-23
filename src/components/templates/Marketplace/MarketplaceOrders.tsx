@@ -41,6 +41,7 @@ import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
+import { MarketplaceOrderReference } from '@/organisms/Marketplace/MarketplaceOrderReference';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
@@ -181,6 +182,7 @@ export function MarketplaceOrders() {
                             ? reservedWhileYouPayCopy(order.holdExpiresAt)
                             : buyerCheckoutStateLabel(order)}
                         </Typography>
+                        <MarketplaceOrderReference order={order} isBuyer />
                       </div>
                       <Button asChild className="rounded-full">
                         <Link href={getMarketplaceCheckoutRoute(order.id)} overrideDefaults>
@@ -214,6 +216,7 @@ export function MarketplaceOrders() {
                       <Typography as="p" className="text-sm text-muted-foreground">
                         {sellerReservationCopy(order.holdExpiresAt)}
                       </Typography>
+                      <MarketplaceOrderReference order={order} isBuyer={false} />
                     </CardContent>
                   </Card>
                 ))}
@@ -297,6 +300,7 @@ export function MarketplaceOrders() {
                               Items {formatCommerceMoney(order.subtotal)} · Shipping{' '}
                               {formatCommerceMoney(order.shipping)}
                             </Typography>
+                            <MarketplaceOrderReference order={order} isBuyer={isBuyer} />
                             {order.state === 'pending_payment' && order.holdExpiresAt && (
                               <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                                 {isBuyer
@@ -445,6 +449,7 @@ export function MarketplaceOrders() {
                       <Typography as="p" className="text-sm text-muted-foreground">
                         Checkout ended before payment.
                       </Typography>
+                      <MarketplaceOrderReference order={order} isBuyer={currentUserPubky === order.buyerPubky} />
                     </CardContent>
                   </Card>
                 ))}

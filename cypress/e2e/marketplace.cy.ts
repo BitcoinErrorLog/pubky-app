@@ -147,9 +147,11 @@ describe('marketplace journeys', () => {
       cy.contains('detected').should('be.visible');
       cy.contains('button', 'Confirm payment').click();
       cy.contains('paid').should('be.visible');
-      cy.contains('Receipt integrity').should('not.exist');
+      cy.get('[data-testid=order-reference-label]').should('be.visible').and('contain', 'Order ');
+      cy.get('[data-testid=order-reference-copy]').should('be.visible');
+      cy.get('[data-testid=order-receipt-hash]').should('not.be.visible');
       cy.contains('summary', 'Receipt').click();
-      cy.contains('Receipt integrity').should('be.visible');
+      cy.get('[data-testid=order-receipt-hash]').should('be.visible').and('contain', 'Receipt integrity');
     });
 
     // the fictional seeded seller ships through the sandbox service API

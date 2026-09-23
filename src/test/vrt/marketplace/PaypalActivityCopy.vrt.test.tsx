@@ -31,6 +31,7 @@ const fixtures = vi.hoisted(async () => {
     sellerPubky: ids.seller,
     paymentMethod: 'paypal',
     fiatVerification: 'gateway-notified',
+    fiatTransactionRef: '5TY05013RG002845M',
     lines: [
       {
         listingAggregateId: `listing:${ids.seller}_american_thugs`,
@@ -235,6 +236,14 @@ describe('PayPal sale activity copy', () => {
     if (!(explanation instanceof HTMLElement)) throw new Error('missing paypal explanation');
     expect(explanation.textContent).toContain('exact order total');
     expect(explanation.scrollWidth).toBeLessThanOrEqual(explanation.clientWidth + 1);
+    const reference = document.querySelector('[data-testid="order-reference-label"]');
+    if (!(reference instanceof HTMLElement)) throw new Error('missing order reference');
+    expect(reference.textContent).toBe('Order 018f47d2');
+    expect(document.querySelector('[data-testid="order-reference-copy"]')?.textContent).toBe('Copy');
+    const paypal = document.querySelector('[data-testid="open-in-paypal"]');
+    if (!(paypal instanceof HTMLAnchorElement)) throw new Error('missing Open in PayPal');
+    expect(paypal.textContent).toContain('Open in PayPal');
+    expect(paypal.getAttribute('href')).toBe('https://www.paypal.com/myaccount/activities/details/5TY05013RG002845M');
     const details = document.querySelector('[data-testid="order-receipt-details"]');
     if (!(details instanceof HTMLDetailsElement)) throw new Error('missing receipt details');
     expect(details.open).toBe(false);
