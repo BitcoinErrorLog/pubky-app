@@ -1,4 +1,3 @@
-// Linux pre-push runs this project in its own container.
 // Intentional import order — vi.hoisted + vi.mock factories rely on stable
 // Vitest `__vi_import_N__` aliases; reordering causes a TDZ crash in
 // @vitest/browser. Do not let `eslint --fix` reorder these imports.

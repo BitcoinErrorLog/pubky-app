@@ -1,5 +1,4 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
-// Linux pre-push runs this marketplace project in its own container.
 /* eslint-disable simple-import-sort/imports */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
