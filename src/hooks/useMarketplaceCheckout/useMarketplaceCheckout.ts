@@ -128,8 +128,12 @@ export function useMarketplaceCheckout(
   requiresDeliveryAddress: boolean;
   /** True when a group's lines force incompatible single fulfillments. */
   hasFulfillmentConflict: boolean;
-  /** True while the deployment's pickup capability is still unknown. */
-  isPickupCapabilityLoading: boolean;
+  /**
+   * True while the deployment's pickup capability is still unknown AND a line
+   * in the seller's group publishes pickup — the only case where the answer
+   * can change that group's options.
+   */
+  isPickupCapabilityLoadingForSeller: (sellerPubky: string) => boolean;
   /** The number of durable rows this checkout creates — one per (seller, fulfillment) group. */
   orderCount: number;
   /** Persist a used or newly saved address after a successful create (offer or cart). */
@@ -229,9 +233,11 @@ export function useMarketplaceCheckout(
   // only among those, never silently rewritten to shipping (the prior art's
   // `?? 'shipping'` defect, PR 22 review item 1).
   const optionsBySeller = new Map<string, MarketplaceFulfillmentMethod[]>();
+  const sellersPublishingPickup = new Set<string>();
   for (const item of items) {
     const sellerPubky = item.listing.record.ownerPubky;
     const published = commerceListingFulfillmentMethods(item.listing.record.fulfillmentMethods);
+    if (published.includes('pickup')) sellersPublishingPickup.add(sellerPubky);
     const allowed = pickupAvailable === true ? published : published.filter((method) => method !== 'pickup');
     const existing = optionsBySeller.get(sellerPubky);
     optionsBySeller.set(sellerPubky, existing ? existing.filter((method) => allowed.includes(method)) : [...allowed]);
@@ -543,7 +549,8 @@ export function useMarketplaceCheckout(
     setFulfillmentChoice,
     requiresDeliveryAddress,
     hasFulfillmentConflict,
-    isPickupCapabilityLoading: pickupAvailable === null,
+    isPickupCapabilityLoadingForSeller: (sellerPubky: string) =>
+      pickupAvailable === null && sellersPublishingPickup.has(sellerPubky),
     orderCount,
     rememberAddress: async () => {
       await persistAddressBookAfterOrder(form.getValues());

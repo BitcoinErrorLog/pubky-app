@@ -25,7 +25,7 @@ import {
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { sleep } from '@/libs/utils/utils';
-import { isVibeSessionAutoRestoreSuppressed } from '@/libs/vibe-session/auto-restore';
+import { isVibeSessionBridgeLegSkipped } from '@/libs/vibe-session/auto-restore';
 import { requestFromBridge } from '@/libs/vibe-session/bridge';
 import { getVibeId, getVibeSessionBridgeOrigin } from '@/libs/vibe-session/config';
 import { isPubkyExpiredError } from '@/libs/vibe-session/expired';
@@ -149,7 +149,7 @@ export class AuthApplication {
       }
     }
 
-    if (isVibeSessionAutoRestoreSuppressed()) {
+    if (isVibeSessionBridgeLegSkipped()) {
       return this.unresolvedConsumerRestore(keepPersistedExport);
     }
 
@@ -217,7 +217,7 @@ export class AuthApplication {
   }
 
   private static async obtainBridgeSessionExport(bridgeOrigin: string): Promise<string | null> {
-    if (isVibeSessionAutoRestoreSuppressed()) {
+    if (isVibeSessionBridgeLegSkipped()) {
       return null;
     }
     const win = (globalThis as { window?: Window }).window;

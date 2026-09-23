@@ -216,7 +216,7 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       setFulfillmentChoice: vi.fn(),
       requiresDeliveryAddress: view.requiresDeliveryAddress,
       hasFulfillmentConflict: false,
-      isPickupCapabilityLoading: false,
+      isPickupCapabilityLoadingForSeller: () => false,
       orderCount: view.orderCount,
       rememberAddress: vi.fn(async () => {}),
     }),
