@@ -191,6 +191,7 @@ function MarketplaceCartCheckout() {
     isOfferCheckout && award
       ? award.listing.sellerPubky
       : [...new Set(checkoutItems.map((item) => item.listing.record.ownerPubky))].join('|');
+  const isMultiSeller = sellerKey.includes('|');
   const isPaying = isOfferCheckout ? offerPay.isSubmitting : checkout.isPaying;
   const listingRoute = award && getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
   const backHref =
@@ -449,6 +450,7 @@ function MarketplaceCartCheckout() {
                 const fulfillmentOptions = checkout.fulfillmentOptionsForSeller(group.sellerPubky);
                 const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
                 const isPickupGroup = fulfillment === 'pickup';
+                const isPickupCapabilityLoading = checkout.isPickupCapabilityLoadingForSeller(group.sellerPubky);
                 return (
                   <section
                     key={group.sellerPubky}
@@ -457,14 +459,14 @@ function MarketplaceCartCheckout() {
                     data-surface={isPickupGroup ? 'checkout-pickup-group' : undefined}
                   >
                     {displayGroups.length > 1 && <MarketplaceCheckoutSellerHeader group={group} />}
-                    {checkout.isPickupCapabilityLoading ? (
+                    {isPickupCapabilityLoading ? (
                       <Skeleton
                         className="h-16 w-full"
                         data-testid="pickup-capability-skeleton"
                         aria-label="Checking pickup availability"
                       />
                     ) : null}
-                    {!checkout.isPickupCapabilityLoading && fulfillmentOptions.length > 1 && fulfillment && (
+                    {!isPickupCapabilityLoading && fulfillmentOptions.length > 1 && fulfillment && (
                       <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
                         <Label htmlFor={`fulfillment-${group.sellerPubky}`}>Fulfillment</Label>
                         <Select
@@ -493,7 +495,7 @@ function MarketplaceCartCheckout() {
                         </Select>
                       </div>
                     )}
-                    {!checkout.isPickupCapabilityLoading && isPickupGroup && (
+                    {!isPickupCapabilityLoading && isPickupGroup && (
                       <Typography
                         as="p"
                         className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground"
@@ -502,7 +504,7 @@ function MarketplaceCartCheckout() {
                         after payment confirms.
                       </Typography>
                     )}
-                    {!checkout.isPickupCapabilityLoading && fulfillmentOptions.length === 0 && (
+                    {!isPickupCapabilityLoading && fulfillmentOptions.length === 0 && (
                       <Typography
                         as="p"
                         role="alert"
@@ -716,8 +718,9 @@ function MarketplaceCartCheckout() {
                       <Skeleton className="h-11 w-full" aria-label="Loading payment methods" />
                     ) : sharedMethods.length === 0 && !isSandbox ? (
                       <Typography as="p" role="alert" className="text-sm text-muted-foreground">
-                        These sellers do not share a payment method, so Pay stays disabled. Remove a seller in the cart
-                        or ask them to add a shared rail.
+                        {isMultiSeller
+                          ? 'These sellers do not share a payment method, so Pay stays disabled. Remove a seller in the cart or ask them to add a shared rail.'
+                          : "This seller hasn't set up a payment method this cart can use, so Pay stays disabled. Message the seller to ask them to add one."}
                       </Typography>
                     ) : (
                       <div className="flex flex-wrap gap-2">
@@ -770,7 +773,9 @@ function MarketplaceCartCheckout() {
                       {checkout.hasFulfillmentConflict
                         ? "Some items can't be checked out together — see the note above."
                         : sharedMethods && sharedMethods.length === 0 && !isSandbox
-                          ? 'Choose sellers that share a payment method.'
+                          ? isMultiSeller
+                            ? 'Choose sellers that share a payment method.'
+                            : 'Pay unlocks once this seller sets up a payment method.'
                           : 'Fill in delivery details, accept the guarantee, and choose a payment method to pay.'}
                     </Typography>
                   )}
