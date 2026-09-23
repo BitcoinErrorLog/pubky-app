@@ -1203,7 +1203,7 @@ describe('MarketplaceTransactionService read projections', () => {
       }).catch((caught: unknown) => caught)) as AppError;
 
       expect(error).toMatchObject({
-        message: 'Stripe rejected the seller payment key. The seller must update their payment settings.',
+        message: 'The seller payment key was rejected. The seller must update their payment settings.',
       });
       expect(error.message).not.toContain(echoed);
       expect(JSON.stringify(error.context)).not.toContain(echoed);
