@@ -168,6 +168,14 @@ describe('isDynamicPublicRoute', () => {
     });
   });
 
+  describe('marketplace drops', () => {
+    it('keeps the drops index public and leaves deeper drops paths gated', () => {
+      expect(isDynamicPublicRoute('/marketplace/drops')).toBe(true);
+      expect(isDynamicPublicRoute('/marketplace/drops/example-id')).toBe(false);
+      expect(isDynamicPublicRoute('/marketplace/sell/drops')).toBe(false);
+    });
+  });
+
   describe('other routes', () => {
     it('returns false for home route', () => {
       expect(isDynamicPublicRoute('/home')).toBe(false);

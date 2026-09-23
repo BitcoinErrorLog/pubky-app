@@ -233,6 +233,9 @@ export function isDynamicPublicRoute(pathname: string): boolean {
     case matchMarketplaceListingRoute(pathname) !== null:
     case matchMarketplaceShopRoute(pathname) !== null:
     // Drop pages are public hype surfaces, like listings and shops.
+    // The drops index is the same read surface. Guests who open /marketplace/drops
+    // must stay on that list, not bounce to the unfiltered catalog.
+    case pathname === MARKETPLACE_ROUTES.DROPS:
     case matchMarketplaceDropRoute(pathname) !== null:
       return true;
     default:
