@@ -425,7 +425,7 @@ async function waitUntilDropsSettled(page: Page, shotPrefix: string): Promise<st
 
 async function assertNewDropAboveFold(page: Page): Promise<void> {
   const link = page.getByRole('link', { name: 'New drop' }).first();
-  await expect(link).toBeVisible();
+  await link.waitFor({ state: 'visible', timeout: 10_000 });
   const box = await link.boundingBox();
   const viewport = page.viewportSize();
   expect(box, 'New drop link has a box').toBeTruthy();
