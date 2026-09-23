@@ -27,8 +27,8 @@ const fixtures = vi.hoisted(async () => {
   const usd = { amountMinor: 250, currency: 'USD', exponent: 2 };
   const order = createOrderFixture('paid', {
     id: '018f47d2-6a27-7c23-a49d-000000000250',
-      buyerPubky: ids.buyer,
-      sellerPubky: ids.seller,
+    buyerPubky: ids.buyer,
+    sellerPubky: ids.seller,
     paymentMethod: 'paypal',
     fiatVerification: 'gateway-notified',
     lines: [
