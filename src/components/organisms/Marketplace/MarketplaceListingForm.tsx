@@ -956,7 +956,10 @@ function MobileSectionStepper({
     <div className="sticky top-2 z-10 flex flex-col gap-3 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur lg:hidden">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <Typography as="p" className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+          <Typography
+            as="p"
+            className="text-[11px] leading-4 font-medium tracking-[1.2px] text-muted-foreground uppercase"
+          >
             Step {safeIndex + 1} of {LISTING_FORM_SECTIONS.length}
           </Typography>
           <Typography as="p" className="font-semibold">

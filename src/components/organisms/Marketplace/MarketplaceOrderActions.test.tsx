@@ -255,7 +255,9 @@ describe('MarketplaceOrderActions own-review verified status', () => {
     renderActions();
 
     await waitFor(() => {
-      expect(screen.getByTestId('own-review-status')).toHaveTextContent(/still pending and will retry/);
+      expect(screen.getByTestId('own-review-status')).toHaveTextContent(
+        /Publication is pending and will retry automatically/,
+      );
     });
   });
 

@@ -72,9 +72,9 @@ export function MarketplaceOfferDialog({
     >
       <DialogTrigger asChild>
         <Button
-          size="lg"
+          size="default"
           variant="secondary"
-          className="flex-1 rounded-full"
+          className="w-fit rounded-full"
           disabled={isOwner || holdDisabled || (expectedRevision === null && !isSessionRequired)}
         >
           <HandCoins className="mr-2 size-4" />

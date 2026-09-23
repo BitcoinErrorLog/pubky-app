@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, LockKeyhole, MessageCircle } from 'lucide-react';
+import { LockKeyhole, MessageCircle } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import { Button } from '@/atoms/Button/Button';
@@ -43,14 +43,6 @@ export function MarketplaceInbox() {
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6" data-surface="marketplace-inbox">
         <MarketplaceSectionNav />
-        <Link
-          href={APP_ROUTES.MARKETPLACE}
-          overrideDefaults
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Marketplace
-        </Link>
         <div>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
             Messages

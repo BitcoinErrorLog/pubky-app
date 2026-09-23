@@ -37,6 +37,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
         <div>
           <Button
             variant="secondary"
+            size="sm"
             className="w-full rounded-full"
             disabled={isSeller}
             onClick={() => requireAuth(() => undefined)}
@@ -60,7 +61,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
         counterpartyPubky={sellerPubky}
         showListingDisclosure
         trigger={
-          <Button variant="secondary" className="w-full rounded-full">
+          <Button variant="secondary" size="sm" className="w-full rounded-full">
             <MessageCircle className="mr-2 size-4" />
             {MESSAGING_COPY.listingCta}
           </Button>
@@ -73,7 +74,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
   if (!messages.isSandbox) {
     return (
       <div>
-        <Button variant="secondary" className="w-full rounded-full" disabled>
+        <Button variant="secondary" size="sm" className="w-full rounded-full" disabled>
           <MessageCircle className="mr-2 size-4" />
           {MESSAGING_COPY.listingCta}
         </Button>
@@ -98,6 +99,7 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
       <DialogTrigger asChild>
         <Button
           variant="secondary"
+          size="sm"
           className="w-full rounded-full"
           disabled={Boolean(currentUserPubky && currentUserPubky === sellerPubky)}
         >

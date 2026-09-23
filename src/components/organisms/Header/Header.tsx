@@ -3,8 +3,8 @@
 import { usePathname } from 'next/navigation';
 import type { MouseEvent } from 'react';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
-import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import { cn } from '@/libs/utils/utils';
+import { EnvironmentLabel } from '@/molecules/EnvironmentLabel/EnvironmentLabel';
 import {
   HeaderContainer,
   HeaderExploreNavigationButtons,
@@ -103,9 +103,7 @@ function StagingLogo({
   return (
     <div className="relative">
       <Logo noLink={noLink} onClick={onClick} />
-      {getDeployEnv() === 'staging' && (
-        <span className="absolute top-full left-7 text-xs tracking-wide text-muted-foreground">STAGING</span>
-      )}
+      <EnvironmentLabel />
     </div>
   );
 }

@@ -78,7 +78,7 @@ export function DropCountdown({
     return (
       <div className={className}>
         <Typography as="p" className="text-sm text-muted-foreground" role="status">
-          Waiting for the transaction service to confirm the state change…
+          Checking availability…
         </Typography>
       </div>
     );

@@ -32,17 +32,24 @@ describe('DropCard', () => {
       'href',
       '/marketplace/drop/owner-pubky/drop-1',
     );
-    expect(screen.getByText('Upcoming · indexed')).toBeInTheDocument();
+    expect(screen.getByText('Upcoming')).toBeInTheDocument();
     expect(screen.getByText('Starts in 2 hours')).toBeInTheDocument();
     expect(screen.getByText('50 editions')).toBeInTheDocument();
-    expect(screen.getByText('Open to confirm service state')).toBeInTheDocument();
+    expect(screen.getByText('View drop')).toBeInTheDocument();
+  });
+
+  it('shows a known shop name and singular edition count', () => {
+    render(<DropCard entry={{ ...entry, total_quantity: 1 }} bucket="ended" shopName="Example shop" />);
+    expect(screen.getByText('Example shop')).toBeInTheDocument();
+    expect(screen.getByText('1 edition')).toBeInTheDocument();
+    expect(screen.getByText('End time passed')).toBeInTheDocument();
   });
 
   it('renders the live indexed state in the production list layout without a countdown', () => {
     render(<DropCard entry={entry} bucket="live" layout="list" />);
 
     expect(screen.getByTestId('card')).toHaveClass('flex-row');
-    expect(screen.getByText('Start time passed · indexed')).toBeInTheDocument();
+    expect(screen.getByText('Start time passed')).toBeInTheDocument();
     expect(screen.queryByText('Starts in 2 hours')).not.toBeInTheDocument();
   });
 

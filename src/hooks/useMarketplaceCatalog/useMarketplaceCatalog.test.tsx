@@ -11,7 +11,11 @@ import {
 } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import { useMarketplaceCatalog } from './useMarketplaceCatalog';
-import { catalogItemFromCatalogEntry, catalogItemFromListingModel } from './useMarketplaceCatalog.utils';
+import {
+  catalogItemFromCatalogEntry,
+  catalogItemFromListingModel,
+  type MarketplaceCatalogFilters,
+} from './useMarketplaceCatalog.utils';
 
 const mockGetAllListings = vi.fn();
 const mockGetAllCatalogEntries = vi.fn();
@@ -60,6 +64,28 @@ describe('useMarketplaceCatalog', () => {
     mockGetAllCatalogEntries.mockReturnValue([]);
     mockGetAllShops.mockReturnValue([]);
     mockFetchCatalogListings.mockResolvedValue(undefined);
+  });
+
+  it('uses independent category filters without changing the browse filters', () => {
+    const cached = toCommerceListingModel(createCommerceListingFixture());
+    mockGetAllListings.mockReturnValue([cached]);
+    useCommerceStore.getState().setQuery('unrelated search');
+    useCommerceStore.getState().setCategoryId('unrelated-category');
+    useCommerceStore.getState().setAttributeFilter('color', 'unrelated');
+    const filters: MarketplaceCatalogFilters = {
+      query: '',
+      categoryId: cached.record.categoryId,
+      saleFormat: 'all',
+      conditions: [],
+      minimumPriceMinor: null,
+      maximumPriceMinor: null,
+      countryCode: null,
+      sort: 'recommended',
+    };
+    const { result } = renderHook(() => useMarketplaceCatalog([], [], filters), { wrapper: readyWrapper });
+    expect(result.current.listings).toEqual([catalogItemFromListingModel(cached)]);
+    expect(useCommerceStore.getState().query).toBe('unrelated search');
+    expect(useCommerceStore.getState().categoryId).toBe('unrelated-category');
   });
 
   it('seeds the grid from server listings while the Dexie cache is unresolved', () => {

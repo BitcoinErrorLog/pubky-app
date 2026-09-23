@@ -174,10 +174,10 @@ describe('Marketplace', () => {
     expect(html).toContain('Seller studio');
   });
 
-  it('shows the staging disclosure by deploy environment', () => {
+  it('does not repeat the logo environment label as a catalog banner', () => {
     const { rerender } = render(<Marketplace />);
 
-    expect(screen.getByRole('note')).toHaveTextContent('Staging environment — test rails, no real funds move');
+    expect(screen.queryByText('Staging environment — test rails, no real funds move')).not.toBeInTheDocument();
     expect(screen.queryByText('Real money. Payments are final and go directly to the seller.')).not.toBeInTheDocument();
 
     runtime.deployEnv = 'production';
@@ -274,9 +274,7 @@ describe('Marketplace', () => {
     render(<Marketplace />);
 
     expect(
-      screen.getByText(
-        /Timed, limited releases listed by the discovery index. Open a drop to confirm its current state/,
-      ),
+      screen.getByText(/Discover timed, limited releases. Open a drop to check availability./),
     ).toBeInTheDocument();
     expect(screen.getAllByText('Drops live proof — 1 of 1')).toHaveLength(1);
   });

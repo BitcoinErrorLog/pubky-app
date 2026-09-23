@@ -19,7 +19,17 @@ type MarketplaceSectionItem = {
 };
 
 const ITEMS: readonly MarketplaceSectionItem[] = [
-  { label: 'Marketplace', href: APP_ROUTES.MARKETPLACE, icon: Store },
+  {
+    label: 'Marketplace',
+    href: APP_ROUTES.MARKETPLACE,
+    icon: Store,
+    activePrefixes: [
+      APP_ROUTES.MARKETPLACE,
+      MARKETPLACE_ROUTES.LISTING,
+      MARKETPLACE_ROUTES.DROP,
+      MARKETPLACE_ROUTES.DROPS,
+    ],
+  },
   { label: 'Messages', href: MARKETPLACE_ROUTES.MESSAGES, icon: MessageCircle },
   { label: 'Offers', href: MARKETPLACE_ROUTES.OFFERS, icon: HandCoins },
   { label: 'Watchlist', href: MARKETPLACE_ROUTES.WATCHLIST, icon: Heart },
@@ -39,7 +49,13 @@ const ITEMS: readonly MarketplaceSectionItem[] = [
   },
 ] as const;
 
-export function MarketplaceSectionNav({ onNavigate }: { onNavigate?: (href: string) => void }) {
+export function MarketplaceSectionNav({
+  onNavigate,
+  className,
+}: {
+  onNavigate?: (href: string) => void;
+  className?: string;
+}) {
   const pathname = usePathname();
   const cartCount = useMarketplaceCartCount();
   const activityUnreadCount = useMarketplaceActivityUnread();
@@ -49,14 +65,17 @@ export function MarketplaceSectionNav({ onNavigate }: { onNavigate?: (href: stri
       aria-label="Marketplace sections"
       data-testid="marketplace-section-nav"
       data-surface="marketplace-section-nav"
-      className="mb-6 w-full"
+      className={cn('mb-6 w-full', className)}
     >
       <div className="flex w-full flex-wrap">
         {ITEMS.map(({ label, href, icon: Icon, badge, activePrefixes }) => {
           const prefixes = activePrefixes ?? [href];
           const active =
             typeof pathname === 'string' &&
-            prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+            prefixes.some(
+              (prefix) =>
+                pathname === prefix || (prefix !== APP_ROUTES.MARKETPLACE && pathname.startsWith(`${prefix}/`)),
+            );
           const count = badge === 'cart' ? cartCount : badge === 'activity' ? activityUnreadCount : 0;
           return (
             <Link
@@ -76,7 +95,7 @@ export function MarketplaceSectionNav({ onNavigate }: { onNavigate?: (href: stri
               )}
             >
               <Icon className="size-5 shrink-0" aria-hidden="true" />
-              {label}
+              <span className={cn(!active && 'sr-only sm:not-sr-only')}>{label}</span>
               {count > 0 && (
                 <Badge
                   data-testid={`marketplace-section-nav-${badge}-badge`}

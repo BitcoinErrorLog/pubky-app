@@ -12,7 +12,7 @@ describe('MarketplaceSellerIdentity', () => {
       />,
     );
 
-    expect(screen.getByText('Sold by')).toBeInTheDocument();
+    expect(screen.queryByText('Sold by')).not.toBeInTheDocument();
     expect(screen.getByText('Satoshi Vintage')).toBeInTheDocument();
     expect(screen.queryByText(/Shop opened/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Seller-stated/)).not.toBeInTheDocument();
