@@ -37,7 +37,10 @@ describe('checkout-phase', () => {
   it('keeps unpaid buyer rows out of order history', () => {
     expect(isBuyerOrderHistory({ state: 'pending_payment', buyerPubky: BUYER, receiptId: null }, BUYER)).toBe(false);
     expect(
-      isBuyerOrderHistory({ state: 'paid', buyerPubky: BUYER, receiptId: '018f47d2-6a27-7c23-a49d-000000000201' }, BUYER),
+      isBuyerOrderHistory(
+        { state: 'paid', buyerPubky: BUYER, receiptId: '018f47d2-6a27-7c23-a49d-000000000201' },
+        BUYER,
+      ),
     ).toBe(true);
     expect(isBuyerOrderHistory({ state: 'return_requested', buyerPubky: BUYER }, BUYER)).toBe(true);
     expect(isBuyerCheckoutInProgress({ state: 'pending_payment', buyerPubky: BUYER }, BUYER)).toBe(true);
