@@ -673,15 +673,28 @@ export const marketplacePublicDropSchema = z
   })
   .passthrough();
 
-/** The seller's own full-detail drop read (`GET /v1/drops/{aggregateId}`). */
-export const marketplaceSellerDropSchema = marketplacePublicDropSchema
-  .extend({
-    remaining: z.number().int().min(0),
-    paidQuantity: z.number().int().min(0),
-    buyerCount: z.number().int().min(0),
-    listingIds: z.array(z.string().min(1)).optional(),
-  })
-  .passthrough();
+/**
+ * The seller's own full-detail drop read (`GET /v1/drops/{aggregateId}`).
+ * The service sends the exact count as `remaining_quantity` on this read
+ * (`remaining` is the public read's redacted field); it is exposed as
+ * `remaining` so both reads share one shape. A read without it fails closed.
+ */
+export const marketplaceSellerDropSchema = z.preprocess(
+  (input) => {
+    if (!input || typeof input !== 'object') return input;
+    const record = input as Record<string, unknown>;
+    if (record.remainingQuantity === undefined) return input;
+    return { ...record, remaining: record.remainingQuantity };
+  },
+  marketplacePublicDropSchema
+    .extend({
+      remaining: z.number().int().min(0),
+      paidQuantity: z.number().int().min(0),
+      buyerCount: z.number().int().min(0),
+      listingIds: z.array(z.string().min(1)).optional(),
+    })
+    .passthrough(),
+);
 
 /** The buyer's ready-check read (`GET /v1/drops/{aggregateId}/me`). */
 export const marketplaceDropReadyCheckSchema = z
