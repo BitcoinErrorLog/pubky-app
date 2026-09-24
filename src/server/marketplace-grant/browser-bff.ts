@@ -20,6 +20,7 @@ import {
 } from './crypto';
 import {
   abandonCliClaim,
+  abandonLapsedCliClaim,
   acquireCliClaim,
   assertCliGrantSchema,
   bindCliFlow,
@@ -327,7 +328,12 @@ export async function pollBrowserFlow(
   if (flow.status === 'expired') throw new BffError(410, 'flow_expired');
   if (flow.status === 'cancelled') throw new BffError(410, 'flow_cancelled');
   if (flow.status === 'mismatch') return { state_id: flow.state_id, status: 'mismatch' };
-  if (flow.status === 'claiming') throw new BffError(409, 'claim_in_progress');
+  if (flow.status === 'claiming') {
+    // A claimer that died mid-claim leaves the row here until cleanup; once
+    // its lease lapses the flow ends and the browser starts a fresh approval.
+    if (await abandonLapsedCliClaim(config, flow.state_id)) throw new BffError(422, 'fresh_approval_required');
+    throw new BffError(409, 'claim_in_progress');
+  }
   if (flow.status !== 'awaiting' || !flow.flow_id) {
     throw new BffError(422, 'fresh_approval_required');
   }

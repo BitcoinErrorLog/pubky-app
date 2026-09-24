@@ -32,6 +32,7 @@ const getCliFlow = vi.fn();
 const acquireCliClaim = vi.fn();
 const completeCliClaim = vi.fn();
 const abandonCliClaim = vi.fn();
+const abandonLapsedCliClaim = vi.fn();
 const renewCliClaim = vi.fn();
 const assertCliGrantSchema = vi.fn();
 const fetchHomeserverProofDocument = vi.fn();
@@ -56,6 +57,7 @@ vi.mock('./db', async (importOriginal) => {
     acquireCliClaim: (...args: unknown[]) => acquireCliClaim(...args),
     completeCliClaim: (...args: unknown[]) => completeCliClaim(...args),
     abandonCliClaim: (...args: unknown[]) => abandonCliClaim(...args),
+    abandonLapsedCliClaim: (...args: unknown[]) => abandonLapsedCliClaim(...args),
     renewCliClaim: (...args: unknown[]) => renewCliClaim(...args),
   };
 });
@@ -767,6 +769,32 @@ describe('browser purchase bootstrap BFF', () => {
     );
     expect(terminalizeCliFlow).toHaveBeenCalledWith(expect.anything(), stateId, 'mismatch');
     expect(completeCliClaim).not.toHaveBeenCalled();
+  });
+
+  it('a claim whose lease lapsed ends the flow and asks for a fresh approval', async () => {
+    const config = await browserConfig();
+    const { bound, row, stateId } = browserFlowRow(config, { status: 'claiming' });
+    getCliFlow.mockResolvedValue({ ...row, lease_owner: randomUUID(), lease_until: new Date(Date.now() - 1_000) });
+    abandonLapsedCliClaim.mockResolvedValue(true);
+    const { pollBrowserFlow } = await import('./browser-bff');
+
+    await expect(pollBrowserFlow(flowRequest(stateId), bound.value, stateId)).rejects.toEqual(
+      new BffError(422, 'fresh_approval_required'),
+    );
+    expect(abandonLapsedCliClaim).toHaveBeenCalledWith(expect.anything(), stateId);
+    expect(getGrantStatus).not.toHaveBeenCalled();
+  });
+
+  it('a claim with a live lease stays in progress', async () => {
+    const config = await browserConfig();
+    const { bound, row, stateId } = browserFlowRow(config, { status: 'claiming' });
+    getCliFlow.mockResolvedValue({ ...row, lease_owner: randomUUID(), lease_until: new Date(Date.now() + 30_000) });
+    abandonLapsedCliClaim.mockResolvedValue(false);
+    const { pollBrowserFlow } = await import('./browser-bff');
+
+    await expect(pollBrowserFlow(flowRequest(stateId), bound.value, stateId)).rejects.toEqual(
+      new BffError(409, 'claim_in_progress'),
+    );
   });
 
   // A9
