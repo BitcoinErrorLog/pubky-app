@@ -13,6 +13,7 @@ import { RouteGuardProvider } from './RouteGuardProvider';
 const mocks = vi.hoisted(() => ({
   mockRouterPush: vi.fn(),
   subscribeCrossTabSignOut: vi.fn(() => () => {}),
+  settlePendingGrantKeyCleanup: vi.fn().mockResolvedValue(true),
   restorePersistedSession: vi.fn().mockResolvedValue({ status: 'signed-out' }),
   pathname: '/home',
 }));
@@ -63,6 +64,7 @@ vi.mock('@/controllers/auth/auth', () => ({
   AuthController: {
     restorePersistedSession: mocks.restorePersistedSession,
     subscribeCrossTabSignOut: mocks.subscribeCrossTabSignOut,
+    settlePendingGrantKeyCleanup: mocks.settlePendingGrantKeyCleanup,
   },
 }));
 

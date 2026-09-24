@@ -27,6 +27,11 @@ import {
   shouldAbortIdentityPersist,
   shouldSkipDestructiveCleanup,
 } from '@/controllers/auth/auth-identity-guard';
+import {
+  clearGrantKeyCleanupPending,
+  isGrantKeyCleanupPending,
+  markGrantKeyCleanupPending,
+} from '@/controllers/auth/grant-key-cleanup';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
@@ -55,6 +60,7 @@ import {
   clearPersistedAuthIdentity,
   hasPersistedAuthIdentity,
   readPersistedAuthIdentity,
+  readPersistedGrantSessionRecordId,
 } from '@/stores/auth/auth.persisted';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -575,19 +581,21 @@ export class AuthController {
           if (epochAtStart === undefined || epochAtStart !== readAuthEpoch()) {
             return false;
           }
+          // Recorded before the save: a save that fails, or a tab that closes
+          // mid-save, leaves an obligation the next load can discharge.
+          const cleanupAlreadyPending = isGrantKeyCleanupPending();
+          markGrantKeyCleanupPending();
           try {
             grantSessionRecordId = await AuthApplication.saveGrantSession(session);
           } catch (error) {
             grantSaveError = error;
             return false;
           }
+          authStore.init({ session, currentUserPubky: pubky, hasProfile: null, grantSessionRecordId });
+          if (!cleanupAlreadyPending) clearGrantKeyCleanupPending();
+          return true;
         }
-        authStore.init({
-          session,
-          currentUserPubky: pubky,
-          hasProfile: null,
-          ...(grantSessionRecordId ? { grantSessionRecordId } : {}),
-        });
+        authStore.init({ session, currentUserPubky: pubky, hasProfile: null });
         return true;
       });
       if (!persisted) {
@@ -598,10 +606,9 @@ export class AuthController {
         if (grantSaveError !== null) {
           // A failed save can leave a partial record and this flow's delegated
           // key in IndexedDB. The grant is signed out above (that needs the
-          // key), so the key goes now. Sign-out uses the same order.
-          await withAuthFinalizationLock(() => AuthApplication.clearGrantSessions()).catch((clearError) => {
-            Logger.error('Grant keys left by a failed save could not be removed', { clearError });
-          });
+          // key), so the key goes now. Sign-out uses the same order. If the
+          // removal fails too, the pending marker keeps the obligation.
+          await this.settlePendingGrantKeyCleanup();
           throw grantSaveError;
         }
         throw createCanceledError();
@@ -920,6 +927,8 @@ export class AuthController {
    * saved to BrowserSessionStore at completion.
    */
   static async getGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    // Before the new flow creates its key: the cleanup removes every key.
+    await this.settlePendingGrantKeyCleanup();
     const epochAtStart = readAuthEpoch();
     BootstrapApplication.cancelModerationFollow();
     const captured = this.captureAuthIdentity();
@@ -1387,7 +1396,32 @@ export class AuthController {
     await withAuthFinalizationLock(async () => {
       bumpAuthEpoch();
       await AuthApplication.clearGrantSessions();
+      clearGrantKeyCleanupPending();
     });
+  }
+
+  /**
+   * Discharges a pending grant-key cleanup (see `grant-key-cleanup.ts`):
+   * removes every stored grant record and key, then drops the marker once the
+   * store reads back empty. A signed-in grant session in any tab still needs
+   * its own record, so the cleanup waits for that session's sign-out, which
+   * removes every key and drops the marker. A failed removal keeps the marker
+   * for the next attempt. Returns whether nothing is left pending.
+   */
+  static async settlePendingGrantKeyCleanup(): Promise<boolean> {
+    if (!isGrantKeyCleanupPending()) return true;
+    try {
+      return await withAuthFinalizationLock(async () => {
+        if (!isGrantKeyCleanupPending()) return true;
+        if (useAuthStore.getState().grantSessionRecordId || readPersistedGrantSessionRecordId()) return false;
+        await AuthApplication.clearGrantSessions();
+        clearGrantKeyCleanupPending();
+        return true;
+      });
+    } catch (error) {
+      Logger.error('Grant keys left by a failed save are still stored; the cleanup is retried later', { error });
+      return false;
+    }
   }
 
   /**

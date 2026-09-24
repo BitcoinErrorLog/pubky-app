@@ -10,6 +10,11 @@ import { CAPABILITIES } from '@/config/app';
 import { MUTE_SYNC_CURSOR_STORAGE_PREFIX } from '@/config/mute-sync';
 import { AUTH_EPOCH_KEY, bumpAuthEpoch, readAuthEpoch, subscribeSignedOut } from '@/controllers/auth/auth-epoch';
 import { resetAuthFinalizationLockForTests } from '@/controllers/auth/auth-finalization-lock';
+import {
+  clearGrantKeyCleanupPending,
+  isGrantKeyCleanupPending,
+  markGrantKeyCleanupPending,
+} from '@/controllers/auth/grant-key-cleanup';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
@@ -2427,6 +2432,7 @@ describe('AuthController', () => {
     beforeEach(() => {
       storeMocks.resetAuthStore.mockReset();
       localStorage.removeItem(AUTH_EPOCH_KEY);
+      clearGrantKeyCleanupPending();
       Object.defineProperty(document, 'cookie', { writable: true, value: '' });
       mockClearDatabase.mockResolvedValue(undefined);
       vi.spyOn(Identity, 'z32FromSession').mockReturnValue(TEST_PUBKY as Pubky);
@@ -2488,6 +2494,98 @@ describe('AuthController', () => {
 
       expect(order).toEqual(['signout', 'clearAll']);
       expect(authStore.init).not.toHaveBeenCalled();
+    });
+
+    /** In-memory BrowserSessionStore behind `clearGrantSessions`: fails `failures` times, then empties. */
+    function fakeGrantStore(records: string[], failures: number) {
+      let remainingFailures = failures;
+      const clear = vi.spyOn(AuthApplication, 'clearGrantSessions').mockImplementation(async () => {
+        if (remainingFailures > 0) {
+          remainingFailures -= 1;
+          throw grantKeyRemovalFailed('clearGrantSessions', null);
+        }
+        records.splice(0);
+      });
+      return { records, clear };
+    }
+
+    it('a failed save whose key removal also fails keeps the cleanup, and the next Bitkit sign-in empties the store first', async () => {
+      const session = grantSession();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore());
+      vi.spyOn(AuthApplication, 'saveGrantSession').mockRejectedValue(new Error('IndexedDB write failed'));
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      const store = fakeGrantStore(['partial-record'], 1);
+
+      const approved = await approveGrantSignIn(session);
+      await expect(AuthController.initializeAuthenticatedSession({ session: approved })).rejects.toThrow(
+        'IndexedDB write failed',
+      );
+      expect(store.records).toEqual(['partial-record']);
+      expect(isGrantKeyCleanupPending()).toBe(true);
+
+      const order: string[] = [];
+      store.clear.mockImplementation(async () => {
+        order.push('clear');
+        store.records.splice(0);
+      });
+      vi.spyOn(AuthApplication, 'generateGrantAuthUrl').mockImplementation(async () => {
+        order.push('new-flow');
+        return {
+          authorizationUrl: 'pubkyauth://signin_grant?x',
+          awaitApproval: new Promise(() => {}),
+          cancelAuthFlow: vi.fn(),
+        };
+      });
+      await AuthController.getGrantAuthUrl();
+
+      expect(order).toEqual(['clear', 'new-flow']);
+      expect(store.records).toEqual([]);
+      expect(isGrantKeyCleanupPending()).toBe(false);
+    });
+
+    it('the next load removes grant keys a failed cleanup left behind', async () => {
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore());
+      const store = fakeGrantStore(['stranded'], 1);
+      markGrantKeyCleanupPending();
+
+      await expect(AuthController.settlePendingGrantKeyCleanup()).resolves.toBe(false);
+      expect(isGrantKeyCleanupPending()).toBe(true);
+
+      await expect(AuthController.settlePendingGrantKeyCleanup()).resolves.toBe(true);
+      expect(store.records).toEqual([]);
+      expect(isGrantKeyCleanupPending()).toBe(false);
+    });
+
+    it('a pending cleanup leaves a signed-in grant session alone until its sign-out removes every key', async () => {
+      const authStore = grantAuthStore({ session: grantSession(), grantSessionRecordId: 'rec-live' });
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+      const store = fakeGrantStore(['rec-live', 'stranded'], 0);
+      markGrantKeyCleanupPending();
+
+      await expect(AuthController.settlePendingGrantKeyCleanup()).resolves.toBe(false);
+      expect(store.clear).not.toHaveBeenCalled();
+      expect(isGrantKeyCleanupPending()).toBe(true);
+
+      await AuthController.logout();
+
+      expect(store.records).toEqual([]);
+      expect(isGrantKeyCleanupPending()).toBe(false);
+    });
+
+    it('a successful grant save drops only the marker it set', async () => {
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore());
+      vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-1');
+
+      await AuthController.initializeAuthenticatedSession({ session: await approveGrantSignIn(grantSession()) });
+      expect(isGrantKeyCleanupPending()).toBe(false);
+
+      vi.spyOn(AuthApplication, 'clearGrantSessions').mockRejectedValue(
+        grantKeyRemovalFailed('clearGrantSessions', null),
+      );
+      markGrantKeyCleanupPending();
+      await AuthController.initializeAuthenticatedSession({ session: await approveGrantSignIn(grantSession()) });
+      expect(isGrantKeyCleanupPending()).toBe(true);
     });
 
     it('save aborts after a sign-out since QR start', async () => {
