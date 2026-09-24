@@ -527,6 +527,7 @@ export class AuthController {
 
     const authStore = useAuthStore.getState();
     let persistAborted = false;
+    let grantSaveError: unknown = null;
 
     try {
       this.cancelAllAuthFlows();
@@ -551,7 +552,12 @@ export class AuthController {
           if (epochAtStart === undefined || epochAtStart !== readAuthEpoch()) {
             return false;
           }
-          grantSessionRecordId = await AuthApplication.saveGrantSession(session);
+          try {
+            grantSessionRecordId = await AuthApplication.saveGrantSession(session);
+          } catch (error) {
+            grantSaveError = error;
+            return false;
+          }
         }
         authStore.init({
           session,
@@ -566,6 +572,15 @@ export class AuthController {
         await AuthApplication.logout({ session }).catch((logoutError) => {
           Logger.warn('Failed to sign out a session that lost the local-state race', { logoutError });
         });
+        if (grantSaveError !== null) {
+          // A failed save can leave a partial record and this flow's delegated
+          // key in IndexedDB. The grant is signed out above (that needs the
+          // key), so the key goes now. Sign-out uses the same order.
+          await withAuthFinalizationLock(() => AuthApplication.clearGrantSessions()).catch((clearError) => {
+            Logger.error('Grant keys left by a failed save could not be removed', { clearError });
+          });
+          throw grantSaveError;
+        }
         throw createCanceledError();
       }
 

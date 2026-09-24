@@ -2448,6 +2448,27 @@ describe('AuthController', () => {
       );
     });
 
+    it('a failed save signs the grant out, removes its keys and surfaces the failure', async () => {
+      const order: string[] = [];
+      const session = grantSession();
+      const authStore = grantAuthStore();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      const saveFailure = new Error('IndexedDB write failed');
+      vi.spyOn(AuthApplication, 'saveGrantSession').mockRejectedValue(saveFailure);
+      vi.spyOn(AuthApplication, 'logout').mockImplementation(async () => {
+        order.push('signout');
+      });
+      vi.spyOn(AuthApplication, 'clearGrantSessions').mockImplementation(async () => {
+        order.push('clearAll');
+      });
+
+      const approved = await approveGrantSignIn(session);
+      await expect(AuthController.initializeAuthenticatedSession({ session: approved })).rejects.toBe(saveFailure);
+
+      expect(order).toEqual(['signout', 'clearAll']);
+      expect(authStore.init).not.toHaveBeenCalled();
+    });
+
     it('save aborts after a sign-out since QR start', async () => {
       const session = grantSession();
       const authStore = grantAuthStore();
