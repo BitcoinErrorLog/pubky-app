@@ -63,6 +63,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getActivityReadCheckpoint: vi.fn(),
     getMarketplaceNotifications: vi.fn(),
     getMarketplaceOrders: vi.fn(),
+    getMarketplaceOffers: vi.fn(),
+    syncAttentionSeen: vi.fn(),
   },
 }));
 
@@ -81,6 +83,7 @@ const reads = {
   checkpoint: deferred<number>(),
   notifications: deferred<Array<Record<string, unknown>>>(),
   orders: deferred<Array<Record<string, unknown>>>(),
+  offers: deferred<Array<Record<string, unknown>>>(),
 };
 
 function armReads() {
@@ -88,6 +91,7 @@ function armReads() {
   reads.checkpoint = deferred();
   reads.notifications = deferred();
   reads.orders = deferred();
+  reads.offers = deferred();
 }
 
 function notification(id: string, recipientPubky: string) {
@@ -102,9 +106,23 @@ function notification(id: string, recipientPubky: string) {
   };
 }
 
+function openOffer(id: string, sellerPubky: string) {
+  return {
+    id,
+    buyerPubky: SELLER,
+    sellerPubky,
+    state: 'pending',
+    offeredBy: SELLER,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    award: null,
+  };
+}
+
 function order(id: string, buyerPubky: string) {
   return {
     id,
+    state: 'pending_payment',
+    holdExpiresAt: null,
     nextActor: 'buyer' as const,
     buyerPubky,
     sellerPubky: SELLER,
@@ -142,6 +160,29 @@ describe('marketplace badge identity', () => {
       () => reads.notifications.promise as never,
     );
     vi.mocked(CommerceController.getMarketplaceOrders).mockImplementation(() => reads.orders.promise as never);
+    vi.mocked(CommerceController.getMarketplaceOffers).mockImplementation(() => reads.offers.promise as never);
+    vi.mocked(CommerceController.syncAttentionSeen).mockResolvedValue();
+  });
+
+  it('counts an order once when both its return row and the order itself need the account', async () => {
+    render(<BadgeProbe />);
+
+    await act(async () => {
+      reads.alerts.resolve([]);
+      reads.checkpoint.resolve(0);
+      reads.notifications.resolve([
+        { ...notification('r1', ACCOUNT_A), type: 'return_updated', aggregateId: 'order:o1' },
+        notification('a1', ACCOUNT_A),
+      ]);
+      reads.orders.resolve([order('o1', ACCOUNT_A)]);
+      reads.offers.resolve([openOffer('a1', ACCOUNT_A)]);
+    });
+
+    await waitFor(() => {
+      expect(badge('activity-badge')).toBe('2');
+      expect(badge('orders-badge')).toBe('1');
+      expect(badge('marketplace-nav-badge')).toBe('2');
+    });
   });
 
   it('shows zero while account B is loading after account A had counts', async () => {
@@ -152,6 +193,7 @@ describe('marketplace badge identity', () => {
       reads.checkpoint.resolve(0);
       reads.notifications.resolve([notification('a1', ACCOUNT_A), notification('a2', ACCOUNT_A)]);
       reads.orders.resolve([order('o1', ACCOUNT_A), order('o2', ACCOUNT_A)]);
+      reads.offers.resolve([openOffer('a1', ACCOUNT_A), openOffer('a2', ACCOUNT_A)]);
     });
 
     await waitFor(() => {
@@ -162,6 +204,7 @@ describe('marketplace badge identity', () => {
 
     const staleNotifications = reads.notifications;
     const staleOrders = reads.orders;
+    const staleOffers = reads.offers;
     armReads();
 
     await act(async () => {
@@ -176,6 +219,7 @@ describe('marketplace badge identity', () => {
     await act(async () => {
       staleNotifications.resolve([notification('late-a', ACCOUNT_A), notification('late-a2', ACCOUNT_A)]);
       staleOrders.resolve([order('late-o', ACCOUNT_A), order('late-o2', ACCOUNT_A)]);
+      staleOffers.resolve([openOffer('late-a', ACCOUNT_A), openOffer('late-a2', ACCOUNT_A)]);
       await Promise.resolve();
     });
 
@@ -188,6 +232,7 @@ describe('marketplace badge identity', () => {
       reads.checkpoint.resolve(0);
       reads.notifications.resolve([notification('b1', ACCOUNT_B)]);
       reads.orders.resolve([order('b-order', ACCOUNT_B)]);
+      reads.offers.resolve([openOffer('b1', ACCOUNT_B)]);
     });
 
     await waitFor(() => {

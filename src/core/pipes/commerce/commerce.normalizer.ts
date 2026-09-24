@@ -542,6 +542,11 @@ export class CommerceRecordNormalizer {
     return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/auction_reserves/${this.entityId(listingId)}.json`;
   }
 
+  /** The owner's PRIVATE badge checkpoint document (last time Activity and Orders were opened). */
+  static attentionSeenUri(ownerPubky: unknown): string {
+    return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/attention_seen.json`;
+  }
+
   static mediaUri(ownerPubky: unknown, mediaId: unknown): string {
     const owner = this.pubky(ownerPubky);
     const id = this.entityId(mediaId);
