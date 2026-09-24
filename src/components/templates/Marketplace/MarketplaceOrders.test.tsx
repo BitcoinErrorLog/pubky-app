@@ -812,3 +812,67 @@ describe('MarketplaceOrders seen checkpoint', () => {
     expect(markSeen).toHaveBeenCalledOnce();
   });
 });
+
+describe('MarketplaceOrders Activity link to an order no section lists', () => {
+  const scrollIntoView = vi.fn();
+
+  beforeEach(() => {
+    ordersState.currentUserPubky = CURRENT_USER;
+    ordersState.adapterMode = 'transaction-service';
+    ordersState.orders = [
+      orderView('paid', 'Sold paid boots', 'seller'),
+      orderView('cancelled', 'Unpaid sold lamp', 'seller', { receiptId: null }),
+    ];
+    scrollIntoView.mockReset();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    vi.spyOn(CommerceController, 'markOrdersAttentionSeen').mockResolvedValue();
+  });
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('shows the linked order with its state and short ID, and scrolls to it', async () => {
+    window.history.replaceState(null, '', '/marketplace/orders#order-test-unpaid-sold-lamp');
+
+    render(<MarketplaceOrders />);
+
+    const section = await screen.findByTestId('marketplace-linked-order');
+    expect(within(section).getByRole('heading', { name: 'From Activity' })).toBeInTheDocument();
+    expect(within(section).getByText('Your sale')).toBeInTheDocument();
+    expect(within(section).getByTestId('marketplace-linked-order-state')).toHaveTextContent('Cancelled before payment');
+    expect(within(section).getByText('Unpaid sold lamp × 1')).toBeInTheDocument();
+    expect(within(section).getByTestId('order-reference-label')).toHaveTextContent('Order test-unp');
+    const card = section.querySelector('[id="order-test-unpaid-sold-lamp"]');
+    expect(card).not.toBeNull();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    expect(scrollIntoView.mock.contexts.some((element) => element === card)).toBe(true);
+  });
+
+  it('keeps the unpaid cancel out of the page without an Activity link', () => {
+    render(<MarketplaceOrders />);
+
+    expect(screen.queryByTestId('marketplace-linked-order')).toBeNull();
+    expect(screen.queryByText(/Unpaid sold lamp/)).toBeNull();
+  });
+
+  it('does not duplicate an order another section already lists', async () => {
+    window.history.replaceState(null, '', '/marketplace/orders#order-test-sold-paid-boots');
+
+    render(<MarketplaceOrders />);
+
+    await waitFor(() => expect(screen.getByText('Sold paid boots × 1')).toBeInTheDocument());
+    expect(screen.queryByTestId('marketplace-linked-order')).toBeNull();
+    expect(screen.getAllByText('Sold paid boots × 1')).toHaveLength(1);
+  });
+
+  it('follows a hash change while the page is open', async () => {
+    render(<MarketplaceOrders />);
+    expect(screen.queryByTestId('marketplace-linked-order')).toBeNull();
+
+    window.history.replaceState(null, '', '/marketplace/orders#order-test-unpaid-sold-lamp');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    expect(await screen.findByTestId('marketplace-linked-order-state')).toHaveTextContent('Cancelled before payment');
+  });
+});
