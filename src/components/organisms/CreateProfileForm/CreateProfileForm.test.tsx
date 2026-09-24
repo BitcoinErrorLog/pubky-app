@@ -72,6 +72,7 @@ vi.mock('@/controllers/profile/profile', () => ({
     upload: vi.fn(),
     create: vi.fn(),
     commitCreate: vi.fn(),
+    readProfileSeed: vi.fn(async () => null),
   },
 }));
 vi.mock('@/controllers/file/file', () => ({

@@ -1,15 +1,22 @@
 import JSZip from 'jszip';
 import { baseUriBuilder } from 'pubky-app-specs';
+import {
+  BITKIT_PROFILE_PATHS,
+  parseBitkitProfileSeed,
+  parsePubkyAppProfileSeed,
+  PUBKY_APP_PROFILE_PATH,
+} from '@/application/profile/profile.seed';
 import type {
   TApplicationCommitUpdateDetailsParams,
   TCreateProfileInput,
   TDeleteAccountParams,
   TDownloadDataParams,
+  TProfileSeed,
 } from '@/application/profile/profile.types';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { hasHttpStatus } from '@/libs/error/error.utils';
+import { hasHttpStatus, isAppError } from '@/libs/error/error.utils';
 import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { sleep } from '@/libs/utils/utils';
@@ -47,6 +54,32 @@ export class ProfileApplication {
       // Jump again in that case, when we will work in error handling. NEXT
       throw error;
     }
+  }
+
+  /**
+   * Prefill for Create profile from a profile the account already published:
+   * the Pubky App `profile.json` first, then Bitkit's profile. Best-effort:
+   * never rejects, and returns null when no source has a usable field.
+   */
+  static async readProfileSeed({ pubky }: { pubky: Pubky }): Promise<TProfileSeed | null> {
+    const sources = [
+      { path: PUBKY_APP_PROFILE_PATH, parse: parsePubkyAppProfileSeed },
+      ...BITKIT_PROFILE_PATHS.map((path) => ({ path, parse: parseBitkitProfileSeed })),
+    ];
+    for (const { path, parse } of sources) {
+      const url = `pubky://${pubky}${path}`;
+      try {
+        if (!(await HomeserverService.exists(url))) continue;
+        const seed = parse(await HomeserverService.request<unknown>({ method: HttpMethod.GET, url }));
+        if (seed) return seed;
+      } catch (error) {
+        Logger.warn('[ProfileApplication] Existing profile could not be read for prefill', {
+          path,
+          code: isAppError(error) ? error.code : 'unknown',
+        });
+      }
+    }
+    return null;
   }
 
   /**

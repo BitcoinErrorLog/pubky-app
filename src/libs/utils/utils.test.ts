@@ -18,7 +18,6 @@ import {
   formatPublicKey,
   formatUSDate,
   generateRandomColor,
-  generateRandomUsername,
   getCharacterCount,
   getDisplayTags,
   getValidAuthorPubkyFromPostCompositeId,
@@ -1464,47 +1463,6 @@ describe('Utils', () => {
     it('should handle null-like values gracefully', () => {
       expect(stripPubkyPrefix(asInvalid<string>(null))).toBe('');
       expect(stripPubkyPrefix(asInvalid<string>(undefined))).toBe('');
-    });
-  });
-
-  describe('generateRandomUsername', () => {
-    it('should return a string in Adjective-Noun-Noun format', () => {
-      const username = generateRandomUsername();
-      const parts = username.split('-');
-      expect(parts).toHaveLength(3);
-      // Each part should start with uppercase and contain only letters
-      parts.forEach((part) => {
-        expect(part).toMatch(/^[A-Z][a-z]+$/);
-      });
-    });
-
-    it('should generate different usernames on multiple calls', () => {
-      const usernames = new Set<string>();
-      // Generate 20 usernames - with 30 adjectives and 40 nouns, collisions should be rare
-      for (let i = 0; i < 20; i++) {
-        usernames.add(generateRandomUsername());
-      }
-      // At least 10 should be unique (allowing for some randomness)
-      expect(usernames.size).toBeGreaterThanOrEqual(10);
-    });
-
-    it('should not have the same noun repeated twice', () => {
-      // Run multiple times to increase confidence
-      for (let i = 0; i < 50; i++) {
-        const username = generateRandomUsername();
-        const parts = username.split('-');
-        expect(parts[1]).not.toBe(parts[2]);
-      }
-    });
-
-    it('should generate usernames with reasonable length', () => {
-      for (let i = 0; i < 20; i++) {
-        const username = generateRandomUsername();
-        // Minimum: 3 chars + hyphen + 3 chars + hyphen + 3 chars = 11 chars
-        // Maximum: 7 chars + hyphen + 7 chars + hyphen + 7 chars = 23 chars (based on word lists)
-        expect(username.length).toBeGreaterThanOrEqual(11);
-        expect(username.length).toBeLessThanOrEqual(25);
-      }
     });
   });
 

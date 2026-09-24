@@ -308,6 +308,25 @@ describe('useAuthUrl', () => {
     expect(mockLoggerError).not.toHaveBeenCalled();
   });
 
+  it('stays silent when the approval lost to another sign-in', async () => {
+    mockGetAuthUrl.mockResolvedValue({
+      authorizationUrl: 'pubkyring://authorize?token=lost',
+      awaitApproval: Promise.resolve(mockSession()),
+      cancelAuthFlow: createCancelAuthFlow(),
+    });
+    mockInitializeAuthenticatedSession.mockRejectedValue(
+      Object.assign(new Error('Auth flow canceled'), { name: 'AuthFlowCanceled' }),
+    );
+
+    const { result } = renderHook(() => useAuthUrl());
+
+    await waitFor(() => expect(mockInitializeAuthenticatedSession).toHaveBeenCalled());
+    await act(async () => {});
+    expect(mockToast).not.toHaveBeenCalled();
+    expect(mockLoggerError).not.toHaveBeenCalled();
+    expect(result.current.isExpired).toBe(false);
+  });
+
   it('expires the Ring URL without double-logging when session initialization rejects the environment', async () => {
     const session = mockSession();
 
