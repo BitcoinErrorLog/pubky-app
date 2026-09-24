@@ -262,6 +262,44 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
   });
 
+  it('names a refund below the order total on the order card', () => {
+    ordersState.orders = [
+      orderView('refunded_external', 'Sold partial belt', 'seller', {
+        total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+        externalRefund: {
+          amountMinor: 189,
+          transactionId: 'PAYPAL-REFUND-189',
+          recordedAt: '2026-08-19T18:00:00.000Z',
+        },
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    expect(screen.getByText('Refunded $1.89 of $2.50')).toBeInTheDocument();
+    expect(screen.getByTestId('order-refund-record')).toHaveTextContent(
+      'Refunded $1.89 of $2.50. Recorded from external evidence: PAYPAL-REFUND-189',
+    );
+  });
+
+  it('names a partial-refund state even when the recorded amount matches the total', () => {
+    ordersState.orders = [
+      orderView('refunded_partial', 'Sold partial state belt', 'seller', {
+        total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+        externalRefund: {
+          amountMinor: 250,
+          transactionId: 'PAYPAL-REFUND-250',
+          recordedAt: '2026-08-19T18:00:00.000Z',
+        },
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    expect(screen.getAllByText('Refunded $2.50 of $2.50').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('order-refund-record')).toHaveTextContent('Refunded $2.50 of $2.50');
+  });
+
   it('shows seller unpaid holds as Reservations and buyer unpaid as Continue checkout', async () => {
     ordersState.orders = [
       orderView('pending_payment', 'Sold unpaid boots', 'seller', { nextActor: 'buyer' }, 'awaiting_entitlement'),
@@ -495,6 +533,31 @@ describe('MarketplaceOrders tabs', () => {
     const soldCard = screen.getByText(/Sold paid boots/).closest('[data-slot="card"]');
     expect(within(boughtCard as HTMLElement).getByText('You bought')).toBeInTheDocument();
     expect(within(soldCard as HTMLElement).getByText('You sold')).toBeInTheDocument();
+    expect(within(boughtCard as HTMLElement).getByTestId('order-reference-label')).toHaveTextContent('Order test-bou');
+    expect(within(soldCard as HTMLElement).getByTestId('order-reference-label')).toHaveTextContent('Order test-sol');
+  });
+
+  it('opens PayPal for the seller when the order stores a txn id', async () => {
+    ordersState.orders = [
+      orderView('paid', 'Bought paypal coat', 'buyer', {
+        paymentMethod: 'paypal',
+        fiatTransactionRef: '5TY05013RG002845M',
+      }),
+      orderView('paid', 'Sold paypal boots', 'seller', {
+        paymentMethod: 'paypal',
+        fiatTransactionRef: '5TY05013RG002845M',
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+    await userEvent.setup().click(screen.getByRole('tab', { name: /All 2/i }));
+
+    const boughtCard = screen.getByText(/Bought paypal coat/).closest('[data-slot="card"]') as HTMLElement;
+    const soldCard = screen.getByText(/Sold paypal boots/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(boughtCard).queryByTestId('open-in-paypal')).toBeNull();
+    const link = within(soldCard).getByTestId('open-in-paypal');
+    expect(link).toHaveTextContent('Open in PayPal');
+    expect(link).toHaveAttribute('href', 'https://www.paypal.com/myaccount/activities/details/5TY05013RG002845M');
   });
 
   it('shows next-actor hints from the signed-in user perspective', async () => {

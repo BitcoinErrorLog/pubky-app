@@ -33,6 +33,7 @@ import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { listingIdFromOrder, marketplaceConversationHref } from '@/libs/commerce/marketplace-conversation-query';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { partialRefundLabel } from '@/libs/commerce/partial-refund';
 import { formatBitcoinAmount } from '@/libs/commerce/pricing';
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -41,6 +42,7 @@ import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
+import { MarketplaceOrderReference } from '@/organisms/Marketplace/MarketplaceOrderReference';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
@@ -181,6 +183,7 @@ export function MarketplaceOrders() {
                             ? reservedWhileYouPayCopy(order.holdExpiresAt)
                             : buyerCheckoutStateLabel(order)}
                         </Typography>
+                        <MarketplaceOrderReference order={order} isBuyer />
                       </div>
                       <Button asChild className="rounded-full">
                         <Link href={getMarketplaceCheckoutRoute(order.id)} overrideDefaults>
@@ -214,6 +217,7 @@ export function MarketplaceOrders() {
                       <Typography as="p" className="text-sm text-muted-foreground">
                         {sellerReservationCopy(order.holdExpiresAt)}
                       </Typography>
+                      <MarketplaceOrderReference order={order} isBuyer={false} />
                     </CardContent>
                   </Card>
                 ))}
@@ -250,11 +254,12 @@ export function MarketplaceOrders() {
                 <div className="grid gap-4">
                   {visibleOrders.map(({ order, payment, receipt }) => {
                     const isBuyer = currentUserPubky === order.buyerPubky;
+                    const refundLabel = partialRefundLabel(order);
                     const nextActorHint = getNextActorHint(order, payment, isBuyer);
                     return (
                       <Card key={order.id} className="border py-5">
-                        <CardContent className="grid gap-5 px-5 lg:grid-cols-[1fr_auto] lg:items-center">
-                          <div>
+                        <CardContent className="grid min-w-0 gap-5 px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                          <div className="min-w-0">
                             <div className="mb-3 flex flex-wrap gap-2">
                               <Badge variant="outline" className="border-border/60 text-muted-foreground">
                                 {isBuyer ? 'You bought' : 'You sold'}
@@ -297,6 +302,7 @@ export function MarketplaceOrders() {
                               Items {formatCommerceMoney(order.subtotal)} · Shipping{' '}
                               {formatCommerceMoney(order.shipping)}
                             </Typography>
+                            <MarketplaceOrderReference order={order} isBuyer={isBuyer} />
                             {order.state === 'pending_payment' && order.holdExpiresAt && (
                               <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                                 {isBuyer
@@ -318,20 +324,27 @@ export function MarketplaceOrders() {
                               </div>
                             )}
                             {receipt && (
-                              <div className="mt-3 flex flex-col gap-1">
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  <ReceiptText className="size-4 text-brand" />
+                              <details
+                                className="mt-3 [&:not([open])>:not(summary)]:!hidden"
+                                data-testid="order-receipt-details"
+                              >
+                                <summary className="cursor-pointer text-sm text-muted-foreground">Receipt</summary>
+                                <div
+                                  className="mt-1 flex items-center gap-2 text-sm break-all text-muted-foreground"
+                                  data-testid="order-receipt-hash"
+                                >
+                                  <ReceiptText className="size-4 shrink-0 text-brand" />
                                   Receipt integrity {receipt.contentHash.slice(0, 12)}…
                                 </div>
-                                <DropEditionReceiptLine order={order} />
-                                {receiptsPublicationStatus === 'needs_reauth' && (
-                                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                    <Typography as="p" className="text-sm text-muted-foreground">
-                                      Receipt not saved to your private storage yet — reconnect to save it
-                                    </Typography>
-                                    <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
-                                  </div>
-                                )}
+                              </details>
+                            )}
+                            <DropEditionReceiptLine order={order} />
+                            {receipt && receiptsPublicationStatus === 'needs_reauth' && (
+                              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                <Typography as="p" className="text-sm text-muted-foreground">
+                                  Receipt not saved to your private storage yet — reconnect to save it
+                                </Typography>
+                                <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
                               </div>
                             )}
                             {order.shipment && (
@@ -390,15 +403,17 @@ export function MarketplaceOrders() {
                               </Typography>
                             )}
                             {order.externalRefund && (
-                              <Typography as="p" className="mt-2 text-sm text-brand">
+                              <Typography as="p" className="mt-2 text-sm text-brand" data-testid="order-refund-record">
                                 {/* Only ever externally evidenced: Paykit Server cannot spend, so
                               the app records the seller's transaction evidence and never
                               claims it moved funds itself. */}
-                                Refund recorded from external evidence: {order.externalRefund.transactionId}
+                                {refundLabel
+                                  ? `${refundLabel}. Recorded from external evidence: ${order.externalRefund.transactionId}`
+                                  : `Refund recorded from external evidence: ${order.externalRefund.transactionId}`}
                               </Typography>
                             )}
                             <MarketplaceOrderMessageCta order={order} adapterMode={adapterMode} />
-                            <div className="mt-4">
+                            <div className="mt-4 min-w-0">
                               <MarketplacePaymentStatusCard
                                 order={order}
                                 payment={payment}
@@ -438,6 +453,7 @@ export function MarketplaceOrders() {
                       <Typography as="p" className="text-sm text-muted-foreground">
                         Checkout ended before payment.
                       </Typography>
+                      <MarketplaceOrderReference order={order} isBuyer={currentUserPubky === order.buyerPubky} />
                     </CardContent>
                   </Card>
                 ))}
@@ -546,7 +562,7 @@ function isOrderInTab(
     case 'in_transit':
       return ['shipped', 'delivered'].includes(order.state);
     case 'completed':
-      return ['completed', 'refunded_external', 'closed'].includes(order.state);
+      return ['completed', 'refunded_external', 'refunded_partial', 'closed'].includes(order.state);
     case 'cancelled':
       return order.state === 'cancelled';
     case 'all':
@@ -598,6 +614,8 @@ function isOrderWaitingOnOtherSide(
  * itself, and a delivered pickup order was handed over in person.
  */
 function orderStateLabel(order: MarketplaceOrder): string {
+  const partial = partialRefundLabel(order);
+  if (partial) return partial;
   if (order.fulfillment === 'pickup') {
     switch (order.state) {
       case 'paid':

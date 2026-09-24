@@ -19,7 +19,11 @@ const NOTIFICATION_TYPE_UNREAD = {
   auction_won: false,
   auction_ended: true,
   order_created: false,
+  payment_method_bound: false,
+  fiat_payment_reported: false,
   payment_confirmed: true,
+  bitcoin_manual_review: false,
+  bitcoin_prepare_voided: false,
   order_cancelled: false,
   order_cancelled_terms_change: true,
   order_shipped: true,
@@ -33,6 +37,7 @@ const NOTIFICATION_TYPE_UNREAD = {
   pickup_details_cleared: false,
   pickup_ready: true,
   payment_refund_required: true,
+  drop_sold_out: false,
 } as const satisfies Record<MarketplaceNotification['type'], boolean>;
 
 /** Every notification type the marketplace notification schema defines. */

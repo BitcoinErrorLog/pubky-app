@@ -49,6 +49,39 @@ export const marketplaceOrderActionSchema = z
 
 export type MarketplaceOrderActionData = z.infer<typeof marketplaceOrderActionSchema>;
 
+/** Order total the refund dialog is capped against. The service stores one partial refund when `1 <= amount_minor <= total`. */
+export type MarketplaceRefundCap = {
+  amountMinor: number;
+  exponent: number;
+};
+
+export function majorToMinor(amount: string, exponent: number): number {
+  return Math.round(Number(amount) * 10 ** exponent);
+}
+
+export function formatOrderMajor(total: MarketplaceRefundCap): string {
+  return (total.amountMinor / 10 ** total.exponent).toFixed(Math.max(0, total.exponent));
+}
+
+/**
+ * Same action schema, plus the service rule that a recorded refund cannot
+ * exceed the order total. A smaller positive amount is a partial refund.
+ */
+export function marketplaceOrderActionSchemaFor(total: MarketplaceRefundCap) {
+  return marketplaceOrderActionSchema.superRefine((data, context) => {
+    if (data.action !== 'refund') return;
+    if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount) || Number(data.amount) <= 0) return;
+    const amountMinor = majorToMinor(data.amount, total.exponent);
+    if (!Number.isSafeInteger(amountMinor) || amountMinor > total.amountMinor) {
+      context.addIssue({
+        code: 'custom',
+        path: ['amount'],
+        message: 'Enter a refund up to the order total.',
+      });
+    }
+  });
+}
+
 export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {
   action: 'cancel',
   reason: '',

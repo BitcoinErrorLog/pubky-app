@@ -18,6 +18,7 @@ const PAID_OR_LATER_STATES = new Set([
   'return_approved',
   'return_received',
   'refunded_external',
+  'refunded_partial',
   'closed',
 ]);
 

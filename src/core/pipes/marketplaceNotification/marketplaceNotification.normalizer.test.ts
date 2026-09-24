@@ -146,7 +146,11 @@ describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
     auction_won: getMarketplaceListingRoute(SELLER, 'boots_01'),
     auction_ended: getMarketplaceListingRoute(SELLER, 'boots_01'),
     order_created: MARKETPLACE_ROUTES.CHECKOUT,
+    payment_method_bound: MARKETPLACE_ROUTES.ORDERS,
+    fiat_payment_reported: MARKETPLACE_ROUTES.ORDERS,
     payment_confirmed: MARKETPLACE_ROUTES.ORDERS,
+    bitcoin_manual_review: MARKETPLACE_ROUTES.ORDERS,
+    bitcoin_prepare_voided: MARKETPLACE_ROUTES.ORDERS,
     order_cancelled: MARKETPLACE_ROUTES.ORDERS,
     order_cancelled_terms_change: MARKETPLACE_ROUTES.ORDERS,
     order_shipped: MARKETPLACE_ROUTES.ORDERS,
@@ -160,6 +164,7 @@ describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
     pickup_details_cleared: MARKETPLACE_ROUTES.ORDERS,
     pickup_ready: MARKETPLACE_ROUTES.ORDERS,
     payment_refund_required: MARKETPLACE_ROUTES.ORDERS,
+    drop_sold_out: MARKETPLACE_ROUTES.SELL_DROPS,
   };
 
   it.each(NOTIFICATION_TYPES)('routes %s to its marketplace surface', (type) => {

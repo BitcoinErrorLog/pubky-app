@@ -62,8 +62,16 @@ function getBaseActionText(type: MarketplaceNotification['type']): string {
       return 'ended an auction';
     case 'order_created':
       return 'started checkout';
+    case 'payment_method_bound':
+      return 'connected a payment method';
+    case 'fiat_payment_reported':
+      return 'reported a payment';
     case 'payment_confirmed':
       return 'confirmed payment for an order';
+    case 'bitcoin_manual_review':
+      return 'flagged a bitcoin payment for a decision';
+    case 'bitcoin_prepare_voided':
+      return 'expired a bitcoin payment';
     case 'order_cancelled':
       return 'updated an order cancellation';
     case 'order_cancelled_terms_change':
@@ -90,6 +98,8 @@ function getBaseActionText(type: MarketplaceNotification['type']): string {
       return 'marked your order ready for pickup';
     case 'payment_refund_required':
       return 'requires a refund for a late payment';
+    case 'drop_sold_out':
+      return 'sold out a drop';
     default: {
       const exhaustiveCheck: never = type;
       return exhaustiveCheck;
