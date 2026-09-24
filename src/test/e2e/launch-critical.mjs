@@ -6,8 +6,15 @@
  * here drives real Chromium against `next start`. The required gate reads a
  * committed Nexus fixture (via LAUNCH_E2E_NEXUS_URL), never live 7108.
  *
- * Inventory: guest canary is fail-closed on a board throw. Signed-in board
- * mount is opt-in via LAUNCH_E2E_REQUIRE_SELLER_BOARD=1 (follow-up).
+ * Inventory: signed-in seller board is the required Chromium canary
+ * (LAUNCH_E2E_REQUIRE_SELLER_BOARD defaults on). Guest Join remains the
+ * fallback when that flag is explicitly 0.
+ *
+ * The page origin is 127.0.0.1. staging-api.pubky.app does not send CORS
+ * headers for that origin, so the session mint retries for 60s and the board
+ * never mounts. The gate forwards that one host through Node after the page
+ * calls fetch. An unbound Window.fetch still throws in the page, before any
+ * request exists to forward. The Nexus fixture stub is not forwarded.
  */
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -25,7 +32,8 @@ const BASE_URL = (process.env.LAUNCH_E2E_BASE_URL ?? 'http://127.0.0.1:3000').re
 const SERVICE_URL = process.env.LAUNCH_E2E_SERVICE_URL ?? 'https://staging-api.pubky.app';
 const NEXUS_URL = (process.env.LAUNCH_E2E_NEXUS_URL ?? '').replace(/\/$/, '');
 const ALLOW_LIVE_NEXUS = process.env.LAUNCH_E2E_ALLOW_LIVE_NEXUS === '1';
-const REQUIRE_SELLER_BOARD = process.env.LAUNCH_E2E_REQUIRE_SELLER_BOARD === '1';
+const REQUIRE_SELLER_BOARD = process.env.LAUNCH_E2E_REQUIRE_SELLER_BOARD !== '0';
+const STUB_LISTING_ID = '2b81df4f390b40e5b0aedabb89e76fa0';
 
 const failures = [];
 const results = [];
@@ -155,6 +163,7 @@ async function runAxe(page, pageId) {
         })
         .join('; '),
     );
+    return;
   }
   record(
     `a11y:${pageId}`,
@@ -195,14 +204,62 @@ async function exerciseListingCheckout(page) {
   await runAxe(page, 'listing');
 }
 
-async function waitForAuthUrl(page, timeout = 25_000) {
-  const slot = page.locator('[data-testid="qr-auth-url"][data-auth-url^="pubkyauth://"]').first();
-  await slot.waitFor({ state: 'attached', timeout });
-  const url = await slot.getAttribute('data-auth-url');
-  if (!url || !url.startsWith('pubkyauth://')) {
-    throw new Error('missing pubkyauth URL on QR slot');
+/**
+ * Ring cookie QR only. `qr-auth-url` stays the slot id. The URL is not read
+ * from the DOM: the copy button is what a person uses, and the slot must not
+ * carry the relay secret in an attribute. Side-by-side sign-in puts the
+ * Bitkit QR in the same card, so this prefers `sign-in-ring-option` and
+ * rejects `pubkyauth://signin_grant`. Inventory grants are copied from the
+ * open dialog, not from this locator.
+ */
+async function ringSignInAuthSlot(page, timeout) {
+  const qr = '[data-testid="qr-auth-url"]';
+  // Side-by-side sign-in keeps both QRs inside sign-in-qr-card. A card-wide
+  // .first() copies Bitkit when that QR attaches first. Wait for the Ring
+  // option, or for the Ring-only card that has no Bitkit option.
+  const slot = page.locator(
+    `[data-testid="sign-in-ring-option"] ${qr}, [data-testid="sign-in-qr-card"]:not(:has([data-testid="sign-in-bitkit-option"])) ${qr}`,
+  );
+  await slot.first().waitFor({ state: 'attached', timeout });
+  return slot.first();
+}
+
+async function readCopiedAuthUrl(page, slot) {
+  await page.evaluate(() => navigator.clipboard.writeText(''));
+  await slot.locator('xpath=ancestor::button[1]').click();
+  const copied = await page.waitForFunction(
+    async () => {
+      const text = await navigator.clipboard.readText();
+      return text.startsWith('pubkyauth://') ? text : null;
+    },
+    null,
+    { timeout: 5_000 },
+  );
+  const url = await copied.jsonValue();
+  if (typeof url !== 'string' || !url.startsWith('pubkyauth://')) {
+    throw new Error('missing pubkyauth URL from the QR copy button');
   }
   return url;
+}
+
+async function waitForAuthUrl(page, timeout = 25_000) {
+  const slot = await ringSignInAuthSlot(page, timeout);
+  const url = await readCopiedAuthUrl(page, slot);
+  if (!url.startsWith('pubkyauth://signin') || url.startsWith('pubkyauth://signin_grant')) {
+    throw new Error('missing Ring cookie pubkyauth URL from the QR copy button');
+  }
+  return url;
+}
+
+async function waitForStableAuthUrl(page) {
+  let last = await waitForAuthUrl(page);
+  for (let i = 0; i < 10; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const next = await waitForAuthUrl(page);
+    if (next === last) return next;
+    last = next;
+  }
+  return last;
 }
 
 async function approveAuthRequest(secretHex, authorizationUrl) {
@@ -211,15 +268,56 @@ async function approveAuthRequest(secretHex, authorizationUrl) {
   await new sdk.Pubky().signer(keypair).approveAuthRequest(authorizationUrl);
 }
 
+async function waitForAuthStore(page, timeout = 90_000) {
+  await page.waitForFunction(
+    () => {
+      try {
+        const raw = localStorage.getItem('auth-store');
+        if (!raw) return false;
+        const state = JSON.parse(raw)?.state ?? {};
+        // A reload without sessionExport is unauthenticated and the inventory
+        // route redirects to the catalog. hasProfile must be true or the
+        // guard sends the seller to profile creation instead of the board.
+        return Boolean(
+          state.currentUserPubky &&
+          typeof state.sessionExport === 'string' &&
+          state.sessionExport.length > 0 &&
+          state.hasProfile === true,
+        );
+      } catch {
+        return false;
+      }
+    },
+    undefined,
+    { timeout },
+  );
+}
+
+/**
+ * /sign-in is a public route, so a finished session stays on that URL.
+ * The persisted session export is the signed-in predicate. "Verifying account"
+ * appears before that export is written, so it is not enough.
+ */
 async function signInSeller(page, secretHex) {
   try {
     await closeJoinDialog(page);
     await gotoAndSettle(page, '/sign-in');
-    const authorizationUrl = await waitForAuthUrl(page);
-    await approveAuthRequest(secretHex, authorizationUrl);
-    await page.getByText('Verifying account').waitFor({ state: 'visible', timeout: 90_000 });
-    await page.waitForURL((url) => url.pathname !== '/sign-in', { timeout: 120_000, waitUntil: 'commit' });
-    record('inventory:seller-signin', true, `headless approve /sign-in → ${page.url()}`);
+    const authorizationUrl = await waitForStableAuthUrl(page);
+    try {
+      await approveAuthRequest(secretHex, authorizationUrl);
+    } catch (error) {
+      record('inventory:seller-signin', false, `approveAuthRequest: ${String(error).slice(0, 200)}`);
+      return false;
+    }
+    try {
+      await waitForAuthStore(page, 30_000);
+    } catch {
+      const retryUrl = await waitForAuthUrl(page).catch(() => null);
+      if (!retryUrl || retryUrl === authorizationUrl) throw new Error('auth-store was not set after approve');
+      await approveAuthRequest(secretHex, retryUrl);
+      await waitForAuthStore(page, 45_000);
+    }
+    record('inventory:seller-signin', true, `headless approve /sign-in, auth-store set (${page.url()})`);
     return true;
   } catch (error) {
     const snippet = (
@@ -233,6 +331,46 @@ async function signInSeller(page, secretHex) {
     record('inventory:seller-signin', false, `${String(error).slice(0, 180)} :: ${snippet}`);
     return false;
   }
+}
+
+async function installStagingServiceProxy(page) {
+  const service = new URL(SERVICE_URL);
+  if (service.host !== 'staging-api.pubky.app') {
+    throw new Error(`launch-e2e only forwards staging-api.pubky.app (got ${service.host})`);
+  }
+  if (/railway\.app|:7108\b/.test(SERVICE_URL)) {
+    throw new Error(`launch-e2e must not forward live nexusd (${SERVICE_URL})`);
+  }
+  await page.route(`${service.origin}/**`, async (route) => {
+    const request = route.request();
+    const origin = request.headers()['origin'] ?? new URL(BASE_URL).origin;
+    const cors = {
+      'access-control-allow-origin': origin,
+      'access-control-allow-credentials': 'true',
+      'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+      'access-control-allow-headers':
+        request.headers()['access-control-request-headers'] ?? 'content-type,authorization',
+    };
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors, body: '' });
+      return;
+    }
+    const headers = { ...request.headers() };
+    delete headers.host;
+    delete headers['content-length'];
+    const response = await fetch(request.url(), {
+      method: request.method(),
+      headers,
+      body: request.method() === 'GET' || request.method() === 'HEAD' ? undefined : request.postDataBuffer(),
+    });
+    const body = Buffer.from(await response.arrayBuffer());
+    const responseHeaders = { ...cors };
+    response.headers.forEach((value, key) => {
+      if (key === 'content-encoding' || key === 'content-length' || key === 'transfer-encoding') return;
+      responseHeaders[key] = value;
+    });
+    await route.fulfill({ status: response.status, headers: responseHeaders, body });
+  });
 }
 
 async function waitForBoardStatus(page, accepted, timeout = 45_000) {
@@ -250,29 +388,131 @@ async function waitForBoardStatus(page, accepted, timeout = 45_000) {
   return (await page.locator('[data-testid="inventory-studio"]').getAttribute('data-load-status')) ?? '';
 }
 
-async function approveVisibleGrant(page, secretHex, label) {
-  const trigger = page.getByRole('button', { name: /Approve in (your Pubky signer|Pubky Ring)/i }).first();
-  if (!(await trigger.count())) return { opened: false };
-  const before = (await page.locator('[data-testid="inventory-studio"]').getAttribute('data-load-status')) ?? '';
-  await trigger.click({ force: true });
-  try {
-    await waitForAuthUrl(page);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    const authorizationUrl = await waitForAuthUrl(page);
-    await approveAuthRequest(secretHex, authorizationUrl);
-    if (label === 'session') {
-      await page.waitForFunction(() => Boolean(localStorage.getItem('pubky.marketplace.session.v1')), {
-        timeout: 90_000,
-      });
-    }
-    const after = await waitForBoardStatus(page, ['grant-needed', 'ready', 'empty', 'error'], 90_000);
-    const moved = after !== before && ['grant-needed', 'ready', 'empty', 'error'].includes(after);
-    record(`inventory:${label}-approve`, moved, `status ${before} → ${after || 'missing'}`);
-    return { opened: true, ok: moved };
-  } catch (error) {
-    record(`inventory:${label}-approve`, false, String(error).slice(0, 240));
-    return { opened: true, ok: false };
+async function closeTopDialog(page) {
+  const content = page.getByTestId('dialog-content');
+  if (!(await content.count())) return;
+  const close = content.getByRole('button', { name: 'Close' }).first();
+  if (!(await close.count())) return;
+  await close.click();
+  await content
+    .first()
+    .waitFor({ state: 'hidden', timeout: 5_000 })
+    .catch(() => undefined);
+}
+
+async function openNamedDialog(page, trigger, dialog) {
+  await trigger.waitFor({ state: 'visible', timeout: 20_000 });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await dialog.isVisible().catch(() => false)) return true;
+    await trigger.click();
+    const clicked = await dialog
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (clicked && (await dialog.isVisible().catch(() => false))) return true;
+    // The overlay's click handler closes a dialog that opens on pointerdown,
+    // so the same gesture can leave no QR. Enter does not land on the overlay.
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const keyed = await dialog
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (keyed && (await dialog.isVisible().catch(() => false))) return true;
   }
+  return false;
+}
+
+async function readDialogAuthUrl(page, dialog) {
+  const deadline = Date.now() + 40_000;
+  let lastSnap = '';
+  while (Date.now() < deadline) {
+    if (!(await dialog.isVisible().catch(() => false))) return { url: '', snap: 'dialog closed' };
+    const refusal = dialog.getByTestId('grant-session-refusal');
+    if (await refusal.count()) {
+      const text = ((await refusal.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 180);
+      return { url: '', snap: `refusal: ${text}` };
+    }
+    const slot = dialog.locator('[data-testid="qr-auth-url"]');
+    if (await slot.count()) {
+      try {
+        const url = await readCopiedAuthUrl(page, slot.first());
+        if (url.startsWith('pubkyauth://signin_grant')) {
+          return { url: '', snap: 'inventory dialog copied a Bitkit grant URL' };
+        }
+        return { url, snap: '' };
+      } catch (error) {
+        return { url: '', snap: String(error).slice(0, 180) };
+      }
+    }
+    lastSnap = ((await dialog.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 220);
+    if (/not approved|Approve purchases first|Sign in first|rejected the inventory/i.test(lastSnap)) {
+      return { url: '', snap: lastSnap };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return { url: '', snap: lastSnap || 'no pubkyauth url' };
+}
+
+async function approveVisibleGrant(page, secretHex, label) {
+  const grantTrigger = page
+    .getByTestId('inventory-grant-banner')
+    .getByRole('button', { name: /Approve in your Pubky signer/i });
+  // data-load-status flips to grant-needed while the skeleton still replaces the banner.
+  await grantTrigger.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => undefined);
+  const sessionTrigger = page.getByRole('button', { name: /Approve in Pubky Ring/i }).first();
+  const useGrant = (await grantTrigger.count()) > 0;
+  const trigger = useGrant ? grantTrigger : sessionTrigger;
+  if (!(await trigger.count())) return { opened: false, ok: false, detail: 'no approve button' };
+
+  if (useGrant) {
+    await page
+      .waitForFunction(() => Boolean(localStorage.getItem('pubky.marketplace.session.v1')), undefined, {
+        timeout: 20_000,
+      })
+      .catch(() => undefined);
+  }
+
+  await closeTopDialog(page);
+  const dialog = useGrant
+    ? page.getByRole('dialog', { name: /Approve inventory access/ })
+    : page.getByRole('dialog', { name: /Approve purchases/ });
+  const opened = await openNamedDialog(page, trigger, dialog);
+  if (!opened) return { opened: true, ok: false, detail: `${label} dialog did not stay open` };
+
+  const { url, snap } = await readDialogAuthUrl(page, dialog);
+  if (!url) {
+    await closeTopDialog(page);
+    return { opened: true, ok: false, detail: `${label} qr missing :: ${snap}` };
+  }
+
+  try {
+    await approveAuthRequest(secretHex, url);
+  } catch (error) {
+    await closeTopDialog(page);
+    return { opened: true, ok: false, detail: `${label} approveAuthRequest: ${String(error).slice(0, 180)}` };
+  }
+
+  const storageKey = useGrant ? 'pubky.marketplace.inventory-session.v1' : 'pubky.marketplace.session.v1';
+  try {
+    await page.waitForFunction((key) => Boolean(localStorage.getItem(key)), storageKey, { timeout: 90_000 });
+  } catch (error) {
+    const body = ((await dialog.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 180);
+    await closeTopDialog(page);
+    return {
+      opened: true,
+      ok: false,
+      detail: `${label} ${storageKey} missing :: ${body || String(error).slice(0, 120)}`,
+    };
+  }
+
+  const after = await waitForBoardStatus(page, ['ready', 'empty', 'error'], 45_000);
+  const ok = after === 'ready' || after === 'empty';
+  return {
+    opened: true,
+    ok,
+    detail: ok ? `${label} approved, status ${after}` : `${label} approved but status ${after || 'missing'}`,
+  };
 }
 
 function boardThrowDetail({ illegal, transport, status, bodyText, pageErrors }) {
@@ -441,6 +681,7 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
 
   const pending = ['unauthenticated', 'session-required', 'grant-needed', 'ready', 'empty', 'error'];
   const settled = ['ready', 'empty', 'error'];
+  let approveDetail = '';
   for (const label of ['session', 'grant']) {
     const statusNow = await waitForBoardStatus(page, pending, 20_000);
     if (settled.includes(statusNow)) break;
@@ -450,7 +691,12 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
       continue;
     }
     const result = await approveVisibleGrant(page, secretHex, label);
-    if (result.opened && !result.ok) break;
+    if (!result.opened) continue;
+    approveDetail = result.detail;
+    if (result.ok) {
+      record(`inventory:${label}-approve`, true, result.detail);
+      break;
+    }
   }
 
   const status = await waitForBoardStatus(page, settled);
@@ -465,32 +711,133 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
   record(
     'inventory:board-route',
     boardOk,
-    `status=${status || 'missing'} rows=${rows} empty=${empty > 0} transport=${transport}`,
+    `status=${status || 'missing'} rows=${rows} empty=${empty > 0} transport=${transport}${approveDetail ? ` :: ${approveDetail}` : ''}`,
   );
   assert(
     'inventory:no-transport-error',
     !transport && status !== 'error' && illegal.length === 0,
     bodyText || `status=${status}`,
   );
+  assert(
+    'inventory:list-seller-listings-ran',
+    boardOk,
+    boardOk ? `listSellerListings settled status=${status}` : `board did not reach ready/empty (status=${status})`,
+  );
+  await calibrateBindRevert(page);
   await runAxe(page, 'inventory');
 }
 
-async function installHomeserverListingFixture(page, canonicalListing, shop) {
-  const listingId = canonicalListing.listingId;
-  await page.route(`**/pub/pubky.app/marketplace/v1/listings/${listingId}`, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(canonicalListing),
-    });
-  });
-  await page.route('**/pub/pubky.app/marketplace/v1/shop.json', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(shop),
-    });
-  });
+async function calibrateBindRevert(page) {
+  const result = await page.evaluate(async (serviceUrl) => {
+    const original = window.fetch;
+    const clientShaped = { fetch: original };
+    let unboundThrew = false;
+    try {
+      await clientShaped.fetch(`${serviceUrl}/health`);
+    } catch (error) {
+      unboundThrew = /illegal invocation/i.test(String(error));
+    }
+    let boundOk = false;
+    try {
+      const bound = original.bind(window);
+      const response = await bound(`${serviceUrl}/health`);
+      boundOk = typeof response.status === 'number';
+    } catch (error) {
+      boundOk = !/illegal invocation/i.test(String(error));
+    }
+    return {
+      unboundThrew,
+      boundOk,
+      boardMounted: Boolean(document.querySelector('[data-testid="inventory-studio"]')),
+    };
+  }, SERVICE_URL);
+  assert(
+    'inventory:bind-revert-board-mounted',
+    result.boardMounted,
+    result.boardMounted ? 'calibration after inventory-studio mounted' : 'board was not mounted — calibration invalid',
+  );
+  assert(
+    'inventory:bind-revert-unbound-throws',
+    result.unboundThrew,
+    result.unboundThrew
+      ? 'PubkyShopClient-shaped unbound Window.fetch throws Illegal invocation'
+      : 'unbound Window.fetch did not throw — calibration invalid',
+  );
+  assert(
+    'inventory:bind-revert-bound-ok',
+    result.boundOk,
+    result.boundOk
+      ? 'bound Window.fetch is callable against the service origin'
+      : 'bound Window.fetch threw Illegal invocation',
+  );
+}
+
+function listingCacheRow(canonicalListing) {
+  const price = canonicalListing.sale.unitPrice;
+  return {
+    id: `${canonicalListing.ownerPubky}:${canonicalListing.listingId}`,
+    seller_id: canonicalListing.ownerPubky,
+    listing_id: canonicalListing.listingId,
+    record: canonicalListing,
+    revision: canonicalListing.revision,
+    state: canonicalListing.state,
+    category_id: canonicalListing.categoryId,
+    format: canonicalListing.sale.format,
+    currency: price.currency,
+    price_minor: price.amountMinor,
+    sync_status: 'synced',
+    updated_at: Date.parse(canonicalListing.updatedAt),
+  };
+}
+
+function shopCacheRow(shop) {
+  return {
+    id: shop.ownerPubky,
+    owner_id: shop.ownerPubky,
+    record: shop,
+    revision: shop.revision,
+    sync_status: 'synced',
+    updated_at: Date.parse(shop.updatedAt),
+  };
+}
+
+async function seedCanonicalListingCache(page, canonicalListing, shop) {
+  await page.waitForFunction(
+    () => indexedDB.databases().then((dbs) => dbs.some((entry) => entry.name === 'franky')),
+    undefined,
+    {
+      timeout: 15_000,
+    },
+  );
+  const seeded = await page.evaluate(
+    async ({ listing, shopRecord }) => {
+      const put = (storeName, value) =>
+        new Promise((resolve, reject) => {
+          const open = indexedDB.open('franky');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            if (![...db.objectStoreNames].includes(storeName)) {
+              db.close();
+              reject(new Error(`missing store ${storeName}`));
+              return;
+            }
+            const tx = db.transaction(storeName, 'readwrite');
+            tx.objectStore(storeName).put(value);
+            tx.oncomplete = () => {
+              db.close();
+              resolve(true);
+            };
+            tx.onerror = () => reject(tx.error);
+          };
+        });
+      await put('commerce_listings', listing);
+      await put('commerce_shops', shopRecord);
+      return true;
+    },
+    { listing: listingCacheRow(canonicalListing), shopRecord: shopCacheRow(shop) },
+  );
+  assert('listing:fixture-cache', seeded === true, 'canonical listing+shop in Dexie franky');
 }
 
 async function main() {
@@ -500,6 +847,9 @@ async function main() {
   const canonicalListing = JSON.parse(await readFile(CANONICAL_LISTING_PATH, 'utf8'));
   const shop = JSON.parse(await readFile(SHOP_FIXTURE_PATH, 'utf8'));
   const listingPath = fixture.listingPath ?? fixture.pages[1].path;
+  if (!listingPath.includes(STUB_LISTING_ID) || !canonicalListing.listingId.includes(STUB_LISTING_ID)) {
+    throw new Error(`required gate listingPath must be stub ${STUB_LISTING_ID}, got ${listingPath}`);
+  }
   const pageErrors = [];
 
   const browser = await chromium.launch({
@@ -509,19 +859,25 @@ async function main() {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     locale: 'en-US',
+    permissions: ['clipboard-read', 'clipboard-write'],
   });
+  context.setDefaultTimeout(90_000);
   const page = await context.newPage();
   page.on('pageerror', (error) => {
     pageErrors.push(String(error));
     console.error('pageerror', error);
   });
-
-  await installHomeserverListingFixture(page, canonicalListing, shop);
+  await installStagingServiceProxy(page);
 
   try {
     const catalog = await gotoAndSettle(page, fixture.pages[0].path);
     assert('catalog:http', catalog !== null && catalog.ok(), `status ${catalog?.status()}`);
     await expectVisible(page, page.getByText(fixture.catalogHeading, { exact: false }), 'catalog:heading');
+    try {
+      await seedCanonicalListingCache(page, canonicalListing, shop);
+    } catch (error) {
+      record('listing:fixture-cache', false, String(error).slice(0, 240));
+    }
     const sandbox = await page.getByText(fixture.forbiddenSandboxCopy).count();
     assert('catalog:not-sandbox', sandbox === 0, sandbox === 0 ? 'staging adapter' : 'sandbox copy present');
 
@@ -546,8 +902,12 @@ async function main() {
     );
 
     await gotoAndSettle(page, listingPath);
-    const onListing = /\/marketplace\/listing\//.test(page.url());
-    record('listing:open', onListing, onListing ? page.url() : `expected ${listingPath}, got ${page.url()}`);
+    const onListing = page.url().includes(STUB_LISTING_ID);
+    record(
+      'listing:open',
+      onListing,
+      onListing ? page.url() : `expected stub listing ${STUB_LISTING_ID}, got ${page.url()}`,
+    );
     if (onListing) {
       await exerciseListingCheckout(page);
     }
@@ -593,6 +953,8 @@ async function main() {
 
     const illegal = pageErrors.filter((message) => /illegal invocation/i.test(message));
     assert('inventory:no-uncaught-illegal-invocation', illegal.length === 0, illegal.join(' | ') || 'none');
+    const swMime = pageErrors.filter((message) => /sw\.js/.test(message) && /unsupported MIME type/i.test(message));
+    assert('launch:service-worker', swMime.length === 0, swMime[0] ?? 'sw.js did not fail registration');
   } finally {
     const summary = {
       baseUrl: BASE_URL,
