@@ -1,6 +1,7 @@
 // Intentional import order — browser-mode mock factories rely on stable aliases.
 /* eslint-disable simple-import-sort/imports */
 import { describe, expect, it, vi } from 'vitest';
+import { settleMarketplaceSocialCapture } from '@/test-utils/vrt.social-settle';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceFollowedSellersShelf } from '@/organisms/Marketplace/MarketplaceFollowedSellersShelf';
@@ -166,6 +167,15 @@ function SurfaceHost({ children }: { children: React.ReactNode }) {
   );
 }
 
+async function expectSocialScreenshot(
+  screen: Awaited<ReturnType<typeof renderForVRT>>,
+  name: string,
+  expectedCovers: number,
+) {
+  await settleMarketplaceSocialCapture(expectedCovers);
+  await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(name);
+}
+
 describe('Marketplace social surfaces — visual regression', () => {
   it('renders the followed-sellers shelf as a horizontal card strip at desktop viewport', async () => {
     const f = await fixtures;
@@ -176,7 +186,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       </SurfaceHost>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('followed-sellers-shelf-desktop');
+    await expectSocialScreenshot(screen, 'followed-sellers-shelf-desktop', 1);
   });
 
   it('renders the followed-sellers shelf at mobile viewport with overflow cards off-screen', async () => {
@@ -188,7 +198,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       </SurfaceHost>,
       { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
     );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('followed-sellers-shelf-mobile');
+    await expectSocialScreenshot(screen, 'followed-sellers-shelf-mobile', 1);
   });
 
   it('renders nothing at all for the shelf when no followed seller has active listings', async () => {
@@ -199,7 +209,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       </SurfaceHost>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('followed-sellers-shelf-absent');
+    await expectSocialScreenshot(screen, 'followed-sellers-shelf-absent', 0);
   });
 
   it('renders the Hot-page ending-soon and fresh-listings modules at desktop viewport', async () => {
@@ -211,7 +221,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       </SurfaceHost>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-marketplace-modules-desktop');
+    await expectSocialScreenshot(screen, 'hot-marketplace-modules-desktop', 1);
   });
 
   it('renders only the fresh-listings module when no auction has known end terms', async () => {
@@ -223,7 +233,7 @@ describe('Marketplace social surfaces — visual regression', () => {
       </SurfaceHost>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-marketplace-fresh-only-desktop');
+    await expectSocialScreenshot(screen, 'hot-marketplace-fresh-only-desktop', 1);
   });
 
   it('renders nothing at all on Hot when the index has no listings', async () => {
@@ -234,6 +244,6 @@ describe('Marketplace social surfaces — visual regression', () => {
       </SurfaceHost>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('hot-marketplace-modules-absent');
+    await expectSocialScreenshot(screen, 'hot-marketplace-modules-absent', 0);
   });
 });
