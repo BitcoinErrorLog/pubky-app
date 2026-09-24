@@ -148,6 +148,27 @@ describe('CLI grant BFF', () => {
     resetMarketplaceGrantConfigForTests();
   });
 
+  it("challenges for a pubky from another client do not spend its owner's bucket", async () => {
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { getCliGrantConfig } = await import('./config');
+    const { createCliChallenge } = await import('./cli-bff');
+    const buckets = new Map<string, number>();
+    consumeCliRateLimit.mockImplementation(async (_config: unknown, key: string, limit: number) => {
+      const count = (buckets.get(key) ?? 0) + 1;
+      buckets.set(key, count);
+      return count <= limit;
+    });
+    const body = { pubky, result_cpk: pubky, result_delivery_id: deliveryId };
+    const from = (ip: string) => jsonRequest(body, { 'x-vercel-forwarded-for': ip });
+
+    for (let i = 0; i < getCliGrantConfig()!.createPerPubkyPerMinute; i += 1) {
+      await createCliChallenge(from('203.0.113.66'));
+    }
+    await expect(createCliChallenge(from('203.0.113.66'))).rejects.toEqual(new BffError(429, 'retry_later', 60));
+    await expect(createCliChallenge(from('198.51.100.7'))).resolves.toMatchObject({ proof_uri: expect.any(String) });
+  });
+
   it('returns 404 grant_unavailable when the CLI flag is off', async () => {
     process.env.SHOP_BFF_CLI_GRANT_ENABLED = 'false';
     resetMarketplaceGrantConfigForTests();

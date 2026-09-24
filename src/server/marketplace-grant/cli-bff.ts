@@ -130,6 +130,16 @@ export function clientIp(request: Request, trustedProxyCount: number): string {
   return xffHopBehindTrustedProxies(request.headers.get('x-forwarded-for'), trustedProxyCount) || '0.0.0.0';
 }
 
+/**
+ * Challenge creation is unauthenticated and names any pubky, so a bucket
+ * keyed by pubky alone lets a third party exhaust the owner's bucket. Keyed
+ * by client IP and pubky, a flood from elsewhere never reaches the owner's
+ * bucket; the per-IP bucket still bounds total creation.
+ */
+export function challengePubkyBucket(prefix: string, ip: string, pubky: string): string {
+  return `${prefix}:${ip}:${pubky}`;
+}
+
 function tokenBucketKey(prefix: string, digest: Uint8Array): string {
   return `${prefix}:${Buffer.from(digest).toString('hex')}`;
 }
@@ -177,12 +187,9 @@ export async function createCliChallenge(request: Request): Promise<{
   } catch {
     throw new BffError(400, 'invalid_request');
   }
-  await rateLimit(
-    config,
-    `cli_challenge_ip:${clientIp(request, config.trustedProxyCount)}`,
-    config.createPerIpPerMinute,
-  );
-  await rateLimit(config, `cli_challenge_pubky:${pubky}`, config.createPerPubkyPerMinute);
+  const ip = clientIp(request, config.trustedProxyCount);
+  await rateLimit(config, `cli_challenge_ip:${ip}`, config.createPerIpPerMinute);
+  await rateLimit(config, challengePubkyBucket('cli_challenge_pubky', ip, pubky), config.createPerPubkyPerMinute);
   const challengeId = randomUUID();
   const nonce = Uint8Array.from(randomBytes(32));
   const expiresAt = new Date(Date.now() + config.challengeTtlSeconds * 1000);

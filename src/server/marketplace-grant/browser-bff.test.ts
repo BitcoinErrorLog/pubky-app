@@ -862,6 +862,27 @@ describe('browser purchase bootstrap BFF', () => {
     expect(cancelGrant).toHaveBeenCalledWith(expect.anything(), row.flow_id, encodeBase64Url(derived.resultDeliveryId));
   });
 
+  it("challenges for a pubky from another client do not spend its owner's bucket", async () => {
+    storeInsertedChallenges();
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createBrowserChallenge } = await import('./browser-bff');
+    const buckets = new Map<string, number>();
+    consumeCliRateLimit.mockImplementation(async (_config: unknown, key: string, limit: number) => {
+      const count = (buckets.get(key) ?? 0) + 1;
+      buckets.set(key, count);
+      return count <= limit;
+    });
+    const config = await browserConfig();
+    const from = (ip: string) => challengeRequest({ pubky }, { 'x-vercel-forwarded-for': ip });
+
+    for (let i = 0; i < config.createPerPubkyPerMinute; i += 1) {
+      await createBrowserChallenge(from('203.0.113.66'));
+    }
+    await expect(createBrowserChallenge(from('203.0.113.66'))).rejects.toEqual(new BffError(429, 'retry_later', 60));
+    await expect(createBrowserChallenge(from('198.51.100.7'))).resolves.toMatchObject({ proof_uri: expect.any(String) });
+  });
+
   // A9
   it('no migration added by the browser bootstrap', () => {
     const migrations = readdirSync(path.resolve(process.cwd(), 'db/bff'))
