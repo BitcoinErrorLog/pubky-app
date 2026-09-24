@@ -4,8 +4,9 @@ import type { MarketplaceNotification } from '@/services/marketplace/marketplace
  * Activity rows that can need the person who received them. A row of one of
  * these types badges only while its subject still needs that person (see
  * `activityNeedsCurrentUser`). Informational rows (checkout started, payment
- * confirmed, shipped, cancelled, completed) stay in the history and never
- * badge.
+ * confirmed, shipped, cancelled, completed, refund recorded) stay in the
+ * history and never badge. A restored disputed payment can hand a reopened
+ * order back to the seller, so it badges while that order waits on them.
  */
 const ACTION_ACTIVITY_TYPES = new Set<MarketplaceNotification['type']>([
   'message_received',
@@ -16,6 +17,7 @@ const ACTION_ACTIVITY_TYPES = new Set<MarketplaceNotification['type']>([
   'pickup_ready',
   'payment_refund_required',
   'bitcoin_manual_review',
+  'payment_reversal_cancelled',
 ]);
 
 const OFFER_ACTION_TYPES = new Set<MarketplaceNotification['type']>([
@@ -29,6 +31,7 @@ const ORDER_ACTION_TYPES = new Set<MarketplaceNotification['type']>([
   'pickup_ready',
   'payment_refund_required',
   'bitcoin_manual_review',
+  'payment_reversal_cancelled',
 ]);
 
 export function isMarketplaceActionActivity(type: MarketplaceNotification['type']): boolean {
