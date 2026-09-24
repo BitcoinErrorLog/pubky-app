@@ -148,6 +148,18 @@ describe('order state machine', () => {
     ['return_requested', 'return_approved'],
     ['return_approved', 'return_received'],
     ['return_received', 'refunded_external'],
+    // A verified PayPal refund reaching the order total (`paypal_refund`).
+    ['paid', 'refunded_external'],
+    ['ready_for_pickup', 'refunded_external'],
+    ['shipped', 'refunded_external'],
+    ['delivered', 'refunded_external'],
+    ['completed', 'refunded_external'],
+    ['cancel_requested', 'refunded_external'],
+    ['return_requested', 'refunded_external'],
+    ['return_approved', 'refunded_external'],
+    // PayPal cancelled the reversal (`paypal_reversal_cancelled`).
+    ['refunded_external', 'shipped'],
+    ['refunded_external', 'return_received'],
   ])('allows %s -> %s', (from, to) => {
     expect(canTransitionOrder(from, to)).toBe(true);
   });
@@ -162,6 +174,8 @@ describe('order state machine', () => {
     ['completed', 'closed'],
     ['closed', 'return_requested'],
     ['refunded_external', 'closed'],
+    ['pending_payment', 'refunded_external'],
+    ['refunded_external', 'pending_payment'],
   ])('rejects %s -> %s', (from, to) => {
     expect(canTransitionOrder(from, to)).toBe(false);
   });
