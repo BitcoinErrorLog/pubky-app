@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { Bell, Eye, Gavel, HandCoins, MessageCircle } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
@@ -17,6 +17,7 @@ import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplac
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
+import { activityRowHref } from '@/libs/commerce/activity-links';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { partialRefundLabel } from '@/libs/commerce/partial-refund';
 import { returnActivityTitles } from '@/libs/commerce/return-activity-titles';
@@ -268,49 +269,68 @@ function KnownOrGapActivityRow({ type, createdAt }: { type: string; createdAt: s
       </Card>
     );
   }
+  const href = activityRowHref(type as MarketplaceNotification['type'], null);
   return (
-    <Card className="border py-4">
-      <CardContent className="flex items-center gap-4 px-4">
-        <div className="rounded-full bg-brand/15 p-3 text-brand">
-          <HandCoins className="size-5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <Typography as="p" className="font-semibold">
-            {label}
-          </Typography>
-        </div>
-        <time dateTime={createdAt} className="text-xs text-muted-foreground">
-          {new Date(createdAt).toLocaleDateString('en-US')}
-        </time>
-      </CardContent>
-    </Card>
+    <ActivityRowLink href={href} label={label}>
+      <Card className="border py-4">
+        <CardContent className="flex items-center gap-4 px-4">
+          <div className="rounded-full bg-brand/15 p-3 text-brand">
+            <HandCoins className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Typography as="p" className="font-semibold">
+              {label}
+            </Typography>
+          </div>
+          <time dateTime={createdAt} className="text-xs text-muted-foreground">
+            {new Date(createdAt).toLocaleDateString('en-US')}
+          </time>
+        </CardContent>
+      </Card>
+    </ActivityRowLink>
   );
 }
 
 function NotificationCard({ notification, title }: { notification: MarketplaceNotification; title?: string }) {
   const label = title ?? notificationLabel(notification.type);
+  const href = activityRowHref(notification.type, notification.aggregateId);
   return (
-    <Card className="border py-4">
-      <CardContent className="flex items-center gap-4 px-4">
-        <div className="rounded-full bg-brand/15 p-3 text-brand">
-          <NotificationIcon type={notification.type} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <Typography as="p" className="font-semibold">
-            {label}
-            {/* §8-permitted monetary context (offer amount, auction
+    <ActivityRowLink href={href} label={label}>
+      <Card className="border py-4">
+        <CardContent className="flex items-center gap-4 px-4">
+          <div className="rounded-full bg-brand/15 p-3 text-brand">
+            <NotificationIcon type={notification.type} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Typography as="p" className="font-semibold">
+              {label}
+              {/* §8-permitted monetary context (offer amount, auction
                             visible price), formatted per BIP-177 for bitcoin. */}
-            {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
-          </Typography>
-          <Typography as="p" className="truncate text-sm text-muted-foreground">
-            From {notificationActorLabel(notification.actorPubky)}
-          </Typography>
-        </div>
-        <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
-          {new Date(notification.createdAt).toLocaleDateString('en-US')}
-        </time>
-      </CardContent>
-    </Card>
+              {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
+            </Typography>
+            <Typography as="p" className="truncate text-sm text-muted-foreground">
+              From {notificationActorLabel(notification.actorPubky)}
+            </Typography>
+          </div>
+          <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
+            {new Date(notification.createdAt).toLocaleDateString('en-US')}
+          </time>
+        </CardContent>
+      </Card>
+    </ActivityRowLink>
+  );
+}
+
+function ActivityRowLink({ href, label, children }: { href: string; label: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      overrideDefaults
+      aria-label={label}
+      className="block rounded-xl outline-none hover:ring-1 hover:ring-brand/40 focus-visible:ring-2 focus-visible:ring-brand"
+    >
+      {children}
+    </Link>
   );
 }
 

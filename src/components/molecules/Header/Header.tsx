@@ -14,9 +14,11 @@ import { getCommerceAdapterMode } from '@/config/commerce';
 import { getGithubLink, getTelegramLink, getTwitterGetpubkyLink } from '@/config/externalLinks';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
+import { useMarketplaceNavAttention } from '@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention';
 import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { Github2, Telegram, XTwitter } from '@/icons';
+import { marketplaceNavAccessibleName } from '@/libs/commerce/marketplace-attention';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
 import { cn } from '@/libs/utils/utils';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
@@ -171,6 +173,7 @@ type NavigationButtonProps = {
   /** Honest device-local count (e.g. unread conversations); 0 hides the badge. */
   badgeCount?: number;
   badgeLabel?: string;
+  accessibleName?: string;
 };
 const NavigationButton = ({
   href,
@@ -184,13 +187,15 @@ const NavigationButton = ({
   newLabel,
   badgeCount = 0,
   badgeLabel = 'unread',
+  accessibleName,
 }: NavigationButtonProps) => {
   const accessibleLabel =
-    badgeCount > 0
+    accessibleName ??
+    (badgeCount > 0
       ? `${label}, ${badgeCount} ${badgeLabel === 'items in cart' && badgeCount === 1 ? 'item in cart' : badgeLabel}`
       : showNew && newLabel
         ? `${label}, ${newLabel}`
-        : label;
+        : label);
   const button = (
     <Button
       data-cy={href ? undefined : dataCy}
@@ -262,6 +267,7 @@ export function HeaderNavigationButtons({
   // postdates the local read checkpoint — never a server-claimed count.
   const unreadMessages = useMessagesUnread();
   const marketplaceCartCount = useMarketplaceCartCount();
+  const marketplaceAttention = useMarketplaceNavAttention();
   const counterString = counter > 21 ? '21+' : counter.toString();
   return (
     <Container className={cn('hidden w-auto flex-row items-center justify-start gap-3 lg:flex', className)}>
@@ -279,8 +285,15 @@ export function HeaderNavigationButtons({
             isActive={isNavItemActive(pathname, item)}
             dataCy={item.dataCy}
             isFeedRoute={item.isFeedRoute}
-            badgeCount={isMessagesItem ? unreadMessages : isMarketplaceItem ? marketplaceCartCount : 0}
+            badgeCount={
+              isMessagesItem ? unreadMessages : isMarketplaceItem ? marketplaceCartCount + marketplaceAttention : 0
+            }
             badgeLabel={isMarketplaceItem ? 'items in cart' : 'unread'}
+            accessibleName={
+              isMarketplaceItem && marketplaceAttention > 0
+                ? marketplaceNavAccessibleName(marketplaceCartCount, marketplaceAttention)
+                : undefined
+            }
           />
         );
       })}
