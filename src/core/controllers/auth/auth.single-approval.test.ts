@@ -580,3 +580,111 @@ describe('AuthController single-approval ceremony', () => {
     });
   });
 });
+
+describe('AuthController Ring and Bitkit QRs side by side', () => {
+  const grantSession = asOpaque<Session>({
+    info: { publicKey: { z32: () => 'test-pubky' } },
+    grant: {},
+  });
+
+  function mockGrantFlow(awaitApproval: Promise<Session>, cancelAuthFlow = vi.fn()) {
+    vi.spyOn(AuthApplication, 'generateGrantAuthUrl').mockResolvedValue({
+      authorizationUrl: 'pubkyauth://signin_grant?caps=x&relay=r&secret=s&cid=shop.pubky.app&cpk=k',
+      awaitApproval,
+      cancelAuthFlow,
+    });
+    return cancelAuthFlow;
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetAuthFinalizationLockForTests();
+    mockClearDatabase.mockReset();
+    mockClearDatabase.mockResolvedValue(undefined);
+    AuthController.resetSignInCeremonyGuard();
+    AuthController.resetCleanupLocalStateGuard();
+    AuthController.cancelAllAuthFlows();
+    vi.spyOn(BootstrapApplication, 'cancelModerationFollow').mockImplementation(() => {});
+    vi.spyOn(useMigrationStore, 'getState').mockReturnValue(mockMigrationStore({ reset: vi.fn() }));
+  });
+
+  it('starting the Bitkit QR keeps the Ring ceremony live', async () => {
+    const ringCancel = vi.fn();
+    mockDirectSignInFlow({ awaitToken: () => new Promise<AuthToken>(() => {}), cancelAuthFlow: ringCancel });
+    const ring = await AuthController.getAuthUrl();
+    ring.awaitApproval.catch(() => {});
+
+    mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getGrantAuthUrl();
+
+    expect(ringCancel).not.toHaveBeenCalled();
+    // The Ring ceremony guard is still held: a second getAuthUrl joins it.
+    const joined = await AuthController.getAuthUrl();
+    expect(joined.authorizationUrl).toBe(ring.authorizationUrl);
+  });
+
+  it('starting the Ring QR keeps the Bitkit flow live', async () => {
+    const grantCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getGrantAuthUrl();
+
+    mockDirectSignInFlow({ awaitToken: () => new Promise<AuthToken>(() => {}) });
+    const ring = await AuthController.getAuthUrl();
+    ring.awaitApproval.catch(() => {});
+
+    expect(grantCancel).not.toHaveBeenCalled();
+  });
+
+  it('a completed sign-in cancels both QRs', async () => {
+    const ringCancel = vi.fn();
+    mockDirectSignInFlow({ awaitToken: () => new Promise<AuthToken>(() => {}), cancelAuthFlow: ringCancel });
+    const ring = await AuthController.getAuthUrl();
+    ring.awaitApproval.catch(() => {});
+    const grantCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getGrantAuthUrl();
+
+    AuthController.cancelAllAuthFlows();
+
+    expect(ringCancel).toHaveBeenCalled();
+    expect(grantCancel).toHaveBeenCalled();
+  });
+
+  it('a Bitkit approval that settles after another sign-in won is signed out, not returned', async () => {
+    let approve!: (session: Session) => void;
+    mockGrantFlow(
+      new Promise<Session>((resolve) => {
+        approve = resolve;
+      }),
+    );
+    const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+    const { awaitApproval } = await AuthController.getGrantAuthUrl();
+
+    AuthController.cancelAllAuthFlows();
+    approve(grantSession);
+
+    await expect(awaitApproval).rejects.toMatchObject({ name: 'AuthFlowCanceled' });
+    expect(logoutSpy).toHaveBeenCalledWith({ session: grantSession });
+  });
+
+  it('a Bitkit approval with no competing sign-in is returned', async () => {
+    mockGrantFlow(Promise.resolve(grantSession));
+    const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+    const { awaitApproval } = await AuthController.getGrantAuthUrl();
+
+    await expect(awaitApproval).resolves.toBe(grantSession);
+    expect(logoutSpy).not.toHaveBeenCalled();
+  });
+
+  it('releasing the Bitkit handle cancels only the Bitkit flow', async () => {
+    const ringCancel = vi.fn();
+    mockDirectSignInFlow({ awaitToken: () => new Promise<AuthToken>(() => {}), cancelAuthFlow: ringCancel });
+    const ring = await AuthController.getAuthUrl();
+    ring.awaitApproval.catch(() => {});
+    const grantCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    const grant = await AuthController.getGrantAuthUrl();
+
+    AuthController.releaseAuthFlow(grant.cancelAuthFlow);
+
+    expect(grantCancel).toHaveBeenCalled();
+    expect(ringCancel).not.toHaveBeenCalled();
+  });
+});

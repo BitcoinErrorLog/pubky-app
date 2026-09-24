@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGrantSignInAvailable } from '@/hooks/useGrantSignInAvailable/useGrantSignInAvailable';
 import { useMobileAuth } from '@/hooks/useMobileAuth/useMobileAuth';
@@ -536,28 +536,59 @@ describe('SignInContent - Bitkit grant sign-in', () => {
     expect(useMobileAuth).not.toHaveBeenCalledWith({ type: 'grant' });
   });
 
-  it('switches to a Bitkit grant QR and back to a fresh Ring QR', async () => {
+  it('shows the Ring and Bitkit QRs side by side, each labelled, with no link to click', async () => {
     vi.mocked(useGrantSignInAvailable).mockReturnValue(true);
     await act(async () => {
       render(<SignInContent />);
     });
 
-    expect(useMobileAuth).not.toHaveBeenCalledWith({ type: 'grant' });
-    await act(async () => {
-      fireEvent.click(screen.getAllByTestId('sign-in-use-grant')[0]);
-    });
-
+    expect(useMobileAuth).toHaveBeenCalledWith();
     expect(useMobileAuth).toHaveBeenCalledWith({ type: 'grant' });
-    expect(screen.getByTestId('sign-in-grant-qr-card')).toBeInTheDocument();
-    expect(screen.queryByTestId('sign-in-qr-card')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Copy Bitkit authentication link' })).toBeInTheDocument();
+    const ring = screen.getByTestId('sign-in-ring-option');
+    const bitkit = screen.getByTestId('sign-in-bitkit-option');
+    expect(within(ring).getByText('Pubky Ring')).toBeInTheDocument();
+    expect(within(ring).getByRole('button', { name: 'Copy authentication link' })).toBeInTheDocument();
+    expect(within(bitkit).getByText('Bitkit')).toBeInTheDocument();
+    expect(within(bitkit).getByText('Scan with Bitkit 2.5 or newer.')).toBeInTheDocument();
+    expect(within(bitkit).getByRole('button', { name: 'Copy Bitkit authentication link' })).toBeInTheDocument();
+    expect(screen.queryByTestId('sign-in-use-grant')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sign-in-use-ring')).not.toBeInTheDocument();
+  });
 
+  it('offers both authorize buttons on mobile', async () => {
+    vi.mocked(useGrantSignInAvailable).mockReturnValue(true);
     await act(async () => {
-      fireEvent.click(screen.getAllByTestId('sign-in-use-ring')[0]);
+      render(<SignInContent />);
     });
 
-    expect(screen.getByTestId('sign-in-qr-card')).toBeInTheDocument();
-    expect(mockFetchUrl).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Authorize with Pubky Ring')).toBeInTheDocument();
+    expect(screen.getByText('Authorize with Bitkit')).toBeInTheDocument();
+    expect(screen.getByTestId('sign-in-grant-button')).toBeInTheDocument();
+  });
+
+  it('copying the Bitkit QR copies the Bitkit flow URL, not the Ring one', async () => {
+    vi.mocked(useGrantSignInAvailable).mockReturnValue(true);
+    const ringCopy = vi.fn().mockResolvedValue(undefined);
+    const bitkitCopy = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useMobileAuth).mockImplementation((options) => ({
+      url: options?.type === 'grant' ? 'pubkyauth://signin_grant?x' : 'pubkyauth://signin?x',
+      isLoading: false,
+      isExpired: false,
+      fetchUrl: mockFetchUrl,
+      copyAuthUrl: options?.type === 'grant' ? bitkitCopy : ringCopy,
+      isOpeningRing: false,
+      onAuthorizeClick: mockOnAuthorizeClick,
+    }));
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy Bitkit authentication link' }));
+    });
+
+    expect(bitkitCopy).toHaveBeenCalledTimes(1);
+    expect(ringCopy).not.toHaveBeenCalled();
   });
 });
 

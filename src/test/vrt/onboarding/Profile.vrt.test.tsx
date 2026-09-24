@@ -21,10 +21,17 @@ function ProfileWithHeader() {
   );
 }
 
-// `CreateProfileForm` runs `useProfileForm({ mode: 'create' })`, whose load
-// effect is edit-mode-only — so the create-mode render is the empty form with a
+// `CreateProfileForm` runs `useProfileForm({ mode: 'create' })`. Its prefill
+// read finds no existing profile here, so the render is the empty form with a
 // pubky-derived FacehashAvatar (deterministic under the seeded Math.random in
-// `renderForVRT`). No hook mock needed; only the stores it reads.
+// `renderForVRT`).
+vi.mock('@/controllers/profile/profile', () => ({
+  ProfileController: {
+    readProfileSeed: vi.fn(async () => null),
+    commitCreate: vi.fn(),
+    commitUpdate: vi.fn(),
+  },
+}));
 vi.mock('next/navigation', () => {
   const router = {
     push: vi.fn(),
