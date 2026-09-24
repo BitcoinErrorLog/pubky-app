@@ -68,7 +68,7 @@ exports[`Toaster - Snapshots > matches snapshot for Toaster with multiple toasts
           First Toast
         </div>
         <div
-          class="min-w-0 text-sm wrap-anywhere text-muted-foreground"
+          class="min-w-0 text-sm wrap-anywhere text-popover-foreground"
         >
           First description
         </div>
@@ -130,7 +130,7 @@ exports[`Toaster - Snapshots > matches snapshot for Toaster with multiple toasts
           Second Toast
         </div>
         <div
-          class="min-w-0 text-sm wrap-anywhere text-muted-foreground"
+          class="min-w-0 text-sm wrap-anywhere text-popover-foreground"
         >
           Second description
         </div>
@@ -215,7 +215,7 @@ exports[`Toaster - Snapshots > matches snapshot for Toaster with single toast 1`
           Test Toast
         </div>
         <div
-          class="min-w-0 text-sm wrap-anywhere text-muted-foreground"
+          class="min-w-0 text-sm wrap-anywhere text-popover-foreground"
         >
           This is a test toast message
         </div>
@@ -380,7 +380,7 @@ exports[`Toaster - Snapshots > matches snapshot for Toaster with toast action 1`
           Toast with Action
         </div>
         <div
-          class="min-w-0 text-sm wrap-anywhere text-muted-foreground"
+          class="min-w-0 text-sm wrap-anywhere text-popover-foreground"
         >
           This toast has an action button
         </div>
@@ -469,7 +469,7 @@ exports[`Toaster - Snapshots > matches snapshot for Toaster with toast with acti
           Toast with Action
         </div>
         <div
-          class="min-w-0 text-sm wrap-anywhere text-muted-foreground"
+          class="min-w-0 text-sm wrap-anywhere text-popover-foreground"
         >
           This toast has an action button
         </div>

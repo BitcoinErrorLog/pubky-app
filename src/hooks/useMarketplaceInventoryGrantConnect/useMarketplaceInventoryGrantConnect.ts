@@ -35,7 +35,18 @@ export function useMarketplaceInventoryGrantConnect(options: { onConnected?: () 
       setErrorMessage('Sign in first.');
       return;
     }
-    const flow = CommerceController.beginInventorySessionConnect(pubky);
+    let flow: ReturnType<typeof CommerceController.beginInventorySessionConnect>;
+    try {
+      flow = CommerceController.beginInventorySessionConnect(pubky);
+    } catch (error) {
+      // A thrown start leaves the dialog on "Generating QR Code" with no URL.
+      // The board stays grant-needed and the canary cannot approve anything.
+      Logger.error('Inventory grant flow failed', { error });
+      setAuthorizationUrl('');
+      setErrorMessage(error instanceof Error ? error.message : 'The inventory grant was not approved.');
+      setStatus('error');
+      return;
+    }
     activeFlowRef.current = flow;
     setAuthorizationUrl(flow.authorizationUrl);
     setErrorMessage(null);

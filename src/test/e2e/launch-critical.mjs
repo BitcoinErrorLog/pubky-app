@@ -204,12 +204,49 @@ async function exerciseListingCheckout(page) {
   await runAxe(page, 'listing');
 }
 
+/**
+ * Ring cookie QR only. `qr-auth-url` stays the slot id. The URL is not read
+ * from the DOM: the copy button is what a person uses, and the slot must not
+ * carry the relay secret in an attribute. Side-by-side sign-in puts the
+ * Bitkit QR in the same card, so this prefers `sign-in-ring-option` and
+ * rejects `pubkyauth://signin_grant`. Inventory grants are copied from the
+ * open dialog, not from this locator.
+ */
+async function ringSignInAuthSlot(page, timeout) {
+  const qr = '[data-testid="qr-auth-url"]';
+  // Side-by-side sign-in keeps both QRs inside sign-in-qr-card. A card-wide
+  // .first() copies Bitkit when that QR attaches first. Wait for the Ring
+  // option, or for the Ring-only card that has no Bitkit option.
+  const slot = page.locator(
+    `[data-testid="sign-in-ring-option"] ${qr}, [data-testid="sign-in-qr-card"]:not(:has([data-testid="sign-in-bitkit-option"])) ${qr}`,
+  );
+  await slot.first().waitFor({ state: 'attached', timeout });
+  return slot.first();
+}
+
+async function readCopiedAuthUrl(page, slot) {
+  await page.evaluate(() => navigator.clipboard.writeText(''));
+  await slot.locator('xpath=ancestor::button[1]').click();
+  const copied = await page.waitForFunction(
+    async () => {
+      const text = await navigator.clipboard.readText();
+      return text.startsWith('pubkyauth://') ? text : null;
+    },
+    null,
+    { timeout: 5_000 },
+  );
+  const url = await copied.jsonValue();
+  if (typeof url !== 'string' || !url.startsWith('pubkyauth://')) {
+    throw new Error('missing pubkyauth URL from the QR copy button');
+  }
+  return url;
+}
+
 async function waitForAuthUrl(page, timeout = 25_000) {
-  const slot = page.locator('[data-testid="qr-auth-url"][data-auth-url^="pubkyauth://"]').first();
-  await slot.waitFor({ state: 'attached', timeout });
-  const url = await slot.getAttribute('data-auth-url');
-  if (!url || !url.startsWith('pubkyauth://')) {
-    throw new Error('missing pubkyauth URL on QR slot');
+  const slot = await ringSignInAuthSlot(page, timeout);
+  const url = await readCopiedAuthUrl(page, slot);
+  if (!url.startsWith('pubkyauth://signin') || url.startsWith('pubkyauth://signin_grant')) {
+    throw new Error('missing Ring cookie pubkyauth URL from the QR copy button');
   }
   return url;
 }
@@ -351,35 +388,131 @@ async function waitForBoardStatus(page, accepted, timeout = 45_000) {
   return (await page.locator('[data-testid="inventory-studio"]').getAttribute('data-load-status')) ?? '';
 }
 
-async function approveVisibleGrant(page, secretHex, label) {
-  const trigger = page.getByRole('button', { name: /Approve in (your Pubky signer|Pubky Ring)/i }).first();
-  if (!(await trigger.count())) return { opened: false };
-  const before = (await page.locator('[data-testid="inventory-studio"]').getAttribute('data-load-status')) ?? '';
-  await trigger.click({ force: true });
-  try {
-    await waitForAuthUrl(page);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    const authorizationUrl = await waitForAuthUrl(page);
-    await approveAuthRequest(secretHex, authorizationUrl);
-    if (label === 'session') {
-      await page.waitForFunction(() => Boolean(localStorage.getItem('pubky.marketplace.session.v1')), {
-        timeout: 90_000,
-      });
-    }
-    const after = await waitForBoardStatus(
-      page,
-      ['ready', 'empty', 'error', 'grant-needed', 'session-required'],
-      20_000,
-    );
-    const moved = after !== before && ['grant-needed', 'ready', 'empty'].includes(after);
-    if (moved) {
-      record(`inventory:${label}-approve`, true, `status ${before} → ${after}`);
-    }
-    return { opened: true, ok: moved };
-  } catch (error) {
-    record(`inventory:${label}-approve`, false, String(error).slice(0, 240));
-    return { opened: true, ok: false };
+async function closeTopDialog(page) {
+  const content = page.getByTestId('dialog-content');
+  if (!(await content.count())) return;
+  const close = content.getByRole('button', { name: 'Close' }).first();
+  if (!(await close.count())) return;
+  await close.click();
+  await content
+    .first()
+    .waitFor({ state: 'hidden', timeout: 5_000 })
+    .catch(() => undefined);
+}
+
+async function openNamedDialog(page, trigger, dialog) {
+  await trigger.waitFor({ state: 'visible', timeout: 20_000 });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await dialog.isVisible().catch(() => false)) return true;
+    await trigger.click();
+    const clicked = await dialog
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (clicked && (await dialog.isVisible().catch(() => false))) return true;
+    // The overlay's click handler closes a dialog that opens on pointerdown,
+    // so the same gesture can leave no QR. Enter does not land on the overlay.
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const keyed = await dialog
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (keyed && (await dialog.isVisible().catch(() => false))) return true;
   }
+  return false;
+}
+
+async function readDialogAuthUrl(page, dialog) {
+  const deadline = Date.now() + 40_000;
+  let lastSnap = '';
+  while (Date.now() < deadline) {
+    if (!(await dialog.isVisible().catch(() => false))) return { url: '', snap: 'dialog closed' };
+    const refusal = dialog.getByTestId('grant-session-refusal');
+    if (await refusal.count()) {
+      const text = ((await refusal.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 180);
+      return { url: '', snap: `refusal: ${text}` };
+    }
+    const slot = dialog.locator('[data-testid="qr-auth-url"]');
+    if (await slot.count()) {
+      try {
+        const url = await readCopiedAuthUrl(page, slot.first());
+        if (url.startsWith('pubkyauth://signin_grant')) {
+          return { url: '', snap: 'inventory dialog copied a Bitkit grant URL' };
+        }
+        return { url, snap: '' };
+      } catch (error) {
+        return { url: '', snap: String(error).slice(0, 180) };
+      }
+    }
+    lastSnap = ((await dialog.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 220);
+    if (/not approved|Approve purchases first|Sign in first|rejected the inventory/i.test(lastSnap)) {
+      return { url: '', snap: lastSnap };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return { url: '', snap: lastSnap || 'no pubkyauth url' };
+}
+
+async function approveVisibleGrant(page, secretHex, label) {
+  const grantTrigger = page
+    .getByTestId('inventory-grant-banner')
+    .getByRole('button', { name: /Approve in your Pubky signer/i });
+  // data-load-status flips to grant-needed while the skeleton still replaces the banner.
+  await grantTrigger.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => undefined);
+  const sessionTrigger = page.getByRole('button', { name: /Approve in Pubky Ring/i }).first();
+  const useGrant = (await grantTrigger.count()) > 0;
+  const trigger = useGrant ? grantTrigger : sessionTrigger;
+  if (!(await trigger.count())) return { opened: false, ok: false, detail: 'no approve button' };
+
+  if (useGrant) {
+    await page
+      .waitForFunction(() => Boolean(localStorage.getItem('pubky.marketplace.session.v1')), undefined, {
+        timeout: 20_000,
+      })
+      .catch(() => undefined);
+  }
+
+  await closeTopDialog(page);
+  const dialog = useGrant
+    ? page.getByRole('dialog', { name: /Approve inventory access/ })
+    : page.getByRole('dialog', { name: /Approve purchases/ });
+  const opened = await openNamedDialog(page, trigger, dialog);
+  if (!opened) return { opened: true, ok: false, detail: `${label} dialog did not stay open` };
+
+  const { url, snap } = await readDialogAuthUrl(page, dialog);
+  if (!url) {
+    await closeTopDialog(page);
+    return { opened: true, ok: false, detail: `${label} qr missing :: ${snap}` };
+  }
+
+  try {
+    await approveAuthRequest(secretHex, url);
+  } catch (error) {
+    await closeTopDialog(page);
+    return { opened: true, ok: false, detail: `${label} approveAuthRequest: ${String(error).slice(0, 180)}` };
+  }
+
+  const storageKey = useGrant ? 'pubky.marketplace.inventory-session.v1' : 'pubky.marketplace.session.v1';
+  try {
+    await page.waitForFunction((key) => Boolean(localStorage.getItem(key)), storageKey, { timeout: 90_000 });
+  } catch (error) {
+    const body = ((await dialog.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 180);
+    await closeTopDialog(page);
+    return {
+      opened: true,
+      ok: false,
+      detail: `${label} ${storageKey} missing :: ${body || String(error).slice(0, 120)}`,
+    };
+  }
+
+  const after = await waitForBoardStatus(page, ['ready', 'empty', 'error'], 45_000);
+  const ok = after === 'ready' || after === 'empty';
+  return {
+    opened: true,
+    ok,
+    detail: ok ? `${label} approved, status ${after}` : `${label} approved but status ${after || 'missing'}`,
+  };
 }
 
 function boardThrowDetail({ illegal, transport, status, bodyText, pageErrors }) {
@@ -548,6 +681,7 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
 
   const pending = ['unauthenticated', 'session-required', 'grant-needed', 'ready', 'empty', 'error'];
   const settled = ['ready', 'empty', 'error'];
+  let approveDetail = '';
   for (const label of ['session', 'grant']) {
     const statusNow = await waitForBoardStatus(page, pending, 20_000);
     if (settled.includes(statusNow)) break;
@@ -557,7 +691,12 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
       continue;
     }
     const result = await approveVisibleGrant(page, secretHex, label);
-    if (result.opened && !result.ok) break;
+    if (!result.opened) continue;
+    approveDetail = result.detail;
+    if (result.ok) {
+      record(`inventory:${label}-approve`, true, result.detail);
+      break;
+    }
   }
 
   const status = await waitForBoardStatus(page, settled);
@@ -572,7 +711,7 @@ async function mountInventoryBoard(page, secretHex, pageErrors) {
   record(
     'inventory:board-route',
     boardOk,
-    `status=${status || 'missing'} rows=${rows} empty=${empty > 0} transport=${transport}`,
+    `status=${status || 'missing'} rows=${rows} empty=${empty > 0} transport=${transport}${approveDetail ? ` :: ${approveDetail}` : ''}`,
   );
   assert(
     'inventory:no-transport-error',
@@ -720,6 +859,7 @@ async function main() {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     locale: 'en-US',
+    permissions: ['clipboard-read', 'clipboard-write'],
   });
   context.setDefaultTimeout(90_000);
   const page = await context.newPage();
@@ -813,6 +953,8 @@ async function main() {
 
     const illegal = pageErrors.filter((message) => /illegal invocation/i.test(message));
     assert('inventory:no-uncaught-illegal-invocation', illegal.length === 0, illegal.join(' | ') || 'none');
+    const swMime = pageErrors.filter((message) => /sw\.js/.test(message) && /unsupported MIME type/i.test(message));
+    assert('launch:service-worker', swMime.length === 0, swMime[0] ?? 'sw.js did not fail registration');
   } finally {
     const summary = {
       baseUrl: BASE_URL,

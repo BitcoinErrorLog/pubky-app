@@ -151,6 +151,15 @@ jobs:
           done
 
           echo "Production server is ready."
+          SW_HEADERS="$(mktemp)"
+          curl -fsS -D "$SW_HEADERS" -o /tmp/launch-sw.js "http://localhost:${PORT}/sw.js"
+          if ! grep -qi 'content-type:.*javascript' "$SW_HEADERS"; then
+            echo "public/sw.js was not served as JavaScript"
+            cat "$SW_HEADERS"
+            exit 1
+          fi
+          test -s /tmp/launch-sw.js
+          test -s public/sw.js
 
       - name: Upload Next build for launch-e2e
         if: github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/shop-')
@@ -160,6 +169,7 @@ jobs:
           path: |
             .next
             !.next/cache
+            public/sw.js
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 1
@@ -167,6 +177,11 @@ jobs:
   launch-e2e:
     name: launch-e2e
     needs: build
+    # Shop pull requests only. A push has no base_ref, so this job is skipped
+    # there even when Check NextJS Build ran. A job skipped by `if` is a
+    # successful required-check status (success, skipped, or neutral): it does
+    # not stay Pending. Unrelated pull requests skip the build, and this job
+    # skips with it for the same reason.
     if: always() && needs.build.result == 'success' && github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/shop-')
     runs-on: ubuntu-latest
     container:
@@ -209,6 +224,15 @@ jobs:
           fi
           test -f .next/BUILD_ID
           echo "BUILD_ID=$(cat .next/BUILD_ID)"
+          mkdir -p public
+          if [ -f next-build-artifact/public/sw.js ]; then
+            mv next-build-artifact/public/sw.js public/sw.js
+          fi
+          if [ ! -s public/sw.js ]; then
+            echo "next-build artifact has no public/sw.js; launch-e2e would serve HTML for /sw.js"
+            find next-build-artifact -maxdepth 3 | head -80
+            exit 1
+          fi
 
       - name: Run launch-critical Chromium suite
         env:
