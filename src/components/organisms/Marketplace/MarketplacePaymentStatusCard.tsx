@@ -138,7 +138,9 @@ export function MarketplacePaymentStatusCard({
   });
 
   const isDurable = isDurableCommerceMode(adapterMode);
-  const isTerminal = ['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
+  const isTerminal = ['completed', 'cancelled', 'refunded_external', 'refunded_partial', 'closed'].includes(
+    order.state,
+  );
   const isSeller = currentUserPubky !== null && currentUserPubky === order.sellerPubky;
   const visibleStatus = payment ? buyerVisiblePaymentStatus(payment.state) : null;
   const isAwaiting = visibleStatus === 'awaiting_entitlement' && !isTerminal;

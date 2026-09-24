@@ -7,7 +7,15 @@ const authStoreState = vi.hoisted(() => ({ session: {} as unknown }));
 const markAllSeen = vi.hoisted(() => vi.fn(async () => {}));
 const marketplaceView = vi.hoisted(() => ({ notifications: [] as unknown[] }));
 const ordersView = vi.hoisted(() => ({
-  orders: [] as { order: { id: string; returnRequest?: { reason?: string | null } | null } }[],
+  orders: [] as {
+    order: {
+      id: string;
+      state?: string;
+      total?: { amountMinor: number; currency: string; exponent: number };
+      externalRefund?: { amountMinor: number } | null;
+      returnRequest?: { reason?: string | null } | null;
+    };
+  }[],
   isLoading: false,
 }));
 
@@ -215,6 +223,70 @@ describe('MarketplaceNotifications', () => {
       `/marketplace/orders#order-${orderId}`,
     );
     expect(screen.getByRole('link', { name: 'Return approved' })).toHaveAttribute(
+      'href',
+      `/marketplace/orders#order-${orderId}`,
+    );
+  });
+
+  it('names a partial refund on the activity row and links that order', () => {
+    const orderId = '018f47d2-6a27-7c23-a62f-000000000001';
+    ordersView.orders = [
+      {
+        order: {
+          id: orderId,
+          state: 'refunded_external',
+          total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+          externalRefund: { amountMinor: 189 },
+        },
+      },
+    ];
+    marketplaceView.notifications = [
+      {
+        id: '00000000-0000-4000-8000-000000000943',
+        recipientPubky: 'y'.repeat(52),
+        actorPubky: 's'.repeat(52),
+        type: 'refund_recorded',
+        aggregateId: `order:${orderId}`,
+        createdAt: '2026-08-20T11:00:00.000Z',
+        readAt: null,
+      },
+    ];
+
+    render(<MarketplaceNotifications />);
+
+    expect(screen.getByRole('link', { name: 'Refunded $1.89 of $2.50' })).toHaveAttribute(
+      'href',
+      `/marketplace/orders#order-${orderId}`,
+    );
+  });
+
+  it('keeps the full-refund activity label when the recorded amount matches the total', () => {
+    const orderId = '018f47d2-6a27-7c23-a62f-000000000002';
+    ordersView.orders = [
+      {
+        order: {
+          id: orderId,
+          state: 'refunded_external',
+          total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+          externalRefund: { amountMinor: 250 },
+        },
+      },
+    ];
+    marketplaceView.notifications = [
+      {
+        id: '00000000-0000-4000-8000-000000000944',
+        recipientPubky: 'y'.repeat(52),
+        actorPubky: 's'.repeat(52),
+        type: 'refund_recorded',
+        aggregateId: `order:${orderId}`,
+        createdAt: '2026-08-20T11:00:00.000Z',
+        readAt: null,
+      },
+    ];
+
+    render(<MarketplaceNotifications />);
+
+    expect(screen.getByRole('link', { name: 'External refund recorded' })).toHaveAttribute(
       'href',
       `/marketplace/orders#order-${orderId}`,
     );

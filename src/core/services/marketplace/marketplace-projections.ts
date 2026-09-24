@@ -3,7 +3,12 @@ import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-paym
 import { findForbiddenPublicReserveKey } from '@/libs/commerce/marketplace-records';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
 import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
-import { commercePubkySchema, dropStateSchema, orderStateSchema } from '@/libs/commerce/transaction-contracts';
+import {
+  commercePubkySchema,
+  dropStateSchema,
+  orderStateSchema,
+  PARTIAL_REFUND_ORDER_STATE,
+} from '@/libs/commerce/transaction-contracts';
 import { ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -468,7 +473,10 @@ export const marketplaceOrderProjectionSchema = z
     buyerPubky: commercePubkySchema,
     sellerPubky: commercePubkySchema,
     revision: z.number().int().positive(),
-    state: orderStateSchema,
+    // `refunded_partial` is accepted ahead of the service artifact. Today's
+    // `refund.record_external` still returns `refunded_external` and stores
+    // the recorded amount on `externalRefund`.
+    state: z.union([orderStateSchema, z.literal(PARTIAL_REFUND_ORDER_STATE)]),
     lines: z.array(
       z.object({
         listingAggregateId: z.string(),

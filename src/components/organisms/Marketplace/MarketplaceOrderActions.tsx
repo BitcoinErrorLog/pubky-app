@@ -127,7 +127,7 @@ export function MarketplaceOrderActions({
     isBuyer &&
     isPickup &&
     order.receiptId !== null &&
-    !['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
+    !['completed', 'cancelled', 'refunded_external', 'refunded_partial', 'closed'].includes(order.state);
 
   const submit = async () => {
     // Pickup cancellations keep the reason field but run the pickup-aware

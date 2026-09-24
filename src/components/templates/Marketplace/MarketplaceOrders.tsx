@@ -35,6 +35,7 @@ import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { markOrdersAttentionSeen } from '@/libs/commerce/marketplace-attention';
 import { listingIdFromOrder, marketplaceConversationHref } from '@/libs/commerce/marketplace-conversation-query';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { partialRefundLabel } from '@/libs/commerce/partial-refund';
 import { formatBitcoinAmount } from '@/libs/commerce/pricing';
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -276,6 +277,7 @@ export function MarketplaceOrders() {
                 <div className="grid gap-4">
                   {visibleOrders.map(({ order, payment, receipt }) => {
                     const isBuyer = currentUserPubky === order.buyerPubky;
+                    const refundLabel = partialRefundLabel(order);
                     const nextActorHint = getNextActorHint(order, payment, isBuyer);
                     return (
                       <Card key={order.id} id={orderAnchorId(order.id)} className="scroll-mt-24 border py-5">
@@ -424,11 +426,13 @@ export function MarketplaceOrders() {
                               </Typography>
                             )}
                             {order.externalRefund && (
-                              <Typography as="p" className="mt-2 text-sm text-brand">
+                              <Typography as="p" className="mt-2 text-sm text-brand" data-testid="order-refund-record">
                                 {/* Only ever externally evidenced: Paykit Server cannot spend, so
                               the app records the seller's transaction evidence and never
                               claims it moved funds itself. */}
-                                Refund recorded from external evidence: {order.externalRefund.transactionId}
+                                {refundLabel
+                                  ? `${refundLabel}. Recorded from external evidence: ${order.externalRefund.transactionId}`
+                                  : `Refund recorded from external evidence: ${order.externalRefund.transactionId}`}
                               </Typography>
                             )}
                             <MarketplaceOrderMessageCta order={order} adapterMode={adapterMode} />
@@ -581,7 +585,7 @@ function isOrderInTab(
     case 'in_transit':
       return ['shipped', 'delivered'].includes(order.state);
     case 'completed':
-      return ['completed', 'refunded_external', 'closed'].includes(order.state);
+      return ['completed', 'refunded_external', 'refunded_partial', 'closed'].includes(order.state);
     case 'cancelled':
       return order.state === 'cancelled';
     case 'all':
@@ -633,6 +637,8 @@ function isOrderWaitingOnOtherSide(
  * itself, and a delivered pickup order was handed over in person.
  */
 function orderStateLabel(order: MarketplaceOrder): string {
+  const partial = partialRefundLabel(order);
+  if (partial) return partial;
   if (order.fulfillment === 'pickup') {
     switch (order.state) {
       case 'paid':

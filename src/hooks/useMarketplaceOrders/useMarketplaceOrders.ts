@@ -8,10 +8,11 @@ import {
   marketplaceErrorCode,
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
+import { plainRefundRefusal } from '@/libs/commerce/partial-refund';
 import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
-import { buildMarketplacePaymentAggregateId } from '@/libs/commerce/transaction-commands';
 import {
   buildMarketplaceOrderAggregateId,
+  buildMarketplacePaymentAggregateId,
   classifyMarketplacePickupCommandRefusal,
   isMarketplaceRevisionConflict,
 } from '@/libs/commerce/transaction-commands';
@@ -148,12 +149,13 @@ export function useMarketplaceOrders() {
           kind === 'pickup_details.set' ||
           kind === 'pickup_details.clear' ||
           (kind === 'order.cancel_request' && order.fulfillment === 'pickup');
+        const refundRefusal = kind === 'refund.record_external' ? plainRefundRefusal(response.error.message) : null;
         toast({
           variant: 'error',
           description:
             pickupRefusal || isPickupCommand
               ? pickupRefusalFailureMessage(pickupRefusal)
-              : marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.order),
+              : (refundRefusal ?? marketplaceFailureMessage(response.error.code, MARKETPLACE_FAILURE_MESSAGES.order)),
         });
         return false;
       }
