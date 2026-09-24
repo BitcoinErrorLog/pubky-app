@@ -55,7 +55,10 @@ export function useMarketplaceOrders() {
   const [error, setError] = useState<string | null>(null);
   const [needsSession, setNeedsSession] = useState(false);
 
-  const refresh = () => loadOrders(currentUserPubky, setOrders, setIsLoading, setError, setNeedsSession);
+  const readOrders = () => loadOrders(currentUserPubky, setOrders, setIsLoading, setError, setNeedsSession);
+  const refresh = async () => {
+    await readOrders();
+  };
 
   useEffect(() => {
     if (!currentUserPubky || !isTransactional) {
@@ -137,7 +140,7 @@ export function useMarketplaceOrders() {
       });
       if (!response.ok) {
         if (isMarketplaceRevisionConflict(response)) {
-          const fresh = await refresh();
+          const fresh = await readOrders();
           const current = fresh?.find((view) => view.order.id === order.id)?.order;
           if (current && orderShowsCommandResult(current, kind, payload)) {
             return true;
