@@ -1,4 +1,4 @@
-import type { Session } from '@synonymdev/pubky';
+import type { AuthToken, Session } from '@synonymdev/pubky';
 import { LastReadResult } from 'pubky-app-specs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
@@ -2476,6 +2476,139 @@ describe('AuthController', () => {
 
       await expect(AuthController.initializeAuthenticatedSession({ session: approved })).rejects.toBeDefined();
       expect(saveSpy).not.toHaveBeenCalled();
+    });
+
+    describe('first approval wins between the Ring and Bitkit QRs', () => {
+      const marketplaceBearer = {
+        pubky: TEST_PUBKY as Pubky,
+        capabilities: '',
+        expiresAt: '2026-10-01T00:00:00.000Z',
+        issuedAt: '2026-09-24T00:00:00.000Z',
+      };
+
+      function mockRingCeremony(ceremony: Promise<{ session: Session; marketplace: typeof marketplaceBearer | null }>) {
+        vi.spyOn(AuthApplication, 'startDirectSignInFlow').mockReturnValue({
+          authorizationUrl: 'pubkyauth://signin?caps=x&relay=r&secret=s',
+          awaitToken: async () => asOpaque<AuthToken>({}),
+          cancelAuthFlow: vi.fn(),
+        });
+        vi.spyOn(AuthApplication, 'completeSingleApprovalCeremony').mockReturnValue(
+          ceremony.then((result) => ({ ...result, marketplaceError: null })),
+        );
+      }
+
+      beforeEach(() => {
+        AuthController.resetSignInCeremonyGuard();
+        AuthController.cancelAllAuthFlows();
+      });
+
+      it('a late Ring approval for the same identity cannot replace a Bitkit sign-in that won', async () => {
+        const grant = grantSession();
+        const ring = buildMockSession();
+        const authStore = grantAuthStore();
+        vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+        vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-1');
+        const removeSpy = vi.spyOn(AuthApplication, 'removeGrantSession').mockResolvedValue(undefined);
+        const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+        const clearSpy = vi.spyOn(CommerceController, 'clearMarketplaceSession');
+        mockRingCeremony(Promise.resolve({ session: ring, marketplace: marketplaceBearer }));
+
+        // Both approvals are in hand before either completes.
+        const ringApproval = await (await AuthController.getAuthUrl()).awaitApproval;
+        const grantApproval = await approveGrantSignIn(grant);
+
+        await AuthController.initializeAuthenticatedSession({ session: grantApproval });
+        await expect(AuthController.initializeAuthenticatedSession({ session: ringApproval })).rejects.toMatchObject({
+          name: 'AuthFlowCanceled',
+        });
+
+        expect(authStore.init).toHaveBeenCalledTimes(1);
+        expect(authStore.init).toHaveBeenCalledWith(
+          expect.objectContaining({ session: grant, grantSessionRecordId: 'rec-1' }),
+        );
+        expect(authStore.reset).not.toHaveBeenCalled();
+        expect(removeSpy).not.toHaveBeenCalled();
+        expect(logoutSpy).toHaveBeenCalledWith({ session: ring });
+        expect(logoutSpy).not.toHaveBeenCalledWith({ session: grant });
+        expect(clearSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('a late Ring approval for another identity is signed out without touching the Bitkit sign-in', async () => {
+        const grant = grantSession();
+        const ring = buildMockSession();
+        vi.spyOn(Identity, 'z32FromSession').mockImplementation(
+          ({ session }) => (session === ring ? 'other-pubky' : TEST_PUBKY) as Pubky,
+        );
+        const authStore = grantAuthStore();
+        vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+        vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-1');
+        const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+        mockRingCeremony(Promise.resolve({ session: ring, marketplace: null }));
+
+        const ringApproval = await (await AuthController.getAuthUrl()).awaitApproval;
+        await AuthController.initializeAuthenticatedSession({ session: await approveGrantSignIn(grant) });
+        await expect(AuthController.initializeAuthenticatedSession({ session: ringApproval })).rejects.toMatchObject({
+          name: 'AuthFlowCanceled',
+        });
+
+        expect(authStore.init).toHaveBeenCalledTimes(1);
+        expect(authStore.reset).not.toHaveBeenCalled();
+        expect(logoutSpy).toHaveBeenCalledWith({ session: ring });
+      });
+
+      it('a Ring approval still inside its dual POST when Bitkit wins never writes its bearer', async () => {
+        const grant = grantSession();
+        const ring = buildMockSession();
+        const authStore = grantAuthStore();
+        vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+        vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-1');
+        const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+        const writeSpy = vi.spyOn(CommerceController, 'writeMarketplaceSessionStore');
+        const clearSpy = vi.spyOn(CommerceController, 'clearMarketplaceSession');
+        let finishDualPost!: (result: { session: Session; marketplace: typeof marketplaceBearer }) => void;
+        mockRingCeremony(
+          new Promise((resolve) => {
+            finishDualPost = resolve;
+          }),
+        );
+
+        const { awaitApproval: ringApproval } = await AuthController.getAuthUrl();
+        await vi.waitFor(() => expect(AuthApplication.completeSingleApprovalCeremony).toHaveBeenCalled());
+        await AuthController.initializeAuthenticatedSession({ session: await approveGrantSignIn(grant) });
+        finishDualPost({ session: ring, marketplace: marketplaceBearer });
+
+        await expect(ringApproval).rejects.toMatchObject({ name: 'AuthFlowCanceled' });
+        expect(writeSpy).not.toHaveBeenCalled();
+        expect(clearSpy).toHaveBeenCalledTimes(1);
+        expect(logoutSpy).toHaveBeenCalledWith({ session: ring });
+        expect(authStore.init).toHaveBeenCalledTimes(1);
+      });
+
+      it('a late Bitkit approval cannot replace a Ring sign-in that won, and keeps the Ring bearer', async () => {
+        const grant = grantSession();
+        const ring = buildMockSession();
+        const authStore = grantAuthStore();
+        vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+        const saveSpy = vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-1');
+        const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+        const clearSpy = vi.spyOn(CommerceController, 'clearMarketplaceSession');
+        mockRingCeremony(Promise.resolve({ session: ring, marketplace: marketplaceBearer }));
+
+        const ringApproval = await (await AuthController.getAuthUrl()).awaitApproval;
+        const grantApproval = await approveGrantSignIn(grant);
+
+        await AuthController.initializeAuthenticatedSession({ session: ringApproval });
+        await expect(AuthController.initializeAuthenticatedSession({ session: grantApproval })).rejects.toMatchObject({
+          name: 'AuthFlowCanceled',
+        });
+
+        expect(authStore.init).toHaveBeenCalledTimes(1);
+        expect(authStore.init).toHaveBeenCalledWith(expect.objectContaining({ session: ring }));
+        expect(saveSpy).not.toHaveBeenCalled();
+        expect(logoutSpy).toHaveBeenCalledWith({ session: grant });
+        expect(logoutSpy).not.toHaveBeenCalledWith({ session: ring });
+        expect(clearSpy).not.toHaveBeenCalled();
+      });
     });
 
     it('signout calls signout then clearAll under lock', async () => {

@@ -125,6 +125,9 @@ export class AuthController {
   /** `authEpoch` read when each grant sign-in QR started, keyed by its approved session. */
   private static grantEpochAtStart = new WeakMap<Session, number>();
 
+  /** `authFlowGeneration` when each sign-in QR (Ring or Bitkit) started, keyed by its approved session. */
+  private static sessionFlowGeneration = new WeakMap<Session, number>();
+
   /**
    * Single-run guard for cleanupLocalState: concurrent Controller invocations
    * (e.g. a logout racing an in-flight restore) share one run, and once a run
@@ -218,6 +221,29 @@ export class AuthController {
     this.authFlowGeneration += 1;
     this.cancelActiveAuthFlow();
     this.cancelActiveGrantFlow();
+  }
+
+  /** A QR approval whose flow started before the latest cancelAllAuthFlows lost to another sign-in or a sign-out. */
+  private static lostToAnotherSignIn(session: Session): boolean {
+    const startedAt = this.sessionFlowGeneration.get(session);
+    return startedAt !== undefined && startedAt !== this.authFlowGeneration;
+  }
+
+  /**
+   * First approval wins. The losing session is signed out and never
+   * initialized; a losing Ring completion also drops the marketplace bearer
+   * its dual POST minted (a grant approval mints none, so a losing Bitkit
+   * approval never touches the winner's bearer). The winner's session and
+   * grant record are left alone.
+   */
+  private static async discardLosingApproval(session: Session): Promise<never> {
+    if (!AuthApplication.isGrantSession(session)) {
+      CommerceController.clearMarketplaceSession();
+    }
+    await AuthApplication.logout({ session }).catch(() => {
+      Logger.warn('Failed to sign out an approval that lost to another sign-in');
+    });
+    throw createCanceledError();
   }
 
   /**
@@ -455,6 +481,9 @@ export class AuthController {
   }
 
   private static async runInitializeAuthenticatedSession({ session }: THomeserverSessionResult) {
+    if (this.lostToAnotherSignIn(session)) {
+      return await this.discardLosingApproval(session);
+    }
     try {
       try {
         await AuthApplication.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
@@ -469,6 +498,9 @@ export class AuthController {
       }
       await this.completeAuthenticatedSession({ session });
     } catch (error) {
+      // A completion that lost to another sign-in was already cleaned up by
+      // discardLosingApproval; the bearer at rest now belongs to the winner.
+      if (this.lostToAnotherSignIn(session)) throw error;
       // The marketplace half of the ceremony may already have minted (and
       // persisted) a bearer for this approval; a sign-in that does NOT commit
       // — refused by the environment check OR failed anywhere in the
@@ -483,6 +515,12 @@ export class AuthController {
    * guard already passed for this session.
    */
   private static async completeAuthenticatedSession({ session }: THomeserverSessionResult) {
+    // Checked and claimed with no await in between: of two approvals that both
+    // reach here, the first bumps the generation (cancelAllAuthFlows below)
+    // and the second is discarded before it can touch any store.
+    if (this.lostToAnotherSignIn(session)) {
+      return await this.discardLosingApproval(session);
+    }
     const signInStore = useSignInStore.getState();
     signInStore.reset(); // Reset for fresh sign-in
     signInStore.setAuthUrlResolved(true); // Step 1 complete (20%)
@@ -492,6 +530,8 @@ export class AuthController {
 
     try {
       this.cancelAllAuthFlows();
+      // This approval won; only the approvals it just cancelled count as lost.
+      this.sessionFlowGeneration.delete(session);
       const pubky = Identity.z32FromSession({ session });
 
       // Identity persist takes the finalization lock so a visitor tab's
@@ -868,11 +908,9 @@ export class AuthController {
         cancelAuthFlow();
       })
       .then(async (session) => {
-        if (this.authFlowGeneration !== generationAtStart) {
-          await AuthApplication.logout({ session }).catch(() => {
-            Logger.warn('Failed to sign out a Bitkit approval that lost to another sign-in');
-          });
-          throw createCanceledError();
+        this.sessionFlowGeneration.set(session, generationAtStart);
+        if (this.lostToAnotherSignIn(session)) {
+          return await this.discardLosingApproval(session);
         }
         this.grantEpochAtStart.set(session, epochAtStart);
         return session;
@@ -1054,6 +1092,7 @@ export class AuthController {
       }
 
       this.activeAuthFlow = { token, cancel: null };
+      const generationAtStart = this.authFlowGeneration;
       const flow = AuthApplication.startDirectSignInFlow();
       if (!this.activeAuthFlow || this.activeAuthFlow.token !== token) {
         flow.cancelAuthFlow();
@@ -1073,6 +1112,14 @@ export class AuthController {
               onHomeserverSession: async (session) => this.assertStepUpSessionMatchesSignedInUser({ session }),
             })
           : await AuthApplication.completeSingleApprovalCeremony(authToken);
+        if (!preserveLocalState) {
+          // A Bitkit sign-in (or a sign-out) may have won while this
+          // approval was inside its dual POST.
+          this.sessionFlowGeneration.set(result.session, generationAtStart);
+          if (this.lostToAnotherSignIn(result.session)) {
+            return await this.discardLosingApproval(result.session);
+          }
+        }
         if (result.marketplace) {
           CommerceController.writeMarketplaceSessionStore(result.marketplace);
         }
