@@ -862,25 +862,46 @@ describe('browser purchase bootstrap BFF', () => {
     expect(cancelGrant).toHaveBeenCalledWith(expect.anything(), row.flow_id, encodeBase64Url(derived.resultDeliveryId));
   });
 
-  it("challenges for a pubky from another client do not spend its owner's bucket", async () => {
-    storeInsertedChallenges();
-    process.env.VERCEL = '1';
-    resetMarketplaceGrantConfigForTests();
-    const { createBrowserChallenge } = await import('./browser-bff');
+  function countingRateLimit(): void {
     const buckets = new Map<string, number>();
     consumeCliRateLimit.mockImplementation(async (_config: unknown, key: string, limit: number) => {
       const count = (buckets.get(key) ?? 0) + 1;
       buckets.set(key, count);
       return count <= limit;
     });
-    const config = await browserConfig();
-    const from = (ip: string) => challengeRequest({ pubky }, { 'x-vercel-forwarded-for': ip });
+  }
 
-    for (let i = 0; i < config.createPerPubkyPerMinute; i += 1) {
-      await createBrowserChallenge(from('203.0.113.66'));
-    }
-    await expect(createBrowserChallenge(from('203.0.113.66'))).rejects.toEqual(new BffError(429, 'retry_later', 60));
-    await expect(createBrowserChallenge(from('198.51.100.7'))).resolves.toMatchObject({
+  it("challenges a NAT peer creates for someone's pubky never lock the owner out", async () => {
+    storeInsertedChallenges();
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createBrowserChallenge } = await import('./browser-bff');
+    countingRateLimit();
+    const natExit = { 'x-vercel-forwarded-for': '203.0.113.66' };
+
+    // Five was the old per-pubky allowance; the peer spends it naming the owner's pubky.
+    for (let i = 0; i < 5; i += 1) await createBrowserChallenge(challengeRequest({ pubky }, natExit));
+
+    await expect(createBrowserChallenge(challengeRequest({ pubky }, natExit))).resolves.toMatchObject({
+      proof_uri: expect.stringContaining(pubky),
+    });
+  });
+
+  it('the per-IP bucket is shared behind one NAT (accepted limit of unauthenticated creation)', async () => {
+    storeInsertedChallenges();
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createBrowserChallenge } = await import('./browser-bff');
+    countingRateLimit();
+    const config = await browserConfig();
+    const from = (ip: string, who = pubky) => challengeRequest({ pubky: who }, { 'x-vercel-forwarded-for': ip });
+
+    for (let i = 0; i < config.createPerIpPerMinute; i += 1) await createBrowserChallenge(from('203.0.113.66'));
+
+    await expect(createBrowserChallenge(from('203.0.113.66', otherPubky))).rejects.toEqual(
+      new BffError(429, 'retry_later', 60),
+    );
+    await expect(createBrowserChallenge(from('198.51.100.7', otherPubky))).resolves.toMatchObject({
       proof_uri: expect.any(String),
     });
   });

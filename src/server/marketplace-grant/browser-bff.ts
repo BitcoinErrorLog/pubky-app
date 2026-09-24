@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { assertSameOrigin, BffError, FLOW_COOKIE, parseStrictJson } from './bff';
-import { canonicalZ32, challengePubkyBucket, clientIp, hashesEqual, requireUuid } from './cli-bff';
+import { canonicalZ32, clientIp, hashesEqual, requireUuid } from './cli-bff';
 import type { CliGrantConfig } from './config';
 import { getBrowserBootstrapConfig } from './config';
 import {
@@ -97,9 +97,12 @@ export async function createBrowserChallenge(request: Request): Promise<BrowserC
   await assertCliGrantSchema(config);
   const input = await parseStrictJson(request, challengeBody);
   const pubky = canonicalZ32(input.pubky);
-  const ip = clientIp(request, config.trustedProxyCount);
-  await rateLimit(config, `browser_challenge_ip:${ip}`, config.createPerIpPerMinute);
-  await rateLimit(config, challengePubkyBucket('browser_challenge_pubky', ip, pubky), config.createPerPubkyPerMinute);
+  // No per-pubky bucket, for the reason at `createCliChallenge`.
+  await rateLimit(
+    config,
+    `browser_challenge_ip:${clientIp(request, config.trustedProxyCount)}`,
+    config.createPerIpPerMinute,
+  );
 
   const challengeId = randomUUID();
   const derived = deriveBrowserBootstrap(config, config.stateKeyEpoch, challengeId);
