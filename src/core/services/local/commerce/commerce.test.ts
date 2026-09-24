@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/database/franky/franky';
+import { clearDatabase } from '@/database/franky/franky.helpers';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import {
   CommerceActivityCheckpointModel,
@@ -656,6 +657,20 @@ describe('LocalCommerceService', () => {
     it('keeps address books account-scoped', async () => {
       await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr1', addressInput('Home'), 100);
       expect(await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_SELLER)).toEqual([]);
+    });
+
+    it('keeps each identity’s address book through a device identity-switch wipe', async () => {
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_BUYER, 'addr1', addressInput('Home'), 100);
+      await LocalCommerceService.upsertDeliveryAddress(COMMERCE_FIXTURE_SELLER, 'addr2', addressInput('Studio'), 200);
+
+      await clearDatabase();
+
+      const buyer = await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_BUYER);
+      const seller = await LocalCommerceService.getDeliveryAddresses(COMMERCE_FIXTURE_SELLER);
+      expect(buyer).toHaveLength(1);
+      expect(buyer[0]).toMatchObject({ owner_id: COMMERCE_FIXTURE_BUYER, label: 'Home' });
+      expect(seller).toHaveLength(1);
+      expect(seller[0]).toMatchObject({ owner_id: COMMERCE_FIXTURE_SELLER, label: 'Studio' });
     });
   });
 

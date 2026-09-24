@@ -24,8 +24,8 @@ export function MarketplaceDigitalDeliveryNotice({ adapterMode }: { adapterMode:
           </Typography>
           <Typography as="p" className="text-sm text-muted-foreground">
             {isLocksPaykitCommerceMode(adapterMode)
-              ? 'After checkout, Paykit privately sends the Bitcoin payment request to your wallet, and the content unlocks once the payment is independently verified. Pubky App never receives wallet keys.'
-              : 'Buying this item requires the real Locks/Paykit payment rails, which are not enabled in this deployment.'}
+              ? 'After checkout, approve the Bitcoin payment in your wallet. Your content unlocks once payment is confirmed. Your wallet keys stay private.'
+              : 'Purchases of this digital item are unavailable here.'}
           </Typography>
         </div>
       </CardContent>

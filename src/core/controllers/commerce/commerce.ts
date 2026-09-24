@@ -587,11 +587,6 @@ export class CommerceController {
     return await CommerceApplication.confirmFiatReceived(this.getCurrentUserPubky(), orderId);
   }
 
-  /** Manual watch-only xpub claim flow against paykit-server. */
-  static beginPaykitClaimFlow(accountXpub: string) {
-    return CommerceApplication.beginPaykitClaimFlow(accountXpub);
-  }
-
   /** Whether the current user already has a claimed watch-only account. */
   static async isOwnPaykitAccountClaimed() {
     return await CommerceApplication.isPaykitAccountClaimed(this.getCurrentUserPubky());
@@ -1022,7 +1017,7 @@ export class CommerceController {
     );
   }
 
-  static async createLocksFrontendSession(code: unknown, state: unknown) {
+  static async createLocksFrontendSession(code: unknown, state: unknown, accountPubky?: unknown) {
     if (
       typeof code !== 'string' ||
       code.length === 0 ||
@@ -1036,7 +1031,26 @@ export class CommerceController {
         operation: 'createLocksFrontendSession',
       });
     }
-    return await CommerceApplication.createLocksFrontendSession(code, state);
+    const pubky = typeof accountPubky === 'string' && accountPubky.length > 0 ? accountPubky : undefined;
+    return await CommerceApplication.createLocksFrontendSession(code, state, pubky);
+  }
+
+  static async getLocksCreatorAuthorityStatus(sessionToken: unknown) {
+    if (typeof sessionToken !== 'string' || sessionToken.length === 0 || sessionToken.length > 4_096) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Lock Server session is invalid.', {
+        service: ErrorService.Local,
+        operation: 'getLocksCreatorAuthorityStatus',
+      });
+    }
+    return await CommerceApplication.getLocksCreatorAuthorityStatus(sessionToken);
+  }
+
+  static restoreLocksFrontendSession(accountPubky: string) {
+    return CommerceApplication.restoreLocksFrontendSession(accountPubky);
+  }
+
+  static clearLocksFrontendSession(): void {
+    CommerceApplication.clearLocksFrontendSession();
   }
 
   static async lookupLocksVerification(creatorPubky: unknown, bundleId: unknown) {

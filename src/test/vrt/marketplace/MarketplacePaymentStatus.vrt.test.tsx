@@ -299,7 +299,7 @@ describe('Marketplace payment status card — visual regression', () => {
     view.locks.enabled = true;
   });
 
-  it('renders the bound stripe checkout and verify affordances at desktop viewport', async () => {
+  it('renders a bound card order without offering card checkout at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
       deployEnv: 'staging',
@@ -311,6 +311,8 @@ describe('Marketplace payment status card — visual regression', () => {
         holdSource: 'bind',
       },
     });
+    await expect.element(screen.getByRole('button', { name: /Stripe/ })).not.toBeInTheDocument();
+    await expect.element(screen.getByText('Card (Stripe)')).not.toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-stripe-desktop');
     view.locks.enabled = true;
   });

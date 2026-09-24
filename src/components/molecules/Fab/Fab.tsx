@@ -45,11 +45,20 @@ export function Fab() {
   const { requireAuth } = useRequireAuth();
   const action = useFabAction();
   const isReorderActive = useCollectionReorderStore((state) => state.activeCollectionId !== null);
-  const hideOnCheckout = pathname === MARKETPLACE_ROUTES.CART || pathname === MARKETPLACE_ROUTES.AWARD_CHECKOUT;
+  const hideOnCheckout =
+    pathname === MARKETPLACE_ROUTES.CART ||
+    pathname === MARKETPLACE_ROUTES.CHECKOUT ||
+    pathname === MARKETPLACE_ROUTES.AWARD_CHECKOUT;
 
   // Show FAB for authenticated users OR unauthenticated users on public explore routes
   const shouldShow = isFullyAuthenticated || isPublicExploreRoute;
-  if (isLoading || !shouldShow || isReorderActive || hideOnCheckout) {
+  if (
+    isLoading ||
+    !shouldShow ||
+    isReorderActive ||
+    hideOnCheckout ||
+    pathname?.startsWith(`${MARKETPLACE_ROUTES.LISTING}/`)
+  ) {
     return null;
   }
   const buttonClasses = cn(

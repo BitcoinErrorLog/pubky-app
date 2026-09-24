@@ -125,7 +125,7 @@ export function MarketplaceSell() {
                   Drops — timed limited releases
                 </Typography>
                 <Typography as="p" className="text-sm text-muted-foreground">
-                  Bundle listings into a scheduled, capped release the transaction service enforces on server time.
+                  Bundle listings into a scheduled release with limited quantities.
                 </Typography>
               </div>
             </div>

@@ -7,6 +7,7 @@ import { FileController } from '@/controllers/file/file';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
+import { useMarketplaceNavAttention } from '@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention';
 import { MobileFooter } from './MobileFooter';
 
 const collectionsDiscoveryMock = vi.hoisted(() => ({
@@ -120,6 +121,9 @@ vi.mock('@/hooks/useMessagesUnread/useMessagesUnread', () => ({
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
   useMarketplaceCartCount: vi.fn(() => 0),
 }));
+vi.mock('@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention', () => ({
+  useMarketplaceNavAttention: vi.fn(() => 0),
+}));
 
 vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => ({
   useCollectionsNavDiscovery: () => ({
@@ -162,6 +166,7 @@ describe('MobileFooter', () => {
     vi.mocked(usePathname).mockReturnValue('/home');
     mockSelectUnread.mockReturnValue(0);
     vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
+    vi.mocked(useMarketplaceNavAttention).mockReturnValue(0);
     mockCurrentUserPubky = 'pk:test-user-pubky';
     collectionsDiscoveryMock.showCollectionsNew = false;
     mockIsPublicRoute = false;
@@ -266,6 +271,20 @@ describe('MobileFooter', () => {
       render(<MobileFooter />);
       expect(document.querySelector('[data-cy="mobile-marketplace-counter"]')).toHaveTextContent('21+');
       expect(screen.getByRole('link', { name: 'Marketplace, 22 items in cart' })).toBeInTheDocument();
+    } finally {
+      adapterMode.mockRestore();
+    }
+  });
+
+  it('adds orders and activity that need attention to the marketplace badge', () => {
+    const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    vi.mocked(useMarketplaceCartCount).mockReturnValue(1);
+    vi.mocked(useMarketplaceNavAttention).mockReturnValue(2);
+    try {
+      render(<MobileFooter />);
+
+      expect(screen.getByRole('link', { name: 'Marketplace, 1 item in cart, 2 need attention' })).toBeInTheDocument();
+      expect(document.querySelector('[data-cy="mobile-marketplace-counter"]')).toHaveTextContent('3');
     } finally {
       adapterMode.mockRestore();
     }

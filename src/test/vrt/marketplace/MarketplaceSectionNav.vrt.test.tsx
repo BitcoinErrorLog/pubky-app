@@ -33,7 +33,7 @@ describe('Marketplace section navigation — visual regression', () => {
     await expect(expectVrtSurface('marketplace-section-nav')).toMatchScreenshot('section-nav-offers-desktop');
   });
 
-  it('renders the horizontally scrollable section navigation on mobile', async () => {
+  it('renders the wrapping section navigation on mobile', async () => {
     await renderForVRT(
       <div className="w-full p-4">
         <MarketplaceSectionNav />

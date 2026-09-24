@@ -13,7 +13,9 @@ export function useAuthStatus(): AuthStatusResult {
     // before session (live auth object) is recreated. This flag prevents premature
     // redirects by keeping isLoading true until session restoration is completed.
     const isSessionRestorePending =
-      authStore.sessionExport !== null && authStore.session === null && !authStore.sessionRestoreDeferred;
+      (authStore.sessionExport !== null || Boolean(authStore.grantSessionRecordId)) &&
+      authStore.session === null &&
+      !authStore.sessionRestoreDeferred;
 
     const isLoading =
       !onboardingStore.hasHydrated || !authStore.hasHydrated || authStore.isRestoringSession || isSessionRestorePending;
@@ -52,6 +54,7 @@ export function useAuthStatus(): AuthStatusResult {
     authStore.hasHydrated,
     authStore.isRestoringSession,
     authStore.sessionExport,
+    authStore.grantSessionRecordId,
     authStore.session,
     authStore.sessionRestoreDeferred,
     authStore.hasProfile,

@@ -89,8 +89,11 @@ export const getWrongEnvironmentHomeserverMessage = (): string =>
  * catch it must offer the session-connect affordance instead of a dead end.
  */
 export const isMarketplaceSessionRequiredError = (error: unknown): error is AppError => {
+  if (!isAppError(error) || error.service !== ErrorService.Marketplace) return false;
   return (
-    isAppError(error) && error.service === ErrorService.Marketplace && error.code === AuthErrorCode.SESSION_EXPIRED
+    error.code === AuthErrorCode.SESSION_EXPIRED ||
+    error.code === AuthErrorCode.UNAUTHORIZED ||
+    error.context?.statusCode === 401
   );
 };
 

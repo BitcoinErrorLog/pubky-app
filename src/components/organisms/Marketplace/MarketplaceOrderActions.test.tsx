@@ -255,7 +255,9 @@ describe('MarketplaceOrderActions own-review verified status', () => {
     renderActions();
 
     await waitFor(() => {
-      expect(screen.getByTestId('own-review-status')).toHaveTextContent(/still pending and will retry/);
+      expect(screen.getByTestId('own-review-status')).toHaveTextContent(
+        /Publication is pending and will retry automatically/,
+      );
     });
   });
 
@@ -272,8 +274,8 @@ describe('MarketplaceOrderActions own-review verified status', () => {
 describe('MarketplaceOrderActions refund reference labels', () => {
   it.each([
     ['bitcoin', 'External Bitcoin transaction reference'],
-    ['paypal', 'PayPal transaction reference'],
-    ['stripe', 'Stripe payment reference'],
+    ['paypal', 'PayPal refund transaction id'],
+    ['stripe', 'External payment reference'],
     [undefined, 'External payment reference'],
   ] as const)('uses the %s rail label', async (paymentMethod, label) => {
     const order = createOrderFixture('return_received', { paymentMethod });
@@ -286,8 +288,29 @@ describe('MarketplaceOrderActions refund reference labels', () => {
       />,
     );
 
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Record external refund' }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Record refund' }));
     expect(screen.getByLabelText(label)).toBeInTheDocument();
+  });
+
+  it('tells a PayPal seller to refund in PayPal before recording the return', async () => {
+    const order = createOrderFixture('return_received', { paymentMethod: 'paypal' });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Record refund' })).toBeInTheDocument();
+    expect(screen.getByTestId('paypal-refund-hint')).toHaveTextContent(
+      'Refund the buyer in PayPal first, then record it here',
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Record refund' }));
+    expect(screen.getByRole('heading', { name: 'Record refund' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Amount (USD)')).toHaveValue('137.00');
+    expect(screen.getByLabelText('PayPal refund transaction id')).toBeInTheDocument();
   });
 });
 
@@ -332,6 +355,23 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     );
     return { order, actOnOrder, onChanged };
   }
+
+  it('hints that Mark return received is for a pickup the buyer brought back', () => {
+    const order = createOrderFixture('return_approved', { fulfillment: 'pickup' });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Mark return received' })).toBeInTheDocument();
+    expect(screen.getByTestId('mark-return-received-hint')).toHaveTextContent(
+      'Press when the buyer has brought it back',
+    );
+  });
 
   it('offers the seller Mark ready for pickup and Confirm handover from paid — and no shipping actions', () => {
     renderPickupActions({ state: 'paid', isBuyer: false });
@@ -507,8 +547,8 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
     render(<MarketplaceOrderActions order={order} isBuyer canEditReview={false} actOnOrder={actOnOrder} />);
 
-    await user.click(screen.getByRole('button', { name: 'Cancel order' }));
-    expect(screen.getByRole('heading', { name: 'Cancel order' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel checkout' }));
+    expect(screen.getByRole('heading', { name: 'Cancel checkout' })).toBeInTheDocument();
     expect(screen.getByText(/Cancelling moves no money/)).toBeInTheDocument();
     expect(screen.getByTestId('dialog-content')).toHaveClass('m-6', 'rounded-xl', 'w-full', 'max-w-lg');
     expect(screen.getByTestId('dialog-content')).not.toHaveClass('sm:max-w-[calc(100vw-2rem)]');

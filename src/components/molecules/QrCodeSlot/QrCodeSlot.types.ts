@@ -23,4 +23,6 @@ export interface QrCodeSlotProps {
     onClick: () => void;
     ariaLabel: string;
   };
+  /** The Pubky Ring logo over the QR. Off for QRs meant for another signer (Bitkit). Defaults to true. */
+  showRingLogo?: boolean;
 }

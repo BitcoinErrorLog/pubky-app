@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { AppError } from '@/libs/error/error';
 import { ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceBootstrapFailureMessage,
   marketplaceCheckoutRefusalMessage,
+  marketplaceDropRefusalMessage,
   marketplaceFailureMessage,
   marketplaceOfferCheckoutFailureMessage,
+  marketplaceOfferFailureMessage,
   marketplacePaymentMethodFailureMessage,
   marketplacePaymentMethodReasonMessage,
 } from './failure-messages';
@@ -186,7 +190,7 @@ describe('marketplacePaymentMethodFailureMessage', () => {
       context: { statusCode: 503, reason: 'paykit_unavailable' },
     });
     expect(marketplacePaymentMethodFailureMessage(seller, 'fallback')).toBe(
-      'This seller has not configured a Stripe key.',
+      'This seller has not finished payment setup.',
     );
     expect(marketplacePaymentMethodFailureMessage(unavailable, 'fallback')).toBe(
       'The Paykit server is unavailable. Try again shortly.',
@@ -213,6 +217,33 @@ describe('marketplacePaymentMethodFailureMessage', () => {
     expect(marketplacePaymentMethodReasonMessage('constructor')).toBe('The payment method request was refused.');
     expect(marketplacePaymentMethodReasonMessage(undefined)).toBe('The payment method request was refused.');
   });
+
+  it('maps a bind hold-loser from the service 409 wire shape to listingReserved', () => {
+    const wire = {
+      ok: false,
+      error: {
+        code: 'INVALID_STATE',
+        message: 'SENTINEL_HOLDING_COPY Another buyer is currently paying for this item.',
+        reason: 'held',
+      },
+    };
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.BAD_REQUEST,
+      message: marketplacePaymentMethodReasonMessage(wire.error.reason),
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: wire.error.reason, serviceCode: wire.error.code },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, MARKETPLACE_FAILURE_MESSAGES.checkout)).toBe(
+      CHECKOUT_HOLD_COPY.listingReserved,
+    );
+    expect(marketplacePaymentMethodFailureMessage(error, MARKETPLACE_FAILURE_MESSAGES.checkout)).not.toBe(
+      MARKETPLACE_FAILURE_MESSAGES.checkout,
+    );
+    expect(error.message).not.toContain('SENTINEL');
+    expect(error.message).toBe(CHECKOUT_HOLD_COPY.listingReserved);
+  });
 });
 
 describe('marketplaceOfferCheckoutFailureMessage', () => {
@@ -231,5 +262,68 @@ describe('marketplaceOfferCheckoutFailureMessage', () => {
 
   it('uses the static checkout fallback for unknown codes', () => {
     expect(marketplaceOfferCheckoutFailureMessage('UNEXPECTED')).toBe(MARKETPLACE_FAILURE_MESSAGES.checkout);
+  });
+});
+
+describe('marketplaceOfferFailureMessage', () => {
+  it('never emits drop sold-out copy for a listing inventory refusal', () => {
+    expect(marketplaceOfferFailureMessage('INSUFFICIENT_INVENTORY')).toBe(MARKETPLACE_FAILURE_MESSAGES.listingSoldOut);
+    expect(marketplaceOfferFailureMessage('INSUFFICIENT_INVENTORY')).not.toBe(MARKETPLACE_FAILURE_MESSAGES.soldOut);
+    expect(marketplaceFailureMessage('INSUFFICIENT_INVENTORY', MARKETPLACE_FAILURE_MESSAGES.sendOffer)).not.toBe(
+      MARKETPLACE_FAILURE_MESSAGES.soldOut,
+    );
+    expect(marketplaceDropRefusalMessage('INSUFFICIENT_INVENTORY', 'The drop is sold out.')).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.soldOut,
+    );
+  });
+
+  it('maps a held-listing offer refusal to hold copy, not drop copy', () => {
+    expect(
+      marketplaceOfferFailureMessage(
+        'INVALID_STATE',
+        "Another buyer's payment is holding this item. If it isn't completed in time, the item restocks.",
+      ),
+    ).toBe(CHECKOUT_HOLD_COPY.heldWhileAnotherPays);
+    expect(marketplaceOfferFailureMessage('INVALID_STATE', 'sentinel-drop-copy')).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.sendOffer,
+    );
+  });
+});
+
+describe('Bitkit purchase bootstrap reason codes', () => {
+  it.each([
+    ['origin_denied', 'This request did not come from the Shop. Reload and try again.'],
+    ['invalid_request', 'Something went wrong. Try again.'],
+    ['grant_unavailable', 'Bitkit approvals are unavailable right now. Try again later.'],
+    ['retry_later', 'Too many attempts. Wait a minute and try again.'],
+    ['challenge_not_found', 'This approval expired. Start again.'],
+    ['challenge_consumed', 'This approval was already used. Start again.'],
+    ['homeserver_proof_invalid', 'Your homeserver could not confirm this sign-in. Start again.'],
+    ['flow_expired', 'This approval expired. Start again.'],
+    ['flow_cancelled', 'Approval cancelled.'],
+    ['result_denied', 'This approval could not be completed. Start again.'],
+    [
+      'identity_mismatch',
+      "This approval came from a different account. Approve with the account you're signed in with.",
+    ],
+    ['fresh_approval_required', 'Approve again in Bitkit.'],
+    ['flow_binding_missing', 'This approval belongs to another tab. Start again here.'],
+    ['flow_binding_denied', 'This approval belongs to another tab. Start again here.'],
+    ['flow_not_found', 'This approval expired. Start again.'],
+    ['claim_in_progress', 'Finishing your approval…'],
+    ['shop_session_expired', 'Your Shop session ended. Sign in again.'],
+    ['approval_invalid', 'That approval could not be verified. Approve again in Bitkit.'],
+  ])('bootstrap reason code %s maps to copy', (code, copy) => {
+    expect(marketplaceBootstrapFailureMessage(code)).toBe(copy);
+  });
+
+  it('keeps the reconnect copy for shop_session_expired outside the bootstrap', () => {
+    expect(marketplaceFailureMessage('shop_session_expired', MARKETPLACE_FAILURE_MESSAGES.sessionStart)).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.sessionCookieExpired,
+    );
+  });
+
+  it('an unknown bootstrap code falls back to static copy, never the code', () => {
+    expect(marketplaceBootstrapFailureMessage('something_new')).toBe(MARKETPLACE_FAILURE_MESSAGES.sessionStart);
   });
 });

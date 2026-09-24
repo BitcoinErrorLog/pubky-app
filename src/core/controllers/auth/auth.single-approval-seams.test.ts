@@ -20,6 +20,7 @@ const BEARER = 'A'.repeat(43);
 const mockState = vi.hoisted(() => ({
   clientFetch: vi.fn(),
   restoreSession: vi.fn(),
+  sessionRestore: vi.fn(),
   startAuthFlow: vi.fn(),
   authTokenFromBytes: vi.fn(),
   // Who the device is signed in as, read by the auth-store mock below. Null
@@ -31,7 +32,7 @@ vi.mock('@synonymdev/pubky', () => {
   const createMockPubkyInstance = () => ({
     getHomeserverOf: vi.fn(),
     restoreSession: (...args: unknown[]) => mockState.restoreSession(...args),
-    startAuthFlow: (...args: unknown[]) => mockState.startAuthFlow(...args),
+    startCookieAuthFlow: (...args: unknown[]) => mockState.startAuthFlow(...args),
     eventStreamForUser: vi.fn(),
     client: {
       fetch: (...args: unknown[]) => mockState.clientFetch(...args),
@@ -57,6 +58,9 @@ vi.mock('@synonymdev/pubky', () => {
     Pubky: MockPubky,
     Client: MockClient,
     Address: MockAddress,
+    Session: {
+      restore: (...args: unknown[]) => mockState.sessionRestore(...args),
+    },
     PublicKey: {
       from: vi.fn().mockReturnValue({
         z32: () => 'homeserver-public-key-z32',
@@ -119,7 +123,7 @@ describe('single-approval ceremony at the transport seams', () => {
       capabilities: CAPABILITIES.split(','),
       publicKey: { z32: () => PUBKY },
     });
-    mockState.restoreSession.mockResolvedValue(mockSession);
+    mockState.sessionRestore.mockResolvedValue(mockSession);
     mockState.startAuthFlow.mockReturnValue({
       authorizationUrl: 'pubkyauth:///?relay=https%3A%2F%2Frelay.example.com%2Finbox&secret=s',
       awaitToken: async () =>
@@ -162,6 +166,9 @@ describe('single-approval ceremony at the transport seams', () => {
     // empty-capability second flow on the direct sign-in path.
     expect(mockState.startAuthFlow).toHaveBeenCalledTimes(1);
     expect(mockState.startAuthFlow).toHaveBeenCalledWith(CAPABILITIES, 'signin-kind', expect.any(String));
+    // The /session body hydrates through Session.restore, never Pubky.restoreSession.
+    expect(mockState.sessionRestore).toHaveBeenCalledWith(expect.any(String), expect.anything());
+    expect(mockState.restoreSession).not.toHaveBeenCalled();
 
     // Identical bytes (same reference) on both POSTs.
     expect(mockState.clientFetch).toHaveBeenCalledTimes(1);
@@ -196,7 +203,7 @@ describe('single-approval ceremony at the transport seams', () => {
       info: { publicKey: { z32: () => PUBKY } },
       signout,
     });
-    mockState.restoreSession.mockResolvedValue(wrongIdentitySession);
+    mockState.sessionRestore.mockResolvedValue(wrongIdentitySession);
     mockState.clientFetch.mockResolvedValue(new Response(SESSION_INFO_BODY, { status: 200 }));
     vi.mocked(fetch).mockResolvedValue(
       new Response(
@@ -242,7 +249,7 @@ describe('single-approval ceremony at the transport seams', () => {
       info: { publicKey: { z32: () => PUBKY } },
       signout,
     });
-    mockState.restoreSession.mockResolvedValue(wrongIdentitySession);
+    mockState.sessionRestore.mockResolvedValue(wrongIdentitySession);
     mockState.clientFetch.mockResolvedValue(new Response(SESSION_INFO_BODY, { status: 200 }));
     vi.mocked(fetch).mockResolvedValue(
       new Response(

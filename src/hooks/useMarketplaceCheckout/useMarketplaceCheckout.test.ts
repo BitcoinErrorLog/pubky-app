@@ -54,6 +54,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     hasActiveMarketplaceSession: vi.fn(() => false),
     clearMarketplaceSession: vi.fn(),
     clearIdentitySession: vi.fn(),
+    bindPaymentMethod: vi.fn(),
+    getMarketplaceOrders: vi.fn(async () => []),
   },
 }));
 
@@ -269,7 +271,7 @@ describe('useMarketplaceCheckout', () => {
     expect(clear).not.toHaveBeenCalled();
     const { toast } = await import('@/molecules/Toaster/use-toast');
     expect(vi.mocked(toast)).toHaveBeenCalledWith(
-      expect.objectContaining({ description: expect.stringContaining('place the order again') }),
+      expect.objectContaining({ description: expect.stringContaining('try again') }),
     );
   });
 
@@ -386,8 +388,7 @@ describe('useMarketplaceCheckout', () => {
 
     const { toast } = await import('@/molecules/Toaster/use-toast');
     const descriptions = vi.mocked(toast).mock.calls.map(([call]) => call.description);
-    expect(descriptions).toContain('Complete the sandbox payment to continue.');
-    expect(descriptions).toContain('The order was placed, but your cart could not be cleared.');
+    expect(descriptions).toContain('Checkout completed, but your cart could not be cleared.');
   });
 
   it('reports success when the post-order address save fails', async () => {
@@ -416,8 +417,7 @@ describe('useMarketplaceCheckout', () => {
 
     const { toast } = await import('@/molecules/Toaster/use-toast');
     const descriptions = vi.mocked(toast).mock.calls.map(([call]) => call.description);
-    expect(descriptions).toContain('Complete the sandbox payment to continue.');
-    expect(descriptions).toContain('The order was placed, but the address could not be saved.');
+    expect(descriptions).toContain('Checkout completed, but the address could not be saved.');
   });
 
   it('prefills from the top saved address and marks it used after a successful order', async () => {
@@ -598,6 +598,90 @@ describe('useMarketplaceCheckout', () => {
     expect(CommerceController.clearIdentitySession).toHaveBeenCalled();
     expect(CommerceController.clearMarketplaceSession).not.toHaveBeenCalled();
   });
+
+  it('pays by creating then binding, and cancels leftovers when bind fails', async () => {
+    const orderId = '018f47d2-6a27-7c23-a49d-000000001200';
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001100',
+      aggregateId: 'checkout:00000000-0000-4000-8000-000000001100',
+      revision: 1,
+      eventIds: [],
+      result: { kind: 'checkout', orders: [{ id: orderId }] },
+    });
+    vi.mocked(CommerceController.bindPaymentMethod).mockResolvedValue({
+      id: orderId,
+      state: 'pending_payment',
+      paymentMethod: 'bitcoin',
+    } as never);
+    const clear = vi.fn(async () => {});
+    const { result } = renderHook(() => useMarketplaceCheckout([item], clear));
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    let paid: Awaited<ReturnType<typeof result.current.pay>> | null = null;
+    await act(async () => {
+      paid = await result.current.pay('bitcoin');
+    });
+
+    expect(paid).toEqual({
+      ok: true,
+      orderIds: [orderId],
+      boundOrders: [expect.objectContaining({ id: orderId, paymentMethod: 'bitcoin' })],
+    });
+    expect(CommerceController.bindPaymentMethod).toHaveBeenCalledWith(orderId, 'bitcoin');
+    expect(clear).toHaveBeenCalled();
+
+    vi.mocked(CommerceController.bindPaymentMethod).mockRejectedValueOnce(new Error('bind failed'));
+    const paidAfterFail = await act(async () => result.current.pay('bitcoin'));
+    expect(paidAfterFail.ok).toBe(false);
+    expect(CommerceController.executeMarketplaceCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'order.cancel_request',
+        payload: expect.objectContaining({ orderId }),
+      }),
+    );
+  });
+
+  it('skips bind in sandbox when Pay has no method, then stays on checkout', async () => {
+    const orderId = '018f47d2-6a27-7c23-a49d-000000001201';
+    config.mode = 'sandbox';
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001100',
+      aggregateId: 'checkout:00000000-0000-4000-8000-000000001100',
+      revision: 1,
+      eventIds: [],
+      result: { kind: 'checkout', orders: [{ id: orderId }] },
+    });
+    const clear = vi.fn(async () => {});
+    const { result } = renderHook(() => useMarketplaceCheckout([item], clear));
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    let paid: Awaited<ReturnType<typeof result.current.pay>> | null = null;
+    await act(async () => {
+      paid = await result.current.pay(null);
+    });
+
+    expect(paid).toEqual({ ok: true, orderIds: [orderId], boundOrders: [] });
+    expect(CommerceController.bindPaymentMethod).not.toHaveBeenCalled();
+    expect(clear).toHaveBeenCalled();
+  });
 });
 
 describe('useMarketplaceCheckout local pickup (§A2)', () => {
@@ -657,7 +741,7 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
     const { result } = renderHook(() => useMarketplaceCheckout([itemWithFulfillment(['pickup'])], clear));
 
     await waitFor(() => {
-      expect(result.current.isPickupCapabilityLoading).toBe(false);
+      expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false);
       expect(result.current.requiresDeliveryAddress).toBe(false);
     });
     expect(result.current.fulfillmentForSeller(listing.ownerPubky)).toBe('pickup');
@@ -683,7 +767,7 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
     const clear = vi.fn(async () => {});
     const { result } = renderHook(() => useMarketplaceCheckout([shippingItem, bothWaysItem], clear));
 
-    await waitFor(() => expect(result.current.isPickupCapabilityLoading).toBe(false));
+    await waitFor(() => expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false));
 
     // The buyer collects from the both-ways seller; the other seller ships.
     act(() => {
@@ -755,7 +839,7 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
       ),
     );
 
-    expect(result.current.isPickupCapabilityLoading).toBe(true);
+    expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(true);
     expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual(['shipping']);
     expect(result.current.fulfillmentForSeller(listing.ownerPubky)).toBe('shipping');
 
@@ -763,9 +847,36 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
       release(true);
     });
     await waitFor(() => {
-      expect(result.current.isPickupCapabilityLoading).toBe(false);
+      expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false);
     });
     expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual(['shipping', 'pickup']);
+  });
+
+  it('never reports pickup capability as loading for a group whose lines only ship', async () => {
+    let release: (value: boolean) => void = () => {};
+    vi.mocked(CommerceController.fetchPickupAvailable).mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        release = resolve;
+      }),
+    );
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [itemWithFulfillment(['physical'], OTHER_SELLER), itemWithFulfillment(['physical', 'shipping', 'pickup'])],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    expect(result.current.isPickupCapabilityLoadingForSeller(OTHER_SELLER)).toBe(false);
+    expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(true);
+    expect(result.current.fulfillmentOptionsForSeller(OTHER_SELLER)).toEqual(['shipping']);
+
+    await act(async () => {
+      release(false);
+    });
+    await waitFor(() => {
+      expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false);
+    });
+    expect(result.current.isPickupCapabilityLoadingForSeller(OTHER_SELLER)).toBe(false);
   });
 
   it('maps server and thrown sentinel failures to static copy', async () => {

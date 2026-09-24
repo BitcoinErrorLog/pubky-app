@@ -204,9 +204,22 @@ describe('MarketplaceGetPaidSettings status derivation', () => {
     ] as const)(
       'creator=$connectedCreator claimed=$accountClaimed locksError=$locksError claimError=$claimError → $expected',
       ({ expected, ...args }) => {
-        expect(deriveBitcoinStatus(args)).toBe(expected);
+        expect(deriveBitcoinStatus({ accountPubky: C, ...args })).toBe(expected);
       },
     );
+
+    it('does not treat a foreign Lock Server creator as Step 1 Connected', () => {
+      const other = 'ybndrfg8ejkmcpqxot1uwisza345h769ybndrfg8ejkmcpqxot1u';
+      expect(
+        deriveBitcoinStatus({
+          connectedCreator: other,
+          accountPubky: C,
+          accountClaimed: true,
+          locksError: null,
+          claimError: null,
+        }),
+      ).toBe('needs_attention');
+    });
   });
 
   describe('ready-method counting', () => {

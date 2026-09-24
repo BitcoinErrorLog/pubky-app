@@ -3,8 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommerceSellerReputationOverview } from '@/application/commerce/commerce';
 import { CAPABILITIES } from '@/config/app';
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
+import { getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
+import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { createCommerceListingFixture, createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel, toCommerceShopModel } from '@/test/fixtures/commerce/listing-models';
+import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
+import { createOrderFixture } from '@/test/fixtures/commerce/orders';
 import { createListingProjectionFixture } from '@/test/fixtures/commerce/projections';
 import { MarketplaceListing } from './MarketplaceListing';
 
@@ -17,6 +22,9 @@ const authState = vi.hoisted(() => ({
   currentUserPubky: 'b'.repeat(52) as string | null,
   setShowSignInDialog: vi.fn(),
 }));
+const sessionState = vi.hoisted(() => ({
+  pubky: null as string | null,
+}));
 
 const view = vi.hoisted(() => ({
   listing: null as ReturnType<typeof toCommerceListingModel> | null,
@@ -25,9 +33,17 @@ const view = vi.hoisted(() => ({
   projectionError: null as string | null,
   needsSession: false,
   hasFullHomeserverGrant: false,
+  orders: [] as Array<{ order: ReturnType<typeof createOrderFixture> }>,
+  offers: [] as MarketplaceOffer[],
+}));
+
+vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({ useMarketplaceCartCount: () => 0 }));
+vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () => ({
+  useMarketplaceActivityUnread: () => 0,
 }));
 
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/marketplace/listing/seller/item',
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -89,6 +105,32 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   }),
 }));
 
+vi.mock('@/services/marketplace/marketplace-session', () => ({
+  MarketplaceSessionService: {
+    getActiveSession: () => (sessionState.pubky ? { pubky: sessionState.pubky } : null),
+  },
+}));
+
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({
+    offers: view.offers,
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    refresh: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
+  useMarketplaceOrders: () => ({
+    orders: view.orders,
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceProjection/useMarketplaceProjection', () => ({
   useMarketplaceProjection: () => ({
     projection: view.projection,
@@ -143,6 +185,9 @@ describe('MarketplaceListing', () => {
     view.projectionError = null;
     view.needsSession = false;
     view.hasFullHomeserverGrant = false;
+    view.orders = [];
+    view.offers = [];
+    sessionState.pubky = null;
     sellerReputation.value = { status: 'new_seller' };
     cartAdd.mockClear();
     projectionRefresh.mockClear();
@@ -190,13 +235,50 @@ describe('MarketplaceListing', () => {
 
     renderListing();
 
-    expect(screen.getByText('Sold by')).toBeInTheDocument();
+    expect(screen.queryByText('Sold by')).not.toBeInTheDocument();
     expect(screen.getByText('Satoshi Vintage')).toBeInTheDocument();
-    expect(screen.getByText('New seller · no reviews yet')).toBeInTheDocument();
+    expect(screen.getByText('No rating yet')).toBeInTheDocument();
     expect(screen.queryByText(/Shop opened/)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View shop' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Message seller' })).toBeInTheDocument();
-    expect(screen.getByText('Shipping: Ground shipping $8.99')).toBeInTheDocument();
+    expect(screen.getByText('Shipping: $8.99')).toHaveAttribute('data-slot', 'badge');
+    expect(screen.queryByText('Shipping: Ground shipping $8.99')).not.toBeInTheDocument();
+  });
+
+  it.each(['flat', 'free'] as const)('labels %s zero-cost shipping as free', (pricing) => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['physical'],
+        shippingOptions: [
+          {
+            id: 'shipping',
+            label: 'Seller shipping',
+            ...(pricing === 'flat'
+              ? { pricing: 'flat' as const, price: { amountMinor: 0, currency: 'USD', exponent: 2 } }
+              : { pricing: 'free' as const }),
+            estimatedMinDays: 3,
+            estimatedMaxDays: 5,
+          },
+        ],
+      }),
+    );
+    renderListing();
+    expect(screen.getByText('Shipping: Free')).toHaveAttribute('data-slot', 'badge');
+    expect(screen.queryByText('Shipping: $0.00')).not.toBeInTheDocument();
+  });
+
+  it('describes pickup without promising shipping and keeps purchase ahead of details', () => {
+    view.listing = toCommerceListingModel(createCommerceListingFixture({ fulfillmentMethods: ['pickup'] }));
+    renderListing();
+    expect(screen.getByText('Local pickup only')).toBeInTheDocument();
+    expect(screen.getByText('Pickup location')).toBeInTheDocument();
+    expect(screen.queryByText('Ships from')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Shipping: calculated/)).not.toBeInTheDocument();
+    const purchase = screen.getByRole('button', { name: /Add to cart/ });
+    expect(
+      purchase.compareDocumentPosition(screen.getByRole('heading', { name: 'Item specifics' })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('falls back to the seller pubky when no shop record exists', () => {
@@ -204,7 +286,7 @@ describe('MarketplaceListing', () => {
     const listing = renderListing();
 
     expect(screen.getByText(`${listing.seller_id.slice(0, 10)}…`)).toBeInTheDocument();
-    expect(screen.getByText('New seller · no reviews yet')).toBeInTheDocument();
+    expect(screen.getByText('No rating yet')).toBeInTheDocument();
     expect(screen.queryByText('Shop opened Aug 2026')).not.toBeInTheDocument();
   });
 
@@ -225,9 +307,11 @@ describe('MarketplaceListing', () => {
 
     renderListing();
 
-    expect(screen.getByRole('img', { name: 'Rated 4.7 out of 5 from 12 reviews' })).toBeInTheDocument();
-    expect(screen.getByText('(12)')).toBeInTheDocument();
-    expect(screen.queryByText('New seller · no reviews yet')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: 'Rated 4.7 out of 5 from 12 reviews, 9 verified purchases' }),
+    ).toBeInTheDocument();
+    expect(screen.getByTitle('12 reviews')).toBeInTheDocument();
+    expect(screen.queryByText('No rating yet')).not.toBeInTheDocument();
   });
 
   it('requires a marketplace session before showing availability', async () => {
@@ -312,6 +396,162 @@ describe('MarketplaceListing', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sold out' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: CHECKOUT_HOLD_COPY.heldWhileAnotherPays })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
+  });
+
+  it('links Held for you to the viewer pending_payment order, not a session id', () => {
+    const listing = view.listing;
+    if (!listing) throw new Error('Expected listing fixture');
+    const sessionId = 'sess_not-a-pubky-identifier';
+    const ownHold = createOrderFixture('pending_payment', {
+      buyerPubky: authState.currentUserPubky ?? '',
+      lines: [
+        {
+          ...createOrderFixture('pending_payment').lines[0],
+          listingAggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+        },
+      ],
+    });
+    view.projection = createListingProjectionFixture({
+      aggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+      sellerPubky: listing.seller_id,
+      listingId: listing.listing_id,
+      state: 'reserved',
+      availableQuantity: 0,
+      reservedQuantity: 1,
+    });
+    view.orders = [{ order: { ...ownHold, buyerPubky: sessionId } }];
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouCta })).not.toBeInTheDocument();
+  });
+
+  it('shows Held for you when the pending hold buyerPubky matches the viewer pubky', () => {
+    const listing = view.listing;
+    if (!listing) throw new Error('Expected listing fixture');
+    const ownHold = createOrderFixture('pending_payment', {
+      buyerPubky: authState.currentUserPubky ?? '',
+      lines: [
+        {
+          ...createOrderFixture('pending_payment').lines[0],
+          listingAggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+        },
+      ],
+    });
+    view.projection = createListingProjectionFixture({
+      aggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+      sellerPubky: listing.seller_id,
+      listingId: listing.listing_id,
+      state: 'reserved',
+      availableQuantity: 0,
+      reservedQuantity: 1,
+    });
+    view.orders = [{ order: ownHold }];
+    view.offers = [
+      {
+        ...parseContractFaithfulOffer('accepted', 'active'),
+        buyerPubky: authState.currentUserPubky ?? '',
+        listingAggregateId: `listing:${listing.seller_id}_${listing.listing_id}`,
+      },
+    ];
+    sessionState.pubky = authState.currentUserPubky;
+
+    renderListing();
+
+    const link = screen.getByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouCta });
+    expect(link).toHaveAttribute('href', `/marketplace/checkout#${ownHold.id}`);
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: CHECKOUT_HOLD_COPY.heldForYouCta })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Held by another buyer' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'Another buyer is currently paying for this item. If payment does not complete, it will become available again.',
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  function acceptedOfferForListing(
+    listingAggregateId: string,
+    buyerPubky: string,
+    awardState: 'active' | 'expired' = 'active',
+  ) {
+    return {
+      ...parseContractFaithfulOffer('accepted', awardState),
+      buyerPubky,
+      listingAggregateId,
+    };
+  }
+
+  function reserveCurrentListing() {
+    const listing = view.listing;
+    if (!listing) return { listing: view.listing, aggregateId: '' };
+    const aggregateId = `listing:${listing.seller_id}_${listing.listing_id}`;
+    view.projection = createListingProjectionFixture({
+      aggregateId,
+      sellerPubky: listing.seller_id,
+      listingId: listing.listing_id,
+      state: 'reserved',
+      availableQuantity: 0,
+      reservedQuantity: 1,
+    });
+    return { listing, aggregateId };
+  }
+
+  it('links the award buyer to checkout when the accepted offer buyerPubky matches the session pubky', () => {
+    const { aggregateId } = reserveCurrentListing();
+    const sessionPubky = 'b'.repeat(52);
+    sessionState.pubky = sessionPubky;
+    const offer = acceptedOfferForListing(aggregateId, sessionPubky);
+    view.offers = [offer];
+
+    renderListing();
+
+    expect(document.querySelector('[data-surface="marketplace-listing-purchase"]')).toBeTruthy();
+    const link = screen.getByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta });
+    expect(link).toHaveAttribute('href', getMarketplaceOfferCheckoutRoute(offer.id));
+    expect(screen.queryByRole('button', { name: 'Held by another buyer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: CHECKOUT_HOLD_COPY.heldWhileAnotherPays })).not.toBeInTheDocument();
+    expect(screen.queryByText(CHECKOUT_HOLD_COPY.listingReserved)).not.toBeInTheDocument();
+  });
+
+  it("does not treat another pubky accepted offer as the viewer's hold", () => {
+    const { aggregateId } = reserveCurrentListing();
+    sessionState.pubky = 'b'.repeat(52);
+    view.offers = [acceptedOfferForListing(aggregateId, 'c'.repeat(52))];
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta })).not.toBeInTheDocument();
+  });
+
+  it('does not claim an offer hold without an active session pubky', () => {
+    const { aggregateId } = reserveCurrentListing();
+    sessionState.pubky = null;
+    view.offers = [acceptedOfferForListing(aggregateId, 'b'.repeat(52))];
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta })).not.toBeInTheDocument();
+  });
+
+  it('ignores an accepted offer that does not hold this listing', () => {
+    const { aggregateId } = reserveCurrentListing();
+    const sessionPubky = 'b'.repeat(52);
+    sessionState.pubky = sessionPubky;
+    view.offers = [
+      acceptedOfferForListing('listing:other_item', sessionPubky),
+      acceptedOfferForListing(aggregateId, sessionPubky, 'expired'),
+    ];
+
+    renderListing();
+
+    expect(screen.getByRole('button', { name: 'Held by another buyer' })).toBeDisabled();
+    expect(screen.queryByRole('link', { name: CHECKOUT_HOLD_COPY.heldForYouOfferCta })).not.toBeInTheDocument();
   });
 
   function renderAuctionListingNeedingSession() {

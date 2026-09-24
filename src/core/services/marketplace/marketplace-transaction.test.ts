@@ -7,6 +7,7 @@ import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/
 import { Logger } from '@/libs/logger/logger';
 import { scrubSensitiveData } from '@/libs/observability/sentry.utils';
 import { MarketplaceNotificationNormalizer } from '@/pipes/marketplaceNotification/marketplaceNotification.normalizer';
+import sellerDropCapture from '@/test/fixtures/commerce/live/seller-drop-v0621.json';
 import { LIVE_ORDERS_WIRE_FIXTURE } from '@/test/fixtures/commerce/orders.wire';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH, marketplaceNotificationSchema } from './marketplace-projections';
@@ -40,7 +41,7 @@ const LIVE_NOTIFICATION_ROWS = [
     id: '00000000-0000-4000-8000-000000000932',
     recipient_pubky: ACTOR,
     actor_pubky: OTHER_ACTOR,
-    type: 'payment_method_bound',
+    type: 'future_event_bound',
     aggregate_id: 'seller-payment:placeholder',
     created_at: '2026-08-20T11:01:00.000Z',
     read_at: null,
@@ -400,6 +401,162 @@ describe('MarketplaceTransactionService read projections', () => {
     expect(init.headers).toEqual({ authorization: SESSION_BEARER });
   });
 
+  it('returns a public ended-auction listing when seller reserve extras are null', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        aggregate_id: AGGREGATE_ID,
+        seller_pubky: ACTOR,
+        listing_id: 'come_and_buy',
+        listing_revision: 1,
+        content_hash: 'a'.repeat(64),
+        server_revision: 2,
+        state: 'available',
+        available_quantity: 1,
+        reserved_quantity: 0,
+        unit_price: { amount_minor: 4_500, currency: 'USD', exponent: 2 },
+        sale_format: 'auction',
+        reserve_price: null,
+        reserve_met: false,
+        reserve_record_revision: 0,
+        last_reserve_command_id: null,
+        auction: {
+          starts_at: '2026-08-20T09:00:00.000Z',
+          ends_at: '2026-08-21T09:00:00.000Z',
+          minimum_increment: { amount_minor: 100, currency: 'USD', exponent: 2 },
+          status: 'sold',
+          current_price: { amount_minor: 13_000, currency: 'USD', exponent: 2 },
+          leader_pubky: OTHER_ACTOR,
+          bid_count: 3,
+        },
+        updated_at: '2026-08-21T09:00:00.000Z',
+      }),
+    );
+
+    const listing = await MarketplaceTransactionService.getListing(ACTOR, AGGREGATE_ID);
+
+    expect(listing).toMatchObject({
+      aggregateId: AGGREGATE_ID,
+      saleFormat: 'auction',
+      auction: { status: 'sold', bidCount: 3 },
+    });
+    expect(listing).not.toHaveProperty('reservePrice');
+    expect(listing).not.toHaveProperty('reserveMet');
+    expect(listing).not.toHaveProperty('reserveRecordRevision');
+    expect(listing).not.toHaveProperty('lastReserveCommandId');
+  });
+
+  it('falls back to the public listing when seller extras are malformed', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        aggregate_id: AGGREGATE_ID,
+        seller_pubky: ACTOR,
+        listing_id: 'come_and_buy',
+        listing_revision: 1,
+        content_hash: 'a'.repeat(64),
+        server_revision: 2,
+        state: 'available',
+        available_quantity: 1,
+        reserved_quantity: 0,
+        unit_price: { amount_minor: 4_500, currency: 'USD', exponent: 2 },
+        sale_format: 'auction',
+        reserve_price: null,
+        last_reserve_command_id: 'not-a-uuid',
+        auction: {
+          starts_at: '2026-08-20T09:00:00.000Z',
+          ends_at: '2026-08-21T09:00:00.000Z',
+          minimum_increment: { amount_minor: 100, currency: 'USD', exponent: 2 },
+          status: 'unsold',
+          current_price: { amount_minor: 4_500, currency: 'USD', exponent: 2 },
+          leader_pubky: null,
+          bid_count: 0,
+        },
+        updated_at: '2026-08-21T09:00:00.000Z',
+      }),
+    );
+
+    const listing = await MarketplaceTransactionService.getListing(ACTOR, AGGREGATE_ID);
+
+    expect(listing).toMatchObject({ auction: { status: 'unsold' } });
+    expect(listing).not.toHaveProperty('lastReserveCommandId');
+  });
+
+  it('reads an ended auction as the seller when reserve command id is absent', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        aggregate_id: AGGREGATE_ID,
+        seller_pubky: ACTOR,
+        listing_id: 'come_and_buy',
+        listing_revision: 1,
+        content_hash: 'a'.repeat(64),
+        server_revision: 2,
+        state: 'available',
+        available_quantity: 1,
+        reserved_quantity: 0,
+        unit_price: { amount_minor: 4_500, currency: 'USD', exponent: 2 },
+        sale_format: 'auction',
+        reserve_price: null,
+        reserve_record_revision: 0,
+        auction: {
+          starts_at: '2026-08-20T09:00:00.000Z',
+          ends_at: '2026-08-21T09:00:00.000Z',
+          minimum_increment: { amount_minor: 100, currency: 'USD', exponent: 2 },
+          status: 'sold',
+          current_price: { amount_minor: 13_000, currency: 'USD', exponent: 2 },
+          leader_pubky: OTHER_ACTOR,
+          bid_count: 3,
+        },
+        updated_at: '2026-08-21T09:00:00.000Z',
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getSellerListing(ACTOR, AGGREGATE_ID)).resolves.toMatchObject({
+      saleFormat: 'auction',
+      reservePrice: null,
+      reserveRecordRevision: 0,
+      auction: { status: 'sold' },
+    });
+  });
+
+  it('rejects a live seller auction whose reserve command extras are null', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        aggregate_id: AGGREGATE_ID,
+        seller_pubky: ACTOR,
+        listing_id: 'come_and_buy',
+        listing_revision: 1,
+        content_hash: 'a'.repeat(64),
+        server_revision: 2,
+        state: 'available',
+        available_quantity: 1,
+        reserved_quantity: 0,
+        unit_price: { amount_minor: 4_500, currency: 'USD', exponent: 2 },
+        sale_format: 'auction',
+        reserve_price: null,
+        reserve_met: false,
+        reserve_record_revision: 0,
+        last_reserve_command_id: null,
+        auction: {
+          starts_at: '2026-08-20T09:00:00.000Z',
+          ends_at: '2026-08-21T09:00:00.000Z',
+          minimum_increment: { amount_minor: 100, currency: 'USD', exponent: 2 },
+          status: 'active',
+          current_price: { amount_minor: 13_000, currency: 'USD', exponent: 2 },
+          leader_pubky: OTHER_ACTOR,
+          bid_count: 3,
+        },
+        updated_at: '2026-08-21T09:00:00.000Z',
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getSellerListing(ACTOR, AGGREGATE_ID)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+
   it('returns null for an unregistered listing (service 404)', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -732,7 +889,7 @@ describe('MarketplaceTransactionService read projections', () => {
       kind: 'unrecognized',
       id: '00000000-0000-4000-8000-000000000932',
       index: 1,
-      type: 'payment_method_bound',
+      type: 'future_event_bound',
       createdAt: '2026-08-20T11:01:00.000Z',
     });
     expect(notifications[2]).toMatchObject({ type: 'payment_confirmed', actorPubky: 'system' });
@@ -902,6 +1059,7 @@ describe('MarketplaceTransactionService read projections', () => {
       const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       expect(url).toBe(`http://127.0.0.1:8080/v0/sellers/${OTHER_ACTOR}/payment-config`);
       expect(init.headers).toEqual(expect.not.objectContaining({ authorization: expect.anything() }));
+      expect(init.signal).toBeInstanceOf(AbortSignal);
     });
 
     it('saves the own config with the bearer, omitting the key unless provided, and never gets it back', async () => {
@@ -974,7 +1132,7 @@ describe('MarketplaceTransactionService read projections', () => {
       );
 
       await expect(MarketplaceTransactionService.bindPaymentMethod(ACTOR, ORDER_ID, 'stripe')).rejects.toMatchObject({
-        message: 'A payment method is already bound to this order.',
+        message: 'A payment method is already bound to this checkout.',
       });
     });
 
@@ -1047,7 +1205,7 @@ describe('MarketplaceTransactionService read projections', () => {
       }).catch((caught: unknown) => caught)) as AppError;
 
       expect(error).toMatchObject({
-        message: 'Stripe rejected the seller payment key. The seller must update their payment settings.',
+        message: 'The seller payment key was rejected. The seller must update their payment settings.',
       });
       expect(error.message).not.toContain(echoed);
       expect(JSON.stringify(error.context)).not.toContain(echoed);
@@ -1648,6 +1806,66 @@ describe('MarketplaceTransactionService.getHealth (the pickup_available capabili
       expect.objectContaining({ endpoint: 'http://127.0.0.1:8080/health' }),
     );
     expect(JSON.stringify(loggerError.mock.calls[0])).not.toContain('responseText');
+    loggerError.mockRestore();
+  });
+});
+
+describe('MarketplaceTransactionService.getDrop (the seller drop projection)', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  const restoreRedactedIdentities = (value: unknown): unknown => {
+    if (typeof value === 'string') return value.replaceAll('…', 'z'.repeat(44));
+    if (Array.isArray(value)) return value.map(restoreRedactedIdentities);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, restoreRedactedIdentities(entry)]));
+    }
+    return value;
+  };
+
+  function liveSellerDropBody() {
+    return restoreRedactedIdentities(sellerDropCapture.response.body) as { drop: Record<string, unknown> };
+  }
+
+  it('parses the pinned live seller drop, reading the exact count from remaining_quantity', async () => {
+    await establishSession();
+    const body = liveSellerDropBody();
+    const aggregateId = String(body.drop.aggregate_id);
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(sellerDropCapture.response.status, body));
+
+    const drop = await MarketplaceTransactionService.getDrop(ACTOR, aggregateId);
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/drops/${encodeURIComponent(aggregateId)}`);
+    expect(init.cache).toBe('no-store');
+    expect(drop).toMatchObject({
+      aggregateId,
+      state: 'live',
+      stockDisplay: 'exact',
+      totalQuantity: 1,
+      perBuyerLimit: 1,
+      remaining: 1,
+      paidQuantity: 0,
+      buyerCount: 0,
+      listingIds: ['461aabf9c07e42bbbd0e212dc85e4cd8'],
+      revision: 5,
+      serverTime: '2026-09-23T09:17:09.589Z',
+    });
+  });
+
+  it('fails closed when the seller read carries no exact count', async () => {
+    const loggerError = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    await establishSession();
+    const body = liveSellerDropBody();
+    delete body.drop.remaining_quantity;
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, body));
+
+    await expect(MarketplaceTransactionService.getDrop(ACTOR, String(body.drop.aggregate_id))).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+      message: 'Marketplace returned an invalid drop projection.',
+    });
     loggerError.mockRestore();
   });
 });

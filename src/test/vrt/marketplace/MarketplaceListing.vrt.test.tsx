@@ -158,6 +158,17 @@ const view = vi.hoisted(() => ({
   currentUserPubky: 'u'.repeat(52) as string | null,
   listingTags: [] as unknown[],
   needsSession: false,
+  orders: [] as Array<{
+    order: { id: string; buyerPubky: string; state: string; lines: Array<{ listingAggregateId: string }> };
+  }>,
+  offers: [] as Array<{
+    id: string;
+    state: string;
+    buyerPubky: string;
+    listingAggregateId: string;
+    award?: { state: string } | null;
+  }>,
+  sessionPubky: null as string | null,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -247,6 +258,43 @@ vi.mock('@/hooks/useMarketplaceCart/useMarketplaceCart', () => ({
   }),
 }));
 
+vi.mock('@/services/marketplace/marketplace-session', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/marketplace/marketplace-session')>();
+  const service = actual.MarketplaceSessionService;
+  service.getActiveSession = () => {
+    if (!view.sessionPubky) return null;
+    return {
+      pubky: view.sessionPubky,
+      capabilities: '/pub/pubky.app/:rw',
+      expiresAt: '2026-09-21T12:00:00.000Z',
+      issuedAt: '2026-08-21T12:00:00.000Z',
+      expiresAtMs: Date.now() + 60 * 60 * 1000,
+      token: 'vrt-session',
+    } as ReturnType<typeof service.getActiveSession>;
+  };
+  return actual;
+});
+
+vi.mock('@/hooks/useMarketplaceOffers/useMarketplaceOffers', () => ({
+  useMarketplaceOffers: () => ({
+    offers: view.offers,
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    refresh: vi.fn(),
+  }),
+}));
+
+vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
+  useMarketplaceOrders: () => ({
+    orders: view.orders,
+    isLoading: false,
+    error: null,
+    needsSession: false,
+    refresh: vi.fn(),
+  }),
+}));
+
 vi.mock('@/hooks/useMarketplaceProjection/useMarketplaceProjection', () => ({
   useMarketplaceProjection: () => ({
     projection: view.projection,
@@ -323,6 +371,9 @@ async function setView(overrides: Partial<typeof view>) {
   view.currentUserPubky = 'u'.repeat(52);
   view.listingTags = [];
   view.needsSession = false;
+  view.orders = [];
+  view.offers = [];
+  view.sessionPubky = null;
   Object.assign(view, overrides);
 }
 
@@ -591,6 +642,100 @@ describe('Marketplace listing detail — visual regression', () => {
     await expect(screen.getByRole('button', { name: 'Sign in to buy' })).toBeVisible();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
       'listing-logged-out-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders Held for you when the viewer owns the checkout hold at desktop viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    const buyer = 'u'.repeat(52);
+    await setView({
+      listing: fixedPriceListing,
+      adapterMode: 'transaction-service',
+      currentUserPubky: buyer,
+      projection: { ...fixedPriceProjection, state: 'reserved', availableQuantity: 0, reservedQuantity: 1 },
+      orders: [
+        {
+          order: {
+            id: '018f47d2-6a27-7c23-a49d-000000000001',
+            buyerPubky: buyer,
+            state: 'pending_payment',
+            lines: [{ listingAggregateId: `listing:${seller}_boots_01` }],
+          },
+        },
+      ],
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: { width: 1440, height: 1800 },
+    });
+    await expect(screen.getByRole('link', { name: 'Held for you · view your order' })).toBeVisible();
+    await expect(screen.getByRole('button', { name: 'Held for you · view your order' })).toBeDisabled();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-held-for-you-desktop');
+  });
+
+  it('renders Held for you when the viewer owns the checkout hold at mobile viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    const buyer = 'u'.repeat(52);
+    await setView({
+      listing: fixedPriceListing,
+      adapterMode: 'transaction-service',
+      currentUserPubky: buyer,
+      projection: { ...fixedPriceProjection, state: 'reserved', availableQuantity: 0, reservedQuantity: 1 },
+      orders: [
+        {
+          order: {
+            id: '018f47d2-6a27-7c23-a49d-000000000001',
+            buyerPubky: buyer,
+            state: 'pending_payment',
+            lines: [{ listingAggregateId: `listing:${seller}_boots_01` }],
+          },
+        },
+      ],
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: { width: 390, height: 2200 },
+    });
+    await expect(screen.getByRole('link', { name: 'Held for you · view your order' })).toBeVisible();
+    await expect(screen.getByRole('button', { name: 'Held for you · view your order' })).toBeDisabled();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'listing-held-for-you-mobile',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('disables Make offer with hold copy while another buyer pays at desktop viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    await setView({
+      listing: fixedPriceListing,
+      adapterMode: 'transaction-service',
+      currentUserPubky: 'u'.repeat(52),
+      projection: { ...fixedPriceProjection, state: 'reserved', availableQuantity: 0, reservedQuantity: 1 },
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: { width: 1440, height: 1800 },
+    });
+    await expect(screen.getByRole('button', { name: 'Held while another buyer pays' })).toBeDisabled();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-held-another-desktop');
+  });
+
+  it('disables Make offer with hold copy while another buyer pays at mobile viewport', async () => {
+    const { seller, fixedPriceListing, fixedPriceProjection } = await fixtures;
+    await setView({
+      listing: fixedPriceListing,
+      adapterMode: 'transaction-service',
+      currentUserPubky: 'u'.repeat(52),
+      projection: { ...fixedPriceProjection, state: 'reserved', availableQuantity: 0, reservedQuantity: 1 },
+    });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: { width: 390, height: 2200 },
+    });
+    await expect(screen.getByRole('button', { name: 'Held while another buyer pays' })).toBeDisabled();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'listing-held-another-mobile',
       VRT_DENSE_CHROME_SCREENSHOT,
     );
   });

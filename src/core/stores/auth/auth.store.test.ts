@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as vibeSessionAutoRestore from '@/libs/vibe-session/auto-restore';
 import * as vibeSessionConfig from '@/libs/vibe-session/config';
 import type { THomeserverSessionResult } from '@/services/homeserver/homeserver.types';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { useAuthStore } from './auth.store';
 
 // Mock the logger
@@ -74,6 +75,60 @@ describe('AuthStore', () => {
       } finally {
         consumerSpy.mockRestore();
       }
+    });
+  });
+
+  describe('Grant sessions (Bitkit sign-in)', () => {
+    const grantSession = (exportSpy: () => string) =>
+      asOpaque<THomeserverSessionResult['session']>({
+        info: { publicKey: { z32: () => 'grant-pubky' } },
+        grant: {},
+        export: exportSpy,
+      });
+
+    it('persists the grant record id and never exports a grant session', () => {
+      const exportSpy = vi.fn(() => 'grant-export');
+
+      useAuthStore.getState().init({
+        session: grantSession(exportSpy),
+        currentUserPubky: 'grant-pubky',
+        hasProfile: null,
+        grantSessionRecordId: 'rec-1',
+      });
+
+      const state = useAuthStore.getState();
+      expect(exportSpy).not.toHaveBeenCalled();
+      expect(state.sessionExport).toBeNull();
+      expect(state.grantSessionRecordId).toBe('rec-1');
+      const persisted = JSON.parse(localStorage.getItem('auth-store') ?? '{}') as {
+        state?: { sessionExport?: unknown; grantSessionRecordId?: unknown };
+      };
+      expect(persisted.state?.sessionExport).toBeNull();
+      expect(persisted.state?.grantSessionRecordId).toBe('rec-1');
+    });
+
+    it('bridge never carries grant session: a grant session leaves no export to hand off', () => {
+      useAuthStore.getState().setSession(grantSession(() => 'grant-export'));
+
+      expect(useAuthStore.getState().sessionExport).toBeNull();
+    });
+
+    it('a cookie session keeps its export and carries no grant record', () => {
+      const cookieSession = asOpaque<THomeserverSessionResult['session']>({
+        info: { publicKey: { z32: () => 'cookie-pubky' } },
+        grant: undefined,
+        export: () => 'cookie-export',
+      });
+
+      useAuthStore.getState().init({
+        session: cookieSession,
+        currentUserPubky: 'cookie-pubky',
+        hasProfile: null,
+        grantSessionRecordId: 'ignored',
+      });
+
+      expect(useAuthStore.getState().sessionExport).toBe('cookie-export');
+      expect(useAuthStore.getState().grantSessionRecordId).toBeNull();
     });
   });
 

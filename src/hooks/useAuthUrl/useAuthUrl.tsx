@@ -47,7 +47,11 @@ export function useAuthUrl(options: UseAuthUrlOptions = {}): UseAuthUrlReturn {
     try {
       // Request auth URL from controller
       const { authorizationUrl, awaitApproval } =
-        type === 'signup' ? await AuthController.getSignupAuthUrl(inviteCode) : await AuthController.getAuthUrl();
+        type === 'signup'
+          ? await AuthController.getSignupAuthUrl(inviteCode)
+          : type === 'grant'
+            ? await AuthController.getGrantAuthUrl()
+            : await AuthController.getAuthUrl();
 
       awaitApproval
         .then(async (session: Session) => {

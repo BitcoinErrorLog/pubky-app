@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Clock3, Gavel } from 'lucide-react';
+import { Card, CardContent } from '@/atoms/Card/Card';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import type { AuctionPhase } from '@/libs/commerce/auction-phase';
@@ -40,6 +41,7 @@ export function MarketplaceAuctionPanel({
   auctionPhase?: AuctionPhase;
 }) {
   const [history, setHistory] = useState<MarketplaceBidHistory | null>(null);
+  const [historyError, setHistoryError] = useState(false);
   const [clockOffsetMs, setClockOffsetMs] = useState<number | null>(null);
   const [deviceNowMs, setDeviceNowMs] = useState<number | null>(null);
   const bidCount = auction?.bidCount ?? 0;
@@ -47,19 +49,35 @@ export function MarketplaceAuctionPanel({
   useEffect(() => {
     if (!isSignedIn) return;
     let active = true;
+    setHistoryError(false);
+    setHistory(null);
+    const timeout = window.setTimeout(() => {
+      if (!active) return;
+      active = false;
+      setHistoryError(true);
+    }, 15_000);
     const load = async () => {
       try {
         const bids = await CommerceController.getMarketplaceListingBids(sellerPubky, listingId);
-        if (!active || bids === null) return;
+        if (!active) return;
+        if (bids === null) {
+          setHistoryError(true);
+          return;
+        }
         setHistory(bids);
         setClockOffsetMs(dropClockOffsetMs(bids.serverTime, Date.now()));
       } catch (error) {
+        if (!active) return;
+        setHistoryError(true);
         Logger.error('Failed to load the auction bid history', { error });
+      } finally {
+        window.clearTimeout(timeout);
       }
     };
     void load();
     return () => {
       active = false;
+      window.clearTimeout(timeout);
     };
     // Refetches whenever the projection reports a new bid.
   }, [isSignedIn, sellerPubky, listingId, bidCount]);
@@ -78,81 +96,97 @@ export function MarketplaceAuctionPanel({
     endsAt && deviceNowMs !== null ? Math.max(0, Date.parse(endsAt) - (deviceNowMs + (clockOffsetMs ?? 0))) : null;
 
   return (
-    <div className="grid gap-3 rounded-xl border p-4">
-      {endsAt && remainingMs !== null && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Clock3 className="size-4 text-muted-foreground" />
-          {auctionPhase !== 'ended' ? (
-            <Typography as="p" className="text-sm">
-              Ends in <span className="font-semibold tabular-nums">{formatDropCountdown(remainingMs)}</span>
-              <span className="text-muted-foreground"> · {new Date(endsAt).toLocaleString()}</span>
+    <Card className="py-5">
+      <CardContent className="grid gap-6 px-5">
+        {(remainingMs !== null || auctionPhase === 'ended') && (
+          <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 [&>ol]:col-start-2 [&>p]:col-start-2">
+            {endsAt && remainingMs !== null && (
+              <div className="col-span-2 grid grid-cols-subgrid items-start">
+                <Clock3 className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {auctionPhase !== 'ended' ? (
+                  <Typography as="p" className="text-sm leading-5 font-semibold">
+                    Ends in <span className="font-semibold tabular-nums">{formatDropCountdown(remainingMs)}</span>
+                    <span className="text-muted-foreground"> · {new Date(endsAt).toLocaleString()}</span>
+                  </Typography>
+                ) : (
+                  <Typography as="p" className="text-sm leading-5 font-semibold">
+                    Auction ended
+                  </Typography>
+                )}
+              </div>
+            )}
+            {auctionPhase === 'ended' && endsAt && (
+              <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+                {new Date(endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                {' · '}
+                {new Date(endsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              </Typography>
+            )}
+            {auctionPhase === 'ended' && (
+              <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+                Bidding is closed for this auction.
+              </Typography>
+            )}
+            {auctionPhase !== 'ended' && remainingMs !== null && (
+              <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+                A bid in the final window extends the end time (anti-sniping) — the countdown updates from the
+                marketplace&rsquo;s clock, which is the only clock the auction runs on.
+              </Typography>
+            )}
+          </div>
+        )}
+        <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 [&>ol]:col-start-2 [&>p]:col-start-2">
+          <div className="col-span-2 grid grid-cols-subgrid items-start">
+            <Gavel className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <Typography as="h3" className="text-sm leading-5 font-semibold">
+              Bid history
+            </Typography>
+          </div>
+          {!isSignedIn ? (
+            <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+              Sign in to see the bid history.
+            </Typography>
+          ) : historyError ? (
+            <Typography as="p" role="status" className="text-sm leading-5 font-medium text-muted-foreground">
+              Bid history unavailable
+            </Typography>
+          ) : history === null ? (
+            <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+              Loading bid history…
+            </Typography>
+          ) : history.bids.length === 0 ? (
+            <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+              No bids
             </Typography>
           ) : (
-            <Typography as="p" className="text-sm">
-              Auction ended {new Date(endsAt).toLocaleString()}
-            </Typography>
+            <ol className="grid gap-1">
+              {[...history.bids].reverse().map((bid) => (
+                <li key={bid.sequence} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                  <span className="text-muted-foreground">
+                    #{bid.sequence} · {bid.bidderPubky.slice(0, 10)}…
+                  </span>
+                  <span className="tabular-nums">
+                    {/* The visible price after this bid — proxy maximums are
+                    secret and never served. Older bids may predate the
+                    recorded progression. */}
+                    {bid.visibleAmount ? formatCommerceMoney(bid.visibleAmount) : 'amount not recorded'}
+                    <span className="text-sm leading-5 font-medium text-muted-foreground">
+                      {' '}
+                      · {new Date(bid.createdAt).toLocaleString()}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ol>
           )}
-          {clockOffsetMs === null && (
-            <Typography as="span" className="text-xs text-muted-foreground">
-              (device clock)
+          {isSignedIn && history !== null && (
+            <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
+              Amounts are the visible price after each bid (proxy bidding) — each bidder&rsquo;s private maximum stays
+              secret, including from the seller.
             </Typography>
           )}
         </div>
-      )}
-      {auctionPhase === 'ended' && (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          Bidding is closed for this auction.
-        </Typography>
-      )}
-      {auctionPhase !== 'ended' && remainingMs !== null && (
-        <Typography as="p" className="text-xs text-muted-foreground">
-          A bid in the final window extends the end time (anti-sniping) — the countdown updates from the
-          marketplace&rsquo;s clock, which is the only clock the auction runs on.
-        </Typography>
-      )}
-
-      <div className="flex items-center gap-2">
-        <Gavel className="size-4 text-muted-foreground" />
-        <Typography as="h3" className="text-sm font-semibold">
-          Bid history
-        </Typography>
-      </div>
-      {!isSignedIn ? (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          Sign in to see the bid history — it is served by the transaction service, which needs to know who is asking.
-        </Typography>
-      ) : history === null ? (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          Loading bid history…
-        </Typography>
-      ) : history.bids.length === 0 ? (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          No bids yet.
-        </Typography>
-      ) : (
-        <ol className="grid gap-1">
-          {[...history.bids].reverse().map((bid) => (
-            <li key={bid.sequence} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-              <span className="text-muted-foreground">
-                #{bid.sequence} · {bid.bidderPubky.slice(0, 10)}…
-              </span>
-              <span className="tabular-nums">
-                {/* The visible price after this bid — proxy maximums are
-                    secret and never served. Older bids may predate the
-                    recorded progression. */}
-                {bid.visibleAmount ? formatCommerceMoney(bid.visibleAmount) : 'amount not recorded'}
-                <span className="text-xs text-muted-foreground"> · {new Date(bid.createdAt).toLocaleString()}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
-      {isSignedIn && history !== null && (
-        <Typography as="p" className="text-xs text-muted-foreground">
-          Amounts are the visible price after each bid (proxy bidding) — each bidder&rsquo;s private maximum stays
-          secret, including from the seller.
-        </Typography>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }

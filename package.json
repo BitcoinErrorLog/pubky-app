@@ -23,8 +23,7 @@
     "test:coverage": "vitest run --project unit --coverage",
     "test:snapshots": "vitest run --project unit --reporter=verbose --testNamePattern=\"[Ss]napshots?\"",
     "test:update-snapshots": "vitest run --project unit --update --testNamePattern=\"[Ss]napshots?\"",
-    "test:vrt": "vitest run --project vrt --project vrt-marketplace",
-    "test:vrt:regenerate-baseline": "vitest run --project vrt --project vrt-marketplace --update",
+    "test:vrt": "bash scripts/vrt-linux.sh",
     "vrt:linux": "bash scripts/vrt-linux.sh",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\" --ignore-path .prettierignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\" --ignore-path .prettierignore",
@@ -42,6 +41,7 @@
     "test:marketplace:watchlist": "vitest run --config vitest.watchlist.staging.config.ts",
     "test:marketplace:reviews": "vitest run --config vitest.reviews.config.ts",
     "test:marketplace:drops": "vitest run --config vitest.drops.config.ts",
+    "test:marketplace:drop-status": "vitest run --config vitest.drop-status-studio.config.ts",
     "test:marketplace:inventory": "vitest run --config vitest.inventory.config.ts",
     "vrt:gallery": "node scripts/vrt-gallery.mjs",
     "test:marketplace:dm": "vitest run --config vitest.dm.config.ts"
@@ -68,7 +68,7 @@
     "@prelude.so/js-sdk": "0.8.0",
     "@sentry/nextjs": "^10.53.1",
     "@serwist/next": "9.5.11",
-    "@synonymdev/pubky": "0.8.0",
+    "@synonymdev/pubky": "0.11.0",
     "@tanstack/react-query": "5.100.11",
     "bip39": "3.1.0",
     "canonicalize": "5.1.0",
@@ -118,7 +118,7 @@
     "source-map@0.8.0-beta.0": "0.7.4",
     "glob": "13.0.1",
     "@bitcoinerrorlog/pubky-shop": {
-      "@synonymdev/pubky": "0.8.0"
+      "@synonymdev/pubky": "0.11.0"
     }
   },
   "devDependencies": {

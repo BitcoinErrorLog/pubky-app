@@ -29,9 +29,9 @@ export function MarketplaceListingSavePicker({ sellerPubky, listingId }: Marketp
 
   const trigger = (
     <Button
-      size="lg"
+      size="icon"
       variant="secondary"
-      className="rounded-full"
+      className="size-10 rounded-full"
       aria-label={saveTargets.isSavedToAnyCollection ? 'Saved to collection' : 'Save to collection'}
       aria-pressed={saveTargets.isSavedToAnyCollection}
       data-cy="marketplace-listing-save-btn"

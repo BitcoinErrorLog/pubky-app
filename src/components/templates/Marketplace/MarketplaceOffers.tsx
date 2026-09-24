@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, HandCoins } from 'lucide-react';
-import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
+import { HandCoins } from 'lucide-react';
+import { getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
@@ -18,6 +18,7 @@ import { isMarketplaceAwardCheckoutEligible } from '@/core/services/marketplace/
 import { useMarketplaceCart } from '@/hooks/useMarketplaceCart/useMarketplaceCart';
 import { useMarketplaceFirstMediaUrl } from '@/hooks/useMarketplaceMediaUrl/useMarketplaceMediaUrl';
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
+import { getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { amountInputUnitLabel, isBitcoinAsset } from '@/libs/commerce/pricing';
@@ -89,14 +90,6 @@ export function MarketplaceOffers() {
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
         <MarketplaceSectionNav />
-        <Link
-          href={APP_ROUTES.MARKETPLACE}
-          overrideDefaults
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Marketplace
-        </Link>
         <div>
           <Heading level={1} size="xl" className="text-4xl sm:text-6xl">
             Offers
@@ -227,7 +220,7 @@ export function MarketplaceOffers() {
                               award.id,
                               offer.revision,
                             );
-                            if (added) router.push(`${MARKETPLACE_ROUTES.AWARD_CHECKOUT}?offer=${offer.id}`);
+                            if (added) router.push(getMarketplaceOfferCheckoutRoute(offer.id));
                           }}
                         >
                           Buy for {formatCommerceMoney(offer.award.subtotal)} + shipping

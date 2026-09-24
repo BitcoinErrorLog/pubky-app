@@ -32,8 +32,10 @@ import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/u
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
+import { useMarketplaceNavAttention } from '@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention';
 import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
+import { marketplaceNavAccessibleName } from '@/libs/commerce/marketplace-attention';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
 import { cn } from '@/libs/utils/utils';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
@@ -63,6 +65,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
   // postdates the local read checkpoint.
   const unreadMessages = useMessagesUnread();
   const marketplaceCartCount = useMarketplaceCartCount();
+  const marketplaceAttention = useMarketplaceNavAttention();
   const accountUnread = unreadNotifications + unreadMessages;
   const localAvatarUrl = useLocalFilesStore((state) => state.profile);
   const { isKeyboardVisible, keyboardOffset } = useKeyboardOffset();
@@ -141,15 +144,20 @@ export function MobileFooter({ className }: MobileFooterProps) {
           const Icon = item.icon;
           const itemIsActive = isNavItemActive(pathname, item);
           const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
-          const itemBadgeCount = item.href === APP_ROUTES.MARKETPLACE ? marketplaceCartCount : 0;
+          const itemBadgeCount = item.href === APP_ROUTES.MARKETPLACE ? marketplaceCartCount + marketplaceAttention : 0;
+          const marketplaceLabel =
+            item.href === APP_ROUTES.MARKETPLACE && marketplaceAttention > 0
+              ? marketplaceNavAccessibleName(marketplaceCartCount, marketplaceAttention)
+              : null;
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-label={
-                itemBadgeCount > 0
+                marketplaceLabel ??
+                (itemBadgeCount > 0
                   ? `${item.label}, ${itemBadgeCount} ${itemBadgeCount === 1 ? 'item' : 'items'} in cart`
-                  : item.label
+                  : item.label)
               }
               onClick={(event) => {
                 if (isAuthenticated && isCollectionsItem) {
@@ -219,23 +227,14 @@ export function MobileFooter({ className }: MobileFooterProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent side="top" align="end" sideOffset={12} className="w-72 p-2">
               <DropdownMenuItem asChild>
-                <Link href={APP_ROUTES.MESSAGES} className="gap-4 px-4 py-3 text-lg">
-                  <MessageCircle className="size-6" />
-                  <span className="flex-1">Messages</span>
-                  {unreadMessages > 0 && (
-                    <span className="text-brand">{unreadMessages > 21 ? '21+' : unreadMessages}</span>
-                  )}
+                <Link href={PROFILE_ROUTES.PROFILE_PAGE} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <UserRound className="size-5 shrink-0" aria-hidden="true" />
+                  Profile
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href={SETTINGS_ROUTES.ACCOUNT} className="gap-4 px-4 py-3 text-lg">
-                  <Settings className="size-6" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href={APP_ROUTES.PROFILE} className="gap-4 px-4 py-3 text-lg">
-                  <Bell className="size-6" />
+                <Link href={APP_ROUTES.PROFILE} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <Bell className="size-5 shrink-0" aria-hidden="true" />
                   <span className="flex-1">Notifications</span>
                   {unreadNotifications > 0 && (
                     <span className="text-brand">{unreadNotifications > 21 ? '21+' : unreadNotifications}</span>
@@ -243,15 +242,24 @@ export function MobileFooter({ className }: MobileFooterProps) {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href={PROFILE_ROUTES.PROFILE_PAGE} className="gap-4 px-4 py-3 text-lg">
-                  <UserRound className="size-6" />
-                  Profile
+                <Link href={APP_ROUTES.MESSAGES} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <MessageCircle className="size-5 shrink-0" aria-hidden="true" />
+                  <span className="flex-1">Messages</span>
+                  {unreadMessages > 0 && (
+                    <span className="text-brand">{unreadMessages > 21 ? '21+' : unreadMessages}</span>
+                  )}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href={PROFILE_ROUTES.POSTS} className="gap-4 px-4 py-3 text-lg">
-                  <FileText className="size-6" />
+                <Link href={PROFILE_ROUTES.POSTS} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <FileText className="size-5 shrink-0" aria-hidden="true" />
                   My posts
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href={SETTINGS_ROUTES.ACCOUNT} className="min-h-12 gap-2 px-4 py-2 text-sm font-medium">
+                  <Settings className="size-5 shrink-0" aria-hidden="true" />
+                  Settings
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuContent>

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { createOrderFixture, ORDER_FIXTURE_BUYER } from '@/test/fixtures/commerce/orders';
 import {
   CHECKOUT_HOLD_COPY,
+  findViewerAcceptedOfferHold,
+  findViewerPendingHoldOrder,
   formatHoldDeadline,
   holderBoundCopy,
   holderUnboundCopy,
@@ -66,5 +69,87 @@ describe('checkout-hold copy', () => {
     expect(refundRequiredCopyForRole(false, 'bitcoin')).toBe(CHECKOUT_HOLD_COPY.refundRequiredBitcoinSeller);
     expect(refundRequiredCopyForRole(false, 'paypal')).toBe(CHECKOUT_HOLD_COPY.refundRequiredPaypalSeller);
     expect(refundRequiredCopyForRole(false, 'stripe')).toBe(CHECKOUT_HOLD_COPY.refundRequiredStripeSeller);
+  });
+});
+
+describe('findViewerPendingHoldOrder', () => {
+  const listingAggregateId = 'listing:yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy_boots_01';
+  const sessionId = 'sess_not-a-pubky-identifier';
+
+  const ownHold = {
+    order: createOrderFixture('pending_payment', {
+      buyerPubky: ORDER_FIXTURE_BUYER,
+      lines: [
+        {
+          ...createOrderFixture('pending_payment').lines[0],
+          listingAggregateId,
+        },
+      ],
+    }),
+  };
+
+  it('matches the viewer pubky to a pending_payment order on this listing', () => {
+    expect(findViewerPendingHoldOrder([ownHold], listingAggregateId, ORDER_FIXTURE_BUYER)).toEqual({
+      orderId: ownHold.order.id,
+    });
+  });
+
+  it('does not treat a session id as the hold owner', () => {
+    expect(findViewerPendingHoldOrder([ownHold], listingAggregateId, sessionId)).toBeNull();
+    const sessionKeyed = {
+      order: { ...ownHold.order, buyerPubky: sessionId },
+    };
+    expect(findViewerPendingHoldOrder([sessionKeyed], listingAggregateId, ORDER_FIXTURE_BUYER)).toBeNull();
+  });
+
+  it('ignores paid orders and holds on other listings', () => {
+    const paid = { order: createOrderFixture('paid', { buyerPubky: ORDER_FIXTURE_BUYER }) };
+    expect(findViewerPendingHoldOrder([paid], listingAggregateId, ORDER_FIXTURE_BUYER)).toBeNull();
+    expect(findViewerPendingHoldOrder([ownHold], 'listing:other_item', ORDER_FIXTURE_BUYER)).toBeNull();
+  });
+});
+
+describe('findViewerAcceptedOfferHold', () => {
+  const listingAggregateId = 'listing:yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy_boots_01';
+  const sessionPubky = 'b'.repeat(52);
+  const otherPubky = 'c'.repeat(52);
+  const activeAward = { state: 'active' as const };
+
+  const ownOffer = {
+    id: '018f47d2-6a27-7c23-b51e-000000000003',
+    state: 'accepted',
+    buyerPubky: sessionPubky,
+    listingAggregateId,
+    award: activeAward,
+  };
+
+  it('links the award buyer to checkout when the accepted offer buyerPubky matches the session pubky', () => {
+    expect(findViewerAcceptedOfferHold([ownOffer], listingAggregateId, sessionPubky)).toEqual({
+      offerId: ownOffer.id,
+    });
+  });
+
+  it("does not treat another pubky accepted offer as the viewer's hold", () => {
+    expect(
+      findViewerAcceptedOfferHold([{ ...ownOffer, buyerPubky: otherPubky }], listingAggregateId, sessionPubky),
+    ).toBeNull();
+  });
+
+  it('does not claim an offer hold without an active session pubky', () => {
+    expect(findViewerAcceptedOfferHold([ownOffer], listingAggregateId, null)).toBeNull();
+    expect(findViewerAcceptedOfferHold([ownOffer], listingAggregateId, undefined)).toBeNull();
+  });
+
+  it('ignores an accepted offer that does not hold this listing', () => {
+    expect(findViewerAcceptedOfferHold([ownOffer], 'listing:other_item', sessionPubky)).toBeNull();
+    expect(
+      findViewerAcceptedOfferHold([{ ...ownOffer, award: { state: 'expired' } }], listingAggregateId, sessionPubky),
+    ).toBeNull();
+    expect(
+      findViewerAcceptedOfferHold([{ ...ownOffer, state: 'pending' }], listingAggregateId, sessionPubky),
+    ).toBeNull();
+    expect(
+      findViewerAcceptedOfferHold([{ ...ownOffer, award: undefined }], listingAggregateId, sessionPubky),
+    ).toBeNull();
   });
 });

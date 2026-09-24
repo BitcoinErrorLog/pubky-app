@@ -127,7 +127,7 @@ export function MarketplaceOrderActions({
     isBuyer &&
     isPickup &&
     order.receiptId !== null &&
-    !['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
+    !['completed', 'cancelled', 'refunded_external', 'refunded_partial', 'closed'].includes(order.state);
 
   const submit = async () => {
     // Pickup cancellations keep the reason field but run the pickup-aware
@@ -179,7 +179,7 @@ export function MarketplaceOrderActions({
           (['pending_payment', 'paid', 'processing'].includes(order.state) ||
             (isPickup && order.state === 'ready_for_pickup')) && (
             <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('cancel')}>
-              Cancel order
+              {order.state === 'pending_payment' ? 'Cancel checkout' : 'Cancel order'}
             </Button>
           )}
         {canReveal && <MarketplacePickupRevealDialog order={order} />}
@@ -256,7 +256,7 @@ export function MarketplaceOrderActions({
         )}
         {!isBuyer && ['return_received', 'cancelled'].includes(order.state) && !order.externalRefund && (
           <Button size="sm" className="rounded-full" onClick={() => begin('refund')}>
-            Record external refund
+            Record refund
           </Button>
         )}
         {['delivered', 'completed'].includes(order.state) &&
@@ -278,6 +278,19 @@ export function MarketplaceOrderActions({
           </Button>
         )}
       </div>
+      {!isBuyer && order.state === 'return_approved' && order.fulfillment === 'pickup' && (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="mark-return-received-hint">
+          Press when the buyer has brought it back
+        </p>
+      )}
+      {!isBuyer &&
+        order.paymentMethod === 'paypal' &&
+        ['return_received', 'cancelled'].includes(order.state) &&
+        !order.externalRefund && (
+          <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-refund-hint">
+            Refund the buyer in PayPal first, then record it here
+          </p>
+        )}
 
       {ownReview && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="own-review-status">
@@ -288,7 +301,7 @@ export function MarketplaceOrderActions({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-full max-w-lg border-border bg-popover" centered>
           <DialogHeader>
-            <DialogTitle>{actionTitle(actionType)}</DialogTitle>
+            <DialogTitle>{actionTitle(actionType, order.state)}</DialogTitle>
           </DialogHeader>
           {actionType === 'cancel' && (
             <Typography as="p" className="text-sm text-muted-foreground">
@@ -468,10 +481,10 @@ function MarketplaceStarRatingInput({ value, onChange }: { value: string; onChan
  */
 function reviewRecordStatus(record: CommerceReviewModelSchema | null): string {
   if (record === null) {
-    return 'Your review is saved with the marketplace service. The public publication status will appear when its durable record is available.';
+    return 'Your review is saved. Its publication status will appear shortly.';
   }
   if (record.sync_status === 'pending') {
-    return 'Your review is saved; publishing the public record to your homeserver is still pending and will retry.';
+    return 'Your review is saved. Publication is pending and will retry automatically.';
   }
   if (record.attestation_verified && record.attestation_iss !== null) {
     return `Verified purchase — your published review embeds a purchase attestation signed by attestor ${record.attestation_iss.slice(0, 8)}….`;
@@ -484,24 +497,24 @@ function externalRefundReferenceLabel(paymentMethod: MarketplaceOrder['paymentMe
     case 'bitcoin':
       return 'External Bitcoin transaction reference';
     case 'paypal':
-      return 'PayPal transaction reference';
+      return 'PayPal refund transaction id';
     case 'stripe':
-      return 'Stripe payment reference';
+      return 'External payment reference';
     default:
       return 'External payment reference';
   }
 }
 
-function actionTitle(action: MarketplaceOrderActionData['action']): string {
+function actionTitle(action: MarketplaceOrderActionData['action'], orderState?: string): string {
   switch (action) {
     case 'cancel':
-      return 'Cancel order';
+      return orderState === 'pending_payment' ? 'Cancel checkout' : 'Cancel order';
     case 'ship':
       return 'Add shipment tracking';
     case 'return':
       return 'Request a return';
     case 'refund':
-      return 'Record external refund';
+      return 'Record refund';
     case 'review':
       return 'Leave a review';
     case 'review_edit':

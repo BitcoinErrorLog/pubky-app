@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowLeft, Bell, Eye, Gavel, Heart, Package, RefreshCw } from 'lucide-react';
+import { Bell, Eye, Gavel, Heart, Package, RefreshCw } from 'lucide-react';
 import { APP_ROUTES, getMarketplaceListingRoute } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
@@ -75,14 +75,6 @@ export function MarketplaceWatchlist() {
     >
       <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
         <MarketplaceSectionNav />
-        <Link
-          href={APP_ROUTES.MARKETPLACE}
-          overrideDefaults
-          className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          Marketplace
-        </Link>
 
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -323,7 +315,10 @@ function WatchlistItemRow({ entry }: { entry: MarketplaceWatchlistEntry }) {
           {item && (
             <div className="flex shrink-0 flex-col items-end">
               {isAuction && (
-                <Typography as="span" className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                <Typography
+                  as="span"
+                  className="text-[11px] leading-4 font-medium tracking-[1.2px] text-muted-foreground uppercase"
+                >
                   {hasLiveBid ? 'Current bid' : 'Starting bid'}
                 </Typography>
               )}

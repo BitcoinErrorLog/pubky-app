@@ -81,6 +81,6 @@ describe('getMarketplaceNotificationActionText', () => {
         type: 'order_created',
         amount: { amountMinor: 100, currency: 'USD', exponent: 2 },
       }),
-    ).toBe('placed an order');
+    ).toBe('started checkout');
   });
 });

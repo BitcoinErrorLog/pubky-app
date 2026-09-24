@@ -148,6 +148,16 @@ export const orderStateSchema = z.enum([
   'closed',
 ]);
 
+/**
+ * Order state a later service revision can emit when the recorded refund is
+ * below the order total. It is not part of `orderStateSchema`: that enum
+ * matches the vendored service artifact, which still lands
+ * `refund.record_external` on `refunded_external`. The order projection
+ * accepts this value so the order stays readable when the service starts
+ * emitting it.
+ */
+export const PARTIAL_REFUND_ORDER_STATE = 'refunded_partial' as const;
+
 export const returnStateSchema = z.enum(['requested', 'approved', 'received', 'refunded']);
 
 /**

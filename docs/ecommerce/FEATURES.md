@@ -143,9 +143,9 @@ transaction service (PostgreSQL, exactly-one-winner concurrency proofs).
 
 ## 4. Payments
 
-Three rails, one contract: the same lock and proof-bundle flow settles over
-any of them. All three are live-proven on the deployed stack (see the proof
-ledger).
+Bitcoin and PayPal are the offered rails. The same lock and proof-bundle
+flow settles over either of them, and both are live-proven on the deployed
+stack (see the proof ledger). Card payments are paused in the shop.
 
 - **Bitcoin (Locks + Paykit)**
   - Regtest rails deployed (bitcoind, Fulcrum, Lock Server, Paykit Server)
@@ -154,9 +154,9 @@ ledger).
   - Real-wallet proof: Bitkit iOS seller watch-only claim AND buyer
     swipe-to-pay confirmed on-chain
   - Payment status UI with fail-closed `locks-paykit` adapter mode
-- **Stripe**
-  - Hosted Checkout via the fiat-verifier gateway; webhook + poll detection,
-    settlement delay, refund annotation; test-mode key guard
+- **Card payments**
+  - Paused in the shop. Buyers are not offered a card rail, and sellers do
+    not see card setup. Stored card configuration stays on the service.
 - **PayPal**
   - Orders v2 with capture-on-approval; postback-verified webhooks treated
     as hints with authoritative order pulls; same settlement machine
@@ -164,7 +164,7 @@ ledger).
     binding is permanent per purchase
 - **Verification labeling**
   - Payment status card badges keep the two truth origins visibly
-    distinct: **Processor-verified** (truth pulled from Stripe/PayPal) vs
+    distinct: **Processor-verified** (truth pulled from PayPal) vs
     **Seller-attested** (the seller's own confirmation, labeled as
     exactly that)
 - **Sessions and auth**
@@ -173,8 +173,8 @@ ledger).
     in `localStorage` across tabs and restarts
   - Session store cleared from a single `onSessionEnded` signal
     (service → controller) covering every transport path
-  - Seller payment settings **How you get paid**: cards PayPal → Card
-    (Stripe) → Bitcoin with truthful pills (PayPal is `Email saved`, never
+  - Seller payment settings **How you get paid**: cards PayPal → Bitcoin
+    with truthful pills (PayPal is `Email saved`, never
     Connected; Bitcoin Connected only with Lock Server + Paykit claim);
     protocol detail under Technical details; payloads unchanged
 
@@ -266,8 +266,9 @@ ledger).
   review, response, attestation, private watchlist, portable order
   receipt with edition attestation, drop record), entity-ID validation,
   WASM/npm packaging
-- **Fiat verifier gateway** (Rust): Stripe + PayPal bridging to Locks,
-  fail-closed configuration, live-mode guards
+- **Fiat verifier gateway** (Rust): PayPal bridging to Locks. Card
+  verification code stays in the service and is not offered in the shop.
+  Fail-closed configuration, live-mode guards
 - **Payment rails**: per-service Dockerfiles and Railway entrypoints for
   bitcoind, Fulcrum, Lock Server, Paykit Server; verification driver
 - **Testing discipline**: unit suites, visual regression (timezone-frozen
@@ -278,11 +279,11 @@ ledger).
 ## Explicitly not included (honest boundaries)
 
 - Real funds anywhere: mainnet is gated on the independent security review
-- Platform-mediated fiat collection and payouts (Stripe Connect / PayPal
-  Platform — the operator collecting buyer funds and then disbursing to
+- Platform-mediated fiat collection and payouts (a processor collecting
+  buyer funds and then disbursing to
   sellers): deliberately absent, not pending. Sellers are paid DIRECTLY
-  into their own Stripe/PayPal accounts (see Payments — seller-configured
-  rails, buyer pays the seller's own hosted checkout), so no payout leg
+  into their own PayPal account (see Payments — seller-configured
+  rails). Card payments are paused and are not offered, so no payout leg
   exists to build. Connect-style onboarding would only become relevant if
   the marketplace ever took custody or platform fees, which it does not.
 - Messaging backup-key encryption (open product decision, disclosed in UI)

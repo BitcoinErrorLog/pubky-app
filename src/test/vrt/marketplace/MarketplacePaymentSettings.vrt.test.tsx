@@ -11,8 +11,21 @@ const view = vi.hoisted(() => ({
     connectedCreator: null as string | null,
     isExchanging: false,
     error: null as string | null,
+    connectOpen: false,
+    connectUrl: null as string | null,
   },
 }));
+
+function setLocksConnect(partial: Partial<(typeof view)['locksConnect']> = {}) {
+  view.locksConnect = {
+    connectedCreator: null,
+    isExchanging: false,
+    error: null,
+    connectOpen: false,
+    connectUrl: null,
+    ...partial,
+  };
+}
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -38,7 +51,6 @@ vi.mock('@/controllers/commerce/commerce', () => ({
       updatedAt: '2026-08-22T12:00:00.000Z',
     })),
     isOwnPaykitAccountClaimed: vi.fn(async () => true),
-    beginPaykitClaimFlow: vi.fn(),
     putMyPaymentConfig: vi.fn(),
     beginMarketplaceSessionConnect: vi.fn(),
   },
@@ -47,7 +59,9 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', () => ({
   useMarketplaceLocksConnect: () => ({
     ...view.locksConnect,
+    setConnectIframe: vi.fn(),
     openConnect: vi.fn(),
+    closeConnect: vi.fn(),
   }),
 }));
 
@@ -73,14 +87,14 @@ describe('Marketplace payment settings — visual regression', () => {
   });
 
   it('renders the payments and Locks setup at desktop viewport', async () => {
-    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+    setLocksConnect();
 
     const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-new-seller-desktop');
   });
 
   it('renders the payments and Locks setup at mobile viewport', async () => {
-    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+    setLocksConnect();
 
     const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-new-seller-mobile');
@@ -89,22 +103,20 @@ describe('Marketplace payment settings — visual regression', () => {
   // The completed state is driven by a REAL signal: the Lock Server's
   // frontend-session exchange proved creator authority for this seller.
   it('renders the connected Lock Server setup state at desktop viewport', async () => {
-    view.locksConnect = {
+    setLocksConnect({
       connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
-      isExchanging: false,
-      error: null,
-    };
+    });
 
     const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-locks-connected-desktop');
-    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+    setLocksConnect();
   });
 
   // A taller viewport so the display-preferences card at the bottom of the
   // page (the approximate-conversion toggle and the measurement-system
   // select) is inside the capture.
   it('renders the display preferences controls at desktop viewport', async () => {
-    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+    setLocksConnect();
     const { useMarketplaceDisplayStore } = await import('@/stores/marketplace-display/marketplace-display.store');
     useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'imperial' });
 
@@ -115,10 +127,38 @@ describe('Marketplace payment settings — visual regression', () => {
   });
 
   it('renders the Bitkit setup dialog', async () => {
-    view.locksConnect = { connectedCreator: null, isExchanging: false, error: null };
+    setLocksConnect();
     const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_MOBILE });
     await screen.getByRole('button', { name: /Open Bitkit setup/ }).click();
     await expect(screen.getByTitle('Connect Bitkit')).toBeVisible();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-bitkit-dialog-mobile');
+  });
+
+  it('renders the Lock Server connect dialog at desktop viewport', async () => {
+    setLocksConnect({
+      connectOpen: true,
+      connectUrl: 'about:blank#locks-connect',
+    });
+
+    const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTitle('Connect Lock Server')).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-settings-locks-connect-dialog-desktop',
+    );
+    setLocksConnect();
+  });
+
+  it('renders the Lock Server connect error without raw JSON', async () => {
+    setLocksConnect({
+      error: 'This Lock Server connection did not finish. Approve it again from this page.',
+      connectOpen: true,
+      connectUrl: 'about:blank#locks-connect',
+    });
+
+    const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTitle('Connect Lock Server')).toBeVisible();
+    await expect(screen.getByTestId('dialog-content').getByText(/Approve it again from this page/)).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-locks-connect-error-desktop');
+    setLocksConnect();
   });
 });

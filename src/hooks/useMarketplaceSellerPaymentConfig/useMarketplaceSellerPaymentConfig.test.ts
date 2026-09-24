@@ -13,7 +13,6 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getMyPaymentConfig: vi.fn(),
     isOwnPaykitAccountClaimed: vi.fn(),
     putMyPaymentConfig: vi.fn(),
-    beginPaykitClaimFlow: vi.fn(),
   },
 }));
 vi.mock('@/molecules/Toaster/use-toast', () => ({ toast: vi.fn() }));
@@ -97,7 +96,7 @@ describe('useMarketplaceSellerPaymentConfig', () => {
     useCommerceStore.getState().reset();
   });
 
-  it('uses static copy for Stripe removal and watch-only claim failures', async () => {
+  it('uses static copy for Stripe removal failures', async () => {
     vi.mocked(CommerceController.getMyPaymentConfig).mockResolvedValue(config);
     vi.mocked(CommerceController.isOwnPaykitAccountClaimed).mockResolvedValue(false);
     vi.mocked(CommerceController.putMyPaymentConfig).mockRejectedValueOnce(error('remove'));
@@ -108,21 +107,6 @@ describe('useMarketplaceSellerPaymentConfig', () => {
       await result.current.clearStripeKey();
     });
     expect(vi.mocked(toast).mock.calls.at(-1)?.[0]?.description).not.toContain('SENTINEL_SELLER_PAYMENT_remove');
-
-    vi.mocked(CommerceController.beginPaykitClaimFlow).mockImplementationOnce(() => {
-      throw error('start');
-    });
-    act(() => result.current.startClaim(`xpub${'1'.repeat(107)}`));
-    expect(result.current.claimError).toBeTruthy();
-    expect(result.current.claimError).not.toContain('SENTINEL_SELLER_PAYMENT_start');
-
-    vi.mocked(CommerceController.beginPaykitClaimFlow).mockReturnValueOnce({
-      authorizationUrl: 'pubkyauth://claim',
-      awaitClaim: () => Promise.reject(error('complete')),
-      cancel: vi.fn(),
-    });
-    act(() => result.current.startClaim(`xpub${'1'.repeat(107)}`));
-    await waitFor(() => expect(result.current.claimStatus).toBe('error'));
-    expect(result.current.claimError).not.toContain('SENTINEL_SELLER_PAYMENT_complete');
+    expect(result.current).not.toHaveProperty('startClaim');
   });
 });

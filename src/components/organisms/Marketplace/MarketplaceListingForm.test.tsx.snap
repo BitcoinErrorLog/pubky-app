@@ -171,7 +171,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
       >
         <div>
           <p
-            class="text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+            class="text-[11px] leading-4 font-medium tracking-[1.2px] text-muted-foreground uppercase"
             data-testid="typography"
           >
             Step 

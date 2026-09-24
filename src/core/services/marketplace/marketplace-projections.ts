@@ -3,7 +3,12 @@ import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-paym
 import { findForbiddenPublicReserveKey } from '@/libs/commerce/marketplace-records';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
 import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
-import { commercePubkySchema, dropStateSchema, orderStateSchema } from '@/libs/commerce/transaction-contracts';
+import {
+  commercePubkySchema,
+  dropStateSchema,
+  orderStateSchema,
+  PARTIAL_REFUND_ORDER_STATE,
+} from '@/libs/commerce/transaction-contracts';
 import { ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -128,16 +133,84 @@ export const marketplaceListingProjectionSchema = z.preprocess(
   reserveFreeProjectionInputSchema.pipe(marketplaceListingProjectionBaseSchema),
 );
 
+/**
+ * Seller-only reserve authority keys. Ended auctions and listings that never
+ * wrote a reserve still include these as null/0/absent; they must never leak
+ * into the public listing projection (`.passthrough()` would otherwise keep them).
+ */
+export const MARKETPLACE_SELLER_RESERVE_AUTHORITY_KEYS = [
+  'reservePrice',
+  'reserve_price',
+  'reserveMet',
+  'reserve_met',
+  'reserveRecordRevision',
+  'reserve_record_revision',
+  'lastReserveCommandId',
+  'last_reserve_command_id',
+] as const;
+
+const sellerReserveAuthorityKeys = new Set<string>(MARKETPLACE_SELLER_RESERVE_AUTHORITY_KEYS);
+
+export function listingHasSellerReserveAuthority(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const record = raw as Record<string, unknown>;
+  return MARKETPLACE_SELLER_RESERVE_AUTHORITY_KEYS.some((key) => key in record);
+}
+
+export function stripSellerReserveAuthorityFields(input: unknown): unknown {
+  if (Array.isArray(input)) return input.map(stripSellerReserveAuthorityFields);
+  if (input === null || typeof input !== 'object') return input;
+  return Object.fromEntries(
+    Object.entries(input as Record<string, unknown>)
+      .filter(([key]) => !sellerReserveAuthorityKeys.has(key))
+      .map(([key, value]) => [key, stripSellerReserveAuthorityFields(value)]),
+  );
+}
+
+/** Service sold/unsold/cancelled plus the Shop's `ended` label on listing projections. */
+export const ENDED_AUCTION_PROJECTION_STATUSES = ['sold', 'unsold', 'cancelled', 'ended'] as const;
+
+export function isEndedAuctionProjectionStatus(status: unknown): boolean {
+  return typeof status === 'string' && (ENDED_AUCTION_PROJECTION_STATUSES as readonly string[]).includes(status);
+}
+
+const marketplaceSellerListingProjectionObjectSchema = marketplaceListingProjectionBaseSchema
+  .extend({
+    reservePrice: marketplaceMoneySchema.nullable().optional(),
+    reserveMet: z.boolean().optional(),
+    reserveRecordRevision: z.number().int().nonnegative().nullable().optional(),
+    lastReserveCommandId: z.uuid().nullable().optional(),
+  })
+  .passthrough()
+  .superRefine((value, context) => {
+    const status = value.auction && typeof value.auction === 'object' ? value.auction.status : undefined;
+    if (isEndedAuctionProjectionStatus(status)) return;
+    if (typeof value.reserveMet !== 'boolean') {
+      context.addIssue({
+        code: 'custom',
+        path: ['reserveMet'],
+        message: 'Live seller listing projections require reserveMet',
+      });
+    }
+    if (value.reserveRecordRevision == null || value.reserveRecordRevision < 1) {
+      context.addIssue({
+        code: 'custom',
+        path: ['reserveRecordRevision'],
+        message: 'Live seller listing projections require a positive reserveRecordRevision',
+      });
+    }
+    if (value.lastReserveCommandId == null) {
+      context.addIssue({
+        code: 'custom',
+        path: ['lastReserveCommandId'],
+        message: 'Live seller listing projections require lastReserveCommandId',
+      });
+    }
+  });
+
 export const marketplaceSellerListingProjectionSchema = z.preprocess(
   normalizeViewerBid,
-  marketplaceListingProjectionBaseSchema
-    .extend({
-      reservePrice: marketplaceMoneySchema.nullable(),
-      reserveMet: z.boolean(),
-      reserveRecordRevision: z.number().int().positive(),
-      lastReserveCommandId: z.uuid(),
-    })
-    .passthrough(),
+  marketplaceSellerListingProjectionObjectSchema,
 );
 
 /**
@@ -191,7 +264,14 @@ export const marketplaceNotificationSchema = z
       'auction_won',
       'auction_ended',
       'order_created',
+      // Hold-at-pay: stock is reserved when the buyer binds a method, before
+      // PayPal (or any rail) confirms. Shop #86 checkout emits this between
+      // checkout started and payment confirmed.
+      'payment_method_bound',
+      'fiat_payment_reported',
       'payment_confirmed',
+      'bitcoin_manual_review',
+      'bitcoin_prepare_voided',
       'order_cancelled',
       'order_shipped',
       'order_delivery_assumed',
@@ -210,6 +290,7 @@ export const marketplaceNotificationSchema = z
       // so the reputation worker excludes it — the notification says why.
       'order_cancelled_terms_change',
       'payment_refund_required',
+      'drop_sold_out',
     ]),
     aggregateId: z.string(),
     // Optional monetary context (ADR-0019 §8: present only where the
@@ -392,7 +473,10 @@ export const marketplaceOrderProjectionSchema = z
     buyerPubky: commercePubkySchema,
     sellerPubky: commercePubkySchema,
     revision: z.number().int().positive(),
-    state: orderStateSchema,
+    // `refunded_partial` is accepted ahead of the service artifact. Today's
+    // `refund.record_external` still returns `refunded_external` and stores
+    // the recorded amount on `externalRefund`.
+    state: z.union([orderStateSchema, z.literal(PARTIAL_REFUND_ORDER_STATE)]),
     lines: z.array(
       z.object({
         listingAggregateId: z.string(),
@@ -605,15 +689,28 @@ export const marketplacePublicDropSchema = z
   })
   .passthrough();
 
-/** The seller's own full-detail drop read (`GET /v1/drops/{aggregateId}`). */
-export const marketplaceSellerDropSchema = marketplacePublicDropSchema
-  .extend({
-    remaining: z.number().int().min(0),
-    paidQuantity: z.number().int().min(0),
-    buyerCount: z.number().int().min(0),
-    listingIds: z.array(z.string().min(1)).optional(),
-  })
-  .passthrough();
+/**
+ * The seller's own full-detail drop read (`GET /v1/drops/{aggregateId}`).
+ * The service sends the exact count as `remaining_quantity` on this read
+ * (`remaining` is the public read's redacted field); it is exposed as
+ * `remaining` so both reads share one shape. A read without it fails closed.
+ */
+export const marketplaceSellerDropSchema = z.preprocess(
+  (input) => {
+    if (!input || typeof input !== 'object') return input;
+    const record = input as Record<string, unknown>;
+    if (record.remainingQuantity === undefined) return input;
+    return { ...record, remaining: record.remainingQuantity };
+  },
+  marketplacePublicDropSchema
+    .extend({
+      remaining: z.number().int().min(0),
+      paidQuantity: z.number().int().min(0),
+      buyerCount: z.number().int().min(0),
+      listingIds: z.array(z.string().min(1)).optional(),
+    })
+    .passthrough(),
+);
 
 /** The buyer's ready-check read (`GET /v1/drops/{aggregateId}/me`). */
 export const marketplaceDropReadyCheckSchema = z

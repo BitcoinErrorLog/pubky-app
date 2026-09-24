@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
+import { orderStateSchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import sellerOffersCapture from '@/test/fixtures/commerce/live/seller-offers-v062.json';
 import { ACCEPTED_OFFER_AWARD_WIRE_FIXTURE, createOfferFixture } from '@/test/fixtures/commerce/offers';
@@ -21,6 +22,7 @@ import {
   marketplaceOrderSchema,
   marketplaceParticipantOrderSchema,
   marketplaceSellerListingProjectionSchema,
+  stripSellerReserveAuthorityFields,
 } from './marketplace-projections';
 
 /**
@@ -217,6 +219,28 @@ describe('marketplace order projection — offer-priced orders', () => {
   });
 });
 
+describe('marketplace order projection — partial refund', () => {
+  it('keeps refunded_partial off the vendored order enum and readable on the order projection', () => {
+    expect(orderStateSchema.safeParse('refunded_partial').success).toBe(false);
+    const parsed = marketplaceOrderSchema.safeParse(
+      createOrderFixture('refunded_partial', {
+        total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+        externalRefund: {
+          amountMinor: 189,
+          transactionId: 'PAYPAL-REFUND-189',
+          recordedAt: '2026-08-19T18:00:00.000Z',
+        },
+      }),
+    );
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.state).toBe('refunded_partial');
+      expect(parsed.data.externalRefund).toMatchObject({ amountMinor: 189, transactionId: 'PAYPAL-REFUND-189' });
+    }
+  });
+});
+
 describe('marketplace offer projection — award degradation', () => {
   const restoreRedactedIdentities = (value: unknown): unknown => {
     if (typeof value === 'string') return value.replaceAll('…', 'z'.repeat(44));
@@ -374,6 +398,63 @@ describe('marketplace listing projection — viewer bid', () => {
     };
     expect(marketplaceListingProjectionSchema.safeParse(fixture).success).toBe(false);
     expect(marketplaceSellerListingProjectionSchema.safeParse(fixture).success).toBe(true);
+  });
+
+  it('rejects a live auction seller projection with null reserve command extras', () => {
+    const live = {
+      ...createAuctionProjectionFixture(),
+      auction: { ...createAuctionProjectionFixture().auction!, status: 'active' },
+      reservePrice: null,
+      reserveMet: false,
+      reserveRecordRevision: 0,
+      lastReserveCommandId: null,
+    };
+    expect(marketplaceSellerListingProjectionSchema.safeParse(live).success).toBe(false);
+    expect(
+      marketplaceSellerListingProjectionSchema.safeParse({
+        ...createAuctionProjectionFixture(),
+        auction: { ...createAuctionProjectionFixture().auction!, status: 'scheduled' },
+        lastReserveCommandId: null,
+        reserveRecordRevision: 0,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts an ended auction seller projection with null or absent reserve authority', () => {
+    const fixture = {
+      ...createAuctionProjectionFixture(),
+      auction: {
+        ...createAuctionProjectionFixture().auction!,
+        status: 'sold',
+        endsAt: '2026-08-21T09:00:00.000Z',
+      },
+      reservePrice: null,
+      reserveMet: false,
+      reserveRecordRevision: 0,
+      lastReserveCommandId: null,
+    };
+    expect(marketplaceSellerListingProjectionSchema.safeParse(fixture).success).toBe(true);
+    expect(
+      marketplaceSellerListingProjectionSchema.safeParse({
+        ...createAuctionProjectionFixture(),
+        auction: { ...createAuctionProjectionFixture().auction!, status: 'unsold' },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('strips seller reserve authority keys before a public parse', () => {
+    const stripped = stripSellerReserveAuthorityFields({
+      ...createAuctionProjectionFixture(),
+      reservePrice: null,
+      reserve_met: false,
+      reserveRecordRevision: 0,
+      last_reserve_command_id: null,
+    }) as Record<string, unknown>;
+    expect(stripped).not.toHaveProperty('reservePrice');
+    expect(stripped).not.toHaveProperty('reserve_met');
+    expect(stripped).not.toHaveProperty('reserveRecordRevision');
+    expect(stripped).not.toHaveProperty('last_reserve_command_id');
+    expect(marketplaceListingProjectionSchema.safeParse(stripped).success).toBe(true);
   });
 
   it('parses the live bidder viewer_bid shape', () => {

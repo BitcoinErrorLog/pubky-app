@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
+import { useMarketplaceNavAttention } from '@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
 import { HeaderButtonSignIn } from '../HeaderButtonSignIn/HeaderButtonSignIn';
@@ -52,6 +53,9 @@ vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => (
 }));
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
   useMarketplaceCartCount: vi.fn(() => 0),
+}));
+vi.mock('@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention', () => ({
+  useMarketplaceNavAttention: vi.fn(() => 0),
 }));
 vi.mock('@/stores/search/search.store', () => ({
   useSearchStore: vi.fn(() => ({
@@ -189,6 +193,7 @@ describe('Header Components', () => {
     });
     vi.mocked(useNotificationStore).mockReturnValue({ selectUnread: () => 0 });
     vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
+    vi.mocked(useMarketplaceNavAttention).mockReturnValue(0);
     vi.mocked(useLiveQuery).mockReturnValue({ name: 'Test User', image: 'test-image.jpg' });
   });
 
@@ -261,7 +266,7 @@ describe('Header Components', () => {
       expect(container).toHaveClass('custom-class');
     });
 
-    it('uses a denser fade on marketplace routes so scrolled tabs stay behind the header', () => {
+    it('uses a solid background on marketplace routes', () => {
       vi.mocked(usePathname).mockReturnValue('/marketplace');
       render(
         <HeaderContainer>
@@ -270,8 +275,8 @@ describe('Header Components', () => {
       );
 
       const container = screen.getByRole('banner');
-      expect(container).toHaveClass('from-90%');
-      expect(container).not.toHaveClass('from-50%');
+      expect(container).toHaveClass('bg-background');
+      expect(container).not.toHaveClass('bg-linear-to-b');
     });
   });
 
@@ -504,15 +509,15 @@ describe('Header Components', () => {
       expect(collectionsButton).not.toHaveClass('bg-white/5');
     });
 
-    it('shows the Collections NEW treatment before dismissal', () => {
+    it('does not highlight Collections as new before dismissal', () => {
       collectionsDiscoveryMock.showCollectionsNew = true;
 
       render(<HeaderNavigationButtons avatarName="TU" />);
 
       const collectionsButton = document.querySelector('.lucide-library')?.closest('button');
-      expect(collectionsButton).toHaveClass('border-brand', 'text-brand');
-      expect(screen.getByRole('button', { name: 'Collections, New' })).toBeInTheDocument();
-      expect(screen.getByText('New')).toBeInTheDocument();
+      expect(collectionsButton).not.toHaveClass('border-brand', 'text-brand');
+      expect(screen.getByRole('button', { name: 'Collections' })).toBeInTheDocument();
+      expect(screen.queryByText('New')).not.toBeInTheDocument();
     });
 
     it('marks Collections discovery seen when clicking the Collections nav link', () => {
@@ -599,6 +604,20 @@ describe('Header Components', () => {
         render(<HeaderNavigationButtons avatarName="TU" />);
         expect(document.querySelector('[data-cy="header-marketplace-btn-counter"]')).toHaveTextContent('21+');
         expect(screen.getByRole('button', { name: 'Marketplace, 22 items in cart' })).toBeInTheDocument();
+      } finally {
+        adapterMode.mockRestore();
+      }
+    });
+
+    it('adds orders and activity that need attention to the marketplace badge', () => {
+      const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
+      vi.mocked(useMarketplaceNavAttention).mockReturnValue(2);
+      try {
+        render(<HeaderNavigationButtons avatarName="TU" />);
+
+        expect(screen.getByRole('button', { name: 'Marketplace, 2 need attention' })).toBeInTheDocument();
+        expect(document.querySelector('[data-cy="header-marketplace-btn-counter"]')).toHaveTextContent('2');
       } finally {
         adapterMode.mockRestore();
       }

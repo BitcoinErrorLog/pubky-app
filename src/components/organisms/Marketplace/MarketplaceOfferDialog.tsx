@@ -22,6 +22,8 @@ export function MarketplaceOfferDialog({
   onSessionRequired,
   onAccepted,
   isOwner = false,
+  holdDisabled = false,
+  holdLabel,
 }: {
   aggregateId: string;
   expectedRevision: number | null;
@@ -32,6 +34,8 @@ export function MarketplaceOfferDialog({
   onSessionRequired?: () => void;
   onAccepted: () => void | Promise<void>;
   isOwner?: boolean;
+  holdDisabled?: boolean;
+  holdLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   // `onAccepted` refreshes the projection, which is exactly the recovery a
@@ -62,18 +66,19 @@ export function MarketplaceOfferDialog({
           requireAuth(() => onSessionRequired?.());
           return;
         }
+        if (holdDisabled) return;
         requireAuth(() => setOpen(true));
       }}
     >
       <DialogTrigger asChild>
         <Button
-          size="lg"
+          size="default"
           variant="secondary"
-          className="flex-1 rounded-full"
-          disabled={isOwner || (expectedRevision === null && !isSessionRequired)}
+          className="w-fit rounded-full"
+          disabled={isOwner || holdDisabled || (expectedRevision === null && !isSessionRequired)}
         >
           <HandCoins className="mr-2 size-4" />
-          {isOwner ? 'You cannot buy your own listing' : 'Make offer'}
+          {isOwner ? 'You cannot buy your own listing' : holdDisabled ? (holdLabel ?? 'Held') : 'Make offer'}
         </Button>
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">

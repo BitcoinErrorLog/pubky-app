@@ -1,3 +1,4 @@
+import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { isAppError } from '@/libs/error/error';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory } from '@/libs/error/error.types';
@@ -7,8 +8,8 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   offer: 'Could not update this offer.',
   offerChanged: 'This offer changed since you loaded it. The latest state was reloaded — retry from there.',
   offerCheckoutUnavailable: 'Checkout for this offer is unavailable.',
-  offerExpired: 'This accepted offer expired before the order was placed. Nothing was ordered.',
-  offerAlreadyConverted: 'This accepted offer has already been converted to an order.',
+  offerExpired: 'This accepted offer expired before checkout. Nothing was reserved.',
+  offerAlreadyConverted: 'This accepted offer has already been converted.',
   sendOffer: 'Could not send this offer.',
   counterOffer: 'Could not send this counteroffer.',
   bid: 'Could not place this bid.',
@@ -44,7 +45,7 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   shippingLabel: 'The shipping label could not be purchased.',
   paymentSettings: 'Payment settings are unavailable.',
   bitcoinOfferUnavailable: 'Bitcoin is temporarily unavailable. Other payment methods are unaffected.',
-  stripeKeyRemoval: 'The Stripe key could not be removed.',
+  stripeKeyRemoval: 'The stored payment key could not be removed.',
   messagingStart: 'Could not start marketplace messaging.',
   messagingStorage: 'Messaging paused: storage protection unavailable',
   sandboxPayment: 'Could not advance the sandbox payment.',
@@ -69,7 +70,6 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
 type MarketplaceFailureCode = string | null | undefined;
 
 const CODE_MESSAGES: ReadonlyMap<string, string> = new Map([
-  ['INSUFFICIENT_INVENTORY', MARKETPLACE_FAILURE_MESSAGES.soldOut],
   ['INVALID_RESPONSE', MARKETPLACE_FAILURE_MESSAGES.unavailable],
   ['SESSION_EXPIRED', MARKETPLACE_FAILURE_MESSAGES.session],
   ['UNAUTHORIZED', MARKETPLACE_FAILURE_MESSAGES.session],
@@ -108,6 +108,42 @@ const CHECKOUT_REFUSAL_MESSAGES: ReadonlyMap<string, string> = new Map([
   ],
 ]);
 
+/**
+ * Copy for the Bitkit purchase bootstrap. `shop_session_expired` here means
+ * the grant sign-in itself ended (its homeserver write was refused), not a
+ * marketplace cookie, so it must not use the reconnect copy.
+ */
+const BOOTSTRAP_APPROVAL_EXPIRED = 'This approval expired. Start again.';
+const BOOTSTRAP_OTHER_TAB = 'This approval belongs to another tab. Start again here.';
+
+export const MARKETPLACE_BOOTSTRAP_CODE_MESSAGES: ReadonlyMap<string, string> = new Map([
+  ['origin_denied', 'This request did not come from the Shop. Reload and try again.'],
+  ['invalid_request', 'Something went wrong. Try again.'],
+  ['grant_unavailable', 'Bitkit approvals are unavailable right now. Try again later.'],
+  ['retry_later', 'Too many attempts. Wait a minute and try again.'],
+  ['challenge_not_found', BOOTSTRAP_APPROVAL_EXPIRED],
+  ['challenge_consumed', 'This approval was already used. Start again.'],
+  ['homeserver_proof_invalid', 'Your homeserver could not confirm this sign-in. Start again.'],
+  ['flow_expired', BOOTSTRAP_APPROVAL_EXPIRED],
+  ['flow_cancelled', 'Approval cancelled.'],
+  ['result_denied', 'This approval could not be completed. Start again.'],
+  ['identity_mismatch', "This approval came from a different account. Approve with the account you're signed in with."],
+  ['fresh_approval_required', 'Approve again in Bitkit.'],
+  ['flow_binding_missing', BOOTSTRAP_OTHER_TAB],
+  ['flow_binding_denied', BOOTSTRAP_OTHER_TAB],
+  ['flow_not_found', BOOTSTRAP_APPROVAL_EXPIRED],
+  ['claim_in_progress', 'Finishing your approval…'],
+  ['shop_session_expired', 'Your Shop session ended. Sign in again.'],
+  ['approval_invalid', 'That approval could not be verified. Approve again in Bitkit.'],
+]);
+
+export function marketplaceBootstrapFailureMessage(code: MarketplaceFailureCode): string {
+  return (
+    (code && MARKETPLACE_BOOTSTRAP_CODE_MESSAGES.get(code)) ||
+    marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sessionStart)
+  );
+}
+
 export function marketplaceCheckoutRefusalMessage(code: MarketplaceFailureCode, message: unknown): string | null {
   if (typeof code !== 'string' || typeof message !== 'string') return null;
   return CHECKOUT_REFUSAL_MESSAGES.get(`${code}:${message}`) ?? null;
@@ -116,6 +152,23 @@ export function marketplaceCheckoutRefusalMessage(code: MarketplaceFailureCode, 
 export function marketplaceDropRefusalMessage(code: MarketplaceFailureCode, message: unknown): string | null {
   if (typeof code !== 'string' || typeof message !== 'string') return null;
   return DROP_REFUSAL_MESSAGES.get(`${code}:${message}`) ?? null;
+}
+
+const OFFER_HOLD_MESSAGES = new Set([
+  "Another buyer's payment is holding this item. If it isn't completed in time, the item restocks.",
+  CHECKOUT_HOLD_COPY.listingReserved,
+]);
+
+/**
+ * Offer.create failures must never use drop copy. `INSUFFICIENT_INVENTORY` on
+ * a listing is sold-out or held inventory, not "this drop is sold out."
+ */
+export function marketplaceOfferFailureMessage(code: MarketplaceFailureCode, message?: unknown): string {
+  if (code === 'INSUFFICIENT_INVENTORY') return MARKETPLACE_FAILURE_MESSAGES.listingSoldOut;
+  if (code === 'INVALID_STATE' && typeof message === 'string' && OFFER_HOLD_MESSAGES.has(message)) {
+    return CHECKOUT_HOLD_COPY.heldWhileAnotherPays;
+  }
+  return marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sendOffer);
 }
 
 export function marketplaceFailureMessage(code: MarketplaceFailureCode, fallback: string, error?: unknown): string {
@@ -138,39 +191,40 @@ export function marketplaceFailureMessage(code: MarketplaceFailureCode, fallback
 export const MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES: ReadonlyMap<string, string> = new Map([
   ['bitcoin_unavailable', 'Bitcoin payments are not available for this seller.'],
   ['capability_required', 'This payment needs a marketplace grant. Approve access on your signer and try again.'],
-  ['currency_unsupported', 'This payment method does not support the order currency.'],
-  ['hold_unavailable', 'The inventory hold for this order is no longer available.'],
+  ['currency_unsupported', 'This payment method does not support the checkout currency.'],
+  ['held', CHECKOUT_HOLD_COPY.listingReserved],
+  ['hold_unavailable', 'The inventory hold for this checkout is no longer available.'],
   ['INTERNAL', MARKETPLACE_FAILURE_MESSAGES.unavailable],
-  ['invalid_method', 'That payment method is not valid for this order.'],
-  ['invalid_payment_link', 'The Stripe payment link is not valid.'],
+  ['invalid_method', 'That payment method is not valid for this checkout.'],
+  ['invalid_payment_link', 'The payment link is not valid.'],
   ['invalid_paypal_email', 'The PayPal merchant email is not valid.'],
   ['invalid_pubky', 'The seller identity on this payment configuration is not valid.'],
-  ['invalid_restricted_key', 'The Stripe restricted key is not valid.'],
+  ['invalid_restricted_key', 'The payment key is not valid.'],
   ['invalid_sats', 'The Bitcoin amount must be a positive satoshi amount.'],
   ['invalid_transaction_ref', 'The payment reference is not valid.'],
   ['INVALID_RESPONSE', MARKETPLACE_FAILURE_MESSAGES.unavailable],
   ['locks_managed', 'A Locks-correlated payment advances only by server-side verification.'],
-  ['method_mismatch', 'The payment method does not match this order.'],
+  ['method_mismatch', 'The payment method does not match this checkout.'],
   ['method_unavailable', 'The seller has not configured this payment method.'],
   ['not_buyer', 'Only the buyer may bind the payment method.'],
-  ['not_participant', 'Only a participant on this order can continue.'],
+  ['not_participant', 'Only a participant on this checkout can continue.'],
   ['not_seller', 'Only the seller can continue this payment step.'],
   ['order_not_found', 'The order was not found.'],
-  ['order_not_pending', 'Only an order pending payment can bind a payment method.'],
-  ['paykit_expiry_inconsistent', 'The Paykit payment window does not match this order.'],
+  ['order_not_pending', 'Only a checkout pending payment can bind a payment method.'],
+  ['paykit_expiry_inconsistent', 'The Paykit payment window does not match this checkout.'],
   ['paykit_rejected', 'The Paykit server rejected the payment request.'],
-  ['paykit_total_inconsistent', 'The Paykit amount does not match this order.'],
+  ['paykit_total_inconsistent', 'The Paykit amount does not match this checkout.'],
   ['paykit_unavailable', 'The Paykit server is unavailable. Try again shortly.'],
-  ['payment_method_already_bound', 'A payment method is already bound to this order.'],
+  ['payment_method_already_bound', 'A payment method is already bound to this checkout.'],
   ['payment_not_awaiting', 'The payment is no longer awaiting a method.'],
   ['payments_disabled', 'Payments are disabled on this marketplace.'],
   ['REVISION_CONFLICT', MARKETPLACE_FAILURE_MESSAGES.paymentChanged],
   ['revision_conflict', MARKETPLACE_FAILURE_MESSAGES.paymentChanged],
   ['seller_account_unclaimed', 'The seller has not claimed a Bitcoin account yet.'],
   ['sold_out', 'This listing no longer has enough inventory.'],
-  ['stripe_key_invalid', 'Stripe rejected the seller payment key. The seller must update their payment settings.'],
-  ['stripe_key_missing', 'This seller has not configured a Stripe key.'],
-  ['stripe_unavailable', 'Stripe could not be reached. Try again shortly.'],
+  ['stripe_key_invalid', 'The seller payment key was rejected. The seller must update their payment settings.'],
+  ['stripe_key_missing', 'This seller has not finished payment setup.'],
+  ['stripe_unavailable', 'Payment verification could not be reached. Try again shortly.'],
   ['unavailable', 'The payment method request was refused.'],
   ['UPSTREAM_UNAVAILABLE', MARKETPLACE_FAILURE_MESSAGES.unavailable],
 ]);

@@ -88,7 +88,12 @@ export class MarketplaceNotificationNormalizer {
         return listing ? getMarketplaceListingRoute(listing.sellerPubky, listing.listingId) : APP_ROUTES.MARKETPLACE;
       }
       case 'order_created':
+        return MARKETPLACE_ROUTES.CHECKOUT;
+      case 'payment_method_bound':
+      case 'fiat_payment_reported':
       case 'payment_confirmed':
+      case 'bitcoin_manual_review':
+      case 'bitcoin_prepare_voided':
       case 'order_cancelled':
       case 'order_cancelled_terms_change':
       case 'order_shipped':
@@ -103,6 +108,8 @@ export class MarketplaceNotificationNormalizer {
       case 'pickup_ready':
       case 'payment_refund_required':
         return MARKETPLACE_ROUTES.ORDERS;
+      case 'drop_sold_out':
+        return MARKETPLACE_ROUTES.SELL_DROPS;
     }
   }
 }

@@ -36,14 +36,16 @@ const signer = pubky.signer(keypair);
 // this probe never touches the probe identity's homeserver anyway — the
 // marketplace session AuthToken travels over the HTTP relay.
 try {
-  await signer.signup(PublicKey.from(HOMESERVER_PUBKY), signupToken);
+  await signer.signupCookie(PublicKey.from(HOMESERVER_PUBKY), signupToken);
 } catch (error) {
-  console.warn(`signup skipped (${error?.message?.split('\n')[0] ?? error}); continuing with a homeserver-less identity`);
+  console.warn(
+    `signup skipped (${error?.message?.split('\n')[0] ?? error}); continuing with a homeserver-less identity`,
+  );
 }
 console.log(`probe identity: ${keypair.publicKey.z32()}`);
 
 // Same shape as HomeserverService.generateAuthTokenFlow + signer approval.
-const flow = pubky.startAuthFlow('', AuthFlowKind.signin(), HTTP_RELAY);
+const flow = pubky.startCookieAuthFlow('', AuthFlowKind.signin(), HTTP_RELAY);
 const approval = flow.awaitToken();
 await signer.approveAuthRequest(flow.authorizationUrl);
 const authToken = await approval;

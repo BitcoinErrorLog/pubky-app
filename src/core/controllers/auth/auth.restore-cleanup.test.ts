@@ -4,7 +4,7 @@ import { MUTE_SYNC_CURSOR_STORAGE_PREFIX } from '@/config/mute-sync';
 import { AuthController } from '@/controllers/auth/auth';
 import { resetAuthFinalizationLockForTests, withAuthFinalizationLock } from '@/controllers/auth/auth-finalization-lock';
 import { db } from '@/database/franky/franky';
-import { PUBLIC_CACHE_TABLES } from '@/database/franky/franky.helpers';
+import { IDENTITY_SCOPED_DEVICE_TABLES, PUBLIC_CACHE_TABLES } from '@/database/franky/franky.helpers';
 import {
   dropCachedWrappingKeyForTests,
   getOrCreateWrappingKey,
@@ -74,7 +74,6 @@ const EXPECTED_PRIVATE_TABLES = [
   'commerce_watch_alerts',
   'commerce_saved_searches',
   'commerce_activity_checkpoints',
-  'commerce_delivery_addresses',
   'commerce_shipping_presets',
   'commerce_messaging_receivers',
   'commerce_messaging_links',
@@ -87,8 +86,11 @@ const EXPECTED_PRIVATE_TABLES = [
   'moderation',
 ] as const;
 
+const EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES = ['commerce_delivery_addresses'] as const;
+
 const sorted = (values: Iterable<string>) => [...values].sort();
-const EXPECTED_TABLE_COUNT = EXPECTED_PUBLIC_CACHE_TABLES.length + EXPECTED_PRIVATE_TABLES.length;
+const EXPECTED_TABLE_COUNT =
+  EXPECTED_PUBLIC_CACHE_TABLES.length + EXPECTED_PRIVATE_TABLES.length + EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES.length;
 
 async function seedEveryTable(): Promise<void> {
   for (const table of db.tables) {
@@ -299,10 +301,15 @@ describe('AuthController restore cleanup with the real bridge and database', () 
   });
 
   it('classifies every Dexie store and clears private data after a no-identity bridge timeout', async () => {
-    const expectedTables = [...EXPECTED_PUBLIC_CACHE_TABLES, ...EXPECTED_PRIVATE_TABLES];
+    const expectedTables = [
+      ...EXPECTED_PUBLIC_CACHE_TABLES,
+      ...EXPECTED_PRIVATE_TABLES,
+      ...EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES,
+    ];
     expect(db.tables).toHaveLength(EXPECTED_TABLE_COUNT);
     expect(sorted(db.tables.map((table) => table.name))).toEqual(sorted(expectedTables));
     expect(sorted(PUBLIC_CACHE_TABLES)).toEqual(sorted(EXPECTED_PUBLIC_CACHE_TABLES));
+    expect(sorted(IDENTITY_SCOPED_DEVICE_TABLES)).toEqual(sorted(EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES));
     await seedEveryTable();
     const createElementSpy = vi.spyOn(document, 'createElement');
     // Non-Dexie account residue the no-identity path must also clear: the live
@@ -320,6 +327,7 @@ describe('AuthController restore cleanup with the real bridge and database', () 
     expect(createElementSpy).toHaveBeenCalledWith('iframe');
     await expectTableCounts(EXPECTED_PRIVATE_TABLES, 0);
     await expectTableCounts(EXPECTED_PUBLIC_CACHE_TABLES, 1);
+    await expectTableCounts(EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES, 1);
     expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(MESSAGING_SESSION_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(ONBOARDING_PERSIST_KEY)).toBeNull();
@@ -333,6 +341,7 @@ describe('AuthController restore cleanup with the real bridge and database', () 
     await expect(runRealBridgeTimeoutRestore(PERSISTED_PUBKY)).resolves.toEqual({ status: 'signed-out' });
 
     await expectTableCounts([...EXPECTED_PUBLIC_CACHE_TABLES, ...EXPECTED_PRIVATE_TABLES], 0);
+    await expectTableCounts(EXPECTED_IDENTITY_SCOPED_DEVICE_TABLES, 1);
   });
 
   it('keeps private rows and the wrapping key when this tab signs in during the bridge window', async () => {

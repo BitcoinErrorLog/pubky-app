@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { MarketplaceAuctionPanel } from './MarketplaceAuctionPanel';
@@ -41,6 +41,45 @@ beforeEach(() => {
 });
 
 describe('MarketplaceAuctionPanel', () => {
+  it('shows unavailable history without a retry action', async () => {
+    mockedController.getMarketplaceListingBids.mockResolvedValueOnce(null);
+    render(
+      <MarketplaceAuctionPanel
+        sellerPubky={SELLER}
+        listingId="listing01"
+        auction={null}
+        scheduledEndsAt={null}
+        isSignedIn
+      />,
+    );
+    await screen.findByText('Bid history unavailable');
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(mockedController.getMarketplaceListingBids).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops indefinite loading after 15 seconds', async () => {
+    vi.useFakeTimers();
+    try {
+      mockedController.getMarketplaceListingBids.mockReturnValue(new Promise(() => {}));
+      const { unmount } = render(
+        <MarketplaceAuctionPanel
+          sellerPubky={SELLER}
+          listingId="listing01"
+          auction={null}
+          scheduledEndsAt={null}
+          isSignedIn
+        />,
+      );
+      expect(screen.getByText('Loading bid history…')).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(15_000));
+      expect(screen.getByText('Bid history unavailable')).toBeInTheDocument();
+      expect(screen.queryByText('Loading bid history…')).not.toBeInTheDocument();
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows the visible-price bid history newest first with the proxy-secrecy note', async () => {
     render(
       <MarketplaceAuctionPanel

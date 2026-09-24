@@ -6,7 +6,6 @@ import {
   Banknote,
   CheckCircle2,
   Clock3,
-  CreditCard,
   Download,
   FileWarning,
   KeyRound,
@@ -138,7 +137,9 @@ export function MarketplacePaymentStatusCard({
   });
 
   const isDurable = isDurableCommerceMode(adapterMode);
-  const isTerminal = ['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
+  const isTerminal = ['completed', 'cancelled', 'refunded_external', 'refunded_partial', 'closed'].includes(
+    order.state,
+  );
   const isSeller = currentUserPubky !== null && currentUserPubky === order.sellerPubky;
   const visibleStatus = payment ? buyerVisiblePaymentStatus(payment.state) : null;
   const isAwaiting = visibleStatus === 'awaiting_entitlement' && !isTerminal;
@@ -193,18 +194,15 @@ export function MarketplacePaymentStatusCard({
       : BUYER_VISIBLE_STATUS_LABELS[visibleStatus];
 
   return (
-    <div className="grid gap-3 rounded-xl border p-4" data-surface="marketplace-payment-status-card">
+    <div className="grid min-w-0 gap-3 rounded-xl border p-4" data-surface="marketplace-payment-status-card">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={visibleStatus === 'confirmed' ? 'default' : 'outline'}>{visibleStatusLabel}</Badge>
         {payment.adapter === 'locks' && <Badge variant="secondary">Locks/Paykit</Badge>}
         {order.paymentMethod === 'bitcoin' && <Badge variant="secondary">₿ Bitcoin</Badge>}
-        {order.paymentMethod === 'stripe' && <Badge variant="secondary">Card (Stripe)</Badge>}
         {order.paymentMethod === 'paypal' && <Badge variant="secondary">PayPal</Badge>}
-        {/* How the fiat rail is verified is a fact both parties should see on
-            the order forever, not only in the pre-payment copy: Stripe pulls
-            truth from the processor; a gateway-notified PayPal payment was
-            confirmed by PayPal's own verified notification; seller-attested
-            is the seller saying so. */}
+        {/* How a fiat rail is verified stays on the order: a gateway-notified
+            PayPal payment was confirmed by PayPal's own notification;
+            seller-attested is the seller saying so. */}
         {order.fiatVerification === 'processor' && <Badge variant="secondary">Processor-verified</Badge>}
         {order.fiatVerification === 'gateway-notified' && <Badge variant="secondary">PayPal-verified</Badge>}
         {order.fiatVerification === 'seller-attested' && <Badge variant="outline">Seller-attested</Badge>}
@@ -220,13 +218,17 @@ export function MarketplacePaymentStatusCard({
         </Typography>
       )}
       {visibleStatus === 'confirmed' && order.fiatVerification === 'gateway-notified' && (
-        <Typography as="p" className="text-sm text-muted-foreground">
+        <Typography
+          as="p"
+          data-testid="paypal-verified-explanation"
+          className="min-w-0 text-sm break-words whitespace-normal text-muted-foreground"
+        >
           This payment was confirmed automatically by a verified notification from PayPal&rsquo;s servers, matched
           against the seller&rsquo;s configured PayPal address and the exact order total.
         </Typography>
       )}
       {visibleStatus === 'confirmed' && order.fiatVerification === 'seller-attested' && (
-        <Typography as="p" className="text-sm text-muted-foreground">
+        <Typography as="p" className="min-w-0 text-sm break-words whitespace-normal text-muted-foreground">
           This payment was confirmed by the seller reporting receipt in their own PayPal account — not by automatic
           processor verification. The confirmation is the seller&rsquo;s attestation.
         </Typography>
@@ -247,7 +249,7 @@ export function MarketplacePaymentStatusCard({
         <Typography as="p" className="text-sm text-muted-foreground">
           {expiredNoLateMoney
             ? CHECKOUT_HOLD_COPY.expiredNoLateMoney
-            : 'The marketplace payment window elapsed before a verified payment arrived, so this order was not completed. A payment verified after expiry is reconciled manually — never silently applied or discarded.'}
+            : 'The marketplace payment window elapsed before a verified payment arrived, so this checkout was not completed. A payment verified after expiry is reconciled manually — never silently applied or discarded.'}
         </Typography>
       )}
       {visibleStatus === 'manual_review' && !refundRequired && (
@@ -331,8 +333,8 @@ export function MarketplacePaymentStatusCard({
           ) : methodPayment.availableMethods.length === 0 ? (
             <>
               <Typography as="p" className="text-sm text-muted-foreground">
-                The seller has not set up any payment methods yet, so this order cannot be paid right now. Message the
-                seller — once they configure a method in their payment settings, it appears here.
+                The seller has not set up any payment methods yet, so this checkout cannot be paid right now. Message
+                the seller — once they configure a method in their payment settings, it appears here.
               </Typography>
               <Button
                 size="sm"
@@ -368,18 +370,6 @@ export function MarketplacePaymentStatusCard({
                     onClick={() => void methodPayment.bind('bitcoin')}
                   >
                     <WalletCards className="mr-2 size-4" />₿ Bitcoin
-                  </Button>
-                )}
-                {methodPayment.availableMethods.includes('stripe') && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="rounded-full"
-                    disabled={methodPayment.pendingAction !== null}
-                    onClick={() => void methodPayment.bind('stripe')}
-                  >
-                    <CreditCard className="mr-2 size-4" />
-                    Card (Stripe)
                   </Button>
                 )}
                 {methodPayment.availableMethods.includes('paypal') && (
@@ -435,41 +425,6 @@ export function MarketplacePaymentStatusCard({
             <LoaderCircle className="size-4 animate-spin" />
             The Bitcoin payment request was delivered privately to your wallet via Paykit. This page updates once the
             marketplace independently verifies the payment on-chain.
-          </div>
-        </div>
-      )}
-
-      {/* Bound stripe: hosted checkout + processor verification. */}
-      {usesMethodFlow && isBuyer && order.paymentMethod === 'stripe' && order.fiatCheckoutUrl && (
-        <div className="grid gap-2">
-          <Typography as="p" className="text-sm text-muted-foreground">
-            {holderBoundCopy(order.holdExpiresAt)}
-          </Typography>
-          <Typography as="p" className="text-sm text-muted-foreground">
-            Pay through the seller&rsquo;s Stripe checkout, then verify — the marketplace checks the payment against the
-            seller&rsquo;s own Stripe account.
-          </Typography>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild size="sm" className="rounded-full">
-              <a href={order.fiatCheckoutUrl} target="_blank" rel="noopener noreferrer">
-                <CreditCard className="mr-2 size-4" />
-                Open Stripe checkout
-              </a>
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="rounded-full"
-              disabled={methodPayment.pendingAction !== null}
-              onClick={() => void methodPayment.verifyStripe()}
-            >
-              {methodPayment.pendingAction === 'verify' ? (
-                <LoaderCircle className="mr-2 size-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="mr-2 size-4" />
-              )}
-              I&rsquo;ve paid — verify
-            </Button>
           </div>
         </div>
       )}
@@ -563,29 +518,6 @@ export function MarketplacePaymentStatusCard({
         </div>
       )}
 
-      {/* Seller side, stripe: either party may trigger processor verification. */}
-      {usesMethodFlow && !isBuyer && order.paymentMethod === 'stripe' && (
-        <div className="grid gap-2">
-          <Typography as="p" className="text-sm text-muted-foreground">
-            The buyer pays through your Stripe checkout. Verification runs against your Stripe account with your
-            restricted key — you can trigger it too.
-          </Typography>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="w-fit rounded-full"
-            disabled={methodPayment.pendingAction !== null}
-            onClick={() => void methodPayment.verifyStripe()}
-          >
-            {methodPayment.pendingAction === 'verify' ? (
-              <LoaderCircle className="mr-2 size-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="mr-2 size-4" />
-            )}
-            Check for payment
-          </Button>
-        </div>
-      )}
       {isLocksPaykit && isBuyer && isAwaiting && digitalLock && !locks.correlation && (
         <div className="grid gap-2">
           <Typography as="p" className="text-sm text-muted-foreground">

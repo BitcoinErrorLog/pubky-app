@@ -178,7 +178,7 @@ describe('Marketplace review attestation surfaces — visual regression', () => 
   it('renders the pending-publication own-review state at desktop viewport', async () => {
     const screen = await renderStatusScenario(ownReviewRow({ sync_status: 'pending' }));
     await vi.waitFor(() => {
-      if (!document.body.textContent?.includes('still pending')) {
+      if (!document.body.textContent?.includes('Publication is pending')) {
         throw new Error('Pending status has not rendered yet.');
       }
     });
@@ -188,7 +188,7 @@ describe('Marketplace review attestation surfaces — visual regression', () => 
   it('renders the service-only own-review state at desktop viewport', async () => {
     const screen = await renderStatusScenario(null);
     await vi.waitFor(() => {
-      if (!document.body.textContent?.includes('public publication status will appear')) {
+      if (!document.body.textContent?.includes('publication status will appear')) {
         throw new Error('Service-only status has not rendered yet.');
       }
     });
