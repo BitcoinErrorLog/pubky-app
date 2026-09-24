@@ -396,9 +396,13 @@ export async function cancelBrowserFlow(
   const { config, flow } = await authenticatedBrowserFlow(request, flowCookie, stateIdParam);
   await parseStrictJson(request, emptyBody);
   if (flow.status !== 'awaiting' && flow.status !== 'creating') throw new BffError(403, 'result_denied');
+  // Terminal first, so a context that cannot be opened still ends the flow
+  // and no later poll can claim it. The service flow then expires on its own.
+  // A flow whose key epoch left the config never reaches this line: its
+  // cookie cannot be checked, and it cannot be claimed either.
+  await terminalizeCliFlow(config, flow.state_id, 'cancelled');
   if (flow.flow_id && flow.context_sealed) {
     const context = openContext(config, flow);
     await cancelGrant(config, flow.flow_id, context.resultDeliveryId);
   }
-  await terminalizeCliFlow(config, flow.state_id, 'cancelled');
 }

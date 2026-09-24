@@ -797,6 +797,71 @@ describe('browser purchase bootstrap BFF', () => {
     );
   });
 
+  it('cancel ends the flow even when its context cannot be opened', async () => {
+    const config = await browserConfig();
+    const stateId = randomUUID();
+    const bound = makeBoundCookie(stateId);
+    const cliContext = sealCliFlowContext(config, stateId, pubky, {
+      resultDeliveryId: encodeBase64Url(new Uint8Array(32).fill(4)),
+      version: 1,
+    });
+    const { row } = browserFlowRow(config, {
+      tokenHash: hashBoundCookie(config, 1, 'flow', stateId, bound.secret),
+      contextSealed: cliContext,
+    });
+    getCliFlow.mockResolvedValue({ ...row, state_id: stateId });
+    const { cancelBrowserFlow } = await import('./browser-bff');
+
+    await expect(
+      cancelBrowserFlow(
+        jsonRequest(`${ORIGIN}/api/marketplace/bootstrap-flows/${stateId}/cancel`, {}),
+        bound.value,
+        stateId,
+      ),
+    ).rejects.toEqual(new BffError(403, 'result_denied'));
+    expect(terminalizeCliFlow).toHaveBeenCalledWith(expect.anything(), stateId, 'cancelled');
+    expect(cancelGrant).not.toHaveBeenCalled();
+  });
+
+  it('a flow whose key epoch rotated out can be neither cancelled nor claimed', async () => {
+    const epoch1 = await browserConfig();
+    const { bound, row, stateId } = browserFlowRow(epoch1);
+    rotateTo(3, STATE_KEY_3, { epoch: 2, key: STATE_KEY_2 });
+    getCliFlow.mockResolvedValue(row);
+    acquireCliClaim.mockResolvedValue(row);
+    completeServiceFlow(row.flow_id);
+    const { cancelBrowserFlow, pollBrowserFlow } = await import('./browser-bff');
+    const freshApproval = new BffError(422, 'fresh_approval_required');
+
+    await expect(
+      cancelBrowserFlow(
+        jsonRequest(`${ORIGIN}/api/marketplace/bootstrap-flows/${stateId}/cancel`, {}),
+        bound.value,
+        stateId,
+      ),
+    ).rejects.toEqual(freshApproval);
+    await expect(pollBrowserFlow(flowRequest(stateId), bound.value, stateId)).rejects.toEqual(freshApproval);
+    expect(acquireCliClaim).not.toHaveBeenCalled();
+    expect(claimGrantResult).not.toHaveBeenCalled();
+  });
+
+  it('cancel ends the flow locally and cancels it at the service', async () => {
+    const config = await browserConfig();
+    const { bound, derived, row, stateId } = browserFlowRow(config);
+    getCliFlow.mockResolvedValue(row);
+    cancelGrant.mockResolvedValue(undefined);
+    const { cancelBrowserFlow } = await import('./browser-bff');
+
+    await cancelBrowserFlow(
+      jsonRequest(`${ORIGIN}/api/marketplace/bootstrap-flows/${stateId}/cancel`, {}),
+      bound.value,
+      stateId,
+    );
+
+    expect(terminalizeCliFlow).toHaveBeenCalledWith(expect.anything(), stateId, 'cancelled');
+    expect(cancelGrant).toHaveBeenCalledWith(expect.anything(), row.flow_id, encodeBase64Url(derived.resultDeliveryId));
+  });
+
   // A9
   it('no migration added by the browser bootstrap', () => {
     const migrations = readdirSync(path.resolve(process.cwd(), 'db/bff'))
