@@ -9,7 +9,7 @@ import type {
   TSingleApprovalCeremonyHooks,
   TSingleApprovalResult,
 } from '@/application/auth/auth.types';
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, capabilitiesMatchFullGrant } from '@/config/app';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -23,9 +23,10 @@ import {
   toAppError,
 } from '@/libs/error/error.utils';
 import { HttpMethod } from '@/libs/http/http.types';
+import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { sleep } from '@/libs/utils/utils';
-import { isVibeSessionBridgeLegSkipped } from '@/libs/vibe-session/auto-restore';
+import { isVibeSessionBridgeLegSkipped, suppressVibeSessionAutoRestore } from '@/libs/vibe-session/auto-restore';
 import { requestFromBridge } from '@/libs/vibe-session/bridge';
 import { getVibeId, getVibeSessionBridgeOrigin } from '@/libs/vibe-session/config';
 import { isPubkyExpiredError } from '@/libs/vibe-session/expired';
@@ -81,7 +82,10 @@ export class AuthApplication {
    * @param authStore - The auth store object containing state and actions needed for restoration
    * @returns The restored session, or null if restoration failed
    */
-  static async restorePersistedSession({ authStore }: TRestoreSessionParams): TRestoreSessionResult {
+  static async restorePersistedSession({
+    authStore,
+    confirmSessionHandoff = async () => false,
+  }: TRestoreSessionParams): TRestoreSessionResult {
     // If a restoration is already in progress, return the existing promise
     if (this.restoreSessionPromise) {
       return await this.restoreSessionPromise;
@@ -95,6 +99,9 @@ export class AuthApplication {
         try {
           return await this.restoreGrantSession(grantRecordId);
         } finally {
+          // Same bound as the cookie leg: a `#s=` captured on this load must
+          // not survive into a later restore after this one signs out.
+          discardFragmentSessionExport();
           this.restoreSessionPromise = null;
         }
       })();
@@ -114,7 +121,7 @@ export class AuthApplication {
     // flag for the whole restore+finalization span so no leg can leave a loading gap.
     this.restoreSessionPromise = (async () => {
       try {
-        return await this.runSessionRestore({ persistedExport, consumerOrigin });
+        return await this.runSessionRestore({ persistedExport, consumerOrigin, confirmSessionHandoff });
       } finally {
         // The first restore decision of this page load has run (whichever leg
         // decided it) — drop any cached `#s=` export so a later same-tab
@@ -130,9 +137,11 @@ export class AuthApplication {
   private static async runSessionRestore({
     persistedExport,
     consumerOrigin,
+    confirmSessionHandoff,
   }: {
     persistedExport: string | null;
     consumerOrigin: string | undefined;
+    confirmSessionHandoff: (pubky: Pubky) => Promise<boolean>;
   }): TRestoreSessionResult {
     let keepPersistedExport = false;
 
@@ -159,7 +168,15 @@ export class AuthApplication {
     if (fragmentExport) {
       const fromFragment = await this.restoreSessionFromExport(fragmentExport);
       if (fromFragment.session) {
-        return { status: 'restored', session: fromFragment.session };
+        // Any page can link here with a `#s=` for a session the browser holds a
+        // cookie for, including one a third party planted. Nothing binds the
+        // hand-off to this device, so the user confirms the identity first.
+        if (await confirmSessionHandoff(Identity.z32FromSession({ session: fromFragment.session }))) {
+          return { status: 'restored', session: fromFragment.session };
+        }
+        // Declined: the bridge must not apply an identity the user just refused.
+        suppressVibeSessionAutoRestore();
+        return this.unresolvedConsumerRestore(keepPersistedExport);
       }
     }
 
@@ -193,6 +210,14 @@ export class AuthApplication {
     let session: Session | null = null;
     try {
       session = await HomeserverService.restoreGrantSession(recordId);
+      if (!capabilitiesMatchFullGrant(session.info.capabilities)) {
+        Logger.warn('Stored grant session does not hold the full Shop grant; removing its record');
+        await HomeserverService.logout({ session }).catch((logoutError) => {
+          Logger.warn('Failed to sign out a narrow grant session', { logoutError });
+        });
+        await this.removeGrantSession(recordId);
+        return { status: 'signed-out' };
+      }
       await HomeserverService.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
       return { status: 'restored', session };
     } catch (error) {
@@ -360,6 +385,23 @@ export class AuthApplication {
 
   static isGrantSession(session: Session | null | undefined): boolean {
     return HomeserverService.isGrantSession(session);
+  }
+
+  /**
+   * A grant session holds exactly the Shop grant (`CAPABILITIES`), so it never
+   * needs a step-up re-approval. An approval for anything narrower is signed
+   * out and refused, the way the Ring token path refuses it.
+   */
+  static async assertFullGrantSession(session: Session): Promise<void> {
+    if (capabilitiesMatchFullGrant(session.info.capabilities)) return;
+    await HomeserverService.logout({ session }).catch((logoutError) => {
+      Logger.warn('Failed to sign out a narrow grant session', { logoutError });
+    });
+    throw Err.validation(
+      ValidationErrorCode.INVALID_INPUT,
+      'This approval does not include the full Shop permission list. Scan again from Shop.',
+      { service: ErrorService.Homeserver, operation: 'assertFullGrantSession' },
+    );
   }
 
   static async saveGrantSession(session: Session): Promise<string> {

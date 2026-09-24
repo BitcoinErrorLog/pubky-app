@@ -66,8 +66,10 @@ export function QrCodeSlot({
     return blurredQr;
   }
 
+  // The URL carries the relay channel secret: it is drawn into the QR only,
+  // never written to a DOM attribute where a CSS attribute selector can read it.
   return (
-    <span data-testid="qr-auth-url" data-auth-url={url} className="contents">
+    <span data-testid="qr-auth-url" className="contents">
       <QRCodeSVG value={url} size={size} className={cn(activeQrHasHoverEffect && HOVER_OPACITY)} />
       {showRingLogo && (
         <Image

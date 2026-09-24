@@ -532,6 +532,20 @@ export async function abandonCliClaim(config: MarketplaceGrantConfig, stateId: s
   `;
 }
 
+/**
+ * Abandons a claim whose lease lapsed (its claimer crashed or timed out).
+ * The database clock decides the lapse, the same rule as the cleanup job.
+ */
+export async function abandonLapsedCliClaim(config: MarketplaceGrantConfig, stateId: string): Promise<boolean> {
+  const result = await grantSql(config)`
+    UPDATE shop_grant_bff.cli_flow_state
+    SET status = 'abandoned', context_sealed = NULL, result_token_sealed = NULL, terminal_at = now(),
+        lease_owner = NULL, lease_until = NULL, version = version + 1
+    WHERE state_id = ${stateId} AND status = 'claiming' AND lease_until <= now()
+  `;
+  return result.count === 1;
+}
+
 export async function consumeCliRateLimit(
   config: MarketplaceGrantConfig,
   bucketKey: string,

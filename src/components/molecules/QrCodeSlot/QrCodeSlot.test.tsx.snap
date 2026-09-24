@@ -4,7 +4,6 @@ exports[`QrCodeSlot - Snapshots > matches snapshot for a non-default size 1`] = 
 <div>
   <span
     class="contents"
-    data-auth-url="auth-url"
     data-testid="qr-auth-url"
   >
     <svg
@@ -30,7 +29,6 @@ exports[`QrCodeSlot - Snapshots > matches snapshot for active QR with hover effe
 <div>
   <span
     class="contents"
-    data-auth-url="auth-url"
     data-testid="qr-auth-url"
   >
     <svg
@@ -56,7 +54,6 @@ exports[`QrCodeSlot - Snapshots > matches snapshot for active QR without hover e
 <div>
   <span
     class="contents"
-    data-auth-url="auth-url"
     data-testid="qr-auth-url"
   >
     <svg

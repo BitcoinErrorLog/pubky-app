@@ -400,6 +400,16 @@ describe('CommerceApplication.publishOrderReceipts publication status (step-up O
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('a grant session refused with 403 reports unavailable, not a step-up', async () => {
+    grantCapableSession();
+    vi.spyOn(HomeserverService, 'isCurrentSessionGrant').mockReturnValue(true);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(forbiddenError());
+
+    await expect(
+      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770219')]),
+    ).resolves.toBe('unavailable');
+  });
+
   it('reports needs_reauth when the private read is refused with 403 mid-pass', async () => {
     grantCapableSession();
     vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(forbiddenError());

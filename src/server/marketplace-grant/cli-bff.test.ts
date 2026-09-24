@@ -148,6 +148,29 @@ describe('CLI grant BFF', () => {
     resetMarketplaceGrantConfigForTests();
   });
 
+  it("challenges a NAT peer creates for someone's pubky never lock the owner out", async () => {
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createCliChallenge } = await import('./cli-bff');
+    const buckets = new Map<string, number>();
+    consumeCliRateLimit.mockImplementation(async (_config: unknown, key: string, limit: number) => {
+      const count = (buckets.get(key) ?? 0) + 1;
+      buckets.set(key, count);
+      return count <= limit;
+    });
+    const request = () =>
+      jsonRequest(
+        { pubky, result_cpk: pubky, result_delivery_id: deliveryId },
+        { 'x-vercel-forwarded-for': '203.0.113.66' },
+      );
+
+    // Five was the old per-pubky allowance; the peer spends it naming the owner's pubky.
+    for (let i = 0; i < 5; i += 1) await createCliChallenge(request());
+
+    await expect(createCliChallenge(request())).resolves.toMatchObject({ proof_uri: expect.stringContaining(pubky) });
+    expect(buckets.size).toBe(1);
+  });
+
   it('returns 404 grant_unavailable when the CLI flag is off', async () => {
     process.env.SHOP_BFF_CLI_GRANT_ENABLED = 'false';
     resetMarketplaceGrantConfigForTests();

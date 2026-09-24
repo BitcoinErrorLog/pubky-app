@@ -20,26 +20,19 @@ vi.mock('@/hooks/useStepUpReauth/useStepUpReauth', () => ({
   useStepUpReauth: () => reauth,
 }));
 
-const grant = vi.hoisted(() => ({ isGrantSession: false }));
-vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
-  useIsGrantSession: () => grant.isGrantSession,
-}));
-
 describe('MarketplaceReauthDialog', () => {
   beforeEach(() => {
-    grant.isGrantSession = false;
     vi.mocked(reauth.start).mockClear();
   });
 
-  it('grant session sees refusal not classic qr (step-up)', async () => {
-    grant.isGrantSession = true;
+  it('opening starts a fresh step-up flow and shows its QR', async () => {
     render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
-    expect(screen.getByTestId('grant-session-refusal')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Copy authorization link')).not.toBeInTheDocument();
-    expect(reauth.start).not.toHaveBeenCalled();
+    expect(reauth.start).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('Copy authorization link')).toBeInTheDocument();
+    expect(screen.queryByTestId('grant-session-refusal')).not.toBeInTheDocument();
   });
 
   it('asks for a sign-in in product language and does not print capability paths', async () => {

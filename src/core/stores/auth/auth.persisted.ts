@@ -63,6 +63,18 @@ export function hasPersistedAuthIdentity(): boolean {
   return readPersistedAuthIdentity().present;
 }
 
+/** The BrowserSessionStore record id a signed-in grant session (any tab) points at, if one is persisted. */
+export function readPersistedGrantSessionRecordId(): string | null {
+  try {
+    const raw = globalThis.localStorage?.getItem(AUTH_PERSIST_KEY);
+    if (!raw) return null;
+    const state = (JSON.parse(raw) as { state?: { grantSessionRecordId?: unknown } }).state;
+    return isNonEmptyString(state?.grantSessionRecordId) ? state.grantSessionRecordId : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Drop the persist blob so a later `init` of a different pubky is not
  * treated as a foreign clobber. Only call this inside the finalization lock

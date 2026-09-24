@@ -27,6 +27,11 @@ import {
   shouldAbortIdentityPersist,
   shouldSkipDestructiveCleanup,
 } from '@/controllers/auth/auth-identity-guard';
+import {
+  clearGrantKeyCleanupPending,
+  isGrantKeyCleanupPending,
+  markGrantKeyCleanupPending,
+} from '@/controllers/auth/grant-key-cleanup';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { NotificationCoordinator } from '@/coordinators/notifications/notifications';
 import { StreamCoordinator } from '@/coordinators/streams/stream';
@@ -55,6 +60,7 @@ import {
   clearPersistedAuthIdentity,
   hasPersistedAuthIdentity,
   readPersistedAuthIdentity,
+  readPersistedGrantSessionRecordId,
 } from '@/stores/auth/auth.persisted';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -67,6 +73,7 @@ import { useNotificationStore } from '@/stores/notification/notification.store';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import { ONBOARDING_PERSIST_KEY } from '@/stores/persistedKeys';
 import { useSearchStore } from '@/stores/search/search.store';
+import { useSessionHandoffStore } from '@/stores/sessionHandoff/sessionHandoff.store';
 import { useSettingsStore } from '@/stores/settings/settings.store';
 import type { SettingsState } from '@/stores/settings/settings.types';
 import { useSignInStore } from '@/stores/signIn/signIn.store';
@@ -127,6 +134,25 @@ export class AuthController {
 
   /** `authFlowGeneration` when each sign-in QR (Ring or Bitkit) started, keyed by its approved session. */
   private static sessionFlowGeneration = new WeakMap<Session, number>();
+
+  /** Resolver of the `#s=` hand-off prompt the user has not answered yet. */
+  private static pendingSessionHandoff: ((accepted: boolean) => void) | null = null;
+
+  private static async confirmSessionHandoff(pubky: Pubky): Promise<boolean> {
+    this.pendingSessionHandoff?.(false);
+    return await new Promise<boolean>((resolve) => {
+      this.pendingSessionHandoff = resolve;
+      useSessionHandoffStore.getState().setPendingPubky(pubky);
+    });
+  }
+
+  /** The user's answer to the `#s=` hand-off prompt. Only `true` signs the tab in. */
+  static answerSessionHandoff(accepted: boolean): void {
+    const resolve = this.pendingSessionHandoff;
+    this.pendingSessionHandoff = null;
+    useSessionHandoffStore.getState().setPendingPubky(null);
+    resolve?.(accepted);
+  }
 
   /**
    * Single-run guard for cleanupLocalState: concurrent Controller invocations
@@ -271,7 +297,10 @@ export class AuthController {
     authStore.setIsRestoringSession(true);
     let cleanedUp = false;
     try {
-      const result = await AuthApplication.restorePersistedSession({ authStore });
+      const result = await AuthApplication.restorePersistedSession({
+        authStore,
+        confirmSessionHandoff: (pubky) => this.confirmSessionHandoff(pubky),
+      });
       if (result.status === 'restored') {
         const { session } = result;
         const pubky = Identity.z32FromSession({ session });
@@ -527,6 +556,7 @@ export class AuthController {
 
     const authStore = useAuthStore.getState();
     let persistAborted = false;
+    let grantSaveError: unknown = null;
 
     try {
       this.cancelAllAuthFlows();
@@ -551,14 +581,21 @@ export class AuthController {
           if (epochAtStart === undefined || epochAtStart !== readAuthEpoch()) {
             return false;
           }
-          grantSessionRecordId = await AuthApplication.saveGrantSession(session);
+          // Recorded before the save: a save that fails, or a tab that closes
+          // mid-save, leaves an obligation the next load can discharge.
+          const cleanupAlreadyPending = isGrantKeyCleanupPending();
+          markGrantKeyCleanupPending();
+          try {
+            grantSessionRecordId = await AuthApplication.saveGrantSession(session);
+          } catch (error) {
+            grantSaveError = error;
+            return false;
+          }
+          authStore.init({ session, currentUserPubky: pubky, hasProfile: null, grantSessionRecordId });
+          if (!cleanupAlreadyPending) clearGrantKeyCleanupPending();
+          return true;
         }
-        authStore.init({
-          session,
-          currentUserPubky: pubky,
-          hasProfile: null,
-          ...(grantSessionRecordId ? { grantSessionRecordId } : {}),
-        });
+        authStore.init({ session, currentUserPubky: pubky, hasProfile: null });
         return true;
       });
       if (!persisted) {
@@ -566,6 +603,14 @@ export class AuthController {
         await AuthApplication.logout({ session }).catch((logoutError) => {
           Logger.warn('Failed to sign out a session that lost the local-state race', { logoutError });
         });
+        if (grantSaveError !== null) {
+          // A failed save can leave a partial record and this flow's delegated
+          // key in IndexedDB. The grant is signed out above (that needs the
+          // key), so the key goes now. Sign-out uses the same order. If the
+          // removal fails too, the pending marker keeps the obligation.
+          await this.settlePendingGrantKeyCleanup();
+          throw grantSaveError;
+        }
         throw createCanceledError();
       }
 
@@ -882,6 +927,8 @@ export class AuthController {
    * saved to BrowserSessionStore at completion.
    */
   static async getGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    // Before the new flow creates its key: the cleanup removes every key.
+    await this.settlePendingGrantKeyCleanup();
     const epochAtStart = readAuthEpoch();
     BootstrapApplication.cancelModerationFollow();
     const captured = this.captureAuthIdentity();
@@ -912,6 +959,7 @@ export class AuthController {
         if (this.lostToAnotherSignIn(session)) {
           return await this.discardLosingApproval(session);
         }
+        await AuthApplication.assertFullGrantSession(session);
         this.grantEpochAtStart.set(session, epochAtStart);
         return session;
       });
@@ -924,6 +972,17 @@ export class AuthController {
   }
 
   static async getStepUpAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    // A grant session already holds the full Shop grant (checked at sign-in
+    // and restore), and a Ring step-up would swap it for a cookie session
+    // while its grant record stays stored. Refused here so every caller is
+    // covered even if a new grant path skips those checks.
+    if (AuthApplication.isGrantSession(useAuthStore.getState().session)) {
+      throw Err.auth(
+        AuthErrorCode.UNAUTHORIZED,
+        'Bitkit sign-in already includes every Shop permission. If this keeps asking, sign out and sign in with Bitkit again.',
+        { service: ErrorService.Local, operation: 'getStepUpAuthUrl' },
+      );
+    }
     if (!isSingleApprovalSignInEnabled()) {
       return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl(), { preserveLocalState: true });
     }
@@ -1253,6 +1312,8 @@ export class AuthController {
     // Bump before any await so an in-flight restore (sharing the Application
     // singleton promise) can tell its restored-branch result is stale.
     this.logoutGeneration += 1;
+    // An unanswered `#s=` prompt holds the shared restore this logout joins.
+    this.answerSessionHandoff(false);
     // Set before any await so RouteGuard cannot re-bridge between cleanup and this flag.
     suppressVibeSessionAutoRestore();
     AuthApplication.abortInFlightBridgeRequest();
@@ -1346,7 +1407,32 @@ export class AuthController {
     await withAuthFinalizationLock(async () => {
       bumpAuthEpoch();
       await AuthApplication.clearGrantSessions();
+      clearGrantKeyCleanupPending();
     });
+  }
+
+  /**
+   * Discharges a pending grant-key cleanup (see `grant-key-cleanup.ts`):
+   * removes every stored grant record and key, then drops the marker once the
+   * store reads back empty. A signed-in grant session in any tab still needs
+   * its own record, so the cleanup waits for that session's sign-out, which
+   * removes every key and drops the marker. A failed removal keeps the marker
+   * for the next attempt. Returns whether nothing is left pending.
+   */
+  static async settlePendingGrantKeyCleanup(): Promise<boolean> {
+    if (!isGrantKeyCleanupPending()) return true;
+    try {
+      return await withAuthFinalizationLock(async () => {
+        if (!isGrantKeyCleanupPending()) return true;
+        if (useAuthStore.getState().grantSessionRecordId || readPersistedGrantSessionRecordId()) return false;
+        await AuthApplication.clearGrantSessions();
+        clearGrantKeyCleanupPending();
+        return true;
+      });
+    } catch (error) {
+      Logger.error('Grant keys left by a failed save are still stored; the cleanup is retried later', { error });
+      return false;
+    }
   }
 
   /**

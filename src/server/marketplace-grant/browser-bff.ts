@@ -20,6 +20,7 @@ import {
 } from './crypto';
 import {
   abandonCliClaim,
+  abandonLapsedCliClaim,
   acquireCliClaim,
   assertCliGrantSchema,
   bindCliFlow,
@@ -96,12 +97,12 @@ export async function createBrowserChallenge(request: Request): Promise<BrowserC
   await assertCliGrantSchema(config);
   const input = await parseStrictJson(request, challengeBody);
   const pubky = canonicalZ32(input.pubky);
+  // No per-pubky bucket, for the reason at `createCliChallenge`.
   await rateLimit(
     config,
     `browser_challenge_ip:${clientIp(request, config.trustedProxyCount)}`,
     config.createPerIpPerMinute,
   );
-  await rateLimit(config, `browser_challenge_pubky:${pubky}`, config.createPerPubkyPerMinute);
 
   const challengeId = randomUUID();
   const derived = deriveBrowserBootstrap(config, config.stateKeyEpoch, challengeId);
@@ -327,7 +328,12 @@ export async function pollBrowserFlow(
   if (flow.status === 'expired') throw new BffError(410, 'flow_expired');
   if (flow.status === 'cancelled') throw new BffError(410, 'flow_cancelled');
   if (flow.status === 'mismatch') return { state_id: flow.state_id, status: 'mismatch' };
-  if (flow.status === 'claiming') throw new BffError(409, 'claim_in_progress');
+  if (flow.status === 'claiming') {
+    // A claimer that died mid-claim leaves the row here until cleanup; once
+    // its lease lapses the flow ends and the browser starts a fresh approval.
+    if (await abandonLapsedCliClaim(config, flow.state_id)) throw new BffError(422, 'fresh_approval_required');
+    throw new BffError(409, 'claim_in_progress');
+  }
   if (flow.status !== 'awaiting' || !flow.flow_id) {
     throw new BffError(422, 'fresh_approval_required');
   }
@@ -390,9 +396,13 @@ export async function cancelBrowserFlow(
   const { config, flow } = await authenticatedBrowserFlow(request, flowCookie, stateIdParam);
   await parseStrictJson(request, emptyBody);
   if (flow.status !== 'awaiting' && flow.status !== 'creating') throw new BffError(403, 'result_denied');
+  // Terminal first, so a context that cannot be opened still ends the flow
+  // and no later poll can claim it. The service flow then expires on its own.
+  // A flow whose key epoch left the config never reaches this line: its
+  // cookie cannot be checked, and it cannot be claimed either.
+  await terminalizeCliFlow(config, flow.state_id, 'cancelled');
   if (flow.flow_id && flow.context_sealed) {
     const context = openContext(config, flow);
     await cancelGrant(config, flow.flow_id, context.resultDeliveryId);
   }
-  await terminalizeCliFlow(config, flow.state_id, 'cancelled');
 }
