@@ -95,6 +95,9 @@ export class AuthApplication {
         try {
           return await this.restoreGrantSession(grantRecordId);
         } finally {
+          // Same bound as the cookie leg: a `#s=` captured on this load must
+          // not survive into a later restore after this one signs out.
+          discardFragmentSessionExport();
           this.restoreSessionPromise = null;
         }
       })();

@@ -292,6 +292,25 @@ describe('AuthApplication', () => {
         expect(cookieRestoreSpy).not.toHaveBeenCalled();
       });
 
+      it('grant restore drops a #s= export captured on the same load', async () => {
+        vi.spyOn(HomeserverService, 'restoreGrantSession').mockRejectedValue(createAuthError());
+        vi.spyOn(HomeserverService, 'removeGrantSession').mockResolvedValue(undefined);
+        vibeSessionFragment.resetFragmentSessionExportCache();
+        window.history.replaceState(null, '', '/marketplace#s=handoff-export');
+        try {
+          vibeSessionFragment.consumeFragmentSessionExport();
+          expect(vibeSessionFragment.hasPendingFragmentSessionExport()).toBe(true);
+
+          await AuthApplication.restorePersistedSession({ authStore: grantStore() });
+
+          expect(vibeSessionFragment.hasPendingFragmentSessionExport()).toBe(false);
+          expect(vibeSessionFragment.takeFragmentSessionExport()).toBeNull();
+        } finally {
+          vibeSessionFragment.resetFragmentSessionExportCache();
+          window.history.replaceState(null, '', '/');
+        }
+      });
+
       it('restore never calls save', async () => {
         vi.spyOn(HomeserverService, 'restoreGrantSession').mockResolvedValue(grantSession());
         vi.spyOn(HomeserverService, 'assertUserHomeserverAllowed').mockResolvedValue(undefined);
