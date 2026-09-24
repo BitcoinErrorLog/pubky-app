@@ -86,7 +86,7 @@ export function MarketplaceOrders() {
   const orderCounts = getOrderTabCounts(historyOrders, currentUserPubky);
   const visibleOrders = historyOrders.filter((view) => isOrderInTab(view, activeTab, currentUserPubky));
 
-  useMarkMarketplaceOrdersSeen(!isLoading && !error && !needsSession, orders);
+  useMarkMarketplaceOrdersSeen(!isLoading && !error && !needsSession);
 
   useEffect(() => {
     if (isLoading) return;

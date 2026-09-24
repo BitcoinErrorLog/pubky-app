@@ -22,7 +22,7 @@ describe('useMarkMarketplaceOrdersSeen', () => {
   });
 
   it('saves the account checkpoint once orders are on screen', async () => {
-    const { rerender } = renderHook(({ showing }) => useMarkMarketplaceOrdersSeen(showing, []), {
+    const { rerender } = renderHook(({ showing }) => useMarkMarketplaceOrdersSeen(showing), {
       initialProps: { showing: false },
     });
     expect(CommerceController.markOrdersAttentionSeen).not.toHaveBeenCalled();
@@ -34,7 +34,7 @@ describe('useMarkMarketplaceOrdersSeen', () => {
 
   it('does nothing when signed out', async () => {
     state.currentUserPubky = null;
-    renderHook(() => useMarkMarketplaceOrdersSeen(true, []));
+    renderHook(() => useMarkMarketplaceOrdersSeen(true));
     await Promise.resolve();
     expect(CommerceController.markOrdersAttentionSeen).not.toHaveBeenCalled();
   });
@@ -44,7 +44,22 @@ describe('useMarkMarketplaceOrdersSeen', () => {
       throw new TypeError('CommerceController.markOrdersAttentionSeen is not a function');
     });
 
-    expect(() => renderHook(() => useMarkMarketplaceOrdersSeen(true, []))).not.toThrow();
+    expect(() => renderHook(() => useMarkMarketplaceOrdersSeen(true))).not.toThrow();
     await waitFor(() => expect(CommerceController.markOrdersAttentionSeen).toHaveBeenCalled());
+  });
+
+  it('saves again when the tab comes back into view, and not while it is hidden', async () => {
+    renderHook(() => useMarkMarketplaceOrdersSeen(true));
+    await waitFor(() => expect(CommerceController.markOrdersAttentionSeen).toHaveBeenCalledOnce());
+
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await Promise.resolve();
+    expect(CommerceController.markOrdersAttentionSeen).toHaveBeenCalledOnce();
+
+    visibility.mockReturnValue('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await waitFor(() => expect(CommerceController.markOrdersAttentionSeen).toHaveBeenCalledTimes(2));
+    visibility.mockRestore();
   });
 });
