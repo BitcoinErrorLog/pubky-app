@@ -23,6 +23,13 @@ export type TDownloadDataParams = {
   setProgress?: (progress: number) => void;
 };
 
+/** Text fields an existing profile can prefill into Create profile. */
+export type TProfileSeed = {
+  name: string;
+  bio: string;
+  links: NexusUserLink[];
+};
+
 export type TApplicationCommitUpdateDetailsParams = {
   pubky: Pubky;
   name: string;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 import { HOME_ROUTES, PROFILE_ROUTES, SETTINGS_ROUTES } from '@/app/routes';
@@ -9,11 +9,10 @@ import { AuthController } from '@/controllers/auth/auth';
 import { FileController } from '@/controllers/file/file';
 import { ProfileController } from '@/controllers/profile/profile';
 import { AppError } from '@/libs/error/error';
-import { isAuthError, requiresLogin } from '@/libs/error/error.utils';
+import { isAuthError, isWritePathNotAllowedError, requiresLogin } from '@/libs/error/error.utils';
 import { getImageUploadSizeLimitToastMessage } from '@/libs/image/imageUploadSizeLimit';
 import { Logger } from '@/libs/logger/logger';
 import { safeExternalUrlSchema } from '@/libs/utils/safeExternalUrl';
-import { generateRandomUsername } from '@/libs/utils/utils';
 import { useToast } from '@/molecules/Toaster/use-toast';
 import { UserValidator } from '@/pipes/user/user.validator';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
@@ -23,6 +22,7 @@ import {
   type SubmitText,
   type UseProfileFormProps,
   type UseProfileFormReturn,
+  WRITE_PATH_NOT_ALLOWED_MESSAGE,
 } from './useProfileForm.types';
 
 const DEFAULT_LINKS: ProfileLink[] = [
@@ -50,11 +50,8 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Generate a stable initial username for create mode (only generated once)
-  const initialUsername = useMemo(() => (mode === 'create' ? generateRandomUsername() : ''), [mode]);
-
   // Form state
-  const [name, setName] = useState(initialUsername);
+  const [name, setName] = useState('');
   const [bio, setBio] = useState('');
   const [links, setLinks] = useState<ProfileLink[]>(DEFAULT_LINKS);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -111,6 +108,28 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
       setIsLoading(false);
     }
   }, [mode, userDetails, pubky]);
+
+  // Create mode: prefill from a profile the account already published (Pubky
+  // App or Bitkit). Never overwrites a field the user has already typed in.
+  useEffect(() => {
+    if (mode !== 'create' || !pubky) return;
+    let cancelled = false;
+    void ProfileController.readProfileSeed({ pubky }).then((seed) => {
+      if (cancelled || !seed) return;
+      setName((current) => (current === '' ? seed.name : current));
+      setBio((current) => (current === '' ? seed.bio : current));
+      if (seed.links.length > 0) {
+        setLinks((current) =>
+          current.every((link) => link.url === '')
+            ? seed.links.map((link) => ({ label: link.title.toUpperCase(), url: link.url }))
+            : current,
+        );
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, pubky]);
 
   // Cleanup blob URLs on unmount
   useEffect(() => {
@@ -373,6 +392,17 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
           toast({
             variant: 'error',
             description: 'Session expired. Please sign in.',
+          });
+          return;
+        }
+
+        // The account's homeserver storage does not allow Pubky App data
+        if (isWritePathNotAllowedError(error)) {
+          Logger.error('Homeserver account does not allow saving the profile', error);
+          setSubmitText(PROFILE_SUBMIT_TEXT.tryAgain);
+          toast({
+            variant: 'error',
+            description: WRITE_PATH_NOT_ALLOWED_MESSAGE,
           });
           return;
         }
