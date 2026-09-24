@@ -220,6 +220,12 @@ export default defineConfig({
           allowedMismatchedPixels: 80,
           allowedMismatchedPixelRatio: 0.00005,
         },
+        // One file at a time. With file parallelism, Chromium and Firefox
+        // open every spec while Vite is still bundling dependencies. The
+        // server drops those sockets, and Vitest aborts with a closed
+        // browser before any test runs. Playwright already passes
+        // --disable-dev-shm-usage, and a 2GB /dev/shm does not prevent it.
+        fileParallelism: false,
       }),
       vrtProject({
         name: 'vrt-marketplace',

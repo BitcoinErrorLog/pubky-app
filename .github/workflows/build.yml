@@ -17,9 +17,54 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Path filter is the `paths` job, not `on.pull_request.paths`.
+# A workflow skipped by a trigger path filter leaves the required check
+# `Check NextJS Build` Pending. A job skipped by `if` reports Success.
+# An unrelated pull request sets run=false and skips the build on purpose.
+# A failed or cancelled path filter must not skip it: the job runs and exits 1.
+# Push, merge_group, and workflow_dispatch always build.
 jobs:
+  paths:
+    name: Path filter
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Match build paths
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "build paths match: true (not a pull request)"
+            exit 0
+          fi
+          git diff --name-only "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed.txt"
+          run=false
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            case "$file" in
+              src/*|public/*|vendor/*|*.css|package.json|package-lock.json|next.config.ts|next.config.test.ts|postcss.config.mjs|tsconfig*.json|scripts/locks-sdk-smoke.mjs|scripts/paykit-wasm-smoke.mjs|scripts/ci-launch-e2e.sh|.github/workflows/build.yml)
+                run=true
+                break
+                ;;
+            esac
+          done < "$RUNNER_TEMP/changed.txt"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "build paths match: $run"
+
   build:
     name: Check NextJS Build
+    needs: paths
+    if: always() && (needs.paths.result != 'success' || needs.paths.outputs.run == 'true')
     runs-on: ubuntu-latest
     # Last-10 median was 47 min because paykit-wasm-smoke held the event loop
     # after "passed". Post-fix remainder is install (~40s) + next build (~3 min)
@@ -27,6 +72,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Fail closed when the path filter did not succeed
+        if: needs.paths.result != 'success'
+        run: |
+          echo "Path filter result is ${{ needs.paths.result }}. Check NextJS Build fails closed."
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -38,6 +89,15 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+            nextjs-${{ runner.os }}-
 
       - name: Smoke test vendored Locks SDK
         run: node scripts/locks-sdk-smoke.mjs
@@ -107,7 +167,7 @@ jobs:
   launch-e2e:
     name: launch-e2e
     needs: build
-    if: github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/shop-')
+    if: always() && needs.build.result == 'success' && github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/shop-')
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.60.0-noble
