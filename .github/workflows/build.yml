@@ -216,6 +216,7 @@ jobs:
           LAUNCH_E2E_BASE_URL: http://127.0.0.1:3000
           LAUNCH_E2E_SERVICE_URL: https://staging-api.pubky.app
           LAUNCH_E2E_SELLER_SECRET_HEX: ${{ secrets.LAUNCH_E2E_SELLER_SECRET_HEX }}
+          LAUNCH_E2E_REQUIRE_SELLER_BOARD: '1'
         run: bash scripts/ci-launch-e2e.sh
 
       - name: Upload launch-e2e log
