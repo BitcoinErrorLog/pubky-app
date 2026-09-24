@@ -23,9 +23,9 @@ import {
   toAppError,
 } from '@/libs/error/error.utils';
 import { HttpMethod } from '@/libs/http/http.types';
+import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
 import { sleep } from '@/libs/utils/utils';
-import { Identity } from '@/libs/identity/identity';
 import { isVibeSessionBridgeLegSkipped, suppressVibeSessionAutoRestore } from '@/libs/vibe-session/auto-restore';
 import { requestFromBridge } from '@/libs/vibe-session/bridge';
 import { getVibeId, getVibeSessionBridgeOrigin } from '@/libs/vibe-session/config';

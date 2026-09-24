@@ -880,7 +880,9 @@ describe('browser purchase bootstrap BFF', () => {
       await createBrowserChallenge(from('203.0.113.66'));
     }
     await expect(createBrowserChallenge(from('203.0.113.66'))).rejects.toEqual(new BffError(429, 'retry_later', 60));
-    await expect(createBrowserChallenge(from('198.51.100.7'))).resolves.toMatchObject({ proof_uri: expect.any(String) });
+    await expect(createBrowserChallenge(from('198.51.100.7'))).resolves.toMatchObject({
+      proof_uri: expect.any(String),
+    });
   });
 
   // A9
