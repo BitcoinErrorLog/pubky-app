@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_BITCOIN_BASE_UNITS } from '@/libs/commerce/pricing';
+import { orderStateSchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import sellerOffersCapture from '@/test/fixtures/commerce/live/seller-offers-v062.json';
 import { ACCEPTED_OFFER_AWARD_WIRE_FIXTURE, createOfferFixture } from '@/test/fixtures/commerce/offers';
@@ -215,6 +216,28 @@ describe('marketplace order projection — offer-priced orders', () => {
   it('keeps ordinary order fixtures parsing unchanged', () => {
     expect(marketplaceOrderSchema.safeParse(createOrderFixture('pending_payment')).success).toBe(true);
     expect(marketplaceOrderSchema.safeParse(createBitcoinQuotedOrderFixture()).success).toBe(true);
+  });
+});
+
+describe('marketplace order projection — partial refund', () => {
+  it('keeps refunded_partial off the vendored order enum and readable on the order projection', () => {
+    expect(orderStateSchema.safeParse('refunded_partial').success).toBe(false);
+    const parsed = marketplaceOrderSchema.safeParse(
+      createOrderFixture('refunded_partial', {
+        total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+        externalRefund: {
+          amountMinor: 189,
+          transactionId: 'PAYPAL-REFUND-189',
+          recordedAt: '2026-08-19T18:00:00.000Z',
+        },
+      }),
+    );
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.state).toBe('refunded_partial');
+      expect(parsed.data.externalRefund).toMatchObject({ amountMinor: 189, transactionId: 'PAYPAL-REFUND-189' });
+    }
   });
 });
 

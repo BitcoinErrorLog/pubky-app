@@ -44,7 +44,10 @@ export function createOrderFixture(
   state: MarketplaceOrder['state'],
   overrides: Partial<MarketplaceOrder> = {},
 ): MarketplaceOrder {
-  const stateIndex = ORDER_STATES.indexOf(state) + 1;
+  const listed = ORDER_STATES.indexOf(state as (typeof ORDER_STATES)[number]);
+  // `refunded_partial` is accepted on the order read ahead of the vendored
+  // every-state list, so it must still produce a positive revision.
+  const stateIndex = listed >= 0 ? listed + 1 : ORDER_STATES.length + 1;
   const isShipped = state === 'shipped' || state === 'delivered' || state === 'completed' || state === 'closed';
   const isReturning = state === 'return_requested' || state === 'return_approved' || state === 'return_received';
 
@@ -206,6 +209,7 @@ function defaultNextActor(state: MarketplaceOrder['state']): MarketplaceOrder['n
     case 'completed':
     case 'cancelled':
     case 'refunded_external':
+    case 'refunded_partial':
     case 'closed':
       return 'none';
   }

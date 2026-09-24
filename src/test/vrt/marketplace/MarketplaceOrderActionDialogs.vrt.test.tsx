@@ -103,7 +103,7 @@ describe('Marketplace order action dialogs — visual regression', () => {
       </ActionsHarness>,
       { viewport: VRT_VIEWPORT_DESKTOP },
     );
-    await openDialog(screen.getByRole('button', { name: 'Record external refund' }));
+    await openDialog(screen.getByRole('button', { name: 'Record refund' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-order-refund-open-desktop');
   });
 

@@ -1,4 +1,11 @@
+import { vi } from 'vitest';
 import { applyMarketplaceStabilizerRewrite, injectMarketplaceZeroMotion } from './vrt.marketplace-zero-motion';
+
+// Orders attention is a live fetch. Marketplace baselines pin cart and
+// activity counts themselves; this stays at zero so those pixels hold.
+vi.mock('@/hooks/useMarketplaceOrdersAttention/useMarketplaceOrdersAttention', () => ({
+  useMarketplaceOrdersAttention: () => 0,
+}));
 
 // Shared `vrt.setup.ts` sets `transition: none` / `animation: none` on `*`.
 // `transition: none` wins over `transition-duration: 0s` and is the observer

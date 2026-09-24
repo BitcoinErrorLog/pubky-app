@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
+import { useMarketplaceNavAttention } from '@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
 import { HeaderButtonSignIn } from '../HeaderButtonSignIn/HeaderButtonSignIn';
@@ -52,6 +53,9 @@ vi.mock('@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery', () => (
 }));
 vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
   useMarketplaceCartCount: vi.fn(() => 0),
+}));
+vi.mock('@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention', () => ({
+  useMarketplaceNavAttention: vi.fn(() => 0),
 }));
 vi.mock('@/stores/search/search.store', () => ({
   useSearchStore: vi.fn(() => ({
@@ -189,6 +193,7 @@ describe('Header Components', () => {
     });
     vi.mocked(useNotificationStore).mockReturnValue({ selectUnread: () => 0 });
     vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
+    vi.mocked(useMarketplaceNavAttention).mockReturnValue(0);
     vi.mocked(useLiveQuery).mockReturnValue({ name: 'Test User', image: 'test-image.jpg' });
   });
 
@@ -599,6 +604,20 @@ describe('Header Components', () => {
         render(<HeaderNavigationButtons avatarName="TU" />);
         expect(document.querySelector('[data-cy="header-marketplace-btn-counter"]')).toHaveTextContent('21+');
         expect(screen.getByRole('button', { name: 'Marketplace, 22 items in cart' })).toBeInTheDocument();
+      } finally {
+        adapterMode.mockRestore();
+      }
+    });
+
+    it('adds orders and activity that need attention to the marketplace badge', () => {
+      const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      vi.mocked(useMarketplaceCartCount).mockReturnValue(0);
+      vi.mocked(useMarketplaceNavAttention).mockReturnValue(2);
+      try {
+        render(<HeaderNavigationButtons avatarName="TU" />);
+
+        expect(screen.getByRole('button', { name: 'Marketplace, 2 need attention' })).toBeInTheDocument();
+        expect(document.querySelector('[data-cy="header-marketplace-btn-counter"]')).toHaveTextContent('2');
       } finally {
         adapterMode.mockRestore();
       }

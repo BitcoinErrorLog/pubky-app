@@ -138,6 +138,9 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'review.update',
 ] satisfies MarketplaceCommand['kind'][]);
 
+/** A hung public config read must end in Checkout's retryable failure state, not an endless skeleton. */
+const SELLER_PAYMENT_CONFIG_TIMEOUT_MS = 10_000;
+
 /**
  * Transport for the durable Rust Marketplace Transaction Service
  * (`pubky-marketplace-service`). Differences from the sandbox transport are
@@ -703,7 +706,12 @@ export class MarketplaceTransactionService {
   static async getSellerPaymentConfig(sellerPubky: string): Promise<SellerPaymentConfig> {
     this.assertTransactionServiceMode('getSellerPaymentConfig');
     const url = `${getMarketplaceUrl()}/v0/sellers/${encodeURIComponent(sellerPubky)}/payment-config`;
-    const response = await safeFetch(url, { method: 'GET' }, ErrorService.Marketplace, 'getSellerPaymentConfig');
+    const response = await safeFetch(
+      url,
+      { method: 'GET', signal: AbortSignal.timeout(SELLER_PAYMENT_CONFIG_TIMEOUT_MS) },
+      ErrorService.Marketplace,
+      'getSellerPaymentConfig',
+    );
     await this.throwPaymentMethodError(response, 'getSellerPaymentConfig');
     const raw = await parseResponseOrThrow<unknown>(
       response,

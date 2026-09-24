@@ -32,8 +32,10 @@ import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/u
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { useKeyboardOffset } from '@/hooks/useKeyboardOffset/useKeyboardOffset';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
+import { useMarketplaceNavAttention } from '@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention';
 import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
+import { marketplaceNavAccessibleName } from '@/libs/commerce/marketplace-attention';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
 import { cn } from '@/libs/utils/utils';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
@@ -63,6 +65,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
   // postdates the local read checkpoint.
   const unreadMessages = useMessagesUnread();
   const marketplaceCartCount = useMarketplaceCartCount();
+  const marketplaceAttention = useMarketplaceNavAttention();
   const accountUnread = unreadNotifications + unreadMessages;
   const localAvatarUrl = useLocalFilesStore((state) => state.profile);
   const { isKeyboardVisible, keyboardOffset } = useKeyboardOffset();
@@ -141,15 +144,20 @@ export function MobileFooter({ className }: MobileFooterProps) {
           const Icon = item.icon;
           const itemIsActive = isNavItemActive(pathname, item);
           const isCollectionsItem = item.href === APP_ROUTES.COLLECTIONS;
-          const itemBadgeCount = item.href === APP_ROUTES.MARKETPLACE ? marketplaceCartCount : 0;
+          const itemBadgeCount = item.href === APP_ROUTES.MARKETPLACE ? marketplaceCartCount + marketplaceAttention : 0;
+          const marketplaceLabel =
+            item.href === APP_ROUTES.MARKETPLACE && marketplaceAttention > 0
+              ? marketplaceNavAccessibleName(marketplaceCartCount, marketplaceAttention)
+              : null;
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-label={
-                itemBadgeCount > 0
+                marketplaceLabel ??
+                (itemBadgeCount > 0
                   ? `${item.label}, ${itemBadgeCount} ${itemBadgeCount === 1 ? 'item' : 'items'} in cart`
-                  : item.label
+                  : item.label)
               }
               onClick={(event) => {
                 if (isAuthenticated && isCollectionsItem) {

@@ -5,9 +5,11 @@ import { useForm } from 'react-hook-form';
 import { getCarrierById, OTHER_CARRIER_ID } from '@/libs/commerce/carriers';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import {
+  formatOrderMajor,
+  majorToMinor,
   type MarketplaceOrderActionData,
   marketplaceOrderActionDefaults,
-  marketplaceOrderActionSchema,
+  marketplaceOrderActionSchemaFor,
 } from './useMarketplaceOrderAction.types';
 
 export function useMarketplaceOrderAction(
@@ -15,7 +17,7 @@ export function useMarketplaceOrderAction(
   actOnOrder: (order: MarketplaceOrder, kind: string, payload: Record<string, unknown>) => Promise<boolean>,
 ) {
   const form = useForm<MarketplaceOrderActionData>({
-    resolver: zodResolver(marketplaceOrderActionSchema),
+    resolver: zodResolver(marketplaceOrderActionSchemaFor(order.total)),
     defaultValues: marketplaceOrderActionDefaults,
     mode: 'onChange',
   });
@@ -27,7 +29,7 @@ export function useMarketplaceOrderAction(
     form.reset({
       ...marketplaceOrderActionDefaults,
       action,
-      amount: (order.total.amountMinor / 100).toFixed(2),
+      amount: formatOrderMajor(order.total),
       ...overrides,
     });
   };
@@ -55,12 +57,12 @@ export function useMarketplaceOrderAction(
         case 'return':
           succeeded = await actOnOrder(order, 'return.request', {
             reason: data.reason,
-            requestedAmountMinor: Math.round(Number(data.amount) * 100),
+            requestedAmountMinor: majorToMinor(data.amount, order.total.exponent),
           });
           break;
         case 'refund':
           succeeded = await actOnOrder(order, 'refund.record_external', {
-            amountMinor: Math.round(Number(data.amount) * 100),
+            amountMinor: majorToMinor(data.amount, order.total.exponent),
             transactionId: data.transactionId,
           });
           break;
@@ -74,9 +76,9 @@ export function useMarketplaceOrderAction(
           });
           break;
         case 'review_edit':
-          // Durable service only (24h edit window); `actOnOrder` sources
-          // `expected_revision` from the freshly loaded order and handles
-          // REVISION_CONFLICT with the refetch-and-retry pattern.
+          // Durable service only (24h edit window). `actOnOrder` sources
+          // `expected_revision` from the loaded order. A revision conflict
+          // re-reads the order and succeeds when that review is already there.
           succeeded = await actOnOrder(order, 'review.update', {
             rating: Number(data.rating),
             text: data.text,

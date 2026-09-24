@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { Bell, Eye, Gavel, HandCoins, MessageCircle } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
@@ -13,10 +13,14 @@ import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceNotifications } from '@/hooks/useMarketplaceNotifications/useMarketplaceNotifications';
+import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
+import { activityRowHref } from '@/libs/commerce/activity-links';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { partialRefundLabel } from '@/libs/commerce/partial-refund';
+import { returnActivityTitles } from '@/libs/commerce/return-activity-titles';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
@@ -26,6 +30,11 @@ import {
   getWatchAlertHeadline,
 } from '@/organisms/MarketplaceWatchAlertItem/MarketplaceWatchAlertItem.utils';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+import {
+  isIntegrityGapActivityType,
+  MARKETPLACE_ACTIVITY_LABELS,
+  marketplaceActivityLabel,
+} from '@/services/marketplace/marketplace-activity-copy';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /** Device-local alerts shown on this page before the service-delivered list. */
@@ -43,8 +52,38 @@ export function MarketplaceNotifications() {
     markAllRead,
     updatePreferences,
   } = useMarketplaceNotifications();
-  const unrecognizedCount = notifications.filter((notification) => 'kind' in notification).length;
+  const integrityGapCount = notifications.filter(
+    (notification) => 'kind' in notification && isIntegrityGapActivityType(notification.type),
+  ).length;
   const watchAlerts = useMarketplaceWatchAlertFeed();
+  const { orders, isLoading: ordersLoading } = useMarketplaceOrders();
+  const returnTitles = returnActivityTitles(
+    notifications.flatMap((notification) =>
+      'kind' in notification || notification.type !== 'return_updated'
+        ? []
+        : [
+            {
+              id: notification.id,
+              aggregateId: notification.aggregateId,
+              createdAt: notification.createdAt,
+            },
+          ],
+    ),
+    new Map(orders.map(({ order }) => [order.id, order.returnRequest?.reason ?? null])),
+    !ordersLoading,
+  );
+  const refundTitles = new Map<string, string>();
+  if (!ordersLoading) {
+    const ordersById = new Map(orders.map(({ order }) => [order.id, order]));
+    for (const notification of notifications) {
+      if ('kind' in notification || notification.type !== 'refund_recorded') continue;
+      const orderId = notification.aggregateId.startsWith('order:')
+        ? notification.aggregateId.slice('order:'.length)
+        : '';
+      const label = partialRefundLabel(ordersById.get(orderId));
+      if (label) refundTitles.set(notification.id, label);
+    }
+  }
   // Opening the commerce activity page also runs the bounded watchlist check.
   useMarketplaceWatchDetection();
 
@@ -86,7 +125,11 @@ export function MarketplaceNotifications() {
       className="pb-28"
       classNameWrapperContent="max-w-7xl"
     >
-      <Container overrideDefaults className="flex w-full flex-col gap-6 px-4 sm:px-6">
+      <Container
+        overrideDefaults
+        className="flex w-full flex-col gap-6 px-4 sm:px-6"
+        data-surface="marketplace-transaction-history"
+      >
         <MarketplaceSectionNav />
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -101,11 +144,7 @@ export function MarketplaceNotifications() {
             <Button variant="secondary" className="rounded-full" disabled={unreadCount === 0} onClick={markAllRead}>
               Mark all read
             </Button>
-          ) : (
-            <Typography as="p" className="max-w-64 text-right text-xs text-muted-foreground">
-              Marking notifications as read and filtering them are not available yet.
-            </Typography>
-          )}
+          ) : null}
         </div>
 
         {preferences && (
@@ -170,32 +209,31 @@ export function MarketplaceNotifications() {
           </div>
         ) : notifications.length ? (
           <div className="flex flex-col gap-3">
-            {unrecognizedCount > 0 && (
+            {integrityGapCount > 0 && (
               <div role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm">
-                {unrecognizedCount} unrecognized marketplace event{unrecognizedCount === 1 ? '' : 's'} — history may be
+                {integrityGapCount} unrecognized marketplace event{integrityGapCount === 1 ? '' : 's'} — history may be
                 incomplete.
               </div>
             )}
             {notifications.map((notification) =>
               'kind' in notification ? (
-                <Card
+                <KnownOrGapActivityRow
                   key={`unrecognized:${notification.type}:${notification.createdAt}:${notification.id}`}
-                  className="border py-4"
-                >
-                  <CardContent className="flex items-center gap-4 px-4">
-                    <div className="rounded-full bg-amber-500/15 p-3 text-amber-600">
-                      <Bell className="size-5" />
-                    </div>
-                    <Typography as="p" className="font-semibold">
-                      Unrecognized marketplace event — history may be incomplete
-                    </Typography>
-                    <Typography as="span" className="ml-auto text-xs text-muted-foreground">
-                      Integrity notice
-                    </Typography>
-                  </CardContent>
-                </Card>
+                  type={notification.type}
+                  createdAt={notification.createdAt}
+                />
               ) : (
-                <NotificationCard key={notification.id} notification={notification} />
+                <NotificationCard
+                  key={notification.id}
+                  notification={notification}
+                  title={
+                    notification.type === 'return_updated'
+                      ? (returnTitles.get(notification.id) ?? 'Return updated')
+                      : notification.type === 'refund_recorded'
+                        ? refundTitles.get(notification.id)
+                        : undefined
+                  }
+                />
               ),
             )}
           </div>
@@ -212,44 +250,87 @@ export function MarketplaceNotifications() {
   );
 }
 
-function NotificationCard({ notification }: { notification: MarketplaceNotification }) {
-  const offerId = notification.aggregateId.startsWith('offer:')
-    ? notification.aggregateId.slice('offer:'.length)
-    : null;
-  const content = (
-    <Card className="border py-4">
-      <CardContent className="flex items-center gap-4 px-4">
-        <div className="rounded-full bg-brand/15 p-3 text-brand">
-          <NotificationIcon type={notification.type} />
-        </div>
-        <div className="min-w-0 flex-1">
+function KnownOrGapActivityRow({ type, createdAt }: { type: string; createdAt: string }) {
+  const label = marketplaceActivityLabel(type);
+  if (!label) {
+    return (
+      <Card className="border py-4">
+        <CardContent className="flex items-center gap-4 px-4">
+          <div className="rounded-full bg-amber-500/15 p-3 text-amber-600">
+            <Bell className="size-5" />
+          </div>
           <Typography as="p" className="font-semibold">
-            {notificationLabel(notification.type)}
-            {/* §8-permitted monetary context (offer amount, auction
-                            visible price), formatted per BIP-177 for bitcoin. */}
-            {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
+            Unrecognized marketplace event
           </Typography>
-          <Typography as="p" className="truncate text-sm text-muted-foreground">
-            From {notificationActorLabel(notification.actorPubky)}
+          <Typography as="span" className="ml-auto text-xs text-muted-foreground">
+            Integrity notice
           </Typography>
-        </div>
-        <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
-          {new Date(notification.createdAt).toLocaleDateString('en-US')}
-        </time>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    );
+  }
+  const href = activityRowHref(type as MarketplaceNotification['type'], null);
+  return (
+    <ActivityRowLink href={href} label={label}>
+      <Card className="border py-4">
+        <CardContent className="flex items-center gap-4 px-4">
+          <div className="rounded-full bg-brand/15 p-3 text-brand">
+            <HandCoins className="size-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Typography as="p" className="font-semibold">
+              {label}
+            </Typography>
+          </div>
+          <time dateTime={createdAt} className="text-xs text-muted-foreground">
+            {new Date(createdAt).toLocaleDateString('en-US')}
+          </time>
+        </CardContent>
+      </Card>
+    </ActivityRowLink>
   );
-  return notification.type === 'offer_received' && offerId ? (
+}
+
+function NotificationCard({ notification, title }: { notification: MarketplaceNotification; title?: string }) {
+  const label = title ?? notificationLabel(notification.type);
+  const href = activityRowHref(notification.type, notification.aggregateId);
+  return (
+    <ActivityRowLink href={href} label={label}>
+      <Card className="border py-4">
+        <CardContent className="flex items-center gap-4 px-4">
+          <div className="rounded-full bg-brand/15 p-3 text-brand">
+            <NotificationIcon type={notification.type} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Typography as="p" className="font-semibold">
+              {label}
+              {/* §8-permitted monetary context (offer amount, auction
+                            visible price), formatted per BIP-177 for bitcoin. */}
+              {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
+            </Typography>
+            <Typography as="p" className="truncate text-sm text-muted-foreground">
+              From {notificationActorLabel(notification.actorPubky)}
+            </Typography>
+          </div>
+          <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
+            {new Date(notification.createdAt).toLocaleDateString('en-US')}
+          </time>
+        </CardContent>
+      </Card>
+    </ActivityRowLink>
+  );
+}
+
+function ActivityRowLink({ href, label, children }: { href: string; label: string; children: ReactNode }) {
+  return (
     <Link
-      href={`${MARKETPLACE_ROUTES.OFFERS}#offer-${offerId}`}
+      href={href}
       overrideDefaults
-      className="block rounded-xl hover:ring-1 hover:ring-brand/40"
-      aria-label="Open new offer"
+      aria-label={label}
+      className="block rounded-xl outline-none hover:ring-1 hover:ring-brand/40 focus-visible:ring-2 focus-visible:ring-brand"
     >
-      {content}
+      {children}
     </Link>
-  ) : (
-    content
   );
 }
 
@@ -289,54 +370,7 @@ function NotificationIcon({ type }: { type: MarketplaceNotification['type'] }) {
 }
 
 function notificationLabel(type: MarketplaceNotification['type']): string {
-  switch (type) {
-    case 'message_received':
-      return 'New marketplace message';
-    case 'offer_received':
-      return 'New offer received';
-    case 'offer_countered':
-      return 'Offer countered';
-    case 'offer_accepted':
-      return 'Offer accepted';
-    case 'offer_rejected':
-      return 'Offer declined';
-    case 'outbid':
-      return 'You were outbid';
-    case 'auction_won':
-      return 'You won the auction';
-    case 'auction_ended':
-      return 'Auction ended';
-    case 'order_created':
-      return 'Checkout started';
-    case 'payment_confirmed':
-      return 'Payment confirmed';
-    case 'order_cancelled':
-      return 'Order cancelled';
-    case 'order_cancelled_terms_change':
-      return 'Order cancelled — pickup terms changed';
-    case 'order_shipped':
-      return 'Order shipped';
-    case 'order_delivery_assumed':
-      return 'Delivery marked automatically';
-    case 'order_delivered':
-      return 'Delivery confirmed';
-    case 'order_completed':
-      return 'Order completed';
-    case 'return_updated':
-      return 'Return updated';
-    case 'refund_recorded':
-      return 'External refund recorded';
-    case 'review_received':
-      return 'New review received';
-    case 'pickup_details_updated':
-      return 'Pickup details updated';
-    case 'pickup_details_cleared':
-      return 'Pickup details removed';
-    case 'pickup_ready':
-      return 'Order ready for pickup';
-    case 'payment_refund_required':
-      return 'Payment requires a refund';
-  }
+  return MARKETPLACE_ACTIVITY_LABELS[type];
 }
 
 function notificationActorLabel(actorPubky: string): string {

@@ -41,7 +41,7 @@ const LIVE_NOTIFICATION_ROWS = [
     id: '00000000-0000-4000-8000-000000000932',
     recipient_pubky: ACTOR,
     actor_pubky: OTHER_ACTOR,
-    type: 'payment_method_bound',
+    type: 'future_event_bound',
     aggregate_id: 'seller-payment:placeholder',
     created_at: '2026-08-20T11:01:00.000Z',
     read_at: null,
@@ -889,7 +889,7 @@ describe('MarketplaceTransactionService read projections', () => {
       kind: 'unrecognized',
       id: '00000000-0000-4000-8000-000000000932',
       index: 1,
-      type: 'payment_method_bound',
+      type: 'future_event_bound',
       createdAt: '2026-08-20T11:01:00.000Z',
     });
     expect(notifications[2]).toMatchObject({ type: 'payment_confirmed', actorPubky: 'system' });
@@ -1059,6 +1059,7 @@ describe('MarketplaceTransactionService read projections', () => {
       const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       expect(url).toBe(`http://127.0.0.1:8080/v0/sellers/${OTHER_ACTOR}/payment-config`);
       expect(init.headers).toEqual(expect.not.objectContaining({ authorization: expect.anything() }));
+      expect(init.signal).toBeInstanceOf(AbortSignal);
     });
 
     it('saves the own config with the bearer, omitting the key unless provided, and never gets it back', async () => {
