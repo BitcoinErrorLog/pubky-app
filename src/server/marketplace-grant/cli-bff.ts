@@ -100,9 +100,19 @@ export function requireUuid(value: string): string {
   return value;
 }
 
-function firstHop(value: string | null): string {
-  const hop = value?.split(',')[0]?.trim();
-  return hop || '';
+/**
+ * The hop the platform wrote. Vercel overwrites `x-vercel-forwarded-for`
+ * with the address it received the request from; a proxy that appends
+ * instead leaves any client-written hops to the left, so the leftmost hop is
+ * never trusted.
+ */
+function lastHop(value: string | null): string {
+  const hops =
+    value
+      ?.split(',')
+      .map((hop) => hop.trim())
+      .filter(Boolean) ?? [];
+  return hops.at(-1) ?? '';
 }
 
 function platformRequestIp(request: Request): string {
@@ -125,7 +135,7 @@ function xffHopBehindTrustedProxies(forwarded: string | null, trustedProxyCount:
 
 export function clientIp(request: Request, trustedProxyCount: number): string {
   if (process.env.VERCEL === '1') {
-    return firstHop(request.headers.get('x-vercel-forwarded-for')) || platformRequestIp(request) || '0.0.0.0';
+    return lastHop(request.headers.get('x-vercel-forwarded-for')) || platformRequestIp(request) || '0.0.0.0';
   }
   return xffHopBehindTrustedProxies(request.headers.get('x-forwarded-for'), trustedProxyCount) || '0.0.0.0';
 }

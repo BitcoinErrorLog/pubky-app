@@ -887,6 +887,21 @@ describe('browser purchase bootstrap BFF', () => {
     });
   });
 
+  it('rotating a client-written forwarded-for hop does not escape the per-IP bucket', async () => {
+    storeInsertedChallenges();
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createBrowserChallenge } = await import('./browser-bff');
+    countingRateLimit();
+    const config = await browserConfig();
+    const spoofed = (i: number) =>
+      challengeRequest({ pubky }, { 'x-vercel-forwarded-for': `10.0.${i}.1, 203.0.113.66` });
+
+    for (let i = 0; i < config.createPerIpPerMinute; i += 1) await createBrowserChallenge(spoofed(i));
+
+    await expect(createBrowserChallenge(spoofed(999))).rejects.toEqual(new BffError(429, 'retry_later', 60));
+  });
+
   it('the per-IP bucket is shared behind one NAT (accepted limit of unauthenticated creation)', async () => {
     storeInsertedChallenges();
     process.env.VERCEL = '1';
