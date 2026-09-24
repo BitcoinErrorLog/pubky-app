@@ -204,12 +204,28 @@ async function exerciseListingCheckout(page) {
   await runAxe(page, 'listing');
 }
 
+/**
+ * Ring cookie QR only. `qr-auth-url` stays the slot id for every signer.
+ * Side-by-side sign-in mounts a Bitkit `pubkyauth://signin_grant` QR in the
+ * same card; a page-wide `.first()` can approve that URL. Inventory grants
+ * are read from the open dialog, not from this locator.
+ */
+function ringSignInAuthSlot(page) {
+  const cookieUrl =
+    '[data-testid="qr-auth-url"][data-auth-url^="pubkyauth://signin"]:not([data-auth-url^="pubkyauth://signin_grant"])';
+  return page
+    .locator('[data-testid="sign-in-ring-option"]')
+    .locator(cookieUrl)
+    .or(page.locator('[data-testid="sign-in-qr-card"]').locator(cookieUrl))
+    .first();
+}
+
 async function waitForAuthUrl(page, timeout = 25_000) {
-  const slot = page.locator('[data-testid="qr-auth-url"][data-auth-url^="pubkyauth://"]').first();
+  const slot = ringSignInAuthSlot(page);
   await slot.waitFor({ state: 'attached', timeout });
   const url = await slot.getAttribute('data-auth-url');
-  if (!url || !url.startsWith('pubkyauth://')) {
-    throw new Error('missing pubkyauth URL on QR slot');
+  if (!url || !url.startsWith('pubkyauth://signin') || url.startsWith('pubkyauth://signin_grant')) {
+    throw new Error('missing Ring cookie pubkyauth URL on QR slot');
   }
   return url;
 }
@@ -915,6 +931,10 @@ async function main() {
 
     const illegal = pageErrors.filter((message) => /illegal invocation/i.test(message));
     assert('inventory:no-uncaught-illegal-invocation', illegal.length === 0, illegal.join(' | ') || 'none');
+    const swMime = pageErrors.filter(
+      (message) => /sw\.js/.test(message) && /unsupported MIME type/i.test(message),
+    );
+    assert('launch:service-worker', swMime.length === 0, swMime[0] ?? 'sw.js did not fail registration');
   } finally {
     const summary = {
       baseUrl: BASE_URL,
