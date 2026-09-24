@@ -267,6 +267,48 @@ describe('useMarketplaceOrders', () => {
     );
   });
 
+  it('treats a revision conflict as success when the re-read already shows the action', async () => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const order = result.current.orders[0].order;
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 4 },
+    });
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
+      {
+        ...order,
+        revision: 4,
+        state: 'return_requested',
+        returnRequest: {
+          state: 'requested',
+          reason: 'mistake on my part',
+          requestedAmountMinor: 250,
+          requestedAt: '2026-09-23T12:00:00.000Z',
+          updatedAt: '2026-09-23T12:00:00.000Z',
+        },
+      },
+    ]);
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    vi.mocked(toast).mockClear();
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.actOnOrder(order, 'return.request', {
+        reason: 'mistake on my part',
+        requestedAmountMinor: 250,
+      });
+    });
+
+    expect(succeeded).toBe(true);
+    expect(result.current.orders[0].order.state).toBe('return_requested');
+    expect(result.current.orders[0].order.returnRequest).toMatchObject({
+      reason: 'mistake on my part',
+      requestedAmountMinor: 250,
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('reloaded');
+  });
+
   it('toasts static pickup-refusal copy from actOnOrder and never an echoed meeting address', async () => {
     const { result } = renderHook(() => useMarketplaceOrders());
     await waitFor(() => expect(result.current.orders).toHaveLength(1));
@@ -289,6 +331,64 @@ describe('useMarketplaceOrders', () => {
       description: 'The pickup request was refused.',
     });
     expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('14 Oak Lane');
+  });
+
+  it('shows a plain refund refusal and keeps markup off the toast', async () => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const order = result.current.orders[0].order;
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: 'The external refund cannot be recorded.' },
+    });
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.actOnOrder(order, 'refund.record_external', {
+        amountMinor: 189,
+        transactionId: 'PAYPALREF1',
+      });
+    });
+
+    expect(succeeded).toBe(false);
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'The external refund cannot be recorded.',
+    });
+
+    vi.mocked(toast).mockClear();
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: '<b>The external refund cannot be recorded.</b>' },
+    });
+    await act(async () => {
+      succeeded = await result.current.actOnOrder(order, 'refund.record_external', {
+        amountMinor: 189,
+        transactionId: 'PAYPALREF1',
+      });
+    });
+
+    expect(succeeded).toBe(false);
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'Could not update this order.',
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('<b>');
+
+    vi.mocked(toast).mockClear();
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: 'The external refund cannot be recorded.' },
+    });
+    await act(async () => {
+      await result.current.actOnOrder(order, 'fulfillment.confirm_delivery', {});
+    });
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'Could not update this order.',
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('The external refund cannot be recorded.');
   });
 
   it('flags needsSession on a session-required load failure and refetches once a session connects', async () => {

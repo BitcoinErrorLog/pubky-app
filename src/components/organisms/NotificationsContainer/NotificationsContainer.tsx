@@ -14,6 +14,7 @@ import { Logger } from '@/libs/logger/logger';
 import { NotificationType } from '@/models/notification/notification.types';
 import { NotificationsEmpty } from '@/molecules/NotificationsEmpty/NotificationsEmpty';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+import { isIntegrityGapActivityType } from '@/services/marketplace/marketplace-activity-copy';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { NotificationsList } from '../NotificationsList/NotificationsList';
 import {
@@ -48,7 +49,11 @@ const MARKETPLACE_TAB_NOTIFICATION_TYPES = {
   auction_won: true,
   auction_ended: true,
   order_created: true,
+  payment_method_bound: true,
+  fiat_payment_reported: true,
   payment_confirmed: true,
+  bitcoin_manual_review: true,
+  bitcoin_prepare_voided: true,
   order_cancelled: true,
   order_cancelled_terms_change: true,
   order_shipped: true,
@@ -62,6 +67,7 @@ const MARKETPLACE_TAB_NOTIFICATION_TYPES = {
   pickup_details_cleared: true,
   pickup_ready: true,
   payment_refund_required: true,
+  drop_sold_out: true,
 } as const satisfies Record<MarketplaceNotification['type'], true>;
 
 const SOCIAL_TAB_NOTIFICATION_TYPES = {
@@ -147,7 +153,9 @@ export function NotificationsContainer() {
   const unreadMarketplaceCount =
     marketplaceFeed.items.filter((item) => item.isUnread).length +
     watchAlertFeed.items.filter((item) => item.isUnseen).length;
-  const unrecognizedMarketplaceCount = marketplaceFeed.items.filter((item) => item.kind === 'unrecognized').length;
+  const unrecognizedMarketplaceCount = marketplaceFeed.items.filter(
+    (item) => item.kind === 'unrecognized' && isIntegrityGapActivityType(item.type),
+  ).length;
 
   // Grouping collapses many notifications into few rows, so a page can leave the scroll
   // sentinel on screen and immediately trigger the next one. A page that merges entirely

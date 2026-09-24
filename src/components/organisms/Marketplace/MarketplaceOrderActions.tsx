@@ -127,7 +127,7 @@ export function MarketplaceOrderActions({
     isBuyer &&
     isPickup &&
     order.receiptId !== null &&
-    !['completed', 'cancelled', 'refunded_external', 'closed'].includes(order.state);
+    !['completed', 'cancelled', 'refunded_external', 'refunded_partial', 'closed'].includes(order.state);
 
   const submit = async () => {
     // Pickup cancellations keep the reason field but run the pickup-aware
@@ -256,7 +256,7 @@ export function MarketplaceOrderActions({
         )}
         {!isBuyer && ['return_received', 'cancelled'].includes(order.state) && !order.externalRefund && (
           <Button size="sm" className="rounded-full" onClick={() => begin('refund')}>
-            Record external refund
+            Record refund
           </Button>
         )}
         {['delivered', 'completed'].includes(order.state) &&
@@ -278,6 +278,19 @@ export function MarketplaceOrderActions({
           </Button>
         )}
       </div>
+      {!isBuyer && order.state === 'return_approved' && order.fulfillment === 'pickup' && (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="mark-return-received-hint">
+          Press when the buyer has brought it back
+        </p>
+      )}
+      {!isBuyer &&
+        order.paymentMethod === 'paypal' &&
+        ['return_received', 'cancelled'].includes(order.state) &&
+        !order.externalRefund && (
+          <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-refund-hint">
+            Refund the buyer in PayPal first, then record it here
+          </p>
+        )}
 
       {ownReview && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="own-review-status">
@@ -484,7 +497,7 @@ function externalRefundReferenceLabel(paymentMethod: MarketplaceOrder['paymentMe
     case 'bitcoin':
       return 'External Bitcoin transaction reference';
     case 'paypal':
-      return 'PayPal transaction reference';
+      return 'PayPal refund transaction id';
     case 'stripe':
       return 'External payment reference';
     default:
@@ -501,7 +514,7 @@ function actionTitle(action: MarketplaceOrderActionData['action'], orderState?: 
     case 'return':
       return 'Request a return';
     case 'refund':
-      return 'Record external refund';
+      return 'Record refund';
     case 'review':
       return 'Leave a review';
     case 'review_edit':
