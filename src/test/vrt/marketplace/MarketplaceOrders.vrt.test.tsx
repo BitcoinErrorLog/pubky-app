@@ -210,8 +210,32 @@ const fixtures = vi.hoisted(async () => {
     },
   ];
 
+  const sellerUnpaidCancelled = createOrderFixture('cancelled', {
+    id: '018f47d2-6a27-7c23-a49d-000000000741',
+    buyerPubky: 't'.repeat(52),
+    sellerPubky: ORDER_FIXTURE_BUYER,
+    receiptId: null,
+    lines: [
+      {
+        listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_lamp`,
+        listingRevision: 1,
+        contentHash: 'f'.repeat(64),
+        title: 'Brass desk lamp',
+        quantity: 1,
+        unitPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+        subtotal: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      },
+    ],
+  });
+  const activityLinkedUnlisted = [
+    ...sellerPendingPayment,
+    { order: sellerUnpaidCancelled, payment: null, receipt: null },
+  ];
+
   return {
     buyer: ORDER_FIXTURE_BUYER,
+    activityLinkedUnlisted,
+    activityLinkedUnlistedId: sellerUnpaidCancelled.id,
     everyOrderState: createOrderViewsForEveryState(),
     everyPaymentState: createOrderViewsForEveryPaymentState(),
     sellerNeedsAttention,
@@ -411,6 +435,31 @@ describe('Marketplace orders — visual regression', () => {
     await expect.element(screen.getByText(/Held for a buyer/i)).toBeVisible();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-pending-payment-seller-desktop');
   });
+
+  for (const [label, viewport] of [
+    ['desktop', VRT_VIEWPORT_DESKTOP],
+    ['mobile', VRT_VIEWPORT_MOBILE],
+  ] as const) {
+    it(`renders an Activity-linked unpaid cancel the page does not list at ${label} viewport`, async () => {
+      const { activityLinkedUnlisted, activityLinkedUnlistedId } = await fixtures;
+      ordersState.orders = activityLinkedUnlisted;
+      ordersState.isLoading = false;
+      ordersState.error = null;
+      const previous = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      window.history.replaceState(null, '', `${window.location.pathname}#order-${activityLinkedUnlistedId}`);
+      try {
+        const screen = await renderForVRT(<MarketplaceOrders />, { viewport });
+        await expect.element(screen.getByRole('heading', { name: 'From Activity' })).toBeVisible();
+        await expect.element(screen.getByText('Cancelled before payment')).toBeVisible();
+        await expect.element(screen.getByText('Order 018f47d2').first()).toBeVisible();
+        await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot(
+          `orders-activity-linked-unlisted-${label}`,
+        );
+      } finally {
+        window.history.replaceState(null, '', previous);
+      }
+    });
+  }
 
   it('rejects an incorrect production surface marker', async () => {
     ordersState.orders = [];

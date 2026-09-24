@@ -30,6 +30,7 @@ import {
   readCheckoutHashOrderId,
   reservedWhileYouPayCopy,
   sellerReservationCopy,
+  unlistedOrderStateLabel,
 } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
@@ -77,6 +78,7 @@ export function MarketplaceOrders() {
   const tabListRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Partial<Record<OrdersTab, HTMLButtonElement | null>>>({});
   const redirectedHashRef = useRef<string | null>(null);
+  const [anchorOrderId, setAnchorOrderId] = useState<string | null>(null);
   const buyerCheckouts = orders.filter(({ order }) => isBuyerCheckoutInProgress(order, currentUserPubky));
   const sellerReservations = orders.filter(({ order }) => isSellerReservation(order, currentUserPubky));
   const abandonedCheckouts = orders.filter(({ order }) => isAbandonedCheckout(order, currentUserPubky));
@@ -85,12 +87,28 @@ export function MarketplaceOrders() {
   );
   const orderCounts = getOrderTabCounts(historyOrders, currentUserPubky);
   const visibleOrders = historyOrders.filter((view) => isOrderInTab(view, activeTab, currentUserPubky));
+  const listedOrderIds = new Set(
+    [...buyerCheckouts, ...sellerReservations, ...historyOrders, ...abandonedCheckouts].map(({ order }) => order.id),
+  );
+  const anchoredOrder =
+    anchorOrderId && !listedOrderIds.has(anchorOrderId)
+      ? (orders.find(({ order }) => order.id === anchorOrderId)?.order ?? null)
+      : null;
+  const linkedUnlistedOrder =
+    anchoredOrder && isOrderParticipant(anchoredOrder, currentUserPubky) ? anchoredOrder : null;
 
   useMarkMarketplaceOrdersSeen(!isLoading && !error && !needsSession);
 
   useEffect(() => {
+    const readAnchor = () => setAnchorOrderId(readOrderAnchorId(window.location.hash));
+    readAnchor();
+    window.addEventListener('hashchange', readAnchor);
+    return () => window.removeEventListener('hashchange', readAnchor);
+  }, []);
+
+  useEffect(() => {
     if (isLoading) return;
-    const anchorId = readOrderAnchorId(window.location.hash);
+    const anchorId = anchorOrderId;
     if (!anchorId) return;
     const view = orders.find((candidate) => candidate.order.id === anchorId);
     if (!view) return;
@@ -102,7 +120,7 @@ export function MarketplaceOrders() {
       return;
     }
     document.getElementById(orderAnchorId(anchorId))?.scrollIntoView({ block: 'center' });
-  }, [activeTab, currentUserPubky, isLoading, orders]);
+  }, [activeTab, anchorOrderId, currentUserPubky, isLoading, orders]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -186,6 +204,34 @@ export function MarketplaceOrders() {
           </div>
         ) : orders.length ? (
           <>
+            {linkedUnlistedOrder && (
+              <div className="grid gap-3" data-testid="marketplace-linked-order">
+                <Heading level={2} size="sm" className="text-xl font-semibold">
+                  From Activity
+                </Heading>
+                <Card id={orderAnchorId(linkedUnlistedOrder.id)} className="scroll-mt-24 border py-4">
+                  <CardContent className="grid gap-2 px-5">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="border-border/60 text-muted-foreground">
+                        {currentUserPubky === linkedUnlistedOrder.buyerPubky ? 'Your purchase' : 'Your sale'}
+                      </Badge>
+                      <Badge variant="secondary" data-testid="marketplace-linked-order-state">
+                        {unlistedOrderStateLabel(linkedUnlistedOrder)}
+                      </Badge>
+                    </div>
+                    {linkedUnlistedOrder.lines.map((line) => (
+                      <Typography key={line.listingAggregateId} as="p" className="font-semibold">
+                        {line.title} × {line.quantity}
+                      </Typography>
+                    ))}
+                    <MarketplaceOrderReference
+                      order={linkedUnlistedOrder}
+                      isBuyer={currentUserPubky === linkedUnlistedOrder.buyerPubky}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
             {buyerCheckouts.length > 0 && (
               <div className="grid gap-3" data-testid="marketplace-continue-checkout">
                 <Heading level={2} size="sm" className="text-xl font-semibold">
@@ -596,6 +642,10 @@ function isCurrentUserSeller(order: MarketplaceOrder, currentUserPubky: string |
 
 function isCurrentUserBuyer(order: MarketplaceOrder, currentUserPubky: string | null): boolean {
   return currentUserPubky !== null && order.buyerPubky === currentUserPubky;
+}
+
+function isOrderParticipant(order: MarketplaceOrder, currentUserPubky: string | null): boolean {
+  return isCurrentUserBuyer(order, currentUserPubky) || isCurrentUserSeller(order, currentUserPubky);
 }
 
 function isSellerAwaitingPayment(
