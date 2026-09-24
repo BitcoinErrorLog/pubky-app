@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getCommerceAdapterMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
@@ -17,20 +17,45 @@ import { useCommerceStore } from '@/stores/commerce/commerce.store';
  * this browser opened the Orders tab for that identity. The durable service
  * has no read state for orders, so the checkpoint lives in local storage.
  * A failed fetch contributes zero.
+ *
+ * The count and the checkpoint are tagged with the pubky they were read for.
+ * An identity change clears both before paint, and a result whose pubky is
+ * no longer signed in is dropped.
  */
+type TaggedCount = { pubky: string; count: number };
+type TaggedSeen = { pubky: string; seenAt: number };
+
 export function useMarketplaceOrdersAttention(): number {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const marketplaceSession = useCommerceStore((state) => state.marketplaceSession);
   const adapterMode = getCommerceAdapterMode();
-  const [seenAt, setSeenAt] = useState(0);
-  const [count, setCount] = useState(0);
+  const [trackedPubky, setTrackedPubky] = useState(currentUserPubky);
+  const [seen, setSeen] = useState<TaggedSeen | null>(null);
+  const [taggedCount, setTaggedCount] = useState<TaggedCount | null>(null);
+  const pubkyRef = useRef(currentUserPubky);
+  useLayoutEffect(() => {
+    pubkyRef.current = currentUserPubky;
+  }, [currentUserPubky]);
+
+  if (trackedPubky !== currentUserPubky) {
+    setTrackedPubky(currentUserPubky);
+    setSeen(null);
+    setTaggedCount(null);
+  }
+
+  const seenAt = seen?.pubky === currentUserPubky ? seen.seenAt : 0;
+  const count = taggedCount?.pubky === currentUserPubky ? taggedCount.count : 0;
 
   useEffect(() => {
     if (!currentUserPubky) {
-      setSeenAt(0);
+      setSeen(null);
       return;
     }
-    const read = () => setSeenAt(readOrdersSeenAt(currentUserPubky, window.localStorage));
+    const pubky = currentUserPubky;
+    const read = () => {
+      if (pubkyRef.current !== pubky) return;
+      setSeen({ pubky, seenAt: readOrdersSeenAt(pubky, window.localStorage) });
+    };
     read();
     window.addEventListener(MARKETPLACE_ORDERS_SEEN_EVENT, read);
     window.addEventListener('storage', read);
@@ -42,21 +67,26 @@ export function useMarketplaceOrdersAttention(): number {
 
   useEffect(() => {
     if (!currentUserPubky || !isTransactionalCommerceMode(adapterMode)) {
-      setCount(0);
+      setTaggedCount(currentUserPubky ? { pubky: currentUserPubky, count: 0 } : null);
       return;
     }
+    const fetchedFor = currentUserPubky;
+    const fetchedSeenAt = seenAt;
     let active = true;
     // A stubbed controller (tests) throws before a promise exists. That is a
     // failed load: the badge stays at zero.
     Promise.resolve()
       .then(() => CommerceController.getMarketplaceOrders())
       .then((orders) => {
-        if (!active) return;
-        setCount(countOrdersNeedingAttention(orders, currentUserPubky, seenAt));
+        if (!active || pubkyRef.current !== fetchedFor) return;
+        setTaggedCount({
+          pubky: fetchedFor,
+          count: countOrdersNeedingAttention(orders, fetchedFor, fetchedSeenAt),
+        });
       })
       .catch((error) => {
-        if (!active) return;
-        setCount(0);
+        if (!active || pubkyRef.current !== fetchedFor) return;
+        setTaggedCount({ pubky: fetchedFor, count: 0 });
         Logger.warn('Failed to load the marketplace orders badge count', { error });
       });
     return () => {
