@@ -8,13 +8,14 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
+import { useMarketplaceOrdersAttention } from '@/hooks/useMarketplaceOrdersAttention/useMarketplaceOrdersAttention';
 import { cn } from '@/libs/utils/utils';
 
 type MarketplaceSectionItem = {
   label: string;
   href: string;
   icon: typeof MessageCircle;
-  badge?: 'cart' | 'activity';
+  badge?: 'cart' | 'activity' | 'orders';
   activePrefixes?: readonly string[];
 };
 
@@ -40,7 +41,7 @@ const ITEMS: readonly MarketplaceSectionItem[] = [
     badge: 'cart',
     activePrefixes: [MARKETPLACE_ROUTES.CART, MARKETPLACE_ROUTES.CHECKOUT, MARKETPLACE_ROUTES.AWARD_CHECKOUT],
   },
-  { label: 'Orders', href: MARKETPLACE_ROUTES.ORDERS, icon: ReceiptText },
+  { label: 'Orders', href: MARKETPLACE_ROUTES.ORDERS, icon: ReceiptText, badge: 'orders' },
   { label: 'Activity', href: MARKETPLACE_ROUTES.NOTIFICATIONS, icon: Bell, badge: 'activity' },
   {
     label: 'Seller studio',
@@ -65,6 +66,7 @@ export function MarketplaceSectionNav({
   const pathname = usePathname();
   const cartCount = useMarketplaceCartCount();
   const activityUnreadCount = useMarketplaceActivityUnread();
+  const ordersAttentionCount = useMarketplaceOrdersAttention();
 
   return (
     <nav
@@ -82,7 +84,16 @@ export function MarketplaceSectionNav({
               (prefix) =>
                 pathname === prefix || (prefix !== APP_ROUTES.MARKETPLACE && pathname.startsWith(`${prefix}/`)),
             );
-          const count = badge === 'cart' ? cartCount : badge === 'activity' ? activityUnreadCount : 0;
+          const count =
+            badge === 'cart'
+              ? cartCount
+              : badge === 'activity'
+                ? activityUnreadCount
+                : badge === 'orders'
+                  ? ordersAttentionCount
+                  : 0;
+          const badgeNoun =
+            badge === 'cart' ? 'cart items' : badge === 'orders' ? 'orders needing you' : 'unread activity';
           return (
             <Link
               key={label}
@@ -105,7 +116,7 @@ export function MarketplaceSectionNav({
               {count > 0 && (
                 <Badge
                   data-testid={`marketplace-section-nav-${badge}-badge`}
-                  aria-label={`${count} ${badge === 'cart' ? 'cart items' : 'unread activity'}`}
+                  aria-label={`${count} ${badgeNoun}`}
                   className="h-5 min-w-5 rounded-full bg-brand px-1.5 shadow-sm"
                   variant="secondary"
                 >

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isMarketplaceActionActivity } from '@/libs/commerce/marketplace-attention';
 import { Logger } from '@/libs/logger/logger';
 import { isRecognizedMarketplaceNotification } from '@/services/marketplace/marketplace-projections';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -16,10 +17,12 @@ import { useCommerceStore } from '@/stores/commerce/commerce.store';
  * service stores NO notification read state, so this badge never claims
  * "unread" on the service's behalf. It counts, without overlap:
  *
- * - service notifications, per mode: sandbox rows by their REAL read state
- *   (`readAt`, clearable via `notification.mark_read`); durable rows by a
- *   device-local read checkpoint — only rows created after the last time
- *   THIS device opened an activity surface, cleared by visiting one.
+ * - service notifications that still need the user (a return, an offer, a
+ *   message, a pickup, a refund, a bitcoin decision). Informational rows
+ *   stay in the history and do not count. Sandbox rows use their REAL read
+ *   state (`readAt`, clearable via `notification.mark_read`); durable rows
+ *   use a device-local read checkpoint — only rows created after the last
+ *   time THIS device opened an activity surface, cleared by visiting one.
  * - unseen watch alerts — rows this device's own checks produced, whose
  *   `seen_at` read state is real because it is local.
  *
@@ -38,14 +41,22 @@ export function useMarketplaceActivityUnread(): number {
 
   const local = useLiveQuery(async () => {
     if (!currentUserPubky) return { unseenAlertCount: 0, checkpoint: 0 };
-    const [alerts, checkpoint] = await Promise.all([
-      CommerceController.getWatchAlerts(),
-      CommerceController.getActivityReadCheckpoint(),
-    ]);
-    return {
-      unseenAlertCount: alerts.filter(({ seen_at }) => seen_at === null).length,
-      checkpoint,
-    };
+    try {
+      const [alerts, checkpoint] = await Promise.all([
+        CommerceController.getWatchAlerts(),
+        CommerceController.getActivityReadCheckpoint(),
+      ]);
+      return {
+        unseenAlertCount: alerts.filter(({ seen_at }) => seen_at === null).length,
+        checkpoint,
+      };
+    } catch (error) {
+      // A stubbed controller throws before a promise exists. Leaving the
+      // checkpoint unset keeps the service count at zero instead of treating
+      // every row as new.
+      Logger.warn('Failed to load the marketplace activity badge count', { error });
+      return { unseenAlertCount: 0, checkpoint: undefined };
+    }
   }, [currentUserPubky]);
 
   const checkpoint = local?.checkpoint;
@@ -56,19 +67,19 @@ export function useMarketplaceActivityUnread(): number {
       return;
     }
     let active = true;
-    CommerceController.getMarketplaceNotifications()
+    // A stubbed controller throws before a promise exists. That is a failed
+    // load: the badge stays at zero.
+    Promise.resolve()
+      .then(() => CommerceController.getMarketplaceNotifications())
       .then((notifications) => {
         if (!active) return;
         setNotificationCount(
-          adapterMode === 'sandbox'
-            ? notifications.filter(
-                (notification) => isRecognizedMarketplaceNotification(notification) && !notification.readAt,
-              ).length
-            : notifications.filter(
-                (notification) =>
-                  isRecognizedMarketplaceNotification(notification) &&
-                  new Date(notification.createdAt).getTime() > checkpoint,
-              ).length,
+          notifications.filter((notification) => {
+            if (!isRecognizedMarketplaceNotification(notification)) return false;
+            if (!isMarketplaceActionActivity(notification.type)) return false;
+            if (adapterMode === 'sandbox') return !notification.readAt;
+            return new Date(notification.createdAt).getTime() > checkpoint;
+          }).length,
         );
       })
       .catch((error) => {
