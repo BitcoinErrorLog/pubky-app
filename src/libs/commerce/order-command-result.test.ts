@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type CommandOrderSnapshot,orderShowsCommandResult } from './order-command-result';
+import { type CommandOrderSnapshot, orderShowsCommandResult } from './order-command-result';
 
 const order = (overrides: Partial<CommandOrderSnapshot> = {}): CommandOrderSnapshot => ({
   state: 'delivered',
