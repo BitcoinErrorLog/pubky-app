@@ -124,7 +124,7 @@ describe('Marketplace nav badges — visual regression', () => {
 
     const screen = await renderForVRT(<Marketplace />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect.element(screen.getByLabelText('3 cart items')).toBeInTheDocument();
-    await expect.element(screen.getByLabelText('5 unread activity')).toBeInTheDocument();
+    await expect.element(screen.getByLabelText('5 activity needing you')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('marketplace-nav-badges-desktop');
   });
 

@@ -90,12 +90,12 @@ export function MarketplaceNotifications() {
   // Re-run once the session is restored, since the writes are account-scoped.
   const isAuthenticated = useAuthStore((state) => state.session !== null);
 
-  // Visiting this surface clears the device-local read state behind the
-  // marketplace Activity badge: watch alerts get their real local `seen_at`
-  // (the mount-frozen highlights above stay visible), and the activity read
-  // checkpoint advances to now — the honest, device-local substitute for the
-  // read state the durable service does not store. Sandbox service rows keep
-  // their REAL read state and clear only via the Mark all read button.
+  // Visiting this surface clears the marketplace Activity badge: watch alerts
+  // get their real local `seen_at` (the mount-frozen highlights above stay
+  // visible), and the account's activity checkpoint advances to now on every
+  // browser — the substitute for the read state the durable service does not
+  // store. Sandbox service rows keep their REAL read state and clear only via
+  // the Mark all read button.
   const markAllWatchAlertsSeen = watchAlerts.markAllSeen;
   useEffect(() => {
     if (!isAuthenticated) return;

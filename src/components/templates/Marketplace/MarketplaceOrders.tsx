@@ -14,6 +14,7 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { type CommerceAdapterMode, isDurableCommerceMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
+import { useMarkMarketplaceOrdersSeen } from '@/hooks/useMarkMarketplaceOrdersSeen/useMarkMarketplaceOrdersSeen';
 import { orderAnchorId, readOrderAnchorId } from '@/libs/commerce/activity-links';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
@@ -32,7 +33,6 @@ import {
 } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
-import { markOrdersAttentionSeen } from '@/libs/commerce/marketplace-attention';
 import { listingIdFromOrder, marketplaceConversationHref } from '@/libs/commerce/marketplace-conversation-query';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { partialRefundLabel } from '@/libs/commerce/partial-refund';
@@ -86,10 +86,7 @@ export function MarketplaceOrders() {
   const orderCounts = getOrderTabCounts(historyOrders, currentUserPubky);
   const visibleOrders = historyOrders.filter((view) => isOrderInTab(view, activeTab, currentUserPubky));
 
-  useEffect(() => {
-    if (!currentUserPubky || isLoading || error || needsSession) return;
-    markOrdersAttentionSeen(currentUserPubky);
-  }, [currentUserPubky, error, isLoading, needsSession, orders]);
+  useMarkMarketplaceOrdersSeen(!isLoading && !error && !needsSession);
 
   useEffect(() => {
     if (isLoading) return;

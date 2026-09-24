@@ -51,8 +51,38 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getWatchAlerts: vi.fn(),
     getActivityReadCheckpoint: vi.fn(),
     getMarketplaceNotifications: vi.fn(),
+    getMarketplaceOrders: vi.fn(),
+    getMarketplaceOffers: vi.fn(),
+    syncAttentionSeen: vi.fn(),
   },
 }));
+
+// Every offer row in these tests points at an offer that still waits on OWNER.
+const OPEN_OFFER_IDS = ['old', 'new-1', 'new-2', 'offer', 'unread', 'read', 'seen-1', 'seen-2'];
+
+function openOffer(id: string) {
+  return {
+    id,
+    buyerPubky: ACTOR,
+    sellerPubky: OWNER,
+    state: 'pending' as const,
+    offeredBy: ACTOR,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    award: null,
+  };
+}
+
+function orderRecord(id: string, state: string, nextActor: 'buyer' | 'seller' | 'none') {
+  return {
+    id,
+    state,
+    nextActor,
+    buyerPubky: ACTOR,
+    sellerPubky: OWNER,
+    updatedAt: '2026-08-20T01:00:00.000Z',
+    holdExpiresAt: null,
+  };
+}
 
 function notification(id: string, createdAt: string, readAt: string | null = null) {
   return {
@@ -78,6 +108,49 @@ describe('useMarketplaceActivityUnread', () => {
     vi.mocked(CommerceController.getWatchAlerts).mockResolvedValue([]);
     vi.mocked(CommerceController.getActivityReadCheckpoint).mockResolvedValue(0);
     vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([]);
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([]);
+    vi.mocked(CommerceController.getMarketplaceOffers).mockResolvedValue(OPEN_OFFER_IDS.map(openOffer) as never);
+    vi.mocked(CommerceController.syncAttentionSeen).mockResolvedValue();
+  });
+
+  it('pulls the account-wide checkpoint so a view cleared in another browser stays cleared', async () => {
+    renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(CommerceController.syncAttentionSeen).toHaveBeenCalled());
+  });
+
+  it('stops badging an offer row once the offer is answered', async () => {
+    vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
+      notification('offer', '2026-08-20T01:00:00.000Z'),
+    ]);
+    vi.mocked(CommerceController.getMarketplaceOffers).mockResolvedValue([
+      { ...openOffer('offer'), state: 'rejected' },
+    ] as never);
+
+    const { result } = renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(CommerceController.getMarketplaceOffers).toHaveBeenCalled());
+    await waitFor(() => expect(CommerceController.getMarketplaceNotifications).toHaveBeenCalled());
+    expect(result.current).toBe(0);
+  });
+
+  it('badges order rows only while the order waits on this account, never a started checkout or a cancellation', async () => {
+    vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
+      { ...notification('checkout', '2026-08-20T01:00:00.000Z'), type: 'order_created', aggregateId: 'order:o-new' },
+      { ...notification('cancel', '2026-08-20T02:00:00.000Z'), type: 'order_cancelled', aggregateId: 'order:o-gone' },
+      { ...notification('ret-open', '2026-08-20T03:00:00.000Z'), type: 'return_updated', aggregateId: 'order:o-ret' },
+      { ...notification('ret-done', '2026-08-20T04:00:00.000Z'), type: 'return_updated', aggregateId: 'order:o-done' },
+    ] as never);
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
+      orderRecord('o-new', 'pending_payment', 'buyer'),
+      orderRecord('o-gone', 'cancelled', 'none'),
+      orderRecord('o-ret', 'return_requested', 'seller'),
+      orderRecord('o-done', 'refunded', 'none'),
+    ] as never);
+
+    const { result } = renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(result.current).toBe(1));
   });
 
   it('counts only durable notifications newer than the device checkpoint', async () => {

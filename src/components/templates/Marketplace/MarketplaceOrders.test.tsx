@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CommerceController } from '@/controllers/commerce/commerce';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import {
@@ -787,5 +788,27 @@ describe('MarketplaceOrders local pickup cards (Wave 7, §A3/§A6)', () => {
     const card = screen.getByText(/Sold pickup boots/).closest('[data-slot="card"]') as HTMLElement;
     expect(within(card).getByRole('button', { name: 'Mark ready for pickup' })).toBeInTheDocument();
     expect(within(card).queryByRole('button', { name: 'Add tracking' })).not.toBeInTheDocument();
+  });
+});
+
+describe('MarketplaceOrders seen checkpoint', () => {
+  beforeEach(() => {
+    ordersState.currentUserPubky = CURRENT_USER;
+    ordersState.adapterMode = 'transaction-service';
+    ordersState.orders = [orderView('paid', 'Sold paid boots', 'seller')];
+  });
+
+  it('saves the Orders checkpoint once per opening, not on every polled order list', async () => {
+    const markSeen = vi.spyOn(CommerceController, 'markOrdersAttentionSeen').mockResolvedValue();
+    const { rerender } = render(<MarketplaceOrders />);
+    await waitFor(() => expect(markSeen).toHaveBeenCalledOnce());
+
+    for (let poll = 0; poll < 3; poll += 1) {
+      ordersState.orders = [orderView('paid', 'Sold paid boots', 'seller')];
+      rerender(<MarketplaceOrders />);
+    }
+    await Promise.resolve();
+
+    expect(markSeen).toHaveBeenCalledOnce();
   });
 });
