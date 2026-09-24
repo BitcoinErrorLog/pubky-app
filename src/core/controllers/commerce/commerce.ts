@@ -587,11 +587,6 @@ export class CommerceController {
     return await CommerceApplication.confirmFiatReceived(this.getCurrentUserPubky(), orderId);
   }
 
-  /** Manual watch-only xpub claim flow against paykit-server. */
-  static beginPaykitClaimFlow(accountXpub: string) {
-    return CommerceApplication.beginPaykitClaimFlow(accountXpub);
-  }
-
   /** Whether the current user already has a claimed watch-only account. */
   static async isOwnPaykitAccountClaimed() {
     return await CommerceApplication.isPaykitAccountClaimed(this.getCurrentUserPubky());

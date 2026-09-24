@@ -4,7 +4,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
  * Local (browser-side) signer for pubky-core `AuthToken` v0.
  *
  * The `@synonymdev/pubky` WASM SDK signs auth tokens internally for
- * `signer.signin()` / `signer.signup()` but does not expose signing to JS
+ * `signer.signinCookie()` / `signer.signupCookie()` but does not expose signing to JS
  * (its `AuthToken` class is verify/fromBytes/toBytes only). Direct HTTPS
  * signup against the staging homeserver (`POST {homeserverUrl}/signup`)
  * needs the signed token as the request body, so this module reimplements

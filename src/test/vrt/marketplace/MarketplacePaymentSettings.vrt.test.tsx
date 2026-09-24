@@ -51,7 +51,6 @@ vi.mock('@/controllers/commerce/commerce', () => ({
       updatedAt: '2026-08-22T12:00:00.000Z',
     })),
     isOwnPaykitAccountClaimed: vi.fn(async () => true),
-    beginPaykitClaimFlow: vi.fn(),
     putMyPaymentConfig: vi.fn(),
     beginMarketplaceSessionConnect: vi.fn(),
   },

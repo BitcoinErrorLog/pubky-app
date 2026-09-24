@@ -15,13 +15,13 @@ const signupToken = (await tokenResponse.text()).trim();
 const keypair = Keypair.random();
 const signerPubky = new Pubky();
 const signer = signerPubky.signer(keypair);
-await signer.signup(PublicKey.from(HOMESERVER_PUBKY), signupToken);
+await signer.signupCookie(PublicKey.from(HOMESERVER_PUBKY), signupToken);
 const who = keypair.publicKey.z32();
 console.log(`identity: ${who}`);
 
 // Fresh client (separate cookie jar role): session via the app's exact grant.
 const appPubky = new Pubky();
-const flow = appPubky.startAuthFlow('/pub/pubky.app/:rw', AuthFlowKind.signin(), HTTP_RELAY);
+const flow = appPubky.startCookieAuthFlow('/pub/pubky.app/:rw', AuthFlowKind.signin(), HTTP_RELAY);
 const approval = flow.awaitApproval();
 await signer.approveAuthRequest(flow.authorizationUrl);
 const session = await approval;
@@ -33,7 +33,7 @@ const writes = [
 ];
 // Simulate the browser: approve a SECOND session (the messaging grant) in the
 // same cookie jar, then retry the pubky.app write with the FIRST session.
-const flow2 = appPubky.startAuthFlow('/pub/pubky.app/:rw,/pub/paykit/:rw', AuthFlowKind.signin(), HTTP_RELAY);
+const flow2 = appPubky.startCookieAuthFlow('/pub/pubky.app/:rw,/pub/paykit/:rw', AuthFlowKind.signin(), HTTP_RELAY);
 const approval2 = flow2.awaitApproval();
 await signer.approveAuthRequest(flow2.authorizationUrl);
 const messagingSession = await approval2;

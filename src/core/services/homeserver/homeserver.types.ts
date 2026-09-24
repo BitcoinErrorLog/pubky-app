@@ -148,6 +148,11 @@ export type TThrowInvalidInputErrorParams = {
   additionalContext: Record<string, unknown>;
 };
 
+export type TThrowPkarrLookupErrorParams = {
+  errorMessage: string;
+  additionalContext: Record<string, unknown>;
+};
+
 export type TThrowHomeserverErrorParams = {
   statusCode: number;
   errorMessage: string;

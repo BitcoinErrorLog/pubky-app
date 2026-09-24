@@ -25,12 +25,12 @@ const keypair = Keypair.random();
 const secretHex = Buffer.from(keypair.secret()).toString('hex');
 const pubky = new Pubky();
 const signer = pubky.signer(keypair);
-await signer.signup(PublicKey.from(HOMESERVER_PUBKY), signupToken);
+await signer.signupCookie(PublicKey.from(HOMESERVER_PUBKY), signupToken);
 const who = keypair.publicKey.z32();
 console.log(`identity: ${who}`);
 console.log(`secret_hex: ${secretHex}`);
 
-const flow = pubky.startAuthFlow('/pub/pubky.app/:rw,/pub/paykit/:rw', AuthFlowKind.signin(), HTTP_RELAY);
+const flow = pubky.startCookieAuthFlow('/pub/pubky.app/:rw,/pub/paykit/:rw', AuthFlowKind.signin(), HTTP_RELAY);
 const approval = flow.awaitApproval();
 await signer.approveAuthRequest(flow.authorizationUrl);
 const session = await approval;
@@ -43,7 +43,7 @@ await session.storage.putJson('/pub/pubky.app/profile.json', {
 console.log('profile published');
 
 // Transaction-service session (single-use AuthToken, empty caps — identity proof).
-const tokenFlow = pubky.startAuthFlow('', AuthFlowKind.signin(), HTTP_RELAY);
+const tokenFlow = pubky.startCookieAuthFlow('', AuthFlowKind.signin(), HTTP_RELAY);
 const tokenPromise = tokenFlow.awaitToken();
 await signer.approveAuthRequest(tokenFlow.authorizationUrl);
 const authToken = await tokenPromise;

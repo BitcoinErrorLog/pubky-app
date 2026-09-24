@@ -27,7 +27,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
 function ownViewLooksBuyerPayable(config: SellerPaymentConfigOwnView): boolean {
-  return Boolean(config.paypalMerchantEmail || config.stripePaymentLink || config.bitcoinEnabled);
+  return Boolean(config.paypalMerchantEmail || config.bitcoinEnabled);
 }
 
 export function MarketplacePaymentSettings() {

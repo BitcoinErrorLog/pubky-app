@@ -2,7 +2,13 @@ import type { Keypair, PublicKey, Session } from '@synonymdev/pubky';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CAPABILITIES } from '@/config/app';
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import {
+  AuthErrorCode,
+  ClientErrorCode,
+  NetworkErrorCode,
+  ServerErrorCode,
+  ValidationErrorCode,
+} from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
@@ -36,6 +42,7 @@ const mockState = vi.hoisted(() => ({
   // Pubky methods
   getHomeserverOf: vi.fn(),
   restoreSession: vi.fn(),
+  sessionRestore: vi.fn(),
   startAuthFlow: vi.fn(),
   authFlowKindSignin: vi.fn(),
   authTokenFromBytes: vi.fn(),
@@ -84,7 +91,7 @@ vi.mock('@synonymdev/pubky', () => {
   const createMockPubkyInstance = () => ({
     getHomeserverOf: (...args: unknown[]) => mockState.getHomeserverOf(...args),
     restoreSession: (...args: unknown[]) => mockState.restoreSession(...args),
-    startAuthFlow: (...args: unknown[]) => mockState.startAuthFlow(...args),
+    startCookieAuthFlow: (...args: unknown[]) => mockState.startAuthFlow(...args),
     eventStreamForUser: (...args: unknown[]) => mockState.eventStreamForUser(...args),
     client: {
       fetch: (...args: unknown[]) => mockState.clientFetch(...args),
@@ -95,8 +102,8 @@ vi.mock('@synonymdev/pubky', () => {
       list: (...args: unknown[]) => mockState.publicStorageList(...args),
     },
     signer: () => ({
-      signup: (...args: unknown[]) => mockState.signup(...args),
-      signin: (...args: unknown[]) => mockState.signin(...args),
+      signupCookie: (...args: unknown[]) => mockState.signup(...args),
+      signinCookie: (...args: unknown[]) => mockState.signin(...args),
       pkdns: {
         publishHomeserverForce: (...args: unknown[]) => mockState.publishHomeserverForce(...args),
       },
@@ -109,6 +116,9 @@ vi.mock('@synonymdev/pubky', () => {
 
   return {
     Pubky: MockPubky,
+    Session: {
+      restore: (...args: unknown[]) => mockState.sessionRestore(...args),
+    },
     PublicKey: {
       from: vi.fn().mockReturnValue({
         z32: () => 'homeserver-public-key-z32',
@@ -356,7 +366,7 @@ describe('HomeserverService', () => {
           const keypair = createMockKeypair();
           const expectedSession = createMockSession();
           mockState.clientFetch.mockResolvedValue(new Response(sessionInfoBytes, { status: 200 }));
-          mockState.restoreSession.mockResolvedValue(expectedSession);
+          mockState.sessionRestore.mockResolvedValue(expectedSession);
 
           const result = await HomeserverService.signUp({ keypair, signupToken });
 
@@ -373,8 +383,13 @@ describe('HomeserverService', () => {
           expect(new Uint8Array(init.body).length).toBe(120);
           // Publishes the user's record so the staging guard and Nexus can resolve it
           expect(mockState.publishHomeserverForce).toHaveBeenCalled();
-          // Session is restored from the base64 of the signup response body
-          expect(mockState.restoreSession).toHaveBeenCalledWith(btoa(String.fromCharCode(...sessionInfoBytes)));
+          // Session is restored from the base64 of the signup response body via
+          // the metadata API; Pubky.restoreSession parses secret tokens instead.
+          expect(mockState.sessionRestore).toHaveBeenCalledWith(
+            btoa(String.fromCharCode(...sessionInfoBytes)),
+            expect.anything(),
+          );
+          expect(mockState.restoreSession).not.toHaveBeenCalled();
         });
       });
 
@@ -429,6 +444,7 @@ describe('HomeserverService', () => {
             category: ErrorCategory.Server,
             code: ServerErrorCode.SERVICE_UNAVAILABLE,
           });
+          expect(mockState.sessionRestore).not.toHaveBeenCalled();
           expect(mockState.restoreSession).not.toHaveBeenCalled();
         });
       });
@@ -438,14 +454,63 @@ describe('HomeserverService', () => {
           const keypair = createMockKeypair();
           const expectedSession = createMockSession();
           mockState.clientFetch.mockResolvedValue(new Response(sessionInfoBytes, { status: 200 }));
-          mockState.restoreSession
+          mockState.sessionRestore
             .mockRejectedValueOnce(new Error('record not propagated yet'))
             .mockResolvedValueOnce(expectedSession);
 
           const result = await HomeserverService.signUp({ keypair, signupToken });
 
           expect(result).toEqual({ session: expectedSession });
-          expect(mockState.restoreSession).toHaveBeenCalledTimes(2);
+          expect(mockState.sessionRestore).toHaveBeenCalledTimes(2);
+          expect(mockState.signin).not.toHaveBeenCalled();
+        });
+      });
+
+      it('recovers via signinCookie when every restore attempt fails after the invite is spent', async () => {
+        await withStagingHomeserverEnv(async () => {
+          vi.useFakeTimers();
+          try {
+            const keypair = createMockKeypair();
+            const recoveredSession = createMockSession();
+            mockState.clientFetch.mockResolvedValue(new Response(sessionInfoBytes, { status: 200 }));
+            mockState.sessionRestore.mockRejectedValue(new Error('restore failed'));
+            mockState.signin.mockResolvedValue(recoveredSession);
+
+            const pending = HomeserverService.signUp({ keypair, signupToken });
+            await vi.runAllTimersAsync();
+            const result = await pending;
+
+            expect(result).toEqual({ session: recoveredSession });
+            expect(mockState.sessionRestore).toHaveBeenCalledTimes(3);
+            expect(mockState.signin).toHaveBeenCalledTimes(1);
+            expect(mockState.restoreSession).not.toHaveBeenCalled();
+          } finally {
+            vi.useRealTimers();
+          }
+        });
+      });
+
+      it('throws a retryable error only when both restore and signinCookie fail', async () => {
+        await withStagingHomeserverEnv(async () => {
+          vi.useFakeTimers();
+          try {
+            const keypair = createMockKeypair();
+            mockState.clientFetch.mockResolvedValue(new Response(sessionInfoBytes, { status: 200 }));
+            mockState.sessionRestore.mockRejectedValue(new Error('restore failed'));
+            mockState.signin.mockRejectedValue(new Error('signin failed'));
+
+            const pending = HomeserverService.signUp({ keypair, signupToken }).catch((error: unknown) => error);
+            await vi.runAllTimersAsync();
+
+            expect(await pending).toMatchObject({
+              category: ErrorCategory.Server,
+              code: ServerErrorCode.SERVICE_UNAVAILABLE,
+            });
+            expect(mockState.sessionRestore).toHaveBeenCalledTimes(3);
+            expect(mockState.signin).toHaveBeenCalledTimes(1);
+          } finally {
+            vi.useRealTimers();
+          }
         });
       });
     });
@@ -794,6 +859,19 @@ describe('HomeserverService', () => {
       });
     });
 
+    describe('restoreSession (cookie reload)', () => {
+      it('reload restores cookie session via Session.restore', async () => {
+        const restored = createMockSession();
+        mockState.sessionRestore.mockResolvedValue(restored);
+
+        const result = await HomeserverService.restoreSession({ sessionExport: 'c2Vzc2lvbi1leHBvcnQ=' });
+
+        expect(result).toBe(restored);
+        expect(mockState.sessionRestore).toHaveBeenCalledWith('c2Vzc2lvbi1leHBvcnQ=', expect.anything());
+        expect(mockState.restoreSession).not.toHaveBeenCalled();
+      });
+    });
+
     describe('signInWithFullGrantAuthToken', () => {
       const z32 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
       const fullCaps = CAPABILITIES.split(',');
@@ -804,7 +882,7 @@ describe('HomeserverService', () => {
           capabilities: fullCaps,
           publicKey: { z32: () => z32 },
         });
-        mockState.restoreSession.mockResolvedValue(createMockSession());
+        mockState.sessionRestore.mockResolvedValue(createMockSession());
       });
 
       it('POSTs to the session endpoint after a full-grant capability check', async () => {
@@ -817,7 +895,8 @@ describe('HomeserverService', () => {
           `https://_pubky.${z32}/session`,
           expect.objectContaining({ method: 'POST', credentials: 'include', body: bytes }),
         );
-        expect(mockState.restoreSession).toHaveBeenCalled();
+        expect(mockState.sessionRestore).toHaveBeenCalledWith(expect.any(String), expect.anything());
+        expect(mockState.restoreSession).not.toHaveBeenCalled();
       });
 
       it('hydrates with the same standard padded base64 alphabet session.export() uses', async () => {
@@ -833,8 +912,8 @@ describe('HomeserverService', () => {
         await HomeserverService.signInWithFullGrantAuthToken(bytes);
         await HomeserverService.signInWithFullGrantAuthToken(bytes);
 
-        expect(mockState.restoreSession).toHaveBeenNthCalledWith(1, '+//+');
-        expect(mockState.restoreSession).toHaveBeenNthCalledWith(2, '+w==');
+        expect(mockState.sessionRestore).toHaveBeenNthCalledWith(1, '+//+', expect.anything());
+        expect(mockState.sessionRestore).toHaveBeenNthCalledWith(2, '+w==', expect.anything());
       });
 
       it('accepts a reordered full grant (order-insensitive set equality)', async () => {
@@ -891,13 +970,13 @@ describe('HomeserverService', () => {
           `https://_pubky.${z32}/session`,
           expect.objectContaining({ method: 'GET', credentials: 'include' }),
         );
-        expect(mockState.restoreSession).toHaveBeenCalled();
+        expect(mockState.sessionRestore).toHaveBeenCalled();
       });
 
       it('probes GET /session after any non-ok POST status, not just the recorded 400', async () => {
         for (const status of [401, 409, 500]) {
           mockState.clientFetch.mockReset();
-          mockState.restoreSession.mockClear();
+          mockState.sessionRestore.mockClear();
           mockState.clientFetch
             .mockResolvedValueOnce(new Response('nope', { status }))
             .mockResolvedValueOnce(new Response(new Uint8Array([4, 5, 6]), { status: 200 }));
@@ -909,13 +988,13 @@ describe('HomeserverService', () => {
             `https://_pubky.${z32}/session`,
             expect.objectContaining({ method: 'GET', credentials: 'include' }),
           );
-          expect(mockState.restoreSession).toHaveBeenCalled();
+          expect(mockState.sessionRestore).toHaveBeenCalled();
         }
       });
 
       it('fails sign-in when restore fails after a 2xx POST, without a fallback GET', async () => {
         mockState.clientFetch.mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }));
-        mockState.restoreSession.mockRejectedValueOnce(new Error('restore failed'));
+        mockState.sessionRestore.mockRejectedValueOnce(new Error('restore failed'));
 
         await expect(HomeserverService.signInWithFullGrantAuthToken(bytes)).rejects.toMatchObject({
           message: 'Sign-in failed. Scan again.',
@@ -1491,6 +1570,22 @@ describe('HomeserverService', () => {
           expect((error as AppError).code).toBe(AuthErrorCode.UNAUTHORIZED);
           expect((error as AppError).message).toBe('Already an AppError');
         }
+      });
+    });
+
+    describe('PKARR lookup failure (SDK 0.11 PkarrError)', () => {
+      it('pkarr error maps to retryable network error', async () => {
+        const pkarrError = { name: 'PkarrError', message: 'PKARR lookup failed: relay timeout' };
+        mockState.signup.mockRejectedValue(pkarrError);
+
+        const error = await HomeserverService.signUp({ keypair: createMockKeypair(), signupToken: 'token' }).catch(
+          (caught: unknown) => caught,
+        );
+
+        expect(error).toMatchObject({
+          category: ErrorCategory.Network,
+          code: NetworkErrorCode.CONNECTION_FAILED,
+        });
       });
     });
 
