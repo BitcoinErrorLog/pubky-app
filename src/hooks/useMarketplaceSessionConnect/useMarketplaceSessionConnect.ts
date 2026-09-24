@@ -6,6 +6,7 @@ import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
+  marketplaceBootstrapFailureMessage,
   marketplaceErrorCode,
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
@@ -13,6 +14,7 @@ import { Logger } from '@/libs/logger/logger';
 import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
+import { beginMarketplaceBootstrapFlow } from '@/services/marketplace/marketplace-bootstrap-client';
 import { beginMarketplaceGrantFlow, type MarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -37,6 +39,13 @@ type ActiveFlow =
  * `start()` first detach the current flow, so a rejection arriving from a
  * detached flow is dropped silently instead of being surfaced as a failure.
  */
+/** The signed-in pubky when the Shop session is grant-backed (Bitkit sign-in), else null. */
+function grantSignInPubky(): string | null {
+  const session = useAuthStore.getState().session;
+  if (!session || session.grant === undefined) return null;
+  return session.info.publicKey.z32();
+}
+
 export function useMarketplaceSessionConnect(
   options: UseMarketplaceSessionConnectOptions = {},
 ): UseMarketplaceSessionConnectReturn {
@@ -48,6 +57,10 @@ export function useMarketplaceSessionConnect(
   // only when a marketplace bearer already exists. AuthToken fallback clears it.
   const [requestsGrantReconnect, setRequestsGrantReconnect] = useState(
     () => getMarketplaceGrantFlowEnabled() && Boolean(MarketplaceSessionService.getActiveSession()),
+  );
+  const [requestsGrantBootstrap, setRequestsGrantBootstrap] = useState(
+    () =>
+      getMarketplaceGrantFlowEnabled() && grantSignInPubky() !== null && !MarketplaceSessionService.getActiveSession(),
   );
   const activeFlowRef = useRef<ActiveFlow | null>(null);
   const activeGrantFlowRef = useRef<MarketplaceGrantFlow | null>(null);
@@ -168,14 +181,14 @@ export function useMarketplaceSessionConnect(
         });
     };
 
-    // Reconnect grant cannot mint a first session: BFF createFlow requires a
-    // paired cookie. A seller with no marketplace bearer must bootstrap via
-    // AuthToken instead of opening a grant that 401s locally as "expired".
-    if (grantFlowEnabled && MarketplaceSessionService.getActiveSession()) {
-      setRequestsGrantReconnect(true);
+    const runGrantFlow = (
+      begin: () => Promise<MarketplaceGrantFlow>,
+      failureMessage: (code: string) => string,
+      onSessionMissing?: () => void,
+    ) => {
       setAuthorizationUrl('');
       setStatus('creating');
-      void beginMarketplaceGrantFlow()
+      void begin()
         .then(async (grantFlow) => {
           if (generationRef.current !== generation) {
             await grantFlow.cancel();
@@ -196,6 +209,10 @@ export function useMarketplaceSessionConnect(
             if (!expectedPubky) {
               throw new Error('grant_invalid_response');
             }
+            if (result.pubky !== expectedPubky) {
+              setStatus('mismatch');
+              return;
+            }
             const session = MarketplaceSessionService.establishClaimedGrantSession(
               {
                 token: result.token,
@@ -213,22 +230,48 @@ export function useMarketplaceSessionConnect(
           if (result.status === 'mismatch') setStatus('mismatch');
           else if (result.status === 'expired') setStatus('expired');
           else if (result.status === 'cancelled') setStatus('cancelled');
-          else setStatus('error');
+          else {
+            setErrorMessage(failureMessage('approval_invalid'));
+            setStatus('error');
+          }
         })
         .catch((error: unknown) => {
           if (generationRef.current !== generation) return;
           activeGrantFlowRef.current = null;
           setAuthorizationUrl('');
           const code = error instanceof Error ? error.message : '';
-          if (code === 'shop_session_missing' || code === 'shop_session_expired') {
+          if ((code === 'shop_session_missing' || code === 'shop_session_expired') && onSessionMissing) {
             Logger.warn('Marketplace grant reconnect needs a session; starting AuthToken connect', { code });
-            startAuthTokenConnect();
+            onSessionMissing();
             return;
           }
           Logger.error('Marketplace grant flow failed', { error });
-          setErrorMessage(marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sessionStart));
+          setErrorMessage(failureMessage(code));
           setStatus('error');
         });
+    };
+
+    // A Bitkit (grant) sign-in carries no AuthToken to redeem: its purchase
+    // session comes from the browser bootstrap, a second Bitkit approval.
+    const bootstrapPubky = grantSignInPubky();
+    if (grantFlowEnabled && bootstrapPubky && !MarketplaceSessionService.getActiveSession()) {
+      setRequestsGrantReconnect(false);
+      setRequestsGrantBootstrap(true);
+      runGrantFlow(() => beginMarketplaceBootstrapFlow({ pubky: bootstrapPubky }), marketplaceBootstrapFailureMessage);
+      return;
+    }
+
+    // Reconnect grant cannot mint a first session: BFF createFlow requires a
+    // paired cookie. A seller with no marketplace bearer must bootstrap via
+    // AuthToken instead of opening a grant that 401s locally as "expired".
+    if (grantFlowEnabled && MarketplaceSessionService.getActiveSession()) {
+      setRequestsGrantBootstrap(false);
+      setRequestsGrantReconnect(true);
+      runGrantFlow(
+        beginMarketplaceGrantFlow,
+        (code) => marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sessionStart),
+        startAuthTokenConnect,
+      );
       return;
     }
 
@@ -280,6 +323,7 @@ export function useMarketplaceSessionConnect(
     errorMessage,
     requestsFullGrant,
     requestsGrantReconnect,
+    requestsGrantBootstrap,
     start,
     cancel,
     copyAuthUrl,

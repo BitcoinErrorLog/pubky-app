@@ -5,9 +5,11 @@ import { Copy, Loader2, LockKeyhole, RefreshCw, Smartphone } from 'lucide-react'
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceMessagingEnable } from '@/hooks/useMarketplaceMessagingEnable/useMarketplaceMessagingEnable';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { Logger } from '@/libs/logger/logger';
+import { GRANT_SESSION_REFUSAL_COPY, GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -46,10 +48,12 @@ export function MarketplaceMessagingEnablePanel({
   });
 
   const { start, cancel } = enable;
+  const isGrantSession = useIsGrantSession();
   useEffect(() => {
+    if (isGrantSession) return;
     start();
     return cancel;
-  }, [start, cancel]);
+  }, [start, cancel, isGrantSession]);
 
   const copyUrl = async () => {
     try {
@@ -67,7 +71,9 @@ export function MarketplaceMessagingEnablePanel({
         {reconnect ? MESSAGING_COPY.reconnect : MESSAGING_COPY.enable}
       </Typography>
 
-      {enable.status === 'error' ? (
+      {isGrantSession ? (
+        <GrantSessionRefusal message={GRANT_SESSION_REFUSAL_COPY.messaging} />
+      ) : enable.status === 'error' ? (
         <div className="grid gap-3">
           <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
             {enable.errorMessage}

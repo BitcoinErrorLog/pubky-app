@@ -6,6 +6,9 @@ import { AuthActions, AuthActionTypes, authInitialState, AuthInitParams, AuthSto
 
 const safeSessionExport = (session: Session | null): string | null => {
   if (!session) return null;
+  // A grant session's export carries no key; reload restores it from
+  // BrowserSessionStore instead (see `grantSessionRecordId`).
+  if (session.grant !== undefined) return null;
   try {
     if (typeof session.export === 'function') {
       return session.export();
@@ -18,13 +21,14 @@ const safeSessionExport = (session: Session | null): string | null => {
 
 // Actions/Mutators - State modification functions
 export const createAuthActions = (set: ZustandSet<AuthStore>): AuthActions => ({
-  init: ({ session, currentUserPubky, hasProfile }: AuthInitParams) => {
+  init: ({ session, currentUserPubky, hasProfile, grantSessionRecordId = null }: AuthInitParams) => {
     clearVibeSessionAutoRestoreSuppressed();
     set(
       (state) => ({
         ...state,
         session,
         sessionExport: safeSessionExport(session),
+        grantSessionRecordId: session && session.grant !== undefined ? grantSessionRecordId : null,
         currentUserPubky,
         hasProfile,
         sessionRestoreDeferred: false,

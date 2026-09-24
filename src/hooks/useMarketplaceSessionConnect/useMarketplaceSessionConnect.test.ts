@@ -7,10 +7,12 @@ import { AppError } from '@/libs/error/error';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { copyToClipboard } from '@/libs/utils/utils';
+import { beginMarketplaceBootstrapFlow } from '@/services/marketplace/marketplace-bootstrap-client';
 import { beginMarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.types';
+import { asOpaque } from '@/test-utils/type-assertions';
 import { useMarketplaceSessionConnect } from './useMarketplaceSessionConnect';
 
 vi.mock('@/libs/logger/logger', () => ({
@@ -34,6 +36,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 
 vi.mock('@/services/marketplace/marketplace-grant-client', () => ({
   beginMarketplaceGrantFlow: vi.fn(),
+}));
+
+vi.mock('@/services/marketplace/marketplace-bootstrap-client', () => ({
+  beginMarketplaceBootstrapFlow: vi.fn(),
 }));
 
 vi.mock('@/controllers/auth/auth', () => ({
@@ -553,5 +559,150 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
     } finally {
       restore();
     }
+  });
+
+  describe('Bitkit (grant) sign-in purchase bootstrap', () => {
+    const OTHER_PUBKY = 'o'.repeat(52);
+
+    function signInWithGrant(pubky = SESSION.pubky) {
+      useAuthStore.setState({
+        currentUserPubky: pubky,
+        session: asOpaque({ grant: {}, info: { publicKey: { z32: () => pubky } } }),
+      });
+    }
+
+    afterEach(() => {
+      useAuthStore.setState({ currentUserPubky: null, session: null });
+    });
+
+    it('grant session connect uses bootstrap', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithGrant();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const { grantFlow } = createDeferredGrantFlow('pubkyauth://signin_grant?caps=bootstrap');
+        vi.mocked(beginMarketplaceBootstrapFlow).mockResolvedValue(grantFlow);
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        expect(result.current.requestsGrantBootstrap).toBe(true);
+        act(() => result.current.start());
+        await waitFor(() => expect(result.current.status).toBe('awaiting'));
+
+        expect(result.current.authorizationUrl).toBe('pubkyauth://signin_grant?caps=bootstrap');
+        expect(result.current.requestsGrantReconnect).toBe(false);
+        expect(beginMarketplaceGrantFlow).not.toHaveBeenCalled();
+        expect(CommerceController.beginMarketplaceSessionConnect).not.toHaveBeenCalled();
+        expect(AuthController.beginBridgedCommerceSessionFlow).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('challenge pubky comes from live grant session', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithGrant();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const { grantFlow } = createDeferredGrantFlow('pubkyauth://signin_grant?caps=bootstrap');
+        vi.mocked(beginMarketplaceBootstrapFlow).mockResolvedValue(grantFlow);
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        await waitFor(() => expect(beginMarketplaceBootstrapFlow).toHaveBeenCalledTimes(1));
+        expect(beginMarketplaceBootstrapFlow).toHaveBeenCalledWith({ pubky: SESSION.pubky });
+      } finally {
+        restore();
+      }
+    });
+
+    it('a Ring (cookie) sign-in never runs the grant bootstrap', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        useAuthStore.setState({
+          currentUserPubky: SESSION.pubky,
+          session: asOpaque({ info: { publicKey: { z32: () => SESSION.pubky } } }),
+        });
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const { flow } = createDeferredFlow('pubkyauth:///?caps=ring');
+        vi.mocked(CommerceController.beginMarketplaceSessionConnect).mockReturnValue(flow);
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        expect(result.current.requestsGrantBootstrap).toBe(false);
+        act(() => result.current.start());
+
+        expect(beginMarketplaceBootstrapFlow).not.toHaveBeenCalled();
+        expect(CommerceController.beginMarketplaceSessionConnect).toHaveBeenCalledTimes(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it('browser rejects bearer for another pubky', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithGrant();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const establish = vi.spyOn(MarketplaceSessionService, 'establishClaimedGrantSession');
+        const { grantFlow, resolveResult } = createDeferredGrantFlow('pubkyauth://signin_grant?caps=bootstrap');
+        vi.mocked(beginMarketplaceBootstrapFlow).mockResolvedValue(grantFlow);
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        await waitFor(() => expect(result.current.status).toBe('awaiting'));
+        resolveResult({
+          status: 'connected',
+          token: 'claimed-token',
+          pubky: OTHER_PUBKY,
+          capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
+          expires_at: SESSION.expiresAt,
+        });
+
+        await waitFor(() => expect(result.current.status).toBe('mismatch'));
+        expect(establish).not.toHaveBeenCalled();
+        expect(CommerceController.writeMarketplaceSessionStore).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('an ended grant sign-in shows the bootstrap copy, not the AuthToken fallback', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithGrant();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        vi.mocked(beginMarketplaceBootstrapFlow).mockRejectedValue(new Error('shop_session_expired'));
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        await waitFor(() => expect(result.current.status).toBe('error'));
+
+        expect(result.current.errorMessage).toBe('Your Shop session ended. Sign in again.');
+        expect(CommerceController.beginMarketplaceSessionConnect).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('a failed Bitkit approval shows the approval_invalid copy', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithGrant();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const failed = {
+          authorizationUrl: 'pubkyauth://signin_grant?caps=bootstrap',
+          awaitResult: vi.fn().mockResolvedValue({ status: 'failed' }),
+          cancel: vi.fn().mockResolvedValue(undefined),
+        };
+        vi.mocked(beginMarketplaceBootstrapFlow).mockResolvedValue(failed);
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        await waitFor(() => expect(result.current.status).toBe('error'));
+
+        expect(result.current.errorMessage).toBe('That approval could not be verified. Approve again in Bitkit.');
+      } finally {
+        restore();
+      }
+    });
   });
 });

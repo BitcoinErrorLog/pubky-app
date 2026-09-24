@@ -350,8 +350,8 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               <span className="text-brand">Step 1</span> Connect your Lock Server
             </Typography>
             <Typography as="p" className="text-sm text-muted-foreground">
-              Approve the connection in Pubky Ring. The Lock Server can then lock your content for buyers — it never
-              sees your identity secret.
+              Approve the connection in Pubky Ring or Bitkit. The Lock Server can then lock your content for buyers — it
+              never sees your identity secret.
             </Typography>
             {step1Connected && (
               <Typography as="p" className="mt-2 flex items-center gap-2 text-sm text-brand">
@@ -482,7 +482,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
             <DialogTitle>Connect Lock Server</DialogTitle>
           </DialogHeader>
           <Typography as="p" className="text-sm text-muted-foreground">
-            Scan the code with Pubky Ring. The Lock Server can then lock your content for buyers — it never sees your
+            Scan with Pubky Ring or Bitkit. The Lock Server can then lock your content for buyers — it never sees your
             identity secret.
           </Typography>
           {connectUrl && (

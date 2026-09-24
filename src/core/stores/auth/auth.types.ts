@@ -6,10 +6,16 @@ export interface AuthInitParams {
   session: Session | null;
   /** null = unknown/undetermined, false = no profile, true = has profile */
   hasProfile: boolean | null;
+  /**
+   * `BrowserSessionStore` record of a grant-backed session (Bitkit sign-in).
+   * Grant sessions are never exported; reload restores from this record.
+   */
+  grantSessionRecordId?: string | null;
 }
 
 export interface AuthState extends AuthInitParams {
   sessionExport: string | null;
+  grantSessionRecordId: string | null;
   hasHydrated: boolean;
   isRestoringSession: boolean;
   /** Whether the sign-in dialog is open (for unauthenticated users) */
@@ -51,6 +57,7 @@ export const authInitialState: AuthState = {
   currentUserPubky: null,
   session: null,
   sessionExport: null,
+  grantSessionRecordId: null,
   hasProfile: null,
   hasHydrated: false,
   isRestoringSession: false,

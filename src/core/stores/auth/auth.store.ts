@@ -24,6 +24,7 @@ export function createAuthStore() {
           partialize: (state) => ({
             currentUserPubky: state.currentUserPubky,
             sessionExport: state.sessionExport,
+            grantSessionRecordId: state.grantSessionRecordId,
             hasProfile: state.hasProfile,
             hasHydrated: false, // Will be set by rehydration handler
           }),
@@ -32,7 +33,10 @@ export function createAuthStore() {
           onRehydrateStorage: (state) => (rehydratedState) => {
             const resolvedState = rehydratedState ?? state;
             resolvedState.setHasHydrated(true);
-            if (shouldAttemptSessionRestore(rehydratedState?.sessionExport)) {
+            if (
+              shouldAttemptSessionRestore(rehydratedState?.sessionExport) ||
+              Boolean(rehydratedState?.grantSessionRecordId)
+            ) {
               resolvedState.setIsRestoringSession(true);
             }
           },

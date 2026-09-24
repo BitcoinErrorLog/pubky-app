@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useGrantSignInAvailable } from '@/hooks/useGrantSignInAvailable/useGrantSignInAvailable';
 import { useMobileAuth } from '@/hooks/useMobileAuth/useMobileAuth';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { SignInContent, SignInFooter } from './SignIn';
@@ -89,6 +90,10 @@ vi.mock('@/hooks/useMobileAuth/useMobileAuth', () => ({
     isOpeningRing: false,
     onAuthorizeClick: mockOnAuthorizeClick,
   })),
+}));
+
+vi.mock('@/hooks/useGrantSignInAvailable/useGrantSignInAvailable', () => ({
+  useGrantSignInAvailable: vi.fn(() => false),
 }));
 
 const resetMobileAuthMock = () => {
@@ -505,6 +510,53 @@ describe('SignInContent', () => {
       fireEvent.click(screen.getByLabelText('Reload sign-in QR code'));
     });
 
+    expect(mockFetchUrl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SignInContent - Bitkit grant sign-in', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMockSignInState();
+    resetMobileAuthMock();
+    vi.mocked(useGrantSignInAvailable).mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    vi.mocked(useGrantSignInAvailable).mockReturnValue(false);
+  });
+
+  it('bitkit qr hidden without delegation', async () => {
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    expect(screen.queryAllByTestId('sign-in-use-grant')).toHaveLength(0);
+    expect(screen.queryByTestId('sign-in-grant-qr-card')).not.toBeInTheDocument();
+    expect(useMobileAuth).not.toHaveBeenCalledWith({ type: 'grant' });
+  });
+
+  it('switches to a Bitkit grant QR and back to a fresh Ring QR', async () => {
+    vi.mocked(useGrantSignInAvailable).mockReturnValue(true);
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    expect(useMobileAuth).not.toHaveBeenCalledWith({ type: 'grant' });
+    await act(async () => {
+      fireEvent.click(screen.getAllByTestId('sign-in-use-grant')[0]);
+    });
+
+    expect(useMobileAuth).toHaveBeenCalledWith({ type: 'grant' });
+    expect(screen.getByTestId('sign-in-grant-qr-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('sign-in-qr-card')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy Bitkit authentication link' })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByTestId('sign-in-use-ring')[0]);
+    });
+
+    expect(screen.getByTestId('sign-in-qr-card')).toBeInTheDocument();
     expect(mockFetchUrl).toHaveBeenCalledTimes(1);
   });
 });

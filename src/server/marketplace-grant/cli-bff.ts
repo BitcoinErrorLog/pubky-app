@@ -7,6 +7,7 @@ import { getCliGrantConfig } from './config';
 import {
   cookieMatches,
   decodeBase64Url32,
+  deriveBrowserBootstrap,
   encodeBase64Url,
   hashCliDeliveryId,
   hashCliToken,
@@ -82,7 +83,7 @@ const proofBody = z
   })
   .strict();
 
-function canonicalZ32(value: string): string {
+export function canonicalZ32(value: string): string {
   if (!Z32.test(value)) throw new BffError(400, 'invalid_request');
   let key: PublicKey;
   try {
@@ -94,7 +95,7 @@ function canonicalZ32(value: string): string {
   return value;
 }
 
-function requireUuid(value: string): string {
+export function requireUuid(value: string): string {
   if (!UUID.test(value)) throw new BffError(400, 'invalid_request');
   return value;
 }
@@ -122,7 +123,7 @@ function xffHopBehindTrustedProxies(forwarded: string | null, trustedProxyCount:
   return hops[index] ?? '';
 }
 
-function clientIp(request: Request, trustedProxyCount: number): string {
+export function clientIp(request: Request, trustedProxyCount: number): string {
   if (process.env.VERCEL === '1') {
     return firstHop(request.headers.get('x-vercel-forwarded-for')) || platformRequestIp(request) || '0.0.0.0';
   }
@@ -133,7 +134,7 @@ function tokenBucketKey(prefix: string, digest: Uint8Array): string {
   return `${prefix}:${Buffer.from(digest).toString('hex')}`;
 }
 
-function hashesEqual(actual: Uint8Array, expected: Uint8Array): boolean {
+export function hashesEqual(actual: Uint8Array, expected: Uint8Array): boolean {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
@@ -147,6 +148,12 @@ async function rateLimit(config: CliGrantConfig, key: string, limit: number): Pr
   if (!(await consumeCliRateLimit(config, key, limit))) {
     throw new BffError(429, 'retry_later', 60);
   }
+}
+
+export function isBrowserBootstrapRow(config: CliGrantConfig, challengeId: string, resultCpk: string): boolean {
+  const epochs = [config.stateKeyEpoch];
+  if (config.previousStateKey && config.previousStateKeyEpoch !== undefined) epochs.push(config.previousStateKeyEpoch);
+  return epochs.some((epoch) => deriveBrowserBootstrap(config, epoch, challengeId).resultCpk === resultCpk);
 }
 
 function proofInvalid(): never {
@@ -221,6 +228,11 @@ export async function verifyCliChallenge(
   const challenge = await getCliChallenge(config, challengeId);
   if (!challenge) throw new BffError(404, 'challenge_not_found');
   if (challenge.consumed_at) throw new BffError(409, 'challenge_consumed');
+  // A browser bootstrap row carries a server-derived result key; the CLI
+  // route must not consume it (the CLI context it would write holds no seed).
+  if (isBrowserBootstrapRow(config, challengeId, challenge.result_cpk)) {
+    throw new BffError(404, 'challenge_not_found');
+  }
   if (challenge.expires_at.getTime() <= Date.now()) proofInvalid();
   if (!hashesEqual(sha256Bytes(nonce), challenge.nonce_hash)) proofInvalid();
 
