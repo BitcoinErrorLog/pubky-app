@@ -1,8 +1,14 @@
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, NetworkErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import {
+  AuthErrorCode,
+  DatabaseErrorCode,
+  NetworkErrorCode,
+  ServerErrorCode,
+  ValidationErrorCode,
+} from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpStatusCodeToError } from '@/libs/error/error.http';
-import { ErrorService } from '@/libs/error/error.types';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import type {
   THandleErrorParams,
@@ -14,6 +20,30 @@ import type {
 } from './homeserver.types';
 
 export const AUTH_FLOW_CANCELED_ERROR_NAME = 'AuthFlowCanceled';
+
+const GRANT_KEY_REMOVAL_OPERATION = 'removeGrantKeyMaterial';
+
+/**
+ * A stored grant session record (and its delegated key) is still on this
+ * device after a delete. Callers keep their record pointer and must not
+ * report signed-out.
+ */
+export function grantKeyRemovalFailed(step: 'removeGrantSession' | 'clearGrantSessions', cause: unknown): AppError {
+  return Err.database(
+    DatabaseErrorCode.DELETE_FAILED,
+    'This device still holds a Bitkit sign-in key that could not be removed.',
+    { service: ErrorService.Homeserver, operation: GRANT_KEY_REMOVAL_OPERATION, cause, context: { step } },
+  );
+}
+
+export function isGrantKeyRemovalError(error: unknown): boolean {
+  return (
+    error instanceof AppError &&
+    error.category === ErrorCategory.Database &&
+    error.code === DatabaseErrorCode.DELETE_FAILED &&
+    error.operation === GRANT_KEY_REMOVAL_OPERATION
+  );
+}
 
 /** Pubky SDK error names for type-safe error handling */
 const PUBKY_ERROR_NAMES = {

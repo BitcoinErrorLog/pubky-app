@@ -6,6 +6,7 @@ export type CapturedAuthIdentity = {
 export type AuthIdentitySnapshot = {
   session?: unknown;
   sessionExport?: unknown;
+  grantSessionRecordId?: unknown;
   currentUserPubky?: unknown;
 };
 
@@ -20,7 +21,11 @@ export function nonEmptyPubky(value: unknown): string | null {
 
 function identityPresent(live: AuthIdentitySnapshot, persistedIdentityPresent: boolean): boolean {
   return Boolean(
-    live.session || live.sessionExport || nonEmptyPubky(live.currentUserPubky) || persistedIdentityPresent,
+    live.session ||
+    live.sessionExport ||
+    live.grantSessionRecordId ||
+    nonEmptyPubky(live.currentUserPubky) ||
+    persistedIdentityPresent,
   );
 }
 

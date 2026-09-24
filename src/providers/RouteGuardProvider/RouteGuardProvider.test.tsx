@@ -10,6 +10,8 @@ import { RouteGuardProvider } from './RouteGuardProvider';
 
 // Hoisted mocks
 const mocks = vi.hoisted(() => {
+  const unsubscribeCrossTabSignOut = vi.fn();
+  const subscribeCrossTabSignOut = vi.fn(() => unsubscribeCrossTabSignOut);
   const mockRouterPush = vi.fn();
   const mockRouterRefresh = vi.fn();
   const mockResync = vi.fn();
@@ -19,6 +21,8 @@ const mocks = vi.hoisted(() => {
   const restorePersistedSession = vi.fn().mockResolvedValue(true);
 
   return {
+    subscribeCrossTabSignOut,
+    unsubscribeCrossTabSignOut,
     mockRouterPush,
     mockRouterRefresh,
     mockResync,
@@ -149,6 +153,7 @@ vi.mock('@/libs/vibe-session/auto-restore', async (importOriginal) => {
 vi.mock('@/controllers/auth/auth', () => ({
   AuthController: {
     restorePersistedSession: mocks.restorePersistedSession,
+    subscribeCrossTabSignOut: mocks.subscribeCrossTabSignOut,
   },
 }));
 vi.mock('@/controllers/migration/migration', () => ({

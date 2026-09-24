@@ -20,6 +20,9 @@ export const APP_VERSION = Env.NEXT_PUBLIC_APP_VERSION;
  */
 export const CAPABILITIES = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw';
 
+/** Client id Bitkit shows on its Authorize screen for the Shop's grant sign-in. */
+export const SHOP_GRANT_CLIENT_ID = 'shop.pubky.app';
+
 /**
  * Interim dual-POST ceremony (docs/ecommerce/single-approval.md). Runtime
  * flag (`PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN`, default on): `false`

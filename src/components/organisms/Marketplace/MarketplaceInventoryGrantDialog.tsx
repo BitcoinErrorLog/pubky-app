@@ -5,7 +5,9 @@ import { Copy, KeyRound, Loader2, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceInventoryGrantConnect } from '@/hooks/useMarketplaceInventoryGrantConnect/useMarketplaceInventoryGrantConnect';
+import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -35,13 +37,14 @@ export function MarketplaceInventoryGrantDialog({
     if (autoOpen) setOpen(true);
   }, [autoOpen]);
 
+  const isGrantSession = useIsGrantSession();
   useEffect(() => {
     if (open) {
-      start();
+      if (!isGrantSession) start();
       return;
     }
     cancel();
-  }, [open, start, cancel]);
+  }, [open, start, cancel, isGrantSession]);
 
   const copyUrl = async () => {
     try {
@@ -67,7 +70,9 @@ export function MarketplaceInventoryGrantDialog({
         <Typography as="p" className="text-sm text-muted-foreground">
           Approve this grant in Bitkit or Pubky Ring; it does not replace your purchase session.
         </Typography>
-        {grant.status === 'error' ? (
+        {isGrantSession ? (
+          <GrantSessionRefusal />
+        ) : grant.status === 'error' ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
             {grant.errorMessage}
           </div>

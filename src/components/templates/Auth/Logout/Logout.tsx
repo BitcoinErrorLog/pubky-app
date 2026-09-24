@@ -37,11 +37,12 @@ export function Logout() {
   const authHasHydrated = useAuthStore((state) => state.hasHydrated);
   const session = useAuthStore((state) => state.session);
   const sessionExport = useAuthStore((state) => state.sessionExport);
+  const grantSessionRecordId = useAuthStore((state) => state.grantSessionRecordId);
   const isLoggingOut = useAuthStore((state) => state.isLoggingOut);
   const [viewState, setViewState] = useState<LogoutViewState>('idle');
 
   const isHydrated = onboardingHasHydrated && authHasHydrated;
-  const isSignedOut = session === null && sessionExport === null;
+  const isSignedOut = session === null && sessionExport === null && !grantSessionRecordId;
 
   useEffect(() => {
     if (!isHydrated) return;
