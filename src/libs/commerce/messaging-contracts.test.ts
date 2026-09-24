@@ -7,6 +7,8 @@ import {
   chatMessageBodyBudget,
   chatMessageByteSize,
   decodeChatMessage,
+  isListingConversationBound,
+  listingConversationBetween,
   MARKETPLACE_CHAT_MESSAGE_KIND,
   parseConversationAggregateId,
   PAYKIT_MESSAGING_CAPABILITY,
@@ -138,5 +140,60 @@ describe('marketplace chat message contract', () => {
   it('measures envelopes consistently with chatMessageByteSize', () => {
     const { message, byteSize } = build('size check');
     expect(chatMessageByteSize(message)).toBe(byteSize);
+  });
+});
+
+describe('listing conversation binding', () => {
+  const OTHER = 'y'.repeat(52);
+
+  it('binds a conversation to its seller and buyer in either link direction', () => {
+    const bound = { conversationId: CONVERSATION_ID, listingRef: LISTING_REF };
+    expect(isListingConversationBound({ ...bound, ownerPubky: SELLER, counterpartyPubky: BUYER })).toBe(true);
+    expect(isListingConversationBound({ ...bound, ownerPubky: BUYER, counterpartyPubky: SELLER })).toBe(true);
+  });
+
+  it('rejects a conversation that names anyone other than the two link endpoints', () => {
+    const bound = { conversationId: CONVERSATION_ID, listingRef: LISTING_REF };
+    expect(isListingConversationBound({ ...bound, ownerPubky: SELLER, counterpartyPubky: OTHER })).toBe(false);
+    expect(isListingConversationBound({ ...bound, ownerPubky: OTHER, counterpartyPubky: BUYER })).toBe(false);
+    expect(isListingConversationBound({ ...bound, ownerPubky: SELLER, counterpartyPubky: SELLER })).toBe(false);
+  });
+
+  it('rejects a listing_ref that is not the seller listing the conversation names', () => {
+    const endpoints = { conversationId: CONVERSATION_ID, ownerPubky: SELLER, counterpartyPubky: BUYER };
+    expect(isListingConversationBound({ ...endpoints, listingRef: null })).toBe(false);
+    expect(
+      isListingConversationBound({ ...endpoints, listingRef: buildMarketplaceListingAggregateId(BUYER, LISTING_ID) }),
+    ).toBe(false);
+    expect(isListingConversationBound({ ...endpoints, listingRef: `listing:${SELLER}:${LISTING_ID}` })).toBe(false);
+  });
+
+  it('rejects malformed ids and listing ids that are not path-safe', () => {
+    expect(
+      isListingConversationBound({
+        conversationId: `dm:${BUYER}`,
+        listingRef: LISTING_REF,
+        ownerPubky: SELLER,
+        counterpartyPubky: BUYER,
+      }),
+    ).toBe(false);
+    expect(
+      isListingConversationBound({
+        conversationId: buildMarketplaceConversationAggregateId(SELLER, BUYER, 'a/b'),
+        listingRef: buildMarketplaceListingAggregateId(SELLER, 'a/b'),
+        ownerPubky: SELLER,
+        counterpartyPubky: BUYER,
+      }),
+    ).toBe(false);
+  });
+
+  it('listingConversationBetween checks participants only', () => {
+    expect(listingConversationBetween(CONVERSATION_ID, BUYER, SELLER)).toEqual({
+      sellerPubky: SELLER,
+      buyerPubky: BUYER,
+      listingId: LISTING_ID,
+    });
+    expect(listingConversationBetween(CONVERSATION_ID, BUYER, OTHER)).toBeNull();
+    expect(listingConversationBetween('conversation:short', BUYER, SELLER)).toBeNull();
   });
 });

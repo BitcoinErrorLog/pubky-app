@@ -155,3 +155,41 @@ describe('MessagingController unread and read-state facts', () => {
     await expect(MessagingController.getConversationMessages('dm:short')).rejects.toThrow(/conversation id/);
   });
 });
+
+describe('MessagingController listing conversation ownership', () => {
+  const BUYER = 'b'.repeat(52);
+  const LISTING_ID = '0033GVVN22HJ0FYQGZZS8R2BFC';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth(OWNER);
+  });
+
+  it('refuses a thread the signed-in account is not a party to, before anything is sent or queued', async () => {
+    const sendSpy = vi.spyOn(MessagingApplication, 'sendOrQueueMessage');
+    const openSpy = vi.spyOn(MessagingApplication, 'openConversation');
+
+    await expect(MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING_ID, 'hello')).rejects.toThrow(
+      /does not belong to the signed-in account/,
+    );
+    await expect(MessagingController.openConversation(SELLER, SELLER, LISTING_ID)).rejects.toThrow(
+      /does not belong to the signed-in account/,
+    );
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('resolves the counterparty from the thread when the signed-in account is the buyer', async () => {
+    const sendSpy = vi
+      .spyOn(MessagingApplication, 'sendOrQueueMessage')
+      .mockResolvedValue({ delivered: false } as Awaited<ReturnType<typeof MessagingApplication.sendOrQueueMessage>>);
+
+    await MessagingController.sendOrQueueMessage(SELLER, OWNER, LISTING_ID, 'hello');
+
+    expect(sendSpy).toHaveBeenCalledWith(OWNER, SELLER, {
+      conversationId: `conversation:${SELLER}_${OWNER}_${LISTING_ID}`,
+      listingRef: `listing:${SELLER}_${LISTING_ID}`,
+      body: 'hello',
+    });
+  });
+});

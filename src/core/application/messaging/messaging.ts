@@ -16,6 +16,7 @@ import type {
 } from '@/models/messaging/messaging.schema';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import {
+  assertListingConversationBound,
   type MessagingEnableFlow,
   type MessagingLinkState,
   PaykitMessagingService,
@@ -270,6 +271,9 @@ export class MessagingApplication {
           body: string;
         },
   ): Promise<CommerceMessagingOutboxModelSchema> {
+    if (input.kind === 'chat') {
+      assertListingConversationBound(ownerPubky, counterpartyPubky, input, 'enqueueMessage');
+    }
     const id = crypto.randomUUID();
     const sentAtProbe = Date.now();
     const { message } =

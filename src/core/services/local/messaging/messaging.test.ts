@@ -404,4 +404,80 @@ describe('LocalMessagingService', () => {
       expect([...(read?.noise_secret ?? [])]).toEqual([...new Uint8Array(32).fill(9)]);
     });
   });
+
+  // Rows stored before inbound listing messages were bound to their link: a
+  // contact (ATTACKER) could file text under a thread with someone else. The
+  // row's counterparty is the link it arrived on, so it is detectable.
+  describe('quarantine of rows planted before inbound binding', () => {
+    const ATTACKER = 'y'.repeat(52);
+
+    async function seedLegitimateThread() {
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: CONVERSATION_ID,
+        kind: 'listing',
+        listing_ref: `listing:${COUNTERPARTY}_L1`,
+        counterparty_pubky: COUNTERPARTY,
+        last_message_at: 100,
+        updated_at: 100,
+      });
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('from the real seller', 100));
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), {
+        ...messageRow('my reply', 110),
+        direction: 'sent',
+      });
+    }
+
+    it('hides a planted message from the thread it names, keeps it stored, and keeps the real history', async () => {
+      await seedLegitimateThread();
+      const plantedId = crypto.randomUUID();
+      await LocalMessagingService.upsertMessage(plantedId, {
+        ...messageRow('planted by another contact', 120),
+        counterparty_pubky: ATTACKER,
+      });
+
+      const thread = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
+      expect(thread.map(({ body }) => body)).toEqual(['message from the real seller', 'message my reply']);
+      await expect(CommerceMessagingMessageModel.findById(`${OWNER}:${plantedId}`)).resolves.not.toBeNull();
+    });
+
+    it('never counts a planted message as unread', async () => {
+      await seedLegitimateThread();
+      await LocalMessagingService.markConversationRead(OWNER, CONVERSATION_ID, 110);
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), {
+        ...messageRow('planted', 130),
+        counterparty_pubky: ATTACKER,
+      });
+      await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(0);
+    });
+
+    it('does not list a planted conversation row filed under someone else’s thread', async () => {
+      await seedLegitimateThread();
+      const plantedThread = `conversation:${OWNER}_${'b'.repeat(52)}_L2`;
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: plantedThread,
+        kind: 'listing',
+        listing_ref: `listing:${OWNER}_L2`,
+        counterparty_pubky: ATTACKER,
+        last_message_at: 200,
+        updated_at: 200,
+      });
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: `dm:${COUNTERPARTY}`,
+        kind: 'dm',
+        listing_ref: null,
+        counterparty_pubky: COUNTERPARTY,
+        last_message_at: 50,
+        updated_at: 50,
+      });
+
+      const listed = await LocalMessagingService.getConversationsByOwner(OWNER);
+      expect(listed.map(({ conversation_id }) => conversation_id).sort()).toEqual(
+        [CONVERSATION_ID, `dm:${COUNTERPARTY}`].sort(),
+      );
+      await expect(LocalMessagingService.getConversation(OWNER, plantedThread)).resolves.not.toBeNull();
+    });
+  });
 });

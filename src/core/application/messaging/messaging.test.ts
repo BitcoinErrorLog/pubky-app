@@ -11,7 +11,7 @@ const OWNER = 'a'.repeat(52);
 const OTHER_OWNER = 'b'.repeat(52);
 const COUNTERPARTY = 'z'.repeat(52);
 const CONVERSATION_ID = `conversation:${COUNTERPARTY}_${OWNER}_L1`;
-const LISTING_REF = `listing:${COUNTERPARTY}:L1`;
+const LISTING_REF = `listing:${COUNTERPARTY}_L1`;
 
 const READY: MessagingLinkState = { status: 'ready' };
 const HANDSHAKING: MessagingLinkState = { status: 'handshaking', role: 'initiator' };
@@ -91,6 +91,18 @@ describe('MessagingApplication queued-message outbox', () => {
 
     expect(sendSpy).not.toHaveBeenCalled();
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
+  });
+
+  it('refuses to queue a listing message into a thread that does not name the counterparty', async () => {
+    mockLinkState(HANDSHAKING);
+    const sendSpy = mockChatSend();
+
+    await expect(
+      MessagingApplication.sendOrQueueMessage(OWNER, OTHER_OWNER, chatInput('meant for someone else')),
+    ).rejects.toThrow(/not between you and the person you are messaging/);
+
+    expect(sendSpy).not.toHaveBeenCalled();
+    await expect(LocalMessagingService.getQueuedMessages(OWNER, OTHER_OWNER)).resolves.toHaveLength(0);
   });
 
   it('sends directly — no outbox row — when the link is ready', async () => {
