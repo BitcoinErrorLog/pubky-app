@@ -14,6 +14,7 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { type CommerceAdapterMode, isDurableCommerceMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
+import { orderAnchorId, readOrderAnchorId } from '@/libs/commerce/activity-links';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
 import {
@@ -31,6 +32,7 @@ import {
 } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
+import { markOrdersAttentionSeen } from '@/libs/commerce/marketplace-attention';
 import { listingIdFromOrder, marketplaceConversationHref } from '@/libs/commerce/marketplace-conversation-query';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { partialRefundLabel } from '@/libs/commerce/partial-refund';
@@ -83,6 +85,27 @@ export function MarketplaceOrders() {
   );
   const orderCounts = getOrderTabCounts(historyOrders, currentUserPubky);
   const visibleOrders = historyOrders.filter((view) => isOrderInTab(view, activeTab, currentUserPubky));
+
+  useEffect(() => {
+    if (!currentUserPubky || isLoading || error || needsSession) return;
+    markOrdersAttentionSeen(currentUserPubky);
+  }, [currentUserPubky, error, isLoading, needsSession, orders]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    const anchorId = readOrderAnchorId(window.location.hash);
+    if (!anchorId) return;
+    const view = orders.find((candidate) => candidate.order.id === anchorId);
+    if (!view) return;
+    if (!isOrderInTab(view, activeTab, currentUserPubky)) {
+      if (activeTab !== 'all') {
+        setActiveTab('all');
+        setHasSelectedTab(true);
+      }
+      return;
+    }
+    document.getElementById(orderAnchorId(anchorId))?.scrollIntoView({ block: 'center' });
+  }, [activeTab, currentUserPubky, isLoading, orders]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -257,7 +280,7 @@ export function MarketplaceOrders() {
                     const refundLabel = partialRefundLabel(order);
                     const nextActorHint = getNextActorHint(order, payment, isBuyer);
                     return (
-                      <Card key={order.id} className="border py-5">
+                      <Card key={order.id} id={orderAnchorId(order.id)} className="scroll-mt-24 border py-5">
                         <CardContent className="grid min-w-0 gap-5 px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
                           <div className="min-w-0">
                             <div className="mb-3 flex flex-wrap gap-2">

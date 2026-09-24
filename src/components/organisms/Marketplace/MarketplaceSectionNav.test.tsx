@@ -2,7 +2,11 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketplaceSectionNav } from './MarketplaceSectionNav';
 
-const state = vi.hoisted(() => ({ pathname: '/marketplace/offers' as string | null, activityCount: 22 }));
+const state = vi.hoisted(() => ({
+  pathname: '/marketplace/offers' as string | null,
+  activityCount: 22,
+  ordersCount: 0,
+}));
 
 vi.mock('next/navigation', () => ({
   usePathname: () => state.pathname,
@@ -16,10 +20,15 @@ vi.mock('@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread', () 
   useMarketplaceActivityUnread: () => state.activityCount,
 }));
 
+vi.mock('@/hooks/useMarketplaceOrdersAttention/useMarketplaceOrdersAttention', () => ({
+  useMarketplaceOrdersAttention: () => state.ordersCount,
+}));
+
 describe('MarketplaceSectionNav', () => {
   beforeEach(() => {
     state.pathname = '/marketplace/offers';
     state.activityCount = 22;
+    state.ordersCount = 0;
   });
 
   it('highlights the active section and wires both badges', () => {
@@ -29,6 +38,14 @@ describe('MarketplaceSectionNav', () => {
     expect(screen.getByRole('link', { name: 'Marketplace' })).not.toHaveAttribute('aria-current');
     expect(screen.getByTestId('marketplace-section-nav-cart-badge')).toHaveTextContent('3');
     expect(screen.getByTestId('marketplace-section-nav-activity-badge')).toHaveTextContent('21+');
+  });
+
+  it('badges orders that still need the signed-in identity', () => {
+    state.ordersCount = 2;
+    render(<MarketplaceSectionNav />);
+
+    expect(screen.getByTestId('marketplace-section-nav-orders-badge')).toHaveTextContent('2');
+    expect(screen.getByLabelText('2 orders needing you')).toBeInTheDocument();
   });
 
   it('highlights seller studio subroutes without highlighting buyer sections', () => {

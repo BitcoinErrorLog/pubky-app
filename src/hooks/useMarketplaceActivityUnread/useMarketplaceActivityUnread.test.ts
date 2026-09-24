@@ -93,6 +93,19 @@ describe('useMarketplaceActivityUnread', () => {
     await waitFor(() => expect(result.current).toBe(2));
   });
 
+  it('does not badge informational rows such as a confirmed payment', async () => {
+    vi.mocked(CommerceController.getActivityReadCheckpoint).mockResolvedValue(0);
+    vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
+      notification('offer', '2026-08-20T01:00:00.000Z'),
+      { ...notification('paid', '2026-08-21T09:30:00.000Z'), type: 'payment_confirmed' as const },
+    ]);
+
+    const { result } = renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(CommerceController.getMarketplaceNotifications).toHaveBeenCalled());
+    await waitFor(() => expect(result.current).toBe(1));
+  });
+
   it('adds unseen watch alerts on top of the checkpoint count', async () => {
     vi.mocked(CommerceController.getActivityReadCheckpoint).mockResolvedValue(Date.parse('2026-08-20T00:00:00.000Z'));
     vi.mocked(CommerceController.getMarketplaceNotifications).mockResolvedValue([
@@ -146,6 +159,30 @@ describe('useMarketplaceActivityUnread', () => {
     const { result } = renderHook(() => useMarketplaceActivityUnread());
 
     await waitFor(() => expect(result.current).toBe(1));
+  });
+
+  it('contributes zero when the local watch query throws', async () => {
+    vi.mocked(CommerceController.getWatchAlerts).mockImplementation(() => {
+      throw new TypeError('CommerceController.getWatchAlerts is not a function');
+    });
+
+    const { result } = renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(CommerceController.getWatchAlerts).toHaveBeenCalled());
+    expect(result.current).toBe(0);
+    expect(CommerceController.getMarketplaceNotifications).not.toHaveBeenCalled();
+  });
+
+  it('contributes zero when the notification fetch throws before a promise', async () => {
+    vi.mocked(CommerceController.getActivityReadCheckpoint).mockResolvedValue(0);
+    vi.mocked(CommerceController.getMarketplaceNotifications).mockImplementation(() => {
+      throw new TypeError('CommerceController.getMarketplaceNotifications is not a function');
+    });
+
+    const { result } = renderHook(() => useMarketplaceActivityUnread());
+
+    await waitFor(() => expect(CommerceController.getMarketplaceNotifications).toHaveBeenCalled());
+    expect(result.current).toBe(0);
   });
 
   it('returns zero without fetching when signed out', async () => {
