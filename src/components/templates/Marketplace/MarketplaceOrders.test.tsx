@@ -866,6 +866,23 @@ describe('MarketplaceOrders Activity link to an order no section lists', () => {
     expect(screen.getAllByText('Sold paid boots × 1')).toHaveLength(1);
   });
 
+  it('shows nothing for a linked order the signed-in account is not part of', async () => {
+    const foreign = orderView('cancelled', 'Foreign unpaid lamp', 'seller', {
+      receiptId: null,
+      buyerPubky: OTHER_USER,
+      sellerPubky: ORDER_FIXTURE_SELLER,
+    });
+    ordersState.orders = [orderView('paid', 'Sold paid boots', 'seller'), foreign];
+    window.history.replaceState(null, '', `/marketplace/orders#order-${foreign.order.id}`);
+
+    render(<MarketplaceOrders />);
+
+    await waitFor(() => expect(screen.getByText('Sold paid boots × 1')).toBeInTheDocument());
+    expect(screen.queryByTestId('marketplace-linked-order')).toBeNull();
+    expect(screen.queryByText(/Foreign unpaid lamp/)).toBeNull();
+    expect(document.getElementById(`order-${foreign.order.id}`)).toBeNull();
+  });
+
   it('follows a hash change while the page is open', async () => {
     render(<MarketplaceOrders />);
     expect(screen.queryByTestId('marketplace-linked-order')).toBeNull();

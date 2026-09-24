@@ -90,10 +90,12 @@ export function MarketplaceOrders() {
   const listedOrderIds = new Set(
     [...buyerCheckouts, ...sellerReservations, ...historyOrders, ...abandonedCheckouts].map(({ order }) => order.id),
   );
-  const linkedUnlistedOrder =
+  const anchoredOrder =
     anchorOrderId && !listedOrderIds.has(anchorOrderId)
       ? (orders.find(({ order }) => order.id === anchorOrderId)?.order ?? null)
       : null;
+  const linkedUnlistedOrder =
+    anchoredOrder && isOrderParticipant(anchoredOrder, currentUserPubky) ? anchoredOrder : null;
 
   useMarkMarketplaceOrdersSeen(!isLoading && !error && !needsSession);
 
@@ -640,6 +642,10 @@ function isCurrentUserSeller(order: MarketplaceOrder, currentUserPubky: string |
 
 function isCurrentUserBuyer(order: MarketplaceOrder, currentUserPubky: string | null): boolean {
   return currentUserPubky !== null && order.buyerPubky === currentUserPubky;
+}
+
+function isOrderParticipant(order: MarketplaceOrder, currentUserPubky: string | null): boolean {
+  return isCurrentUserBuyer(order, currentUserPubky) || isCurrentUserSeller(order, currentUserPubky);
 }
 
 function isSellerAwaitingPayment(
