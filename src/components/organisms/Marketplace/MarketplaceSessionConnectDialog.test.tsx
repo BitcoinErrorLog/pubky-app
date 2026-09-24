@@ -108,6 +108,22 @@ describe('MarketplaceSessionConnectDialog', () => {
     expect(screen.getByRole('button', { name: 'Open in Bitkit' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /open in pubky ring/i })).not.toBeInTheDocument();
     expect(screen.getByText('Waiting for approval in Bitkit…')).toBeInTheDocument();
+    expect(screen.queryByTestId('bootstrap-approval-caption')).not.toBeInTheDocument();
+  });
+
+  it('bootstrap QR carries the caption naming the client Bitkit will show', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl =
+      'pubkyauth://signin_grant?caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw&relay=r&secret=s&cid=marketplace.staging.shop.pubky.app&cpk=k';
+    view.isGrantSession = true;
+    view.grantEnabled = true;
+    view.requestsGrantBootstrap = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.getByTestId('bootstrap-approval-caption')).toHaveTextContent(
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases only.',
+    );
   });
 
   it('bootstrap creating state confirms with the homeserver', () => {

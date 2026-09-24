@@ -4,7 +4,12 @@ import { AuthErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
-import { beginMarketplaceBootstrapFlow } from './marketplace-bootstrap-client';
+import captured from '@/test/fixtures/auth/marketplace-bootstrap-url.staging.json';
+import {
+  beginMarketplaceBootstrapFlow,
+  bootstrapApprovalCaption,
+  MARKETPLACE_BOOTSTRAP_CAPABILITIES,
+} from './marketplace-bootstrap-client';
 
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: { request: vi.fn(), delete: vi.fn() },
@@ -165,6 +170,36 @@ describe('marketplace purchase bootstrap client', () => {
     expect(fetchMock.mock.calls.map((call) => call[0])).toContain(
       `/api/marketplace/bootstrap-flows/${STATE_ID}/cancel`,
     );
+  });
+
+  it('bootstrap url matches captured fixture', async () => {
+    const values: Record<string, string> = {
+      caps: captured.caps,
+      relay: 'https://relay.example/inbox',
+      secret: 's',
+      cid: captured.cid,
+      cpk: 'k',
+    };
+    const url = `${captured.scheme}//${captured.host}?${captured.params
+      .map((name) => `${name}=${encodeURIComponent(values[name])}`)
+      .join('&')}`;
+    expect(captured.caps).toBe(MARKETPLACE_BOOTSTRAP_CAPABILITIES);
+    expect([...new URL(url).searchParams.keys()]).toEqual(captured.params);
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(challenge(), 201))
+      .mockResolvedValueOnce(jsonResponse({ ...verified, authorization_url: url }));
+    const flow = await beginMarketplaceBootstrapFlow({ pubky: PUBKY });
+
+    expect(flow.authorizationUrl).toBe(url);
+    expect(bootstrapApprovalCaption(url)).toBe(
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases only.',
+    );
+  });
+
+  it('shows no caption for a URL that names no client', () => {
+    expect(bootstrapApprovalCaption('pubkyauth://signin_grant?caps=x')).toBeNull();
+    expect(bootstrapApprovalCaption('not a url')).toBeNull();
   });
 
   it('cancel posts to the bootstrap cancel route once', async () => {

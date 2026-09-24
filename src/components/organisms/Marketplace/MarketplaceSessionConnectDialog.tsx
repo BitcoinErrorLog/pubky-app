@@ -12,6 +12,7 @@ import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-co
 import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { bootstrapApprovalCaption } from '@/services/marketplace/marketplace-bootstrap-client';
 
 /**
  * The in-app UX for establishing a marketplace transaction-service session
@@ -80,6 +81,8 @@ export function MarketplaceSessionConnectDialog({
   const requestsFullGrant = session.requestsFullGrant;
   const requestsGrantReconnect = session.requestsGrantReconnect;
   const requestsGrantBootstrap = session.requestsGrantBootstrap;
+  const bootstrapCaption =
+    requestsGrantBootstrap && session.authorizationUrl ? bootstrapApprovalCaption(session.authorizationUrl) : null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -155,6 +158,16 @@ export function MarketplaceSessionConnectDialog({
                 showRingLogo={!requestsGrantBootstrap}
               />
             </button>
+
+            {bootstrapCaption && (
+              <Typography
+                as="p"
+                data-testid="bootstrap-approval-caption"
+                className="max-w-xs text-center text-xs text-muted-foreground"
+              >
+                {bootstrapCaption}
+              </Typography>
+            )}
 
             {session.status === 'awaiting' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">

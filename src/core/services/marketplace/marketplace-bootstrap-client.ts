@@ -43,6 +43,20 @@ const pollSchema = z.object({
 /** The only capability the marketplace bootstrap grant may ask Bitkit for. */
 export const MARKETPLACE_BOOTSTRAP_CAPABILITIES = '/pub/pubky.app/marketplace-service/v1/:rw';
 
+/**
+ * What Bitkit shows for the marketplace approval: the client id it names and
+ * that the request covers purchases only. Null when the URL names no client.
+ */
+export function bootstrapApprovalCaption(authorizationUrl: string): string | null {
+  let cid: string | null;
+  try {
+    cid = new URL(authorizationUrl).searchParams.get('cid');
+  } catch {
+    return null;
+  }
+  return cid ? `Bitkit shows this request from ${cid}, for marketplace purchases only.` : null;
+}
+
 function bootstrapFailure(code: string) {
   return Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, code, {
     service: ErrorService.Marketplace,
