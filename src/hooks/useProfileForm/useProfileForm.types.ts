@@ -9,6 +9,10 @@ export interface ProfileLink {
   url: string;
 }
 
+/** Shown when the homeserver's per-account allow-list refuses Pubky App writes (Bitkit's Homegate signups). */
+export const WRITE_PATH_NOT_ALLOWED_MESSAGE =
+  "Your homeserver account doesn't allow saving a Pubky profile yet. Signing in again won't change this.";
+
 /** Submit-button copy for each phase of the profile save flow. */
 export const PROFILE_SUBMIT_TEXT = {
   saveProfile: 'Save Profile',

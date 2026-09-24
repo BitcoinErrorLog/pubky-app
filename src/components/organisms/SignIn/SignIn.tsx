@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Image from 'next/image';
 import { CheckCircle, Circle, Key, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
+import { Card } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { FooterLinks } from '@/atoms/FooterLinks/FooterLinks';
 import { Link } from '@/atoms/Link/Link';
@@ -107,100 +108,125 @@ async function copyWithToast(copy: () => Promise<void>) {
   }
 }
 
-/**
- * Bitkit sign-in: a grant QR (`pubkyauth://signin_grant`). Mounting it starts
- * the grant flow, which supersedes the Ring QR's flow.
- */
-const SignInGrantPanel = ({ onUseRing }: { onUseRing: () => void }) => {
-  const { url, isLoading, isExpired, fetchUrl, copyAuthUrl, isOpeningRing, onAuthorizeClick } = useMobileAuth({
-    type: 'grant',
-  });
-  const isMobileLaunching = isLoading || isOpeningRing;
+type TSignerAuth = ReturnType<typeof useMobileAuth>;
+
+const SIGNERS = {
+  ring: {
+    name: 'Pubky Ring',
+    hint: 'Scan with Pubky Ring.',
+    copyLabel: 'Copy authentication link',
+    reloadLabel: 'Reload sign-in QR code',
+    openingLabel: 'Opening Pubky Ring...',
+    showRingLogo: true,
+  },
+  bitkit: {
+    name: 'Bitkit',
+    hint: 'Scan with Bitkit 2.5 or newer.',
+    copyLabel: 'Copy Bitkit authentication link',
+    reloadLabel: 'Reload Bitkit sign-in QR code',
+    openingLabel: 'Opening Bitkit...',
+    showRingLogo: false,
+  },
+} as const;
+
+/** One signer's labelled QR in the side-by-side desktop layout. */
+const SignInQrOption = ({ signer, auth }: { signer: keyof typeof SIGNERS; auth: TSignerAuth }) => {
+  const copy = SIGNERS[signer];
+  const { url, isLoading, isExpired, fetchUrl, copyAuthUrl } = auth;
   const handleQRClick = async () => {
     if (!url) return;
     await copyWithToast(copyAuthUrl);
   };
-  const ringSwitch = (
-    <Button variant="link" onClick={onUseRing} data-testid="sign-in-use-ring">
-      {'Use Pubky Ring instead'}
+  return (
+    <div className="flex flex-col items-center gap-4" data-testid={`sign-in-${signer}-option`}>
+      <Typography as="h2" className="text-xl font-bold text-foreground">
+        {copy.name}
+      </Typography>
+      <button
+        type="button"
+        className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
+        onClick={isExpired ? fetchUrl : handleQRClick}
+        disabled={isLoading || (!url && !isExpired)}
+        aria-label={isExpired ? copy.reloadLabel : copy.copyLabel}
+      >
+        <QrCodeSlot
+          isLoading={isLoading}
+          isExpired={isExpired}
+          url={url}
+          generatingLabel={'Generating QR Code...'}
+          clickToReloadLabel={'Click to reload'}
+          activeQrHasHoverEffect
+          showRingLogo={copy.showRingLogo}
+        />
+      </button>
+      <Typography as="span" className="text-center text-muted-foreground">
+        {copy.hint}
+      </Typography>
+    </div>
+  );
+};
+
+/** One signer's deeplink button in the stacked mobile layout. */
+const SignInAuthorizeButton = ({ signer, auth }: { signer: keyof typeof SIGNERS; auth: TSignerAuth }) => {
+  const copy = SIGNERS[signer];
+  const { url, isLoading, isExpired, isOpeningRing, onAuthorizeClick } = auth;
+  const isMobileLaunching = isLoading || isOpeningRing;
+  return (
+    <Button
+      className="w-full"
+      size="lg"
+      onClick={onAuthorizeClick}
+      disabled={isMobileLaunching || (!url && !isExpired)}
+      aria-busy={isMobileLaunching}
+      data-testid={signer === 'ring' ? 'button' : 'sign-in-grant-button'}
+    >
+      {isMobileLaunching ? (
+        <>
+          <Loader2 className="mr-2 size-4 animate-spin" />
+          <Typography as="span" overrideDefaults aria-live="polite">
+            {isOpeningRing ? copy.openingLabel : 'Generating...'}
+          </Typography>
+        </>
+      ) : isExpired ? (
+        <>
+          <RefreshCw className="mr-2 size-4" />
+          {'Click to reload'}
+        </>
+      ) : (
+        <>
+          <Key className="mr-2 size-4" />
+          {`Authorize with ${copy.name}`}
+        </>
+      )}
     </Button>
   );
+};
 
+/**
+ * Ring and Bitkit side by side. Each QR runs its own flow; the first approval
+ * wins and the controller cancels the other.
+ */
+const SignInBothSigners = ({ ring }: { ring: TSignerAuth }) => {
+  const bitkit = useMobileAuth({ type: 'grant' });
   return (
     <>
       <Container size="container" className="hidden md:flex">
-        <SignInHeader signer="bitkit" />
-        <BalancedQrCard
-          data-testid="sign-in-grant-qr-card"
-          illustration={
-            <Image
-              priority
-              src="/images/scan.webp"
-              alt="Phone scanning a QR code"
-              width={192}
-              height={192}
-              className="size-48"
-            />
-          }
+        <SignInHeader signer="both" />
+        <Card
+          data-testid="sign-in-qr-card"
+          className="w-full flex-row items-start justify-center gap-12 rounded-md p-6 lg:gap-24 lg:p-12"
         >
-          <button
-            type="button"
-            className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
-            onClick={isExpired ? fetchUrl : handleQRClick}
-            disabled={isLoading || (!url && !isExpired)}
-            aria-label={isExpired ? 'Reload Bitkit sign-in QR code' : 'Copy Bitkit authentication link'}
-          >
-            <QrCodeSlot
-              isLoading={isLoading}
-              isExpired={isExpired}
-              url={url}
-              generatingLabel={'Generating QR Code...'}
-              clickToReloadLabel={'Click to reload'}
-              activeQrHasHoverEffect
-              showRingLogo={false}
-            />
-          </button>
-        </BalancedQrCard>
-        <Container className="flex-row items-center gap-2">
-          <Typography as="span" className="text-muted-foreground">
-            {'Scan with Bitkit 2.5 or newer.'}
-          </Typography>
-          {ringSwitch}
-        </Container>
+          <SignInQrOption signer="ring" auth={ring} />
+          <SignInQrOption signer="bitkit" auth={bitkit} />
+        </Card>
       </Container>
 
       <Container size="container" className="md:hidden">
-        <SignInHeader signer="bitkit" />
+        <SignInHeader signer="both" />
         <ContentCard layout="column">
-          <Container className="flex-col items-center justify-center gap-6">
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={onAuthorizeClick}
-              disabled={isMobileLaunching || (!url && !isExpired)}
-              aria-busy={isMobileLaunching}
-              data-testid="sign-in-grant-button"
-            >
-              {isMobileLaunching ? (
-                <>
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                  <Typography as="span" overrideDefaults aria-live="polite">
-                    {isOpeningRing ? 'Opening Bitkit...' : 'Generating...'}
-                  </Typography>
-                </>
-              ) : isExpired ? (
-                <>
-                  <RefreshCw className="mr-2 size-4" />
-                  {'Click to reload'}
-                </>
-              ) : (
-                <>
-                  <Key className="mr-2 size-4" />
-                  {'Authorize with Bitkit'}
-                </>
-              )}
-            </Button>
-            {ringSwitch}
+          <Container className="flex-col items-center justify-center gap-4">
+            <SignInAuthorizeButton signer="ring" auth={ring} />
+            <SignInAuthorizeButton signer="bitkit" auth={bitkit} />
           </Container>
         </ContentCard>
       </Container>
@@ -209,10 +235,10 @@ const SignInGrantPanel = ({ onUseRing }: { onUseRing: () => void }) => {
 };
 
 export const SignInContent = () => {
-  const { url, isLoading, isExpired, fetchUrl, copyAuthUrl, isOpeningRing, onAuthorizeClick } = useMobileAuth();
+  const ringAuth = useMobileAuth();
+  const { url, isLoading, isExpired, fetchUrl, copyAuthUrl, isOpeningRing, onAuthorizeClick } = ringAuth;
   const authUrlResolved = useSignInStore((state) => state.authUrlResolved);
   const isGrantSignInAvailable = useGrantSignInAvailable();
-  const [signer, setSigner] = useState<'ring' | 'bitkit'>('ring');
   useEffect(() => {
     // Clear onboarding storage when sign-in flow begins to prevent backup reminders from showing for existing users
     useOnboardingStore.getState().reset();
@@ -252,22 +278,9 @@ export const SignInContent = () => {
       </Container>
     );
   }
-  if (signer === 'bitkit') {
-    return (
-      <SignInGrantPanel
-        onUseRing={() => {
-          setSigner('ring');
-          // The grant flow superseded the Ring flow; mint a fresh Ring QR.
-          void fetchUrl();
-        }}
-      />
-    );
+  if (isGrantSignInAvailable) {
+    return <SignInBothSigners ring={ringAuth} />;
   }
-  const bitkitSwitch = isGrantSignInAvailable ? (
-    <Button variant="link" onClick={() => setSigner('bitkit')} data-testid="sign-in-use-grant">
-      {'Signing in with Bitkit? Use Bitkit instead'}
-    </Button>
-  ) : null;
   return (
     <>
       <Container size="container" className="hidden md:flex">
@@ -302,7 +315,6 @@ export const SignInContent = () => {
             />
           </button>
         </BalancedQrCard>
-        {bitkitSwitch}
       </Container>
 
       {/** Mobile view */}
@@ -321,7 +333,6 @@ export const SignInContent = () => {
             >
               {mobileAuthorizeContent}
             </Button>
-            {bitkitSwitch}
           </Container>
         </ContentCard>
       </Container>
@@ -341,7 +352,7 @@ export const SignInFooter = () => {
     </FooterLinks>
   );
 };
-export const SignInHeader = ({ signer = 'ring' }: { signer?: 'ring' | 'bitkit' }) => {
+export const SignInHeader = ({ signer = 'ring' }: { signer?: 'ring' | 'both' }) => {
   return (
     <PageHeader>
       <PageTitle size="large">
@@ -350,7 +361,13 @@ export const SignInHeader = ({ signer = 'ring' }: { signer?: 'ring' | 'bitkit' }
       </PageTitle>
       <PageSubtitle>
         {'Authorize with '}
-        <span className="text-brand">{signer === 'bitkit' ? 'Bitkit' : 'Pubky Ring'}</span>
+        <span className="text-brand">{'Pubky Ring'}</span>
+        {signer === 'both' ? (
+          <>
+            {' or '}
+            <span className="text-brand">{'Bitkit'}</span>
+          </>
+        ) : null}
         {' to sign in.'}
       </PageSubtitle>
     </PageHeader>

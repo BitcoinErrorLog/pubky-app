@@ -24,6 +24,12 @@ const isAuthFlowExpiredError = (error: unknown): boolean => {
   return isAuthError(error) && error.code === AuthErrorCode.SESSION_EXPIRED;
 };
 
+const isAuthFlowCanceled = (error: unknown): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  'name' in error &&
+  (error as { name?: unknown }).name === AUTH_FLOW_CANCELED_ERROR_NAME;
+
 /**
  * Manages the authentication URL lifecycle for Pubky Ring authorization.
  * @param options - Configuration for auth URL generation (autoFetch, type, inviteCode for signup)
@@ -61,6 +67,8 @@ export function useAuthUrl(options: UseAuthUrlOptions = {}): UseAuthUrlReturn {
           try {
             await AuthController.initializeAuthenticatedSession({ session });
           } catch (error) {
+            // This approval lost to another sign-in; the winner owns the page.
+            if (isAuthFlowCanceled(error)) return;
             const isWrongEnvironment = isWrongEnvironmentHomeserverError(error);
             if (!isWrongEnvironment && !isAppError(error)) {
               Logger.error('Failed to persist session and check profile:', error);
@@ -76,14 +84,7 @@ export function useAuthUrl(options: UseAuthUrlOptions = {}): UseAuthUrlReturn {
           }
         })
         .catch((error: unknown) => {
-          if (
-            typeof error === 'object' &&
-            error !== null &&
-            'name' in error &&
-            (error as { name?: unknown }).name === AUTH_FLOW_CANCELED_ERROR_NAME
-          ) {
-            return;
-          }
+          if (isAuthFlowCanceled(error)) return;
 
           Logger.error('Authorization promise rejected:', error);
           if (!isMountedRef.current) return;

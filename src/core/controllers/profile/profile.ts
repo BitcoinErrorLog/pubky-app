@@ -37,6 +37,14 @@ export class ProfileController {
   }
 
   /**
+   * Name, bio and links from a profile the account already published (Pubky
+   * App or Bitkit), for prefilling Create profile. Null when there is none.
+   */
+  static async readProfileSeed({ pubky }: { pubky: Pubky }) {
+    return await ProfileApplication.readProfileSeed({ pubky });
+  }
+
+  /**
    * Commits the update status operation to the homeserver and local database.
    * @param pubky - The public key of the user
    * @param status - The status to update

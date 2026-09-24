@@ -77,6 +77,20 @@ export class AuthController {
   private static activeAuthFlow: { token: symbol; cancel: (() => void) | null } | null = null;
 
   /**
+   * The Bitkit grant QR lives beside the Ring QR on /sign-in, so it has its
+   * own slot: starting one never cancels the other. Both are cancelled when
+   * any sign-in completes, on local-state cleanup, and on cross-tab sign-out.
+   */
+  private static activeGrantFlow: { token: symbol; cancel: (() => void) | null } | null = null;
+
+  /**
+   * Bumped whenever every auth flow is cancelled. A grant approval that
+   * settles after a bump lost to another sign-in (or a sign-out) and is
+   * signed out instead of initialized.
+   */
+  private static authFlowGeneration = 0;
+
+  /**
    * Covers QR wait AND both POSTs. wrapAuthFlow is not this lifetime: it
    * clears when awaitApproval/awaitToken settles, which is when the POSTs begin.
    *
@@ -110,6 +124,9 @@ export class AuthController {
 
   /** `authEpoch` read when each grant sign-in QR started, keyed by its approved session. */
   private static grantEpochAtStart = new WeakMap<Session, number>();
+
+  /** `authFlowGeneration` when each sign-in QR (Ring or Bitkit) started, keyed by its approved session. */
+  private static sessionFlowGeneration = new WeakMap<Session, number>();
 
   /**
    * Single-run guard for cleanupLocalState: concurrent Controller invocations
@@ -157,6 +174,10 @@ export class AuthController {
       this.cancelActiveAuthFlow();
       return;
     }
+    if (this.activeGrantFlow && this.activeGrantFlow.cancel === cancelAuthFlow) {
+      this.cancelActiveGrantFlow();
+      return;
+    }
     cancelAuthFlow();
   }
 
@@ -187,6 +208,42 @@ export class AuthController {
     this.activeAuthFlow = null;
     this.signInCeremony = null;
     cancel?.();
+  }
+
+  private static cancelActiveGrantFlow() {
+    const cancel = this.activeGrantFlow?.cancel;
+    this.activeGrantFlow = null;
+    cancel?.();
+  }
+
+  /** Ring and Bitkit flows alike: a completed sign-in or a sign-out ends both QRs. */
+  static cancelAllAuthFlows() {
+    this.authFlowGeneration += 1;
+    this.cancelActiveAuthFlow();
+    this.cancelActiveGrantFlow();
+  }
+
+  /** A QR approval whose flow started before the latest cancelAllAuthFlows lost to another sign-in or a sign-out. */
+  private static lostToAnotherSignIn(session: Session): boolean {
+    const startedAt = this.sessionFlowGeneration.get(session);
+    return startedAt !== undefined && startedAt !== this.authFlowGeneration;
+  }
+
+  /**
+   * First approval wins. The losing session is signed out and never
+   * initialized; a losing Ring completion also drops the marketplace bearer
+   * its dual POST minted (a grant approval mints none, so a losing Bitkit
+   * approval never touches the winner's bearer). The winner's session and
+   * grant record are left alone.
+   */
+  private static async discardLosingApproval(session: Session): Promise<never> {
+    if (!AuthApplication.isGrantSession(session)) {
+      CommerceController.clearMarketplaceSession();
+    }
+    await AuthApplication.logout({ session }).catch(() => {
+      Logger.warn('Failed to sign out an approval that lost to another sign-in');
+    });
+    throw createCanceledError();
   }
 
   /**
@@ -424,6 +481,9 @@ export class AuthController {
   }
 
   private static async runInitializeAuthenticatedSession({ session }: THomeserverSessionResult) {
+    if (this.lostToAnotherSignIn(session)) {
+      return await this.discardLosingApproval(session);
+    }
     try {
       try {
         await AuthApplication.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
@@ -438,6 +498,9 @@ export class AuthController {
       }
       await this.completeAuthenticatedSession({ session });
     } catch (error) {
+      // A completion that lost to another sign-in was already cleaned up by
+      // discardLosingApproval; the bearer at rest now belongs to the winner.
+      if (this.lostToAnotherSignIn(session)) throw error;
       // The marketplace half of the ceremony may already have minted (and
       // persisted) a bearer for this approval; a sign-in that does NOT commit
       // — refused by the environment check OR failed anywhere in the
@@ -452,6 +515,12 @@ export class AuthController {
    * guard already passed for this session.
    */
   private static async completeAuthenticatedSession({ session }: THomeserverSessionResult) {
+    // Checked and claimed with no await in between: of two approvals that both
+    // reach here, the first bumps the generation (cancelAllAuthFlows below)
+    // and the second is discarded before it can touch any store.
+    if (this.lostToAnotherSignIn(session)) {
+      return await this.discardLosingApproval(session);
+    }
     const signInStore = useSignInStore.getState();
     signInStore.reset(); // Reset for fresh sign-in
     signInStore.setAuthUrlResolved(true); // Step 1 complete (20%)
@@ -460,7 +529,9 @@ export class AuthController {
     let persistAborted = false;
 
     try {
-      this.cancelActiveAuthFlow();
+      this.cancelAllAuthFlows();
+      // This approval won; only the approvals it just cancelled count as lost.
+      this.sessionFlowGeneration.delete(session);
       const pubky = Identity.z32FromSession({ session });
 
       // Identity persist takes the finalization lock so a visitor tab's
@@ -754,8 +825,7 @@ export class AuthController {
     // Clear in-memory feed stream queues
     postStreamQueue.clear();
 
-    // Cancel active auth flows
-    this.cancelActiveAuthFlow();
+    this.cancelAllAuthFlows();
 
     // Cancel and clear all query clients (nexus, homegate, exchangerate, and any future ones)
     clearAllQueryClients();
@@ -807,19 +877,46 @@ export class AuthController {
 
   /**
    * Bitkit sign-in: a grant QR (`pubkyauth://signin_grant`) beside the Ring
-   * cookie QR. The approved grant session skips the marketplace redeem (it
-   * carries no AuthToken) and is saved to BrowserSessionStore at completion.
+   * cookie QR, in its own slot so both stay scannable. The approved grant
+   * session skips the marketplace redeem (it carries no AuthToken) and is
+   * saved to BrowserSessionStore at completion.
    */
   static async getGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
     const epochAtStart = readAuthEpoch();
-    const result = await this.wrapAuthFlow(() => AuthApplication.generateGrantAuthUrl());
-    return {
-      ...result,
-      awaitApproval: result.awaitApproval.then((session) => {
+    BootstrapApplication.cancelModerationFollow();
+    const captured = this.captureAuthIdentity();
+    if (!(await this.takeLocalStateForCapturedIdentity(captured))) {
+      throw createCanceledError();
+    }
+    const token = Symbol('grant-flow');
+    this.cancelActiveGrantFlow();
+    this.activeGrantFlow = { token, cancel: null };
+    const generationAtStart = this.authFlowGeneration;
+    const { authorizationUrl, awaitApproval, cancelAuthFlow } = await AuthApplication.generateGrantAuthUrl();
+
+    if (!this.activeGrantFlow || this.activeGrantFlow.token !== token) {
+      cancelAuthFlow();
+      return { authorizationUrl, awaitApproval, cancelAuthFlow };
+    }
+    this.activeGrantFlow.cancel = cancelAuthFlow;
+
+    const wrappedAwaitApproval = awaitApproval
+      .finally(() => {
+        if (this.activeGrantFlow?.token === token) {
+          this.activeGrantFlow = null;
+        }
+        cancelAuthFlow();
+      })
+      .then(async (session) => {
+        this.sessionFlowGeneration.set(session, generationAtStart);
+        if (this.lostToAnotherSignIn(session)) {
+          return await this.discardLosingApproval(session);
+        }
         this.grantEpochAtStart.set(session, epochAtStart);
         return session;
-      }),
-    };
+      });
+
+    return { authorizationUrl, awaitApproval: wrappedAwaitApproval, cancelAuthFlow };
   }
 
   static isGrantSignInAvailable(): boolean {
@@ -995,6 +1092,7 @@ export class AuthController {
       }
 
       this.activeAuthFlow = { token, cancel: null };
+      const generationAtStart = this.authFlowGeneration;
       const flow = AuthApplication.startDirectSignInFlow();
       if (!this.activeAuthFlow || this.activeAuthFlow.token !== token) {
         flow.cancelAuthFlow();
@@ -1014,6 +1112,14 @@ export class AuthController {
               onHomeserverSession: async (session) => this.assertStepUpSessionMatchesSignedInUser({ session }),
             })
           : await AuthApplication.completeSingleApprovalCeremony(authToken);
+        if (!preserveLocalState) {
+          // A Bitkit sign-in (or a sign-out) may have won while this
+          // approval was inside its dual POST.
+          this.sessionFlowGeneration.set(result.session, generationAtStart);
+          if (this.lostToAnotherSignIn(result.session)) {
+            return await this.discardLosingApproval(result.session);
+          }
+        }
         if (result.marketplace) {
           CommerceController.writeMarketplaceSessionStore(result.marketplace);
         }
@@ -1258,7 +1364,7 @@ export class AuthController {
     await AuthApplication.logout({ session }).catch((error) => {
       Logger.warn('Cross-tab grant sign-out could not reach the homeserver', { error });
     });
-    this.cancelActiveAuthFlow();
+    this.cancelAllAuthFlows();
     if (grantSessionRecordId) {
       try {
         // Only this tab's record: a newer sign-in in another tab keeps its key.

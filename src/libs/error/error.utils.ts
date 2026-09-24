@@ -29,6 +29,20 @@ export const isAuthError = (e: AppError): boolean => e.category === ErrorCategor
 /** Check if error is a rate limit error (429) */
 export const isRateLimitError = (e: AppError): boolean => e.category === ErrorCategory.RateLimit;
 
+/** The homeserver's 403 body when the account's storage allow-list excludes the path (pubky-homeserver `http_error.rs`). */
+const HOMESERVER_WRITE_PATH_NOT_ALLOWED = 'Write to this path is not allowed';
+
+/**
+ * The homeserver refused a write because this account may not store data at
+ * that path, whatever the session's capabilities. Signing in again cannot
+ * fix it: accounts created through Homegate's IP signup only allow
+ * `/pub/paykit/` and `/pub/bitkit.to/`.
+ */
+export const isWritePathNotAllowedError = (e: AppError): boolean =>
+  e.category === ErrorCategory.Auth &&
+  e.code === AuthErrorCode.FORBIDDEN &&
+  e.message.includes(HOMESERVER_WRITE_PATH_NOT_ALLOWED);
+
 /** Check if error is a validation error (local) */
 export const isValidationError = (e: AppError): boolean => e.category === ErrorCategory.Validation;
 
