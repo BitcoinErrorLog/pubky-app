@@ -77,7 +77,8 @@ describe('QrCodeSlot', () => {
     const qr = screen.getByTestId('qrcode-svg');
     expect(qr).toHaveAttribute('data-value', 'auth-url');
     expect(qr).toHaveAttribute('width', '176');
-    expect(screen.getByTestId('qr-auth-url')).toHaveAttribute('data-auth-url', 'auth-url');
+    const slotAttributeValues = Array.from(screen.getByTestId('qr-auth-url').attributes, (attribute) => attribute.value);
+    expect(slotAttributeValues).not.toContain('auth-url');
 
     const ringLogo = screen.getByAltText('Pubky Ring');
     expect(ringLogo).toHaveAttribute('src', '/images/ring-logo.svg');

@@ -51,7 +51,6 @@ exports[`Scan Components - Snapshots > ScanContent - Snapshots > matches snapsho
       >
         <span
           class="contents"
-          data-auth-url="mock-auth-url"
           data-testid="qr-auth-url"
         >
           <img
