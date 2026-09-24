@@ -2,6 +2,7 @@ import type { AuthToken, Keypair, Session } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication, isDefinitiveSessionAuthFailure } from '@/application/auth/auth';
 import type { THomeserverAuthenticateParams } from '@/application/auth/auth.types';
+import { CAPABILITIES } from '@/config/app';
 import { getHomeserver, isStagingHomeserverDeploy } from '@/config/network';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ClientErrorCode, NetworkErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
@@ -276,8 +277,8 @@ describe('AuthApplication', () => {
           setIsRestoringSession: vi.fn(),
           init: vi.fn(),
         });
-      const grantSession = () =>
-        asOpaque<Session>({ grant: {}, info: { publicKey: asOpaque({ z32: () => 'user-pubky' }) } });
+      const grantSession = (capabilities: string[] = CAPABILITIES.split(',')) =>
+        asOpaque<Session>({ grant: {}, info: { publicKey: asOpaque({ z32: () => 'user-pubky' }), capabilities } });
 
       it('reload restores grant session from store', async () => {
         const session = grantSession();
@@ -290,6 +291,19 @@ describe('AuthApplication', () => {
         expect(result).toEqual({ status: 'restored', session });
         expect(restoreGrantSpy).toHaveBeenCalledWith('rec-1');
         expect(cookieRestoreSpy).not.toHaveBeenCalled();
+      });
+
+      it('a stored grant narrower than the Shop grant is signed out and its record removed', async () => {
+        const session = grantSession(['/pub/pubky.app/:rw']);
+        vi.spyOn(HomeserverService, 'restoreGrantSession').mockResolvedValue(session);
+        const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
+        const removeSpy = vi.spyOn(HomeserverService, 'removeGrantSession').mockResolvedValue(undefined);
+
+        const result = await AuthApplication.restorePersistedSession({ authStore: grantStore() });
+
+        expect(result).toEqual({ status: 'signed-out' });
+        expect(logoutSpy).toHaveBeenCalledWith({ session });
+        expect(removeSpy).toHaveBeenCalledWith('rec-1');
       });
 
       it('grant restore drops a #s= export captured on the same load', async () => {

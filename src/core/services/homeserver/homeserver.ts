@@ -692,6 +692,10 @@ export class HomeserverService {
     return Boolean(session && session.grant !== undefined);
   }
 
+  static isCurrentSessionGrant(): boolean {
+    return this.isGrantSession(useAuthStore.getState().selectSession());
+  }
+
   /** Persists a completed grant session in IndexedDB and returns its record id. */
   static async saveGrantSession(session: Session): Promise<string> {
     try {

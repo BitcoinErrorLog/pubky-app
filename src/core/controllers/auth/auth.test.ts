@@ -6,6 +6,7 @@ import { BootstrapApplication } from '@/application/bootstrap/bootstrap';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
+import { CAPABILITIES } from '@/config/app';
 import { MUTE_SYNC_CURSOR_STORAGE_PREFIX } from '@/config/mute-sync';
 import { AUTH_EPOCH_KEY, bumpAuthEpoch, readAuthEpoch, subscribeSignedOut } from '@/controllers/auth/auth-epoch';
 import { resetAuthFinalizationLockForTests } from '@/controllers/auth/auth-finalization-lock';
@@ -15,7 +16,7 @@ import { StreamCoordinator } from '@/coordinators/streams/stream';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
 import { clearDatabase, clearPrivateData } from '@/database/franky/franky.helpers';
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { Identity } from '@/libs/identity/identity';
@@ -29,6 +30,7 @@ import { NotificationNormalizer } from '@/pipes/notification/notification.normal
 import { PubkySpecsSingleton } from '@/pipes/pipes.builder';
 import { SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
 import { grantKeyRemovalFailed, isGrantKeyRemovalError } from '@/services/homeserver/error.utils';
+import { HomeserverService } from '@/services/homeserver/homeserver';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { AuthStore } from '@/stores/auth/auth.types';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -2396,7 +2398,11 @@ describe('AuthController', () => {
   });
 
   describe('grant sessions (Bitkit sign-in)', () => {
-    const grantSession = () => buildMockSession({ grant: asOpaque<Session['grant']>({}) });
+    const grantSession = (capabilities: string[] = CAPABILITIES.split(',')) =>
+      buildMockSession({
+        grant: asOpaque<Session['grant']>({}),
+        info: asOpaque<Session['info']>({ publicKey: { z32: () => 'mock-session-pubky' }, capabilities }),
+      });
 
     const grantAuthStore = (overrides: Partial<AuthStore> = {}): AuthStore =>
       mockAuthStore({
@@ -2446,6 +2452,17 @@ describe('AuthController', () => {
       expect(authStore.init).toHaveBeenCalledWith(
         expect.objectContaining({ session, currentUserPubky: TEST_PUBKY, grantSessionRecordId: 'rec-1' }),
       );
+    });
+
+    it('an approval narrower than the Shop grant is signed out and never saved', async () => {
+      const session = grantSession(['/pub/pubky.app/:rw']);
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore());
+      const saveSpy = vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-1');
+      const logoutSpy = vi.spyOn(HomeserverService, 'logout').mockResolvedValue(undefined);
+
+      await expect(approveGrantSignIn(session)).rejects.toMatchObject({ code: ValidationErrorCode.INVALID_INPUT });
+      expect(logoutSpy).toHaveBeenCalledWith({ session });
+      expect(saveSpy).not.toHaveBeenCalled();
     });
 
     it('a failed save signs the grant out, removes its keys and surfaces the failure', async () => {

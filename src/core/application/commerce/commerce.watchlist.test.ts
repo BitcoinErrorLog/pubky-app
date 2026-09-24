@@ -92,6 +92,17 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
     expect(put).toHaveBeenCalledOnce();
   });
 
+  it('a grant session refused with 403 fails the round instead of asking for a step-up', async () => {
+    vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
+    vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(true);
+    vi.spyOn(HomeserverService, 'isCurrentSessionGrant').mockReturnValue(true);
+    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(httpError(403));
+    const complete = vi.spyOn(LocalCommerceService, 'completeSyncJob');
+
+    expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('error');
+    expect(complete).not.toHaveBeenCalled();
+  });
+
   it('pulls, merges remote-only watches into Dexie, and pushes nothing when the merge equals remote', async () => {
     vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
     vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(true);

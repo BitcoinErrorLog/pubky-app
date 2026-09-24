@@ -9,7 +9,7 @@ import type {
   TSingleApprovalCeremonyHooks,
   TSingleApprovalResult,
 } from '@/application/auth/auth.types';
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, capabilitiesMatchFullGrant } from '@/config/app';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -196,6 +196,14 @@ export class AuthApplication {
     let session: Session | null = null;
     try {
       session = await HomeserverService.restoreGrantSession(recordId);
+      if (!capabilitiesMatchFullGrant(session.info.capabilities)) {
+        Logger.warn('Stored grant session does not hold the full Shop grant; removing its record');
+        await HomeserverService.logout({ session }).catch((logoutError) => {
+          Logger.warn('Failed to sign out a narrow grant session', { logoutError });
+        });
+        await this.removeGrantSession(recordId);
+        return { status: 'signed-out' };
+      }
       await HomeserverService.assertUserHomeserverAllowed({ publicKey: session.info.publicKey });
       return { status: 'restored', session };
     } catch (error) {
@@ -363,6 +371,23 @@ export class AuthApplication {
 
   static isGrantSession(session: Session | null | undefined): boolean {
     return HomeserverService.isGrantSession(session);
+  }
+
+  /**
+   * A grant session holds exactly the Shop grant (`CAPABILITIES`), so it never
+   * needs a step-up re-approval. An approval for anything narrower is signed
+   * out and refused, the way the Ring token path refuses it.
+   */
+  static async assertFullGrantSession(session: Session): Promise<void> {
+    if (capabilitiesMatchFullGrant(session.info.capabilities)) return;
+    await HomeserverService.logout({ session }).catch((logoutError) => {
+      Logger.warn('Failed to sign out a narrow grant session', { logoutError });
+    });
+    throw Err.validation(
+      ValidationErrorCode.INVALID_INPUT,
+      'This approval does not include the full Shop permission list. Scan again from Shop.',
+      { service: ErrorService.Homeserver, operation: 'assertFullGrantSession' },
+    );
   }
 
   static async saveGrantSession(session: Session): Promise<string> {

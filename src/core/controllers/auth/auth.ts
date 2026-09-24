@@ -927,6 +927,7 @@ export class AuthController {
         if (this.lostToAnotherSignIn(session)) {
           return await this.discardLosingApproval(session);
         }
+        await AuthApplication.assertFullGrantSession(session);
         this.grantEpochAtStart.set(session, epochAtStart);
         return session;
       });
