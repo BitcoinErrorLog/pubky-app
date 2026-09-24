@@ -205,27 +205,48 @@ async function exerciseListingCheckout(page) {
 }
 
 /**
- * Ring cookie QR only. `qr-auth-url` stays the slot id for every signer.
- * Side-by-side sign-in mounts a Bitkit `pubkyauth://signin_grant` QR in the
- * same card; a page-wide `.first()` can approve that URL. Inventory grants
- * are read from the open dialog, not from this locator.
+ * Ring cookie QR only. `qr-auth-url` stays the slot id. The URL is not read
+ * from the DOM: the copy button is what a person uses, and the slot must not
+ * carry the relay secret in an attribute. Side-by-side sign-in puts the
+ * Bitkit QR in the same card, so this prefers `sign-in-ring-option` and
+ * rejects `pubkyauth://signin_grant`. Inventory grants are copied from the
+ * open dialog, not from this locator.
  */
-function ringSignInAuthSlot(page) {
-  const cookieUrl =
-    '[data-testid="qr-auth-url"][data-auth-url^="pubkyauth://signin"]:not([data-auth-url^="pubkyauth://signin_grant"])';
-  return page
-    .locator('[data-testid="sign-in-ring-option"]')
-    .locator(cookieUrl)
-    .or(page.locator('[data-testid="sign-in-qr-card"]').locator(cookieUrl))
-    .first();
+async function ringSignInAuthSlot(page, timeout) {
+  const qr = '[data-testid="qr-auth-url"]';
+  // Side-by-side sign-in keeps both QRs inside sign-in-qr-card. A card-wide
+  // .first() copies Bitkit when that QR attaches first. Wait for the Ring
+  // option, or for the Ring-only card that has no Bitkit option.
+  const slot = page.locator(
+    `[data-testid="sign-in-ring-option"] ${qr}, [data-testid="sign-in-qr-card"]:not(:has([data-testid="sign-in-bitkit-option"])) ${qr}`,
+  );
+  await slot.first().waitFor({ state: 'attached', timeout });
+  return slot.first();
+}
+
+async function readCopiedAuthUrl(page, slot) {
+  await page.evaluate(() => navigator.clipboard.writeText(''));
+  await slot.locator('xpath=ancestor::button[1]').click();
+  const copied = await page.waitForFunction(
+    async () => {
+      const text = await navigator.clipboard.readText();
+      return text.startsWith('pubkyauth://') ? text : null;
+    },
+    null,
+    { timeout: 5_000 },
+  );
+  const url = await copied.jsonValue();
+  if (typeof url !== 'string' || !url.startsWith('pubkyauth://')) {
+    throw new Error('missing pubkyauth URL from the QR copy button');
+  }
+  return url;
 }
 
 async function waitForAuthUrl(page, timeout = 25_000) {
-  const slot = ringSignInAuthSlot(page);
-  await slot.waitFor({ state: 'attached', timeout });
-  const url = await slot.getAttribute('data-auth-url');
-  if (!url || !url.startsWith('pubkyauth://signin') || url.startsWith('pubkyauth://signin_grant')) {
-    throw new Error('missing Ring cookie pubkyauth URL on QR slot');
+  const slot = await ringSignInAuthSlot(page, timeout);
+  const url = await readCopiedAuthUrl(page, slot);
+  if (!url.startsWith('pubkyauth://signin') || url.startsWith('pubkyauth://signin_grant')) {
+    throw new Error('missing Ring cookie pubkyauth URL from the QR copy button');
   }
   return url;
 }
@@ -402,9 +423,7 @@ async function openNamedDialog(page, trigger, dialog) {
   return false;
 }
 
-async function readDialogAuthUrl(dialog) {
-  const panel = dialog.locator('[data-testid="inventory-grant-panel"][data-auth-url^="pubkyauth://"]');
-  const slot = dialog.locator('[data-testid="qr-auth-url"][data-auth-url^="pubkyauth://"]');
+async function readDialogAuthUrl(page, dialog) {
   const deadline = Date.now() + 40_000;
   let lastSnap = '';
   while (Date.now() < deadline) {
@@ -414,16 +433,18 @@ async function readDialogAuthUrl(dialog) {
       const text = ((await refusal.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 180);
       return { url: '', snap: `refusal: ${text}` };
     }
-    const panelUrl = await panel
-      .first()
-      .getAttribute('data-auth-url')
-      .catch(() => null);
-    if (panelUrl?.startsWith('pubkyauth://')) return { url: panelUrl, snap: '' };
-    const slotUrl = await slot
-      .first()
-      .getAttribute('data-auth-url')
-      .catch(() => null);
-    if (slotUrl?.startsWith('pubkyauth://')) return { url: slotUrl, snap: '' };
+    const slot = dialog.locator('[data-testid="qr-auth-url"]');
+    if (await slot.count()) {
+      try {
+        const url = await readCopiedAuthUrl(page, slot.first());
+        if (url.startsWith('pubkyauth://signin_grant')) {
+          return { url: '', snap: 'inventory dialog copied a Bitkit grant URL' };
+        }
+        return { url, snap: '' };
+      } catch (error) {
+        return { url: '', snap: String(error).slice(0, 180) };
+      }
+    }
     lastSnap = ((await dialog.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ').slice(0, 220);
     if (/not approved|Approve purchases first|Sign in first|rejected the inventory/i.test(lastSnap)) {
       return { url: '', snap: lastSnap };
@@ -459,7 +480,7 @@ async function approveVisibleGrant(page, secretHex, label) {
   const opened = await openNamedDialog(page, trigger, dialog);
   if (!opened) return { opened: true, ok: false, detail: `${label} dialog did not stay open` };
 
-  const { url, snap } = await readDialogAuthUrl(dialog);
+  const { url, snap } = await readDialogAuthUrl(page, dialog);
   if (!url) {
     await closeTopDialog(page);
     return { opened: true, ok: false, detail: `${label} qr missing :: ${snap}` };
@@ -838,6 +859,7 @@ async function main() {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     locale: 'en-US',
+    permissions: ['clipboard-read', 'clipboard-write'],
   });
   context.setDefaultTimeout(90_000);
   const page = await context.newPage();

@@ -81,7 +81,6 @@ export function MarketplaceInventoryGrantDialog({
             className="grid justify-items-center gap-4"
             data-testid="inventory-grant-panel"
             data-grant-status={grant.status}
-            data-auth-url={grant.authorizationUrl || undefined}
           >
             <button
               type="button"
