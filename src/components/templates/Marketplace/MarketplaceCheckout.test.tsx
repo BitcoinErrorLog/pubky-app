@@ -593,6 +593,45 @@ describe('MarketplaceCheckout with no usable payment method', () => {
     expect(screen.getByTestId('marketplace-checkout-pay')).toBeDisabled();
   });
 
+  it('offers PayPal for a seller whose public config has only a PayPal email', async () => {
+    seededCart();
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(async () => ({
+      ...NO_RAILS,
+      paypalMerchantEmail: 'seller@example.com',
+    }));
+
+    render(<MarketplaceCheckout />);
+
+    expect(await screen.findByTestId('marketplace-checkout-method-paypal')).toHaveTextContent('PayPal');
+    expect(screen.queryByTestId('marketplace-checkout-method-bitcoin')).not.toBeInTheDocument();
+    expect(screen.queryByText(/hasn't set up a payment method/)).not.toBeInTheDocument();
+  });
+
+  it('shows loading, not "no payment method", while a PayPal seller config loads after the cart hydrates', async () => {
+    let resolveConfig: (config: typeof NO_RAILS | { paypalMerchantEmail: string }) => void = () => {};
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveConfig = resolve as typeof resolveConfig;
+        }),
+    );
+
+    const { rerender } = render(<MarketplaceCheckout />);
+    expect(screen.getByText('Nothing to check out')).toBeInTheDocument();
+
+    seededCart();
+    rerender(<MarketplaceCheckout />);
+
+    expect(await screen.findByLabelText('Loading payment methods')).toBeInTheDocument();
+    expect(screen.queryByText(/hasn't set up a payment method/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Pay unlocks once this seller sets up a payment method.')).not.toBeInTheDocument();
+
+    resolveConfig({ ...NO_RAILS, paypalMerchantEmail: 'seller@example.com' });
+
+    expect(await screen.findByTestId('marketplace-checkout-method-paypal')).toBeInTheDocument();
+    expect(screen.queryByText(/hasn't set up a payment method/)).not.toBeInTheDocument();
+  });
+
   it('keeps the shared-rail advice when two sellers have no method in common', async () => {
     view.items = [
       { id: 'seller:boots:variant_42', listingId: listing.id, variantId: 'variant_42', quantity: 1, listing },

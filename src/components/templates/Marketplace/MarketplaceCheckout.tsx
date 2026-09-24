@@ -192,12 +192,15 @@ function MarketplaceCartCheckout() {
   const [hashOrderId, setHashOrderId] = useState<string | null>(null);
   const [payingOrderIds, setPayingOrderIds] = useState<string[]>([]);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodKind | null>(null);
-  const [sharedMethods, setSharedMethods] = useState<PaymentMethodKind[] | null>(null);
+  const [loadedMethods, setLoadedMethods] = useState<{ sellerKey: string; methods: PaymentMethodKind[] } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const sellerKey =
     isOfferCheckout && award
       ? award.listing.sellerPubky
       : [...new Set(checkoutItems.map((item) => item.listing.record.ownerPubky))].join('|');
+  // Rails loaded for an earlier seller set (or before the cart hydrated) are
+  // still loading for this one, never "no payment method".
+  const sharedMethods = sellerKey.length > 0 && loadedMethods?.sellerKey === sellerKey ? loadedMethods.methods : null;
   const isMultiSeller = sellerKey.includes('|');
   const isPaying = isOfferCheckout ? offerPay.isSubmitting : checkout.isPaying;
   const listingRoute = award && getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
@@ -214,10 +217,7 @@ function MarketplaceCartCheckout() {
 
   useEffect(() => {
     const sellers = sellerKey.length === 0 ? [] : sellerKey.split('|');
-    if (sellers.length === 0) {
-      setSharedMethods([]);
-      return;
-    }
+    if (sellers.length === 0) return;
     let active = true;
     void Promise.all(
       sellers.map(async (sellerPubky) => {
@@ -230,7 +230,7 @@ function MarketplaceCartCheckout() {
     ).then((sets) => {
       if (!active) return;
       const next = intersectPaymentMethods(sets);
-      setSharedMethods(next);
+      setLoadedMethods({ sellerKey, methods: next });
       setSelectedMethod((current) => (current && next.includes(current) ? current : (next[0] ?? null)));
     });
     return () => {
