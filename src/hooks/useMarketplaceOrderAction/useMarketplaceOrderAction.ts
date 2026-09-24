@@ -76,9 +76,9 @@ export function useMarketplaceOrderAction(
           });
           break;
         case 'review_edit':
-          // Durable service only (24h edit window); `actOnOrder` sources
-          // `expected_revision` from the freshly loaded order and handles
-          // REVISION_CONFLICT with the refetch-and-retry pattern.
+          // Durable service only (24h edit window). `actOnOrder` sources
+          // `expected_revision` from the loaded order. A revision conflict
+          // re-reads the order and succeeds when that review is already there.
           succeeded = await actOnOrder(order, 'review.update', {
             rating: Number(data.rating),
             text: data.text,

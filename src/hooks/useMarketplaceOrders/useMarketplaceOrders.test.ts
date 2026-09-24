@@ -267,6 +267,48 @@ describe('useMarketplaceOrders', () => {
     );
   });
 
+  it('treats a revision conflict as success when the re-read already shows the action', async () => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const order = result.current.orders[0].order;
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 4 },
+    });
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
+      {
+        ...order,
+        revision: 4,
+        state: 'return_requested',
+        returnRequest: {
+          state: 'requested',
+          reason: 'mistake on my part',
+          requestedAmountMinor: 250,
+          requestedAt: '2026-09-23T12:00:00.000Z',
+          updatedAt: '2026-09-23T12:00:00.000Z',
+        },
+      },
+    ]);
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    vi.mocked(toast).mockClear();
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.actOnOrder(order, 'return.request', {
+        reason: 'mistake on my part',
+        requestedAmountMinor: 250,
+      });
+    });
+
+    expect(succeeded).toBe(true);
+    expect(result.current.orders[0].order.state).toBe('return_requested');
+    expect(result.current.orders[0].order.returnRequest).toMatchObject({
+      reason: 'mistake on my part',
+      requestedAmountMinor: 250,
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('reloaded');
+  });
+
   it('toasts static pickup-refusal copy from actOnOrder and never an echoed meeting address', async () => {
     const { result } = renderHook(() => useMarketplaceOrders());
     await waitFor(() => expect(result.current.orders).toHaveLength(1));

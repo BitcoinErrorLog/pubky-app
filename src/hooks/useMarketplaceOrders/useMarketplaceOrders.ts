@@ -8,6 +8,7 @@ import {
   marketplaceErrorCode,
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
+import { orderShowsCommandResult } from '@/libs/commerce/order-command-result';
 import { plainRefundRefusal } from '@/libs/commerce/partial-refund';
 import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
 import {
@@ -31,9 +32,10 @@ export interface MarketplaceOrderView {
 /**
  * Order timelines against whichever transactional backend the mode selects:
  * the in-memory sandbox or the durable transaction service. Post-purchase
- * commands source `expected_revision` from the freshly-loaded order, and a
- * `REVISION_CONFLICT` refetches the timeline and asks the user to retry
- * against what actually changed.
+ * commands source `expected_revision` from the freshly-loaded order. A
+ * `REVISION_CONFLICT` re-reads the order: when that read already shows the
+ * command's result, the action succeeded; otherwise the buyer is asked to
+ * retry from the reloaded order.
  *
  * `payment.sandbox_advance` remains SANDBOX-ONLY: the durable service still
  * models payments with its sandbox adapter (no funds move anywhere), and this
@@ -135,7 +137,11 @@ export function useMarketplaceOrders() {
       });
       if (!response.ok) {
         if (isMarketplaceRevisionConflict(response)) {
-          await refresh();
+          const fresh = await refresh();
+          const current = fresh?.find((view) => view.order.id === order.id)?.order;
+          if (current && orderShowsCommandResult(current, kind, payload)) {
+            return true;
+          }
           toast({
             variant: 'error',
             description: MARKETPLACE_FAILURE_MESSAGES.orderChanged,
@@ -208,8 +214,8 @@ async function loadOrders(
   setIsLoading: Dispatch<SetStateAction<boolean>>,
   setError: Dispatch<SetStateAction<string | null>>,
   setNeedsSession: Dispatch<SetStateAction<boolean>>,
-): Promise<void> {
-  if (!currentUserPubky || !isTransactionalCommerceMode(getCommerceAdapterMode())) return;
+): Promise<MarketplaceOrderView[] | null> {
+  if (!currentUserPubky || !isTransactionalCommerceMode(getCommerceAdapterMode())) return null;
   // Retryable outbox for own-review records: any publication that failed
   // mid-flight is retried whenever this surface loads. Best-effort — a
   // failure keeps the row pending and is logged inside the application.
@@ -235,6 +241,7 @@ async function loadOrders(
     // any missing signed receipt document to the user's own homeserver.
     // Failures are logged in the application layer and retry on next load.
     void CommerceController.publishOrderReceipts(orders).catch(() => undefined);
+    return views;
   } catch (loadError) {
     // A missing/expired marketplace session is not a dead end: flag it so the
     // surface renders the session-connect affordance with static guidance.
@@ -246,6 +253,7 @@ async function loadOrders(
         loadError,
       ),
     );
+    return null;
   } finally {
     setIsLoading(false);
   }
