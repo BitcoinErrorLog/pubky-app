@@ -9,6 +9,12 @@
  * Inventory: signed-in seller board is the required Chromium canary
  * (LAUNCH_E2E_REQUIRE_SELLER_BOARD defaults on). Guest Join remains the
  * fallback when that flag is explicitly 0.
+ *
+ * The page origin is 127.0.0.1. staging-api.pubky.app does not send CORS
+ * headers for that origin, so the session mint retries for 60s and the board
+ * never mounts. The gate forwards that one host through Node after the page
+ * calls fetch. An unbound Window.fetch still throws in the page, before any
+ * request exists to forward. The Nexus fixture stub is not forwarded.
  */
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -225,17 +231,22 @@ async function approveAuthRequest(secretHex, authorizationUrl) {
   await new sdk.Pubky().signer(keypair).approveAuthRequest(authorizationUrl);
 }
 
-async function waitForSignedIn(page, timeout = 60_000) {
+async function waitForAuthStore(page, timeout = 90_000) {
   await page.waitForFunction(
     () => {
-      if (location.pathname !== '/sign-in') return true;
-      const body = document.body?.innerText ?? '';
-      if (body.includes('Verifying account')) return true;
       try {
         const raw = localStorage.getItem('auth-store');
         if (!raw) return false;
-        const parsed = JSON.parse(raw);
-        return Boolean(parsed?.state?.currentUserPubky || parsed?.currentUserPubky);
+        const state = JSON.parse(raw)?.state ?? {};
+        // A reload without sessionExport is unauthenticated and the inventory
+        // route redirects to the catalog. hasProfile must be true or the
+        // guard sends the seller to profile creation instead of the board.
+        return Boolean(
+          state.currentUserPubky &&
+          typeof state.sessionExport === 'string' &&
+          state.sessionExport.length > 0 &&
+          state.hasProfile === true,
+        );
       } catch {
         return false;
       }
@@ -245,31 +256,11 @@ async function waitForSignedIn(page, timeout = 60_000) {
   );
 }
 
-function isSellerSignedIn(pageUrl, authStoreRaw, verifyingVisible) {
-  if (verifyingVisible) return true;
-  try {
-    if (new URL(pageUrl).pathname !== '/sign-in') return true;
-  } catch {
-    /* ignore */
-  }
-  try {
-    const parsed = JSON.parse(authStoreRaw || '');
-    return Boolean(parsed?.state?.currentUserPubky || parsed?.currentUserPubky);
-  } catch {
-    return false;
-  }
-}
-
-async function readAuthStore(page) {
-  return await page.evaluate(() => {
-    try {
-      return localStorage.getItem('auth-store');
-    } catch {
-      return null;
-    }
-  });
-}
-
+/**
+ * /sign-in is a public route, so a finished session stays on that URL.
+ * The persisted session export is the signed-in predicate. "Verifying account"
+ * appears before that export is written, so it is not enough.
+ */
 async function signInSeller(page, secretHex) {
   try {
     await closeJoinDialog(page);
@@ -281,38 +272,16 @@ async function signInSeller(page, secretHex) {
       record('inventory:seller-signin', false, `approveAuthRequest: ${String(error).slice(0, 200)}`);
       return false;
     }
-    await waitForSignedIn(page);
-    let authStoreRaw = await readAuthStore(page);
-    let signedIn = isSellerSignedIn(
-      page.url(),
-      authStoreRaw,
-      await page
-        .getByText('Verifying account')
-        .isVisible()
-        .catch(() => false),
-    );
-    if (!signedIn) {
+    try {
+      await waitForAuthStore(page, 30_000);
+    } catch {
       const retryUrl = await waitForAuthUrl(page).catch(() => null);
-      if (retryUrl && retryUrl !== authorizationUrl) {
-        await approveAuthRequest(secretHex, retryUrl);
-        await waitForSignedIn(page, 45_000);
-        authStoreRaw = await readAuthStore(page);
-        signedIn = isSellerSignedIn(
-          page.url(),
-          authStoreRaw,
-          await page
-            .getByText('Verifying account')
-            .isVisible()
-            .catch(() => false),
-        );
-      }
+      if (!retryUrl || retryUrl === authorizationUrl) throw new Error('auth-store was not set after approve');
+      await approveAuthRequest(secretHex, retryUrl);
+      await waitForAuthStore(page, 45_000);
     }
-    record(
-      'inventory:seller-signin',
-      signedIn,
-      signedIn ? `headless approve /sign-in → ${page.url()}` : `still on ${page.url()} after approve`,
-    );
-    return signedIn;
+    record('inventory:seller-signin', true, `headless approve /sign-in, auth-store set (${page.url()})`);
+    return true;
   } catch (error) {
     const snippet = (
       (await page
@@ -325,6 +294,46 @@ async function signInSeller(page, secretHex) {
     record('inventory:seller-signin', false, `${String(error).slice(0, 180)} :: ${snippet}`);
     return false;
   }
+}
+
+async function installStagingServiceProxy(page) {
+  const service = new URL(SERVICE_URL);
+  if (service.host !== 'staging-api.pubky.app') {
+    throw new Error(`launch-e2e only forwards staging-api.pubky.app (got ${service.host})`);
+  }
+  if (/railway\.app|:7108\b/.test(SERVICE_URL)) {
+    throw new Error(`launch-e2e must not forward live nexusd (${SERVICE_URL})`);
+  }
+  await page.route(`${service.origin}/**`, async (route) => {
+    const request = route.request();
+    const origin = request.headers()['origin'] ?? new URL(BASE_URL).origin;
+    const cors = {
+      'access-control-allow-origin': origin,
+      'access-control-allow-credentials': 'true',
+      'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+      'access-control-allow-headers':
+        request.headers()['access-control-request-headers'] ?? 'content-type,authorization',
+    };
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors, body: '' });
+      return;
+    }
+    const headers = { ...request.headers() };
+    delete headers.host;
+    delete headers['content-length'];
+    const response = await fetch(request.url(), {
+      method: request.method(),
+      headers,
+      body: request.method() === 'GET' || request.method() === 'HEAD' ? undefined : request.postDataBuffer(),
+    });
+    const body = Buffer.from(await response.arrayBuffer());
+    const responseHeaders = { ...cors };
+    response.headers.forEach((value, key) => {
+      if (key === 'content-encoding' || key === 'content-length' || key === 'transfer-encoding') return;
+      responseHeaders[key] = value;
+    });
+    await route.fulfill({ status: response.status, headers: responseHeaders, body });
+  });
 }
 
 async function waitForBoardStatus(page, accepted, timeout = 45_000) {
@@ -357,9 +366,15 @@ async function approveVisibleGrant(page, secretHex, label) {
         timeout: 90_000,
       });
     }
-    const after = await waitForBoardStatus(page, ['grant-needed', 'ready', 'empty', 'error'], 90_000);
-    const moved = after !== before && ['grant-needed', 'ready', 'empty', 'error'].includes(after);
-    record(`inventory:${label}-approve`, moved, `status ${before} → ${after || 'missing'}`);
+    const after = await waitForBoardStatus(
+      page,
+      ['ready', 'empty', 'error', 'grant-needed', 'session-required'],
+      20_000,
+    );
+    const moved = after !== before && ['grant-needed', 'ready', 'empty'].includes(after);
+    if (moved) {
+      record(`inventory:${label}-approve`, true, `status ${before} → ${after}`);
+    }
     return { opened: true, ok: moved };
   } catch (error) {
     record(`inventory:${label}-approve`, false, String(error).slice(0, 240));
@@ -712,6 +727,7 @@ async function main() {
     pageErrors.push(String(error));
     console.error('pageerror', error);
   });
+  await installStagingServiceProxy(page);
 
   try {
     const catalog = await gotoAndSettle(page, fixture.pages[0].path);
