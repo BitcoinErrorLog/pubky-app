@@ -953,9 +953,7 @@ async function main() {
 
     const illegal = pageErrors.filter((message) => /illegal invocation/i.test(message));
     assert('inventory:no-uncaught-illegal-invocation', illegal.length === 0, illegal.join(' | ') || 'none');
-    const swMime = pageErrors.filter(
-      (message) => /sw\.js/.test(message) && /unsupported MIME type/i.test(message),
-    );
+    const swMime = pageErrors.filter((message) => /sw\.js/.test(message) && /unsupported MIME type/i.test(message));
     assert('launch:service-worker', swMime.length === 0, swMime[0] ?? 'sw.js did not fail registration');
   } finally {
     const summary = {
