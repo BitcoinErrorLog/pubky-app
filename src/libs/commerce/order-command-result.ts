@@ -17,14 +17,15 @@ export type CommandOrderSnapshot = {
   reviews?: { rating: number; text: string }[] | null;
 };
 
+// A refunded order proves delivery only through its delivered shipment:
+// a PayPal refund or reversal also moves a `shipped` order to
+// `refunded_external`.
 const DELIVERED_OR_LATER = new Set([
   'delivered',
   'completed',
   'return_requested',
   'return_approved',
   'return_received',
-  'refunded_external',
-  'refunded_partial',
 ]);
 
 function text(value: unknown): string | null {

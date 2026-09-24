@@ -11,6 +11,7 @@ import {
 import { orderShowsCommandResult } from '@/libs/commerce/order-command-result';
 import { plainRefundRefusal } from '@/libs/commerce/partial-refund';
 import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
+import { orderChangedMessage } from '@/libs/commerce/refund-copy';
 import {
   buildMarketplaceOrderAggregateId,
   buildMarketplacePaymentAggregateId,
@@ -147,7 +148,7 @@ export function useMarketplaceOrders() {
           }
           toast({
             variant: 'error',
-            description: MARKETPLACE_FAILURE_MESSAGES.orderChanged,
+            description: orderChangedMessage(order, current),
           });
           return false;
         }
