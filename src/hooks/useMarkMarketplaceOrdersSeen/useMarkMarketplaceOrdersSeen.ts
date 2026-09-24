@@ -13,8 +13,12 @@ export function useMarkMarketplaceOrdersSeen(isShowingOrders: boolean, shown: un
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   useEffect(() => {
     if (!currentUserPubky || !isShowingOrders) return;
-    CommerceController.markOrdersAttentionSeen().catch((error) => {
-      Logger.warn('Failed to advance the orders badge checkpoint', { error });
-    });
+    // A stubbed controller throws before a promise exists; that is a failed
+    // write, not a render error.
+    Promise.resolve()
+      .then(() => CommerceController.markOrdersAttentionSeen())
+      .catch((error) => {
+        Logger.warn('Failed to advance the orders badge checkpoint', { error });
+      });
   }, [currentUserPubky, isShowingOrders, shown]);
 }
