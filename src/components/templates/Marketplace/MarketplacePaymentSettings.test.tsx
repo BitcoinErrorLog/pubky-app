@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { LOCKS_STATUS_CHECK_ERROR } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
 import type { SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -10,11 +11,18 @@ import { MarketplacePaymentSettings } from './MarketplacePaymentSettings';
 
 const view = vi.hoisted(() => ({
   locksConnect: {
-    connectedCreator: null as string | null,
+    connectedCreator: null,
     isExchanging: false,
-    error: null as string | null,
+    error: null,
     connectOpen: false,
-    connectUrl: null as string | null,
+    connectUrl: null,
+  } as {
+    connectedCreator: string | null;
+    isExchanging: boolean;
+    error: string | null;
+    reapproveNotice?: string | null;
+    connectOpen: boolean;
+    connectUrl: string | null;
   },
 }));
 const navigation = vi.hoisted(() => ({
@@ -50,7 +58,10 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
 }));
 
-vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', () => ({
+vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', async (importOriginal) => ({
+  LOCKS_STATUS_CHECK_ERROR: (
+    await importOriginal<typeof import('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect')>()
+  ).LOCKS_STATUS_CHECK_ERROR,
   useMarketplaceLocksConnect: () => ({
     ...view.locksConnect,
     setConnectIframe: vi.fn(),
@@ -296,6 +307,54 @@ describe('MarketplacePaymentSettings', () => {
     expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({ bitcoinEnabled: true }),
     );
+  });
+
+  it('tells a seller why Step 1 asks for a fresh approval, beside Open Locks connect', async () => {
+    const notice = 'Connected before? Approve once more in Pubky Ring or Bitkit.';
+    view.locksConnect = {
+      connectedCreator: null,
+      isExchanging: false,
+      error: null,
+      reapproveNotice: notice,
+      connectOpen: false,
+      connectUrl: null,
+    };
+
+    await renderSettings();
+
+    expect(screen.getByTestId('locks-reapprove-notice')).toHaveTextContent(notice);
+    expect(screen.getByRole('button', { name: /Open Locks connect/ })).toBeInTheDocument();
+  });
+
+  it('shows a failed Lock Server status check as Needs attention with the reason, never Not set up', async () => {
+    view.locksConnect = {
+      connectedCreator: null,
+      isExchanging: false,
+      error: LOCKS_STATUS_CHECK_ERROR,
+      connectOpen: false,
+      connectUrl: null,
+    };
+
+    await renderSettings();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(LOCKS_STATUS_CHECK_ERROR);
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
+    expect(screen.getByTestId('payment-method-status-bitcoin')).not.toHaveTextContent('Not set up');
+  });
+
+  it('hides the fresh-approval notice once Step 1 is connected', async () => {
+    view.locksConnect = {
+      connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      isExchanging: false,
+      error: null,
+      reapproveNotice: 'Connected before? Approve once more in Pubky Ring or Bitkit.',
+      connectOpen: false,
+      connectUrl: null,
+    };
+
+    await renderSettings();
+
+    expect(screen.queryByTestId('locks-reapprove-notice')).not.toBeInTheDocument();
   });
 
   it('preserves server bitcoin when Step 1 names a different Lock Server creator', async () => {

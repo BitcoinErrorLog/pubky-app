@@ -221,8 +221,8 @@ export class LocksGatewayService {
    * Exchanges the hosted legacy-connect completion (`code` + the caller's own
    * `state`, delivered to `return_to`) for a creator frontend session. This is
    * the client's proof that the Lock Server actually holds creator authority
-   * for the signed-in seller — the setup UI must not claim "connected" from
-   * anything weaker.
+   * for the signed-in seller. The setup UI claims "connected" only from the
+   * Lock Server's own answer: this exchange, or an authority-status read.
    */
   static async createFrontendSession(code: string, state: string): Promise<LocksFrontendSession> {
     const url = `${getLocksUrl()}/frontend-sessions`;
@@ -270,6 +270,38 @@ export class LocksGatewayService {
       throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Locks returned an invalid authority-status response.', {
         service: ErrorService.Locks,
         operation: 'getCreatorAuthorityStatus',
+        context: { statusCode: response.status },
+      });
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Creator-keyed status (`GET /creators/{creator}/authority-status`): whether
+   * the Lock Server holds creator authority for `creatorPubky`, with no
+   * frontend session. It reads the same stored authority record as
+   * {@link getCreatorAuthorityStatus}, so Step 1 stays Connected after the
+   * 24-hour frontend session expires or sign-out wipes it. Resolves `null`
+   * when the Lock Server does not serve the route (404), so callers can fall
+   * back to asking for a fresh approval.
+   */
+  static async getPublicCreatorAuthorityStatus(creatorPubky: string): Promise<LocksCreatorAuthorityStatus | null> {
+    const creator = `pubky${creatorPubky.replace(/^pubky/i, '')}`;
+    const url = `${getLocksUrl()}/creators/${encodeURIComponent(creator)}/authority-status`;
+    const response = await safeFetch(url, { method: 'GET' }, ErrorService.Locks, 'getPublicCreatorAuthorityStatus');
+    if (response.status === 404) return null;
+    if (!response.ok) throw httpResponseToError(response, ErrorService.Locks, 'getPublicCreatorAuthorityStatus', url);
+    const raw = await parseResponseOrThrow<unknown>(
+      response,
+      ErrorService.Locks,
+      'getPublicCreatorAuthorityStatus',
+      url,
+    );
+    const parsed = creatorAuthorityStatusSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Locks returned an invalid authority-status response.', {
+        service: ErrorService.Locks,
+        operation: 'getPublicCreatorAuthorityStatus',
         context: { statusCode: response.status },
       });
     }

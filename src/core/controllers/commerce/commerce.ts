@@ -13,7 +13,7 @@ import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
-import { commercePositiveMoneySchema } from '@/libs/commerce/transaction-contracts';
+import { commercePositiveMoneySchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -1043,6 +1043,17 @@ export class CommerceController {
       });
     }
     return await CommerceApplication.getLocksCreatorAuthorityStatus(sessionToken);
+  }
+
+  static async getLocksPublicCreatorAuthorityStatus(accountPubky: unknown) {
+    const parsed = commercePubkySchema.safeParse(accountPubky);
+    if (!parsed.success) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Shop account is invalid.', {
+        service: ErrorService.Local,
+        operation: 'getLocksPublicCreatorAuthorityStatus',
+      });
+    }
+    return await CommerceApplication.getLocksPublicCreatorAuthorityStatus(parsed.data);
   }
 
   static restoreLocksFrontendSession(accountPubky: string) {

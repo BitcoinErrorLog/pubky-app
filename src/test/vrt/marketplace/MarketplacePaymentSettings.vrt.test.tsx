@@ -5,12 +5,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplacePaymentSettings } from '@/templates/Marketplace/MarketplacePaymentSettings';
+import { LOCKS_CONNECT_REAPPROVE_NOTICE } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
 
 const view = vi.hoisted(() => ({
   locksConnect: {
     connectedCreator: null as string | null,
     isExchanging: false,
     error: null as string | null,
+    reapproveNotice: null as string | null,
     connectOpen: false,
     connectUrl: null as string | null,
   },
@@ -21,6 +23,7 @@ function setLocksConnect(partial: Partial<(typeof view)['locksConnect']> = {}) {
     connectedCreator: null,
     isExchanging: false,
     error: null,
+    reapproveNotice: null,
     connectOpen: false,
     connectUrl: null,
     ...partial,
@@ -56,7 +59,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   },
 }));
 
-vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', () => ({
+vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', async (importOriginal) => ({
+  LOCKS_CONNECT_REAPPROVE_NOTICE: (
+    await importOriginal<typeof import('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect')>()
+  ).LOCKS_CONNECT_REAPPROVE_NOTICE,
   useMarketplaceLocksConnect: () => ({
     ...view.locksConnect,
     setConnectIframe: vi.fn(),
@@ -109,6 +115,17 @@ describe('Marketplace payment settings — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-locks-connected-desktop');
+    setLocksConnect();
+  });
+
+  // No live Lock Server session and no creator-keyed status to confirm the
+  // connection: Step 1 explains the one fresh approval beside the button.
+  it('renders the Lock Server fresh-approval note at desktop viewport', async () => {
+    setLocksConnect({ reapproveNotice: LOCKS_CONNECT_REAPPROVE_NOTICE });
+
+    const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect.element(screen.getByTestId('locks-reapprove-notice')).toBeVisible();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-locks-reapprove-desktop');
     setLocksConnect();
   });
 

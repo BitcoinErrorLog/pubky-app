@@ -27,6 +27,20 @@ export const LOCKS_CONNECT_USER_ERROR = 'This Lock Server connection did not fin
 export const LOCKS_CONNECT_IDENTITY_ERROR =
   "This Bitcoin connection belongs to a different account. Connect with the account you're signed in with.";
 
+/**
+ * Shown under Step 1 when this browser holds no live Lock Server sign-in and the
+ * Lock Server does not serve the creator-keyed status that could confirm the connection.
+ */
+export const LOCKS_CONNECT_REAPPROVE_NOTICE =
+  'Connected before? Approve once more in Pubky Ring or Bitkit. This browser keeps its Lock Server sign-in for 24 hours, and loses it when you sign out of the Shop or use another browser. Approving again does not reset your setup.';
+
+/**
+ * Shown under Step 1 when a status check fails (a 5xx, or no answer). The connection's
+ * state is unknown, so Step 1 must not read as Not set up.
+ */
+export const LOCKS_STATUS_CHECK_ERROR =
+  "We couldn't check your Lock Server connection just now. Reload this page to try again.";
+
 const LOCKS_CONNECT_TIMEOUT_MS = 6 * 60 * 1_000;
 
 function rejectMismatchedCreator(): void {
@@ -57,13 +71,16 @@ function isRejectedLocksSession(error: unknown): boolean {
  * `connectedCreator` is a REAL completion signal — the Lock Server proved it
  * holds creator authority — never an optimistic assumption. The frontend
  * session token is persisted under `pubky.marketplace.locks-frontend-session.v1`
- * and wiped on sign-out with the marketplace session.
+ * and wiped on sign-out with the marketplace session. The session lasts 24
+ * hours while the authority it proved does not, so without a live session the
+ * hook asks the Lock Server's creator-keyed status for the signed-in account.
  */
 export function useMarketplaceLocksConnect() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const [connectedCreator, setConnectedCreator] = useState<string | null>(null);
   const [isExchanging, setIsExchanging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reapproveNotice, setReapproveNotice] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [connectUrl, setConnectUrl] = useState<string | null>(null);
   const connectIframeRef = useRef<HTMLIFrameElement>(null);
@@ -86,6 +103,7 @@ export function useMarketplaceLocksConnect() {
     pendingStateRef.current = null;
     setConnectedCreator(normalizeLocksPubky(creator));
     setError(null);
+    setReapproveNotice(false);
     setConnectOpen(false);
     setConnectUrl(null);
   }, []);
@@ -131,42 +149,70 @@ export function useMarketplaceLocksConnect() {
   useEffect(() => {
     restoreGenerationRef.current += 1;
     const generation = restoreGenerationRef.current;
+    setReapproveNotice(false);
+    setError((current) => (current === LOCKS_STATUS_CHECK_ERROR ? null : current));
     if (!currentUserPubky) {
       setConnectedCreator(null);
       return;
     }
     const stored = CommerceController.restoreLocksFrontendSession(currentUserPubky);
-    if (!stored || !locksCreatorMatchesShopPubky(stored.creator, currentUserPubky)) {
-      if (stored) {
-        rejectMismatchedCreator();
-        setError(LOCKS_CONNECT_IDENTITY_ERROR);
-      }
+    if (stored && !locksCreatorMatchesShopPubky(stored.creator, currentUserPubky)) {
+      rejectMismatchedCreator();
+      setError(LOCKS_CONNECT_IDENTITY_ERROR);
       setConnectedCreator(null);
       return;
     }
     let active = true;
-    void CommerceController.getLocksCreatorAuthorityStatus(stored.token)
-      .then((status) => {
-        if (!active || generation !== restoreGenerationRef.current) return;
-        const creator = status.creator || stored.creator;
-        if (status.authorized && locksCreatorMatchesShopPubky(creator, currentUserPubky)) {
-          setConnectedCreator(normalizeLocksPubky(creator));
+    const isCurrent = () => active && generation === restoreGenerationRef.current;
+
+    // No live frontend session for this browser: ask the Lock Server whether it
+    // still holds this account's creator authority, which outlives the session.
+    const restoreFromStoredAuthority = async () => {
+      try {
+        const status = await CommerceController.getLocksPublicCreatorAuthorityStatus(currentUserPubky);
+        if (!isCurrent()) return;
+        if (status?.authorized && locksCreatorMatchesShopPubky(status.creator, currentUserPubky)) {
+          setConnectedCreator(normalizeLocksPubky(status.creator));
           return;
         }
-        if (status.authorized) {
-          rejectMismatchedCreator();
-          setError(LOCKS_CONNECT_IDENTITY_ERROR);
-        } else {
+        setConnectedCreator(null);
+        setReapproveNotice(status === null);
+      } catch {
+        if (!isCurrent()) return;
+        setConnectedCreator(null);
+        setError(LOCKS_STATUS_CHECK_ERROR);
+      }
+    };
+
+    void (async () => {
+      if (stored) {
+        try {
+          const status = await CommerceController.getLocksCreatorAuthorityStatus(stored.token);
+          if (!isCurrent()) return;
+          const creator = status.creator || stored.creator;
+          if (status.authorized && locksCreatorMatchesShopPubky(creator, currentUserPubky)) {
+            setConnectedCreator(normalizeLocksPubky(creator));
+            return;
+          }
+          if (status.authorized) {
+            rejectMismatchedCreator();
+            setError(LOCKS_CONNECT_IDENTITY_ERROR);
+            setConnectedCreator(null);
+            return;
+          }
+          CommerceController.clearLocksFrontendSession();
+        } catch (error) {
+          if (!isCurrent()) return;
+          if (!isRejectedLocksSession(error)) {
+            setConnectedCreator(null);
+            setError(LOCKS_STATUS_CHECK_ERROR);
+            return;
+          }
           CommerceController.clearLocksFrontendSession();
         }
-        setConnectedCreator(null);
-      })
-      .catch((error) => {
-        if (!active || generation !== restoreGenerationRef.current) return;
-        if (!isRejectedLocksSession(error)) return;
-        CommerceController.clearLocksFrontendSession();
-        setConnectedCreator(null);
-      });
+      }
+      await restoreFromStoredAuthority();
+    })();
     return () => {
       active = false;
     };
@@ -231,6 +277,7 @@ export function useMarketplaceLocksConnect() {
     connectedCreator,
     isExchanging,
     error,
+    reapproveNotice: reapproveNotice ? LOCKS_CONNECT_REAPPROVE_NOTICE : null,
     connectOpen,
     connectUrl,
     setConnectIframe,

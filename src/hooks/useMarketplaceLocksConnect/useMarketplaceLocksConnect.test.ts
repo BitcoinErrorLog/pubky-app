@@ -3,13 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
+import { httpResponseToError } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import {
   LOCKS_CONNECT_CALLBACK_TYPE,
   LOCKS_CONNECT_IDENTITY_ERROR,
+  LOCKS_CONNECT_REAPPROVE_NOTICE,
   LOCKS_CONNECT_USER_ERROR,
+  LOCKS_STATUS_CHECK_ERROR,
   useMarketplaceLocksConnect,
 } from './useMarketplaceLocksConnect';
 
@@ -29,6 +32,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     createLocksFrontendSession: vi.fn(),
     getLocksCreatorAuthorityStatus: vi.fn(),
+    getLocksPublicCreatorAuthorityStatus: vi.fn(),
     restoreLocksFrontendSession: vi.fn(),
     clearLocksFrontendSession: vi.fn(),
   },
@@ -52,6 +56,10 @@ describe('useMarketplaceLocksConnect', () => {
     window.localStorage.clear();
     useAuthStore.setState({ currentUserPubky: PUBKY });
     mockedController.restoreLocksFrontendSession.mockReturnValue(null);
+    mockedController.getLocksPublicCreatorAuthorityStatus.mockResolvedValue({
+      creator: `pubky${PUBKY}`,
+      authorized: false,
+    });
     mockedController.createLocksFrontendSession.mockResolvedValue({
       session_token: 'session-token',
       creator: `pubky${PUBKY}`,
@@ -172,9 +180,40 @@ describe('useMarketplaceLocksConnect', () => {
 
     const { result } = renderHook(() => useMarketplaceLocksConnect());
 
-    await waitFor(() => expect(mockedController.getLocksCreatorAuthorityStatus).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.error).toBe(LOCKS_STATUS_CHECK_ERROR));
     expect(mockedController.clearLocksFrontendSession).not.toHaveBeenCalled();
     expect(result.current.connectedCreator).toBeNull();
+    expect(result.current.reapproveNotice).toBeNull();
+  });
+
+  it('explains an authenticated status 503 instead of reading as Not set up', async () => {
+    mockedController.restoreLocksFrontendSession.mockReturnValue({
+      token: 'session-token',
+      creator: `pubky${PUBKY}`,
+      pubky: PUBKY,
+    });
+    const url = `${LOCKS_ORIGIN}/creator/authority-status`;
+    mockedController.getLocksCreatorAuthorityStatus.mockRejectedValue(
+      httpResponseToError(
+        new Response(
+          JSON.stringify({
+            error: { code: 'creator_authority_unavailable', message: 'creator authority unavailable' },
+          }),
+          { status: HttpStatusCode.SERVICE_UNAVAILABLE, headers: { 'content-type': 'application/json' } },
+        ),
+        ErrorService.Locks,
+        'getCreatorAuthorityStatus',
+        url,
+      ),
+    );
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(result.current.error).toBe(LOCKS_STATUS_CHECK_ERROR));
+    expect(result.current.connectedCreator).toBeNull();
+    expect(result.current.reapproveNotice).toBeNull();
+    expect(mockedController.clearLocksFrontendSession).not.toHaveBeenCalled();
+    expect(mockedController.getLocksPublicCreatorAuthorityStatus).not.toHaveBeenCalled();
   });
 
   it('drops a persisted connection when authority-status reports unauthorized', async () => {
@@ -192,6 +231,107 @@ describe('useMarketplaceLocksConnect', () => {
 
     await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled());
     expect(result.current.connectedCreator).toBeNull();
+  });
+
+  it('shows Connected from the stored authority when this browser holds no Lock Server session', async () => {
+    mockedController.getLocksPublicCreatorAuthorityStatus.mockResolvedValue({
+      creator: `pubky${PUBKY}`,
+      authorized: true,
+    });
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(result.current.connectedCreator).toBe(PUBKY));
+    expect(mockedController.getLocksPublicCreatorAuthorityStatus).toHaveBeenCalledWith(PUBKY);
+    expect(mockedController.getLocksCreatorAuthorityStatus).not.toHaveBeenCalled();
+    expect(result.current.reapproveNotice).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+
+  it('keeps Step 1 Connected after the 24-hour session expires when the authority is still stored', async () => {
+    mockedController.restoreLocksFrontendSession.mockReturnValue({
+      token: 'session-token',
+      creator: `pubky${PUBKY}`,
+      pubky: PUBKY,
+    });
+    mockedController.getLocksCreatorAuthorityStatus.mockRejectedValue(
+      Err.auth(AuthErrorCode.UNAUTHORIZED, 'Lock Server session is invalid.', {
+        service: ErrorService.Locks,
+        operation: 'getCreatorAuthorityStatus',
+        context: { statusCode: HttpStatusCode.UNAUTHORIZED },
+      }),
+    );
+    mockedController.getLocksPublicCreatorAuthorityStatus.mockResolvedValue({
+      creator: `pubky${PUBKY}`,
+      authorized: true,
+    });
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(result.current.connectedCreator).toBe(PUBKY));
+    expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled();
+    expect(result.current.reapproveNotice).toBeNull();
+  });
+
+  it('asks for one fresh approval, with the reason, when the Lock Server has no creator-keyed status', async () => {
+    mockedController.getLocksPublicCreatorAuthorityStatus.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(result.current.reapproveNotice).toBe(LOCKS_CONNECT_REAPPROVE_NOTICE));
+    expect(result.current.connectedCreator).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+
+  it('explains a failed creator-keyed status check instead of asking for a fresh approval', async () => {
+    mockedController.getLocksPublicCreatorAuthorityStatus.mockRejectedValue(new Error('network'));
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(result.current.error).toBe(LOCKS_STATUS_CHECK_ERROR));
+    expect(result.current.connectedCreator).toBeNull();
+    expect(result.current.reapproveNotice).toBeNull();
+  });
+
+  it('stays Not set up without a notice when the Lock Server holds no authority for the account', async () => {
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(mockedController.getLocksPublicCreatorAuthorityStatus).toHaveBeenCalledWith(PUBKY));
+    expect(result.current.connectedCreator).toBeNull();
+    expect(result.current.reapproveNotice).toBeNull();
+  });
+
+  it('never marks Connected from a creator-keyed status that names another account', async () => {
+    mockedController.getLocksPublicCreatorAuthorityStatus.mockResolvedValue({
+      creator: `pubky${OTHER}`,
+      authorized: true,
+    });
+
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+
+    await waitFor(() => expect(mockedController.getLocksPublicCreatorAuthorityStatus).toHaveBeenCalled());
+    expect(result.current.connectedCreator).toBeNull();
+  });
+
+  it('clears the fresh-approval notice once a new connect completes', async () => {
+    mockedController.getLocksPublicCreatorAuthorityStatus.mockResolvedValue(null);
+    const { result } = renderHook(() => useMarketplaceLocksConnect());
+    await waitFor(() => expect(result.current.reapproveNotice).toBe(LOCKS_CONNECT_REAPPROVE_NOTICE));
+
+    const source = {} as WindowProxy;
+    act(() => {
+      result.current.openConnect();
+    });
+    const state = new URL(result.current.connectUrl ?? '').searchParams.get('state');
+    act(() => {
+      result.current.setConnectIframe({ contentWindow: source } as HTMLIFrameElement);
+    });
+    await act(async () => {
+      dispatchLocksCallback(source, { type: LOCKS_CONNECT_CALLBACK_TYPE, state, code: 'one-time-code' });
+    });
+
+    await waitFor(() => expect(result.current.connectedCreator).toBe(PUBKY));
+    expect(result.current.reapproveNotice).toBeNull();
   });
 
   it('ignores a callback from the wrong origin or a mismatched state', async () => {
