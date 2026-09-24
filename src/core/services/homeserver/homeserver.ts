@@ -4,6 +4,7 @@ import {
   AuthToken,
   Capabilities,
   Client,
+  GrantAuthFlow,
   Keypair,
   Pubky,
   PublicKey,
@@ -12,7 +13,7 @@ import {
   Signer,
 } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
-import { CAPABILITIES, capabilitiesMatchFullGrant } from '@/config/app';
+import { CAPABILITIES, capabilitiesMatchFullGrant, SHOP_GRANT_CLIENT_ID } from '@/config/app';
 import {
   getDefaultHttpRelay,
   getDeployEnv,
@@ -41,7 +42,7 @@ import type {
   TSignupTokenVerificationStatus,
 } from '@/services/homeserver/homeserver.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { extractStatusCode, handleError } from './error.utils';
+import { extractStatusCode, grantKeyRemovalFailed, handleError } from './error.utils';
 import type {
   TGenerateSignupAuthUrlParams,
   THomeserverFetchParams,
@@ -648,6 +649,113 @@ export class HomeserverService {
     } catch (error) {
       return handleError({ error, additionalContext: { relay: getDefaultHttpRelay() } });
     }
+  }
+
+  /**
+   * Whether this browser can hold a grant key that JavaScript cannot read
+   * (secure context, IndexedDB, WebCrypto Ed25519). Without it the Shop does
+   * not offer the Bitkit sign-in.
+   */
+  static isGrantSignInAvailable(): boolean {
+    try {
+      return GrantAuthFlow.isDelegationAvailable;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Starts a grant sign-in (`pubkyauth://signin_grant`) for signers that only
+   * accept grant URLs, such as Bitkit. The proof-of-possession key is a
+   * non-extractable WebCrypto key in IndexedDB; the approved session is
+   * grant-backed and never exported to JS-readable storage.
+   */
+  static async generateGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    try {
+      const flow = await GrantAuthFlow.startDelegated(CAPABILITIES, AuthFlowKind.signin(), {
+        clientId: SHOP_GRANT_CLIENT_ID,
+        relay: getDefaultHttpRelay(),
+      });
+      const approval = createCancelableAuthApproval(flow);
+      return {
+        authorizationUrl: flow.authorizationUrl,
+        awaitApproval: approval.awaitApproval,
+        cancelAuthFlow: approval.cancel,
+      };
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'generateGrantAuthUrl' } });
+    }
+  }
+
+  /** Whether a session is backed by a grant (Bitkit sign-in) rather than a homeserver cookie. */
+  static isGrantSession(session: Session | null | undefined): boolean {
+    return Boolean(session && session.grant !== undefined);
+  }
+
+  /** Persists a completed grant session in IndexedDB and returns its record id. */
+  static async saveGrantSession(session: Session): Promise<string> {
+    try {
+      const stored = await this.getPubkySdk().browserSessionStore.save(session);
+      return stored.id;
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'saveGrantSession' } });
+    }
+  }
+
+  /** Restores a grant session saved by {@link saveGrantSession}. Never saves. */
+  static async restoreGrantSession(recordId: string): Promise<Session> {
+    try {
+      return await this.getPubkySdk().browserSessionStore.restore(recordId);
+    } catch (error) {
+      return handleError({ error, additionalContext: { operation: 'restoreGrantSession' } });
+    }
+  }
+
+  /**
+   * Drops one stored grant session record and its delegated key, then reads
+   * the store back. Rejects while the record is still listed, so a caller
+   * never drops its pointer to key material that is still on disk.
+   */
+  static async removeGrantSession(recordId: string): Promise<void> {
+    const store = this.getPubkySdk().browserSessionStore;
+    let removeError: unknown;
+    try {
+      await store.remove(recordId);
+    } catch (error) {
+      removeError = error;
+    }
+    let remaining: string[];
+    try {
+      remaining = (await store.list()).map((record) => record.id);
+    } catch (error) {
+      throw grantKeyRemovalFailed('removeGrantSession', error);
+    }
+    if (remaining.includes(recordId)) throw grantKeyRemovalFailed('removeGrantSession', removeError);
+    if (removeError) Logger.warn('Grant session remove reported an error, but the record is gone', { removeError });
+  }
+
+  /**
+   * Drops every stored grant session record and delegated key for this
+   * origin, then reads the store back. Rejects while any record is still
+   * listed. A browser without IndexedDB persistence holds no records.
+   */
+  static async clearGrantSessions(): Promise<void> {
+    const store = this.getPubkySdk().browserSessionStore;
+    let clearError: unknown;
+    try {
+      if (!(await store.isAvailable())) return;
+      await store.clearAll();
+    } catch (error) {
+      clearError = error;
+    }
+    let remaining: number;
+    try {
+      remaining = (await store.list()).length;
+    } catch (error) {
+      throw grantKeyRemovalFailed('clearGrantSessions', error);
+    }
+    if (remaining > 0) throw grantKeyRemovalFailed('clearGrantSessions', clearError);
+    if (clearError) Logger.warn('Grant session clear reported an error, but no record remains', { clearError });
   }
 
   /**

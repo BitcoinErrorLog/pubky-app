@@ -9,6 +9,12 @@ export type UseAuthUrlOptions =
   | {
       /** Whether to automatically fetch the auth URL on mount. @default true */
       autoFetch?: boolean;
+      /** Grant sign-in (`pubkyauth://signin_grant`) for signers such as Bitkit */
+      type: 'grant';
+    }
+  | {
+      /** Whether to automatically fetch the auth URL on mount. @default true */
+      autoFetch?: boolean;
       /** Signup flow requires invite code */
       type: 'signup';
       /** The invite code for signup. Required when type is 'signup'. */

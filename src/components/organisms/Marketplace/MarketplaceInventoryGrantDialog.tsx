@@ -5,7 +5,9 @@ import { Copy, KeyRound, Loader2, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceInventoryGrantConnect } from '@/hooks/useMarketplaceInventoryGrantConnect/useMarketplaceInventoryGrantConnect';
+import { GRANT_SESSION_REFUSAL_COPY, GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -35,13 +37,14 @@ export function MarketplaceInventoryGrantDialog({
     if (autoOpen) setOpen(true);
   }, [autoOpen]);
 
+  const isGrantSession = useIsGrantSession();
   useEffect(() => {
     if (open) {
-      start();
+      if (!isGrantSession) start();
       return;
     }
     cancel();
-  }, [open, start, cancel]);
+  }, [open, start, cancel, isGrantSession]);
 
   const copyUrl = async () => {
     try {
@@ -65,9 +68,11 @@ export function MarketplaceInventoryGrantDialog({
           <DialogTitle>Approve inventory access</DialogTitle>
         </DialogHeader>
         <Typography as="p" className="text-sm text-muted-foreground">
-          Approve this grant in Bitkit or Pubky Ring; it does not replace your purchase session.
+          Approve this grant in Pubky Ring; it does not replace your purchase session.
         </Typography>
-        {grant.status === 'error' ? (
+        {isGrantSession ? (
+          <GrantSessionRefusal message={GRANT_SESSION_REFUSAL_COPY.inventory} />
+        ) : grant.status === 'error' ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">
             {grant.errorMessage}
           </div>
@@ -103,7 +108,7 @@ export function MarketplaceInventoryGrantDialog({
                 disabled={!grant.authorizationUrl || grant.isOpeningSigner}
               >
                 <Smartphone className="mr-2 size-4" />
-                Open in Bitkit / Ring
+                Open in Pubky Ring
               </Button>
               <Button
                 variant="ghost"
