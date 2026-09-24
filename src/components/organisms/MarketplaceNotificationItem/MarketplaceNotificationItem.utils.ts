@@ -100,6 +100,8 @@ function getBaseActionText(type: MarketplaceNotification['type']): string {
       return 'requires a refund for a late payment';
     case 'drop_sold_out':
       return 'sold out a drop';
+    case 'payment_reversal_cancelled':
+      return 'restored a disputed payment';
     default: {
       const exhaustiveCheck: never = type;
       return exhaustiveCheck;

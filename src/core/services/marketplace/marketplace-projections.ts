@@ -291,6 +291,9 @@ export const marketplaceNotificationSchema = z
       'order_cancelled_terms_change',
       'payment_refund_required',
       'drop_sold_out',
+      // A verified PayPal `Canceled_Reversal`: the disputed money went back
+      // to the seller, and a fully reversed order returned to its prior state.
+      'payment_reversal_cancelled',
     ]),
     aggregateId: z.string(),
     // Optional monetary context (ADR-0019 §8: present only where the
@@ -559,6 +562,12 @@ export const marketplaceOrderProjectionSchema = z
       .object({ amountMinor: z.number().int().positive(), transactionId: z.string(), recordedAt: z.string() })
       .nullable()
       .optional(),
+    // PayPal refund notifications (service 94ecb0d). Display-only flags: a
+    // malformed value drops the line for that order, never the order.
+    paymentReversedAt: z.string().nullish().catch(null),
+    paymentReversalCancelledAt: z.string().nullish().catch(null),
+    gatewayRefundReviewAt: z.string().nullish().catch(null),
+    gatewayRefundUnmatched: z.boolean().optional().catch(false),
     reviews: z
       .array(
         z.object({
