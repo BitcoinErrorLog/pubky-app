@@ -1181,6 +1181,10 @@ export class CommerceApplication {
     return await LocksGatewayService.getCreatorAuthorityStatus(sessionToken);
   }
 
+  static async getLocksPublicCreatorAuthorityStatus(accountPubky: string) {
+    return await LocksGatewayService.getPublicCreatorAuthorityStatus(accountPubky);
+  }
+
   static restoreLocksFrontendSession(accountPubky: string) {
     return LocksFrontendSessionStore.restore(accountPubky);
   }

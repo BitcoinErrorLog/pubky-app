@@ -261,6 +261,38 @@ describe('LocksGatewayService', () => {
     loggerError.mockRestore();
   });
 
+  it('reads the creator-keyed authority status without a bearer', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ creator: `pubky${CREATOR}`, authorized: true }));
+
+    await expect(LocksGatewayService.getPublicCreatorAuthorityStatus(CREATOR)).resolves.toEqual({
+      creator: `pubky${CREATOR}`,
+      authorized: true,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      `https://locks.example.com/creators/pubky${CREATOR}/authority-status`,
+      expect.objectContaining({ method: 'GET' }),
+    );
+    const init = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit;
+    expect(init.headers).toBeUndefined();
+  });
+
+  it('resolves null when the Lock Server does not serve the creator-keyed status', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 404 }));
+
+    await expect(LocksGatewayService.getPublicCreatorAuthorityStatus(CREATOR)).resolves.toBeNull();
+  });
+
+  it('rejects a creator-keyed status error instead of reading it as not connected', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: 'internal_error', message: 'internal error' } }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    await expect(LocksGatewayService.getPublicCreatorAuthorityStatus(CREATOR)).rejects.toBeTruthy();
+  });
+
   it('builds the legacy connect URL with postmessage delivery', () => {
     expect(
       LocksGatewayService.buildLegacyConnectUrl('https://shop.pubky.app/marketplace/settings', 'opaque-state'),

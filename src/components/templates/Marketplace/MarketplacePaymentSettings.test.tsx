@@ -10,11 +10,18 @@ import { MarketplacePaymentSettings } from './MarketplacePaymentSettings';
 
 const view = vi.hoisted(() => ({
   locksConnect: {
-    connectedCreator: null as string | null,
+    connectedCreator: null,
     isExchanging: false,
-    error: null as string | null,
+    error: null,
     connectOpen: false,
-    connectUrl: null as string | null,
+    connectUrl: null,
+  } as {
+    connectedCreator: string | null;
+    isExchanging: boolean;
+    error: string | null;
+    reapproveNotice?: string | null;
+    connectOpen: boolean;
+    connectUrl: string | null;
   },
 }));
 const navigation = vi.hoisted(() => ({
@@ -296,6 +303,38 @@ describe('MarketplacePaymentSettings', () => {
     expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({ bitcoinEnabled: true }),
     );
+  });
+
+  it('tells a seller why Step 1 asks for a fresh approval, beside Open Locks connect', async () => {
+    const notice = 'Connected before? Approve once more in Pubky Ring or Bitkit.';
+    view.locksConnect = {
+      connectedCreator: null,
+      isExchanging: false,
+      error: null,
+      reapproveNotice: notice,
+      connectOpen: false,
+      connectUrl: null,
+    };
+
+    await renderSettings();
+
+    expect(screen.getByTestId('locks-reapprove-notice')).toHaveTextContent(notice);
+    expect(screen.getByRole('button', { name: /Open Locks connect/ })).toBeInTheDocument();
+  });
+
+  it('hides the fresh-approval notice once Step 1 is connected', async () => {
+    view.locksConnect = {
+      connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      isExchanging: false,
+      error: null,
+      reapproveNotice: 'Connected before? Approve once more in Pubky Ring or Bitkit.',
+      connectOpen: false,
+      connectUrl: null,
+    };
+
+    await renderSettings();
+
+    expect(screen.queryByTestId('locks-reapprove-notice')).not.toBeInTheDocument();
   });
 
   it('preserves server bitcoin when Step 1 names a different Lock Server creator', async () => {

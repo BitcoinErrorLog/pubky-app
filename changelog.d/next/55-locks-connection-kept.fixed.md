@@ -1,0 +1,1 @@
+Bitcoin Step 1 stays Connected after the Lock Server sign-in in this browser expires (24 hours), after signing out, or in another browser, when the Lock Server still holds the connection. If the Lock Server cannot confirm it, Step 1 says why it asks for one more approval and that approving again does not reset setup.

@@ -42,6 +42,7 @@ type LocksConnectView = {
   connectedCreator: string | null;
   isExchanging: boolean;
   error: string | null;
+  reapproveNotice?: string | null;
   connectOpen?: boolean;
   connectUrl?: string | null;
   setConnectIframe?: (element: HTMLIFrameElement | null) => void;
@@ -130,6 +131,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
     connectedCreator,
     isExchanging,
     error: locksError,
+    reapproveNotice,
     connectOpen,
     connectUrl,
     setConnectIframe,
@@ -362,6 +364,11 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
             {locksError && (
               <Typography as="p" role="alert" className="mt-2 text-sm text-amber-300">
                 {locksError}
+              </Typography>
+            )}
+            {!step1Connected && !locksError && reapproveNotice && (
+              <Typography as="p" className="mt-2 text-sm text-muted-foreground" data-testid="locks-reapprove-notice">
+                {reapproveNotice}
               </Typography>
             )}
           </div>
