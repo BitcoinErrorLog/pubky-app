@@ -67,6 +67,7 @@ import { useNotificationStore } from '@/stores/notification/notification.store';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import { ONBOARDING_PERSIST_KEY } from '@/stores/persistedKeys';
 import { useSearchStore } from '@/stores/search/search.store';
+import { useSessionHandoffStore } from '@/stores/sessionHandoff/sessionHandoff.store';
 import { useSettingsStore } from '@/stores/settings/settings.store';
 import type { SettingsState } from '@/stores/settings/settings.types';
 import { useSignInStore } from '@/stores/signIn/signIn.store';
@@ -127,6 +128,25 @@ export class AuthController {
 
   /** `authFlowGeneration` when each sign-in QR (Ring or Bitkit) started, keyed by its approved session. */
   private static sessionFlowGeneration = new WeakMap<Session, number>();
+
+  /** Resolver of the `#s=` hand-off prompt the user has not answered yet. */
+  private static pendingSessionHandoff: ((accepted: boolean) => void) | null = null;
+
+  private static async confirmSessionHandoff(pubky: Pubky): Promise<boolean> {
+    this.pendingSessionHandoff?.(false);
+    return await new Promise<boolean>((resolve) => {
+      this.pendingSessionHandoff = resolve;
+      useSessionHandoffStore.getState().setPendingPubky(pubky);
+    });
+  }
+
+  /** The user's answer to the `#s=` hand-off prompt. Only `true` signs the tab in. */
+  static answerSessionHandoff(accepted: boolean): void {
+    const resolve = this.pendingSessionHandoff;
+    this.pendingSessionHandoff = null;
+    useSessionHandoffStore.getState().setPendingPubky(null);
+    resolve?.(accepted);
+  }
 
   /**
    * Single-run guard for cleanupLocalState: concurrent Controller invocations
@@ -271,7 +291,10 @@ export class AuthController {
     authStore.setIsRestoringSession(true);
     let cleanedUp = false;
     try {
-      const result = await AuthApplication.restorePersistedSession({ authStore });
+      const result = await AuthApplication.restorePersistedSession({
+        authStore,
+        confirmSessionHandoff: (pubky) => this.confirmSessionHandoff(pubky),
+      });
       if (result.status === 'restored') {
         const { session } = result;
         const pubky = Identity.z32FromSession({ session });
@@ -1269,6 +1292,8 @@ export class AuthController {
     // Bump before any await so an in-flight restore (sharing the Application
     // singleton promise) can tell its restored-branch result is stale.
     this.logoutGeneration += 1;
+    // An unanswered `#s=` prompt holds the shared restore this logout joins.
+    this.answerSessionHandoff(false);
     // Set before any await so RouteGuard cannot re-bridge between cleanup and this flag.
     suppressVibeSessionAutoRestore();
     AuthApplication.abortInFlightBridgeRequest();

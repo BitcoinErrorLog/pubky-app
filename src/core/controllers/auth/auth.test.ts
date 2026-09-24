@@ -42,6 +42,7 @@ import { useNotificationStore } from '@/stores/notification/notification.store';
 import type { NotificationState } from '@/stores/notification/notification.types';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import { useSearchStore } from '@/stores/search/search.store';
+import { useSessionHandoffStore } from '@/stores/sessionHandoff/sessionHandoff.store';
 import { useSettingsStore } from '@/stores/settings/settings.store';
 import {
   defaultNotificationPreferences,
@@ -1150,7 +1151,10 @@ describe('AuthController', () => {
       const result = await AuthController.restorePersistedSession();
 
       expect(result).toEqual({ status: 'restored' });
-      expect(AuthApplication.restorePersistedSession).toHaveBeenCalledWith({ authStore });
+      expect(AuthApplication.restorePersistedSession).toHaveBeenCalledWith({
+        authStore,
+        confirmSessionHandoff: expect.any(Function),
+      });
       expect(Identity.z32FromSession).toHaveBeenCalledWith({ session: mockSession });
       expect(userIsSignedUpSpy).not.toHaveBeenCalled();
       expect(authStore.reset).not.toHaveBeenCalled();
@@ -2816,6 +2820,42 @@ describe('AuthController', () => {
       await AuthController.handleCrossTabSignOut();
 
       expect(storeMocks.resetAuthStore).not.toHaveBeenCalled();
+    });
+
+    it('a #s= hand-off waits for the prompt and only a yes passes through', async () => {
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore({ currentUserPubky: null }));
+      let answer: boolean | undefined;
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockImplementation(async ({ confirmSessionHandoff }) => {
+        answer = await confirmSessionHandoff?.('handoff-pubky' as Pubky);
+        return { status: 'deferred' };
+      });
+
+      const restoring = AuthController.restorePersistedSession();
+      await vi.waitFor(() => expect(useSessionHandoffStore.getState().pendingPubky).toBe('handoff-pubky'));
+      expect(answer).toBeUndefined();
+      AuthController.answerSessionHandoff(true);
+      await restoring;
+
+      expect(answer).toBe(true);
+      expect(useSessionHandoffStore.getState().pendingPubky).toBeNull();
+    });
+
+    it('logout declines an unanswered #s= prompt', async () => {
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore({ currentUserPubky: null }));
+      let answer: boolean | undefined;
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockImplementation(async ({ confirmSessionHandoff }) => {
+        answer = await confirmSessionHandoff?.('handoff-pubky' as Pubky);
+        return { status: 'deferred' };
+      });
+      const restoring = AuthController.restorePersistedSession();
+      await vi.waitFor(() => expect(useSessionHandoffStore.getState().pendingPubky).toBe('handoff-pubky'));
+
+      vi.spyOn(AuthApplication, 'clearGrantSessions').mockResolvedValue(undefined);
+      await AuthController.logout();
+      await restoring;
+
+      expect(answer).toBe(false);
+      expect(useSessionHandoffStore.getState().pendingPubky).toBeNull();
     });
 
     it('logout tells other tabs to let go', async () => {

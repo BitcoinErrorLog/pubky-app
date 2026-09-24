@@ -25,7 +25,8 @@ import {
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { sleep } from '@/libs/utils/utils';
-import { isVibeSessionBridgeLegSkipped } from '@/libs/vibe-session/auto-restore';
+import { Identity } from '@/libs/identity/identity';
+import { isVibeSessionBridgeLegSkipped, suppressVibeSessionAutoRestore } from '@/libs/vibe-session/auto-restore';
 import { requestFromBridge } from '@/libs/vibe-session/bridge';
 import { getVibeId, getVibeSessionBridgeOrigin } from '@/libs/vibe-session/config';
 import { isPubkyExpiredError } from '@/libs/vibe-session/expired';
@@ -81,7 +82,10 @@ export class AuthApplication {
    * @param authStore - The auth store object containing state and actions needed for restoration
    * @returns The restored session, or null if restoration failed
    */
-  static async restorePersistedSession({ authStore }: TRestoreSessionParams): TRestoreSessionResult {
+  static async restorePersistedSession({
+    authStore,
+    confirmSessionHandoff = async () => false,
+  }: TRestoreSessionParams): TRestoreSessionResult {
     // If a restoration is already in progress, return the existing promise
     if (this.restoreSessionPromise) {
       return await this.restoreSessionPromise;
@@ -117,7 +121,7 @@ export class AuthApplication {
     // flag for the whole restore+finalization span so no leg can leave a loading gap.
     this.restoreSessionPromise = (async () => {
       try {
-        return await this.runSessionRestore({ persistedExport, consumerOrigin });
+        return await this.runSessionRestore({ persistedExport, consumerOrigin, confirmSessionHandoff });
       } finally {
         // The first restore decision of this page load has run (whichever leg
         // decided it) — drop any cached `#s=` export so a later same-tab
@@ -133,9 +137,11 @@ export class AuthApplication {
   private static async runSessionRestore({
     persistedExport,
     consumerOrigin,
+    confirmSessionHandoff,
   }: {
     persistedExport: string | null;
     consumerOrigin: string | undefined;
+    confirmSessionHandoff: (pubky: Pubky) => Promise<boolean>;
   }): TRestoreSessionResult {
     let keepPersistedExport = false;
 
@@ -162,7 +168,15 @@ export class AuthApplication {
     if (fragmentExport) {
       const fromFragment = await this.restoreSessionFromExport(fragmentExport);
       if (fromFragment.session) {
-        return { status: 'restored', session: fromFragment.session };
+        // Any page can link here with a `#s=` for a session the browser holds a
+        // cookie for, including one a third party planted. Nothing binds the
+        // hand-off to this device, so the user confirms the identity first.
+        if (await confirmSessionHandoff(Identity.z32FromSession({ session: fromFragment.session }))) {
+          return { status: 'restored', session: fromFragment.session };
+        }
+        // Declined: the bridge must not apply an identity the user just refused.
+        suppressVibeSessionAutoRestore();
+        return this.unresolvedConsumerRestore(keepPersistedExport);
       }
     }
 
