@@ -2956,6 +2956,14 @@ describe('AuthController', () => {
       expect(useSessionHandoffStore.getState().pendingPubky).toBeNull();
     });
 
+    it('a grant session is refused a step-up and no Ring flow starts', async () => {
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore({ session: grantSession() }));
+      const ringFlow = vi.spyOn(AuthApplication, 'generateAuthUrl');
+
+      await expect(AuthController.getStepUpAuthUrl()).rejects.toMatchObject({ code: AuthErrorCode.UNAUTHORIZED });
+      expect(ringFlow).not.toHaveBeenCalled();
+    });
+
     it('logout tells other tabs to let go', async () => {
       vi.spyOn(useAuthStore, 'getState').mockReturnValue(grantAuthStore({ session: grantSession() }));
       vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);

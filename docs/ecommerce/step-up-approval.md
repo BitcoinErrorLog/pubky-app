@@ -109,7 +109,7 @@ A Bitkit sign-in (`pubkyauth://signin_grant`) requests exactly `CAPABILITIES`, a
 
 The other `needs_reauth` trigger is a 401/403 on the private document. For a grant session with the full grant, that refusal means the grant itself is no longer honored (revoked in Bitkit, or expired). A step-up approval widens scope; it cannot repair a refused grant. `CommerceApplication.isPrivateAccessDenied` therefore does not report `needs_reauth` for a grant session: watchlist sync reports `error` (the outbox job stays pending) and receipt publication reports `unavailable`, both retried on the next load.
 
-`MarketplaceReauthDialog` renders only in the `needs_reauth` state, so it never opens for a grant session and has no grant branch. A delegated-grant step-up QR (contract row R3.9a) is not built: no state reaches it.
+`MarketplaceReauthDialog` renders only in the `needs_reauth` state, so it never opens for a grant session. A delegated-grant step-up QR (contract row R3.9a) is not built: no state reaches it. `AuthController.getStepUpAuthUrl` still refuses a grant session before any Ring flow starts, so a future grant path that skips the full-grant checks gets an error in the dialog, not a Ring step-up that would replace the grant session with a cookie session while its grant record stays stored.
 
 ## Verification that differed from the brief
 

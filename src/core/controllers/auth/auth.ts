@@ -972,6 +972,17 @@ export class AuthController {
   }
 
   static async getStepUpAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    // A grant session already holds the full Shop grant (checked at sign-in
+    // and restore), and a Ring step-up would swap it for a cookie session
+    // while its grant record stays stored. Refused here so every caller is
+    // covered even if a new grant path skips those checks.
+    if (AuthApplication.isGrantSession(useAuthStore.getState().session)) {
+      throw Err.auth(
+        AuthErrorCode.UNAUTHORIZED,
+        'Bitkit sign-in already includes every Shop permission. If this keeps asking, sign out and sign in with Bitkit again.',
+        { service: ErrorService.Local, operation: 'getStepUpAuthUrl' },
+      );
+    }
     if (!isSingleApprovalSignInEnabled()) {
       return this.wrapAuthFlow(() => AuthApplication.generateAuthUrl(), { preserveLocalState: true });
     }
