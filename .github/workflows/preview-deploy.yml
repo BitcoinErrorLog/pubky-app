@@ -29,6 +29,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # pull_request_target reads this file from the default branch (pubchi/v1).
+  # release/shop-v0.6.8 no longer contains preview-deploy.yml (#97), but every
+  # merged pull request still runs Cleanup Preview from here. google-github-actions/auth
+  # fails the job when CLOUD_RUN_SA_KEY is unset. Skip deploy and cleanup
+  # unless that credential exists; do not call the auth action without it.
+  gcp-credentials:
+    name: GCP credentials
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - name: Detect Cloud Run credentials
+        id: check
+        env:
+          CLOUD_RUN_SA_KEY: ${{ secrets.CLOUD_RUN_SA_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CLOUD_RUN_SA_KEY}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "CLOUD_RUN_SA_KEY is set. Preview deploy and cleanup may run."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "CLOUD_RUN_SA_KEY is unset. Preview deploy and cleanup will not run."
+          fi
+
   set-vars:
     name: Set Variables
     if: |
@@ -62,7 +87,8 @@ jobs:
 
   build-preview:
     name: Build Preview Image
-    needs: [set-vars]
+    needs: [set-vars, gcp-credentials]
+    if: needs.gcp-credentials.outputs.ready == 'true'
     uses: ./.github/workflows/build-docker-image.yml
     with:
       platforms: ${{ needs.set-vars.outputs.platforms }}
@@ -72,7 +98,8 @@ jobs:
 
   deploy-preview:
     name: Deploy Preview
-    needs: [set-vars, build-preview]
+    needs: [set-vars, build-preview, gcp-credentials]
+    if: needs.build-preview.result == 'success' && needs.gcp-credentials.outputs.ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -127,9 +154,11 @@ jobs:
 
   cleanup-preview:
     name: Cleanup Preview
+    needs: [gcp-credentials]
     if: |
-      (github.event_name == 'pull_request_target' && github.event.action == 'closed') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'cleanup')
+      needs.gcp-credentials.outputs.ready == 'true' &&
+      ((github.event_name == 'pull_request_target' && github.event.action == 'closed') ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'cleanup'))
     runs-on: ubuntu-latest
     steps:
       - name: Set variables
