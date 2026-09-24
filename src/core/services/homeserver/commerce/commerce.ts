@@ -20,6 +20,10 @@ export class CommerceHomeserverService {
     await HomeserverService.request({ method: HttpMethod.DELETE, url });
   }
 
+  static async list(directoryUrl: string, limit: number): Promise<string[]> {
+    return await HomeserverService.list({ baseDirectory: directoryUrl, limit });
+  }
+
   static async exists(url: string): Promise<boolean> {
     return await HomeserverService.exists(url);
   }

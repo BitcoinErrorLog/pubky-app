@@ -26,5 +26,8 @@ export function createMarketplaceVrtCommerceController() {
     getWatchAlerts: async () => [],
     getActivityReadCheckpoint: async () => 0,
     getMarketplaceNotifications: async () => [],
+    getMarketplaceOrders: async () => [],
+    getMarketplaceOffers: async () => [],
+    syncAttentionSeen: async () => {},
   };
 }

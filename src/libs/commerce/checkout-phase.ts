@@ -102,6 +102,14 @@ export function isSellerPaidOrder(
   );
 }
 
+/** State pill for an order an Activity link opens but no Orders section lists (a seller's unpaid cancel). */
+export function unlistedOrderStateLabel(order: { state: string; receiptId?: string | null }): string {
+  if (order.state === 'cancelled' && !hasReceipt(order)) return 'Cancelled before payment';
+  if (isPendingPaymentState(order.state)) return 'Awaiting payment';
+  const label = order.state.replaceAll('_', ' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function isBuyerCheckoutInProgress(
   order: { state: string; buyerPubky: string },
   buyerPubky: string | null,

@@ -1,6 +1,7 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
+import { CommerceAttentionSeenApplication } from '@/application/commerce/attention-seen';
 import { CommerceInventoryApplication } from '@/application/commerce/inventory';
 import { TagKind } from '@/application/tag/tag.types';
 import {
@@ -1693,7 +1694,15 @@ export class CommerceApplication {
   }
 
   static async markActivityRead(ownerPubky: string): Promise<void> {
-    await LocalCommerceService.markActivityRead(ownerPubky, Date.now());
+    await CommerceAttentionSeenApplication.markSeen(ownerPubky, 'activity');
+  }
+
+  static async markOrdersAttentionSeen(ownerPubky: string): Promise<void> {
+    await CommerceAttentionSeenApplication.markSeen(ownerPubky, 'orders');
+  }
+
+  static async syncAttentionSeen(ownerPubky: string): Promise<void> {
+    await CommerceAttentionSeenApplication.pull(ownerPubky);
   }
 
   /**

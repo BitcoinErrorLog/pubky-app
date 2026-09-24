@@ -1315,9 +1315,9 @@ export class CommerceController {
   }
 
   /**
-   * The signed-in user's device-local activity read checkpoint (ms epoch;
-   * `0` when signed out or never visited). Service notifications created
-   * after it count as new on the marketplace Activity badge.
+   * This browser's copy of the signed-in account's activity checkpoint (ms
+   * epoch; `0` when signed out or never visited). Service notifications
+   * created after it can count on the marketplace Activity badge.
    */
   static async getActivityReadCheckpoint(): Promise<number> {
     if (!useAuthStore.getState().currentUserPubky) return 0;
@@ -1325,14 +1325,25 @@ export class CommerceController {
   }
 
   /**
-   * Advances the signed-in user's device-local activity read checkpoint to
-   * now. Deliberately NOT service-side read state — the durable service has
-   * none — it only records that THIS device showed an activity surface, the
-   * same doctrine as the Messages read checkpoint.
+   * Advances the signed-in account's activity checkpoint to now, in this
+   * browser and in the account's private homeserver document. Not service
+   * read state — the durable service has none.
    */
   static async markActivityRead(): Promise<void> {
     if (!useAuthStore.getState().currentUserPubky) return;
     await CommerceApplication.markActivityRead(this.getCurrentUserPubky());
+  }
+
+  /** Advances the signed-in account's Orders checkpoint to now, here and on the homeserver. */
+  static async markOrdersAttentionSeen(): Promise<void> {
+    if (!useAuthStore.getState().currentUserPubky) return;
+    await CommerceApplication.markOrdersAttentionSeen(this.getCurrentUserPubky());
+  }
+
+  /** Raises this browser's badge checkpoints to the ones the account saved from any browser. */
+  static async syncAttentionSeen(): Promise<void> {
+    if (!useAuthStore.getState().currentUserPubky) return;
+    await CommerceApplication.syncAttentionSeen(this.getCurrentUserPubky());
   }
 
   static async getSavedSearches() {

@@ -1,9 +1,15 @@
 'use client';
 
-import { useMarketplaceActivityUnread } from '@/hooks/useMarketplaceActivityUnread/useMarketplaceActivityUnread';
-import { useMarketplaceOrdersAttention } from '@/hooks/useMarketplaceOrdersAttention/useMarketplaceOrdersAttention';
+import { useMarketplaceActivityAttentionKeys } from '@/hooks/useMarketplaceActivityAttentionKeys/useMarketplaceActivityAttentionKeys';
+import { useMarketplaceOrdersAttentionKeys } from '@/hooks/useMarketplaceOrdersAttentionKeys/useMarketplaceOrdersAttentionKeys';
 
-/** Unread action on Activity plus orders that still need this identity. */
+/**
+ * Things that need this identity across Activity and Orders. An order that
+ * badges both tabs (its return row on Activity, the order itself on Orders)
+ * counts once.
+ */
 export function useMarketplaceNavAttention(): number {
-  return useMarketplaceActivityUnread() + useMarketplaceOrdersAttention();
+  const activity = useMarketplaceActivityAttentionKeys();
+  const orders = useMarketplaceOrdersAttentionKeys();
+  return new Set([...activity, ...orders]).size;
 }

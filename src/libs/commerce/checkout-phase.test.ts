@@ -17,12 +17,21 @@ import {
   reservedWhileYouPayCopy,
   resolveCreatedCheckoutOrderIds,
   sellerReservationCopy,
+  unlistedOrderStateLabel,
 } from './checkout-phase';
 
 const BUYER = 'b'.repeat(52);
 const SELLER = 's'.repeat(52);
 
 describe('checkout-phase', () => {
+  it('names the state of an order no Orders section lists', () => {
+    expect(unlistedOrderStateLabel({ state: 'cancelled', receiptId: null })).toBe('Cancelled before payment');
+    expect(unlistedOrderStateLabel({ state: 'cancelled' })).toBe('Cancelled before payment');
+    expect(unlistedOrderStateLabel({ state: 'cancelled', receiptId: 'receipt-1' })).toBe('Cancelled');
+    expect(unlistedOrderStateLabel({ state: 'pending_payment' })).toBe('Awaiting payment');
+    expect(unlistedOrderStateLabel({ state: 'return_requested' })).toBe('Return requested');
+  });
+
   it('builds the checkout route without minting a second id', () => {
     expect(getMarketplaceCheckoutRoute()).toBe(MARKETPLACE_ROUTES.CHECKOUT);
     expect(getMarketplaceCheckoutRoute('018f47d2-6a27-7c23-a49d-000000000001')).toBe(

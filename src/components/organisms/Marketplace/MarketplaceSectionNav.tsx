@@ -93,7 +93,7 @@ export function MarketplaceSectionNav({
                   ? ordersAttentionCount
                   : 0;
           const badgeNoun =
-            badge === 'cart' ? 'cart items' : badge === 'orders' ? 'orders needing you' : 'unread activity';
+            badge === 'cart' ? 'cart items' : badge === 'orders' ? 'orders needing you' : 'activity needing you';
           return (
             <Link
               key={label}
