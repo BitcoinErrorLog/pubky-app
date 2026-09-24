@@ -32,6 +32,7 @@ const getCliFlow = vi.fn();
 const acquireCliClaim = vi.fn();
 const completeCliClaim = vi.fn();
 const abandonCliClaim = vi.fn();
+const abandonLapsedCliClaim = vi.fn();
 const renewCliClaim = vi.fn();
 const assertCliGrantSchema = vi.fn();
 const fetchHomeserverProofDocument = vi.fn();
@@ -56,6 +57,7 @@ vi.mock('./db', async (importOriginal) => {
     acquireCliClaim: (...args: unknown[]) => acquireCliClaim(...args),
     completeCliClaim: (...args: unknown[]) => completeCliClaim(...args),
     abandonCliClaim: (...args: unknown[]) => abandonCliClaim(...args),
+    abandonLapsedCliClaim: (...args: unknown[]) => abandonLapsedCliClaim(...args),
     renewCliClaim: (...args: unknown[]) => renewCliClaim(...args),
   };
 });
@@ -767,6 +769,156 @@ describe('browser purchase bootstrap BFF', () => {
     );
     expect(terminalizeCliFlow).toHaveBeenCalledWith(expect.anything(), stateId, 'mismatch');
     expect(completeCliClaim).not.toHaveBeenCalled();
+  });
+
+  it('a claim whose lease lapsed ends the flow and asks for a fresh approval', async () => {
+    const config = await browserConfig();
+    const { bound, row, stateId } = browserFlowRow(config, { status: 'claiming' });
+    getCliFlow.mockResolvedValue({ ...row, lease_owner: randomUUID(), lease_until: new Date(Date.now() - 1_000) });
+    abandonLapsedCliClaim.mockResolvedValue(true);
+    const { pollBrowserFlow } = await import('./browser-bff');
+
+    await expect(pollBrowserFlow(flowRequest(stateId), bound.value, stateId)).rejects.toEqual(
+      new BffError(422, 'fresh_approval_required'),
+    );
+    expect(abandonLapsedCliClaim).toHaveBeenCalledWith(expect.anything(), stateId);
+    expect(getGrantStatus).not.toHaveBeenCalled();
+  });
+
+  it('a claim with a live lease stays in progress', async () => {
+    const config = await browserConfig();
+    const { bound, row, stateId } = browserFlowRow(config, { status: 'claiming' });
+    getCliFlow.mockResolvedValue({ ...row, lease_owner: randomUUID(), lease_until: new Date(Date.now() + 30_000) });
+    abandonLapsedCliClaim.mockResolvedValue(false);
+    const { pollBrowserFlow } = await import('./browser-bff');
+
+    await expect(pollBrowserFlow(flowRequest(stateId), bound.value, stateId)).rejects.toEqual(
+      new BffError(409, 'claim_in_progress'),
+    );
+  });
+
+  it('cancel ends the flow even when its context cannot be opened', async () => {
+    const config = await browserConfig();
+    const stateId = randomUUID();
+    const bound = makeBoundCookie(stateId);
+    const cliContext = sealCliFlowContext(config, stateId, pubky, {
+      resultDeliveryId: encodeBase64Url(new Uint8Array(32).fill(4)),
+      version: 1,
+    });
+    const { row } = browserFlowRow(config, {
+      tokenHash: hashBoundCookie(config, 1, 'flow', stateId, bound.secret),
+      contextSealed: cliContext,
+    });
+    getCliFlow.mockResolvedValue({ ...row, state_id: stateId });
+    const { cancelBrowserFlow } = await import('./browser-bff');
+
+    await expect(
+      cancelBrowserFlow(
+        jsonRequest(`${ORIGIN}/api/marketplace/bootstrap-flows/${stateId}/cancel`, {}),
+        bound.value,
+        stateId,
+      ),
+    ).rejects.toEqual(new BffError(403, 'result_denied'));
+    expect(terminalizeCliFlow).toHaveBeenCalledWith(expect.anything(), stateId, 'cancelled');
+    expect(cancelGrant).not.toHaveBeenCalled();
+  });
+
+  it('a flow whose key epoch rotated out can be neither cancelled nor claimed', async () => {
+    const epoch1 = await browserConfig();
+    const { bound, row, stateId } = browserFlowRow(epoch1);
+    rotateTo(3, STATE_KEY_3, { epoch: 2, key: STATE_KEY_2 });
+    getCliFlow.mockResolvedValue(row);
+    acquireCliClaim.mockResolvedValue(row);
+    completeServiceFlow(row.flow_id);
+    const { cancelBrowserFlow, pollBrowserFlow } = await import('./browser-bff');
+    const freshApproval = new BffError(422, 'fresh_approval_required');
+
+    await expect(
+      cancelBrowserFlow(
+        jsonRequest(`${ORIGIN}/api/marketplace/bootstrap-flows/${stateId}/cancel`, {}),
+        bound.value,
+        stateId,
+      ),
+    ).rejects.toEqual(freshApproval);
+    await expect(pollBrowserFlow(flowRequest(stateId), bound.value, stateId)).rejects.toEqual(freshApproval);
+    expect(acquireCliClaim).not.toHaveBeenCalled();
+    expect(claimGrantResult).not.toHaveBeenCalled();
+  });
+
+  it('cancel ends the flow locally and cancels it at the service', async () => {
+    const config = await browserConfig();
+    const { bound, derived, row, stateId } = browserFlowRow(config);
+    getCliFlow.mockResolvedValue(row);
+    cancelGrant.mockResolvedValue(undefined);
+    const { cancelBrowserFlow } = await import('./browser-bff');
+
+    await cancelBrowserFlow(
+      jsonRequest(`${ORIGIN}/api/marketplace/bootstrap-flows/${stateId}/cancel`, {}),
+      bound.value,
+      stateId,
+    );
+
+    expect(terminalizeCliFlow).toHaveBeenCalledWith(expect.anything(), stateId, 'cancelled');
+    expect(cancelGrant).toHaveBeenCalledWith(expect.anything(), row.flow_id, encodeBase64Url(derived.resultDeliveryId));
+  });
+
+  function countingRateLimit(): void {
+    const buckets = new Map<string, number>();
+    consumeCliRateLimit.mockImplementation(async (_config: unknown, key: string, limit: number) => {
+      const count = (buckets.get(key) ?? 0) + 1;
+      buckets.set(key, count);
+      return count <= limit;
+    });
+  }
+
+  it("challenges a NAT peer creates for someone's pubky never lock the owner out", async () => {
+    storeInsertedChallenges();
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createBrowserChallenge } = await import('./browser-bff');
+    countingRateLimit();
+    const natExit = { 'x-vercel-forwarded-for': '203.0.113.66' };
+
+    // Five was the old per-pubky allowance; the peer spends it naming the owner's pubky.
+    for (let i = 0; i < 5; i += 1) await createBrowserChallenge(challengeRequest({ pubky }, natExit));
+
+    await expect(createBrowserChallenge(challengeRequest({ pubky }, natExit))).resolves.toMatchObject({
+      proof_uri: expect.stringContaining(pubky),
+    });
+  });
+
+  it('rotating a client-written forwarded-for hop does not escape the per-IP bucket', async () => {
+    storeInsertedChallenges();
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createBrowserChallenge } = await import('./browser-bff');
+    countingRateLimit();
+    const config = await browserConfig();
+    const spoofed = (i: number) =>
+      challengeRequest({ pubky }, { 'x-vercel-forwarded-for': `10.0.${i}.1, 203.0.113.66` });
+
+    for (let i = 0; i < config.createPerIpPerMinute; i += 1) await createBrowserChallenge(spoofed(i));
+
+    await expect(createBrowserChallenge(spoofed(999))).rejects.toEqual(new BffError(429, 'retry_later', 60));
+  });
+
+  it('the per-IP bucket is shared behind one NAT (accepted limit of unauthenticated creation)', async () => {
+    storeInsertedChallenges();
+    process.env.VERCEL = '1';
+    resetMarketplaceGrantConfigForTests();
+    const { createBrowserChallenge } = await import('./browser-bff');
+    countingRateLimit();
+    const config = await browserConfig();
+    const from = (ip: string, who = pubky) => challengeRequest({ pubky: who }, { 'x-vercel-forwarded-for': ip });
+
+    for (let i = 0; i < config.createPerIpPerMinute; i += 1) await createBrowserChallenge(from('203.0.113.66'));
+
+    await expect(createBrowserChallenge(from('203.0.113.66', otherPubky))).rejects.toEqual(
+      new BffError(429, 'retry_later', 60),
+    );
+    await expect(createBrowserChallenge(from('198.51.100.7', otherPubky))).resolves.toMatchObject({
+      proof_uri: expect.any(String),
+    });
   });
 
   // A9

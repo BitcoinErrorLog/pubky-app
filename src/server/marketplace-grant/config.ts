@@ -76,7 +76,6 @@ export type MarketplaceGrantConfig = z.infer<typeof configSchema>;
 const cliExtrasSchema = z.object({
   challengeTtlSeconds: z.coerce.number().int().min(30).max(120).default(60),
   createPerIpPerMinute: z.coerce.number().int().min(1).default(10),
-  createPerPubkyPerMinute: z.coerce.number().int().min(1).default(5),
   verifyPerIpPerMinute: z.coerce.number().int().min(1).default(10),
   statusPerTokenPerMinute: z.coerce.number().int().min(1).default(60),
   resultPerTokenPerMinute: z.coerce.number().int().min(1).default(30),
@@ -94,7 +93,6 @@ function cliExtrasFromEnv(): z.infer<typeof cliExtrasSchema> {
   return cliExtrasSchema.parse({
     challengeTtlSeconds: process.env.SHOP_BFF_CLI_GRANT_CHALLENGE_TTL_SECONDS,
     createPerIpPerMinute: process.env.SHOP_BFF_CLI_GRANT_CREATE_PER_IP_PER_MINUTE,
-    createPerPubkyPerMinute: process.env.SHOP_BFF_CLI_GRANT_CREATE_PER_PUBKY_PER_MINUTE,
     verifyPerIpPerMinute: process.env.SHOP_BFF_CLI_GRANT_VERIFY_PER_IP_PER_MINUTE,
     statusPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_STATUS_PER_TOKEN_PER_MINUTE,
     resultPerTokenPerMinute: process.env.SHOP_BFF_CLI_GRANT_RESULT_PER_TOKEN_PER_MINUTE,

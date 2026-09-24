@@ -1465,9 +1465,16 @@ export class CommerceApplication {
     }
   }
 
-  /** 403 (scope refused) or 401 (session rejected) on the private document. */
+  /**
+   * 403 (scope refused) or 401 (session rejected) on the private document,
+   * for a session that a step-up approval can widen. A grant session already
+   * holds the full Shop grant (enforced at sign-in and restore), so a refusal
+   * means its grant is no longer honored (revoked or expired), which no
+   * step-up QR can fix: the round fails and retries on the next load.
+   */
   private static isPrivateAccessDenied(error: unknown): boolean {
-    return hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED);
+    const denied = hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED);
+    return denied && !HomeserverService.isCurrentSessionGrant();
   }
 
   // ---------------------------------------------------------------------

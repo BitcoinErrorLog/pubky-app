@@ -2,6 +2,7 @@ import type { AuthToken, Session } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthApplication } from '@/application/auth/auth';
 import { BootstrapApplication } from '@/application/bootstrap/bootstrap';
+import { CAPABILITIES } from '@/config/app';
 import { clearDatabase } from '@/database/franky/franky.helpers';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -583,7 +584,7 @@ describe('AuthController single-approval ceremony', () => {
 
 describe('AuthController Ring and Bitkit QRs side by side', () => {
   const grantSession = asOpaque<Session>({
-    info: { publicKey: { z32: () => 'test-pubky' } },
+    info: { publicKey: { z32: () => 'test-pubky' }, capabilities: CAPABILITIES.split(',') },
     grant: {},
   });
 

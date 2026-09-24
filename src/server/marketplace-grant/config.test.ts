@@ -91,7 +91,6 @@ describe('marketplace grant BFF config', () => {
     expect(getCliGrantConfig()).toMatchObject({
       challengeTtlSeconds: 60,
       createPerIpPerMinute: 10,
-      createPerPubkyPerMinute: 5,
       verifyPerIpPerMinute: 10,
       statusPerTokenPerMinute: 60,
       resultPerTokenPerMinute: 30,

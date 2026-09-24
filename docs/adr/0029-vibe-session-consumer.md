@@ -34,7 +34,7 @@ Both are read as literal `process.env.NEXT_PUBLIC_*` so Next inlines them. They 
 
 1. If a persisted `sessionExport` exists, restore it with the existing retry loop (`HomeserverService.restoreSession` + homeserver environment check).
 2. If there is **no** persist, or persist fails with a **definitive auth** error (`AppError` auth category except wrong-environment, or `isPubkyExpiredError`), and consumer mode is on: obtain an export via **fragment → bridge**, then run the same `restoreSession` path.
-3. Fragment `#s=` is consumed on the first client pass (`instrumentation-client.ts` via `consumeFragmentSessionExport`) and taken once by restore (`takeFragmentSessionExport`). The hash is stripped with `history.replaceState` even when consumer mode is off.
+3. Fragment `#s=` is consumed on the first client pass (`instrumentation-client.ts` via `consumeFragmentSessionExport`) and taken once by restore (`takeFragmentSessionExport`). The hash is stripped with `history.replaceState` even when consumer mode is off. A fragment export that restores is **not applied until the user confirms it**: the Controller's `confirmSessionHandoff` opens `DialogSessionHandoff`, which names the pubky the link would sign the tab in as. Only Continue applies it. Not me, Escape, or a logout declines it; a declined hand-off also suppresses the bridge leg for the tab, so the refused identity is not applied silently by another route. Application declines every hand-off when no confirmer is passed.
 4. Bridge: hidden iframe to `${bridgeOrigin}/session-bridge`, `sandbox="allow-scripts allow-same-origin"`. After `load`, post `{ type: 'pubky-session-request', v: 1 }` to `bridgeOrigin`. Accept a reply only if `event.origin === bridgeOrigin && event.source === iframe.contentWindow && data.v === 1`. Load timeout 15 s; reply timeout 3 s from load; one request per load; `AbortSignal`; cleanup of listener / iframe / timers on every path; late messages ignored.
 
 ### Contract
@@ -75,6 +75,7 @@ RouteGuard and auth-store rehydrate both call `shouldAttemptSessionRestore` (`sr
 - The homeserver **HttpOnly cookie** binds identity. The consumer never reads or copies that cookie.
 - Accept `postMessage` only from `bridgeOrigin` and the iframe `contentWindow`. Never `'*'`.
 - Strip `#s=` before any auth-dependent routing or network.
+- A `#s=` hand-off needs the user's confirmation of the named pubky. Any page can link to the Shop with `#s=<export>` for a session whose cookie this browser holds, including one a third party may have planted through a cross-site sign-in, and nothing binds the link to this device: the board opens the Shop without a Shop-issued state or nonce to echo. Binding the hand-off to a same-device nonce needs the board to carry that nonce; until it does, the prompt is the control.
 - The iframe sandbox allows scripts and same-origin so the bridge page keeps the pubky-app origin; it cannot navigate the parent.
 
 ## Consequences

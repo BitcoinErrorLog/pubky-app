@@ -68,6 +68,12 @@ export function RouteGuardProvider({ children }: RouteGuardProviderProps) {
   // Another tab signed out: a grant session held in this tab lets go too.
   useEffect(() => AuthController.subscribeCrossTabSignOut(), []);
 
+  // Grant keys a failed save left behind are removed on the next load.
+  useEffect(() => {
+    if (!hasHydrated) return;
+    void AuthController.settlePendingGrantKeyCleanup();
+  }, [hasHydrated]);
+
   // Attempt to restore an existing session snapshot on fresh loads.
   useEffect(() => {
     if (!hasHydrated) return;

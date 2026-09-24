@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
   const mockToast = vi.fn();
   const mockSetShowSignInDialog = vi.fn();
   const restorePersistedSession = vi.fn().mockResolvedValue(true);
+  const settlePendingGrantKeyCleanup = vi.fn().mockResolvedValue(true);
 
   return {
     subscribeCrossTabSignOut,
@@ -30,6 +31,7 @@ const mocks = vi.hoisted(() => {
     mockToast,
     mockSetShowSignInDialog,
     restorePersistedSession,
+    settlePendingGrantKeyCleanup,
     consumerEnabled: false,
     autoRestoreSuppressed: false,
     // Auth store state defaults
@@ -154,6 +156,7 @@ vi.mock('@/controllers/auth/auth', () => ({
   AuthController: {
     restorePersistedSession: mocks.restorePersistedSession,
     subscribeCrossTabSignOut: mocks.subscribeCrossTabSignOut,
+    settlePendingGrantKeyCleanup: mocks.settlePendingGrantKeyCleanup,
   },
 }));
 vi.mock('@/controllers/migration/migration', () => ({
@@ -192,6 +195,28 @@ describe('RouteGuardProvider — migration resync', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('retries a pending grant-key cleanup once the auth store has hydrated', async () => {
+    mocks.hasHydrated = false;
+    const { rerender } = render(
+      <RouteGuardProvider>
+        <div>Protected Content</div>
+      </RouteGuardProvider>,
+    );
+    expect(mocks.settlePendingGrantKeyCleanup).not.toHaveBeenCalled();
+
+    mocks.hasHydrated = true;
+    rerender(
+      <RouteGuardProvider>
+        <div>Protected Content</div>
+      </RouteGuardProvider>,
+    );
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(mocks.settlePendingGrantKeyCleanup).toHaveBeenCalledTimes(1);
   });
 
   it('calls MigrationController.resync when wasDbReset is true and user is authenticated', async () => {

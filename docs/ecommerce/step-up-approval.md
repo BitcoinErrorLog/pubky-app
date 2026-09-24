@@ -103,6 +103,14 @@ Approvals per payment method and feature under Option C:
 - Manual, blocks launch: test what Pubky Ring displays for an empty-capabilities pubkyauth request (`caps=''`); if it does not visibly distinguish empty from wide, file a Ring issue before launch (the QR/phish-swap row's "low-value empty-caps prompt" reasoning depends on this).
 - marketplace-service: `create_session` accepts an empty-capabilities token; posting identical bytes twice returns 401 on the second call (integration-level replay test — current `auth.rs:269–374` tests cover verification, not the single-use INSERT path).
 
+## Grant (Bitkit) sessions need no step-up
+
+A Bitkit sign-in (`pubkyauth://signin_grant`) requests exactly `CAPABILITIES`, and the Shop refuses anything else: `AuthApplication.assertFullGrantSession` signs out and rejects an approved grant session whose `info.capabilities` do not match `capabilitiesMatchFullGrant`, and a stored grant session that restores narrower is signed out and its record removed. Every live grant session therefore already holds `/priv/pubky.app/:rw`, so `canCurrentSessionWrite(PRIVATE_APP_DATA_PATH)` is true and the capability-based `needs_reauth` state cannot occur for it.
+
+The other `needs_reauth` trigger is a 401/403 on the private document. For a grant session with the full grant, that refusal means the grant itself is no longer honored (revoked in Bitkit, or expired). A step-up approval widens scope; it cannot repair a refused grant. `CommerceApplication.isPrivateAccessDenied` therefore does not report `needs_reauth` for a grant session: watchlist sync reports `error` (the outbox job stays pending) and receipt publication reports `unavailable`, both retried on the next load.
+
+`MarketplaceReauthDialog` renders only in the `needs_reauth` state, so it never opens for a grant session. A delegated-grant step-up QR (contract row R3.9a) is not built: no state reaches it. `AuthController.getStepUpAuthUrl` still refuses a grant session before any Ring flow starts, so a future grant path that skips the full-grant checks gets an error in the dialog, not a Ring step-up that would replace the grant session with a cookie session while its grant record stays stored.
+
 ## Verification that differed from the brief
 
 1. **`signinWithAuthToken` does not exist.** `pubky.d.ts` has no AuthToken→Session API (only `AuthFlow.awaitApproval` line 188, `awaitToken` line 198, `Pubky.restoreSession` line 831, `Signer.signin` line 1294). Option A's "same bytes sign in to the homeserver" requires re-implementing protocol internals, not an SDK call.

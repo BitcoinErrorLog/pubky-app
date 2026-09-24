@@ -60,7 +60,6 @@ exports[`SignInContent - Snapshots > matches snapshot for the QR sign-in layout 
         >
           <span
             class="contents"
-            data-auth-url="mock-auth-url"
             data-testid="qr-auth-url"
           >
             <img
