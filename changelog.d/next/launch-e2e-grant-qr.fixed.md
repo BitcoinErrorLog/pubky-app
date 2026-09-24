@@ -1,0 +1,1 @@
+The seller-board canary approves the inventory grant from the dialog that stays open, then waits until the inventory session is stored and the board is ready or empty. A push to the release branch still skips launch-e2e; that skipped job is a successful required-check status and does not leave the check pending.

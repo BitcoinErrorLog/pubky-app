@@ -77,7 +77,12 @@ export function MarketplaceInventoryGrantDialog({
             {grant.errorMessage}
           </div>
         ) : (
-          <div className="grid justify-items-center gap-4">
+          <div
+            className="grid justify-items-center gap-4"
+            data-testid="inventory-grant-panel"
+            data-grant-status={grant.status}
+            data-auth-url={grant.authorizationUrl || undefined}
+          >
             <button
               type="button"
               className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"

@@ -167,6 +167,11 @@ jobs:
   launch-e2e:
     name: launch-e2e
     needs: build
+    # Shop pull requests only. A push has no base_ref, so this job is skipped
+    # there even when Check NextJS Build ran. A job skipped by `if` is a
+    # successful required-check status (success, skipped, or neutral): it does
+    # not stay Pending. Unrelated pull requests skip the build, and this job
+    # skips with it for the same reason.
     if: always() && needs.build.result == 'success' && github.event_name == 'pull_request' && startsWith(github.base_ref, 'release/shop-')
     runs-on: ubuntu-latest
     container:
