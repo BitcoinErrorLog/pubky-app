@@ -869,8 +869,8 @@ export class AuthController {
       })
       .then(async (session) => {
         if (this.authFlowGeneration !== generationAtStart) {
-          await AuthApplication.logout({ session }).catch((logoutError) => {
-            Logger.warn('Failed to sign out a Bitkit approval that lost to another sign-in', { logoutError });
+          await AuthApplication.logout({ session }).catch(() => {
+            Logger.warn('Failed to sign out a Bitkit approval that lost to another sign-in');
           });
           throw createCanceledError();
         }

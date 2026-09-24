@@ -398,7 +398,7 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
 
         // The account's homeserver storage does not allow Pubky App data
         if (isWritePathNotAllowedError(error)) {
-          Logger.error('Homeserver account does not allow saving the profile', error);
+          Logger.error('Homeserver account does not allow saving the profile', { code: error.code });
           setSubmitText(PROFILE_SUBMIT_TEXT.tryAgain);
           toast({
             variant: 'error',
