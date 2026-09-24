@@ -1,35 +1,38 @@
 name: VRT Update Baselines
-description: Regenerates visual regression test baselines on Linux and macOS.
+description: Regenerates named Linux VRT baselines in the pinned Playwright image.
 
 on:
   workflow_dispatch:
+    inputs:
+      files:
+        description: 'Space-separated VRT spec paths'
+        required: true
+        type: string
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   regenerate:
-    name: Regenerate (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ matrix.os == 'macos-latest' && 27 || 14 }}
-    concurrency:
-      group: vrt-update-baselines-regenerate-${{ github.ref }}-${{ matrix.os }}
-      cancel-in-progress: true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-
+    name: Regenerate Linux baselines
+    if: github.ref_name != 'master' && github.ref_name != 'main'
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.60.0-noble
+      options: --user 1001 --shm-size=2g
+    timeout-minutes: 25
     steps:
-      - name: Refuse master
-        if: github.ref_name == 'master'
+      - name: Refuse protected branches
+        if: github.ref_name == 'master' || github.ref_name == 'main'
         run: |
-          echo "Refusing to regenerate baselines on master. Run from dev or a feature branch." >&2
+          echo "Refusing to regenerate baselines on ${GITHUB_REF_NAME}." >&2
           exit 1
 
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,182 +43,51 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set Playwright browsers path
-        run: echo "PLAYWRIGHT_BROWSERS_PATH=${HOME}/.cache/ms-playwright" >> "$GITHUB_ENV"
-
-      - name: Restore Playwright browsers cache
-        uses: actions/cache/restore@v4
-        id: playwright-browsers-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: vrt-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            vrt-playwright-${{ runner.os }}-
-
-      - name: Install Playwright browsers
-        if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium firefox webkit
-
-      - name: Install Playwright system dependencies
-        if: steps.playwright-browsers-cache.outputs.cache-hit == 'true' && runner.os == 'Linux'
-        run: npx playwright install-deps chromium firefox webkit
-
-      - name: Regenerate VRT baselines
-        run: npm run test:vrt:regenerate-baseline
-
-      - name: Save Playwright browsers cache
-        if: always() && steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ steps.playwright-browsers-cache.outputs.cache-primary-key }}
-
-      - name: Stage platform baselines for upload
-        run: |
-          PLATFORM_SUFFIX="$([ "${{ runner.os }}" = "Linux" ] && echo linux || echo darwin)"
-          STAGING="${RUNNER_TEMP}/vrt-baselines-${PLATFORM_SUFFIX}"
-          rm -rf "$STAGING"
-          mkdir -p "$STAGING"
-          find src/test/vrt -name "*-${PLATFORM_SUFFIX}.png" | while IFS= read -r file; do
-            rel="${file#src/test/vrt/}"
-            dest="${STAGING}/${rel}"
-            mkdir -p "$(dirname "$dest")"
-            cp "$file" "$dest"
-          done
-
-      - name: Upload regenerated baselines
-        uses: actions/upload-artifact@v4
-        with:
-          name: vrt-baselines-${{ runner.os == 'Linux' && 'linux' || 'darwin' }}
-          path: ${{ runner.temp }}/vrt-baselines-${{ runner.os == 'Linux' && 'linux' || 'darwin' }}
-          if-no-files-found: error
-          retention-days: 1
-
-  commit:
-    name: Commit baselines
-    needs: regenerate
-    runs-on: ubuntu-latest
-    timeout-minutes: 6
-    concurrency:
-      group: vrt-update-baselines-${{ github.ref }}
-      cancel-in-progress: true
-
-    steps:
-      - name: Refuse master
-        if: github.ref_name == 'master'
-        run: |
-          echo "Refusing to commit baselines on master. Run from dev or a feature branch." >&2
-          exit 1
-
-      - name: Resolve target branch
-        id: target
-        run: |
-          SOURCE_REF="${{ github.ref_name }}"
-
-          if [ "$SOURCE_REF" = "dev" ]; then
-            echo "target_branch=vrt-update-baselines" >> "$GITHUB_OUTPUT"
-            echo "open_pr=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "target_branch=${SOURCE_REF}" >> "$GITHUB_OUTPUT"
-            echo "open_pr=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Prepare target branch
-        run: |
-          SOURCE_REF="${{ github.ref_name }}"
-          TARGET_BRANCH="${{ steps.target.outputs.target_branch }}"
-
-          git fetch origin "$SOURCE_REF"
-
-          if [ "$SOURCE_REF" = "dev" ]; then
-            git checkout -B "$TARGET_BRANCH" "origin/dev"
-          else
-            git checkout -B "$TARGET_BRANCH" "origin/${SOURCE_REF}"
-          fi
-
-      - name: Download Linux baselines
-        uses: actions/download-artifact@v4
-        with:
-          name: vrt-baselines-linux
-          path: ${{ runner.temp }}/vrt-baselines-linux
-
-      - name: Download macOS baselines
-        uses: actions/download-artifact@v4
-        with:
-          name: vrt-baselines-darwin
-          path: ${{ runner.temp }}/vrt-baselines-darwin
-
-      - name: Overlay baselines
-        run: |
-          rsync -a "${{ runner.temp }}/vrt-baselines-linux/" src/test/vrt/
-          rsync -a "${{ runner.temp }}/vrt-baselines-darwin/" src/test/vrt/
-
-      - name: Collect changed baseline files
-        id: changes
-        run: |
-          FILE_LIST="${RUNNER_TEMP}/vrt-baseline-files.txt"
-
-          find src/test/vrt -path '*/__screenshots__/*.png' -print0 | xargs -0 git add --
-          git diff --staged --name-only > "$FILE_LIST"
-
-          if [ ! -s "$FILE_LIST" ]; then
-            echo "No baseline changes to commit."
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          echo "file_list=${FILE_LIST}" >> "$GITHUB_OUTPUT"
-          echo "Changed baselines:"
-          cat "$FILE_LIST"
-
-      # The signed-commit action creates missing branches from the repo default
-      # branch (often master). Pre-create/reset from the correct base instead.
-      - name: Ensure remote target branch
-        if: steps.changes.outputs.has_changes == 'true'
-        run: |
-          SOURCE_REF="${{ github.ref_name }}"
-          TARGET_BRANCH="${{ steps.target.outputs.target_branch }}"
-
-          if [ "$SOURCE_REF" = "dev" ]; then
-            git push --force origin "refs/remotes/origin/dev:refs/heads/${TARGET_BRANCH}"
-          else
-            git rev-parse --verify "origin/${TARGET_BRANCH}"
-          fi
-
-      - name: Commit and push signed baselines
-        if: steps.changes.outputs.has_changes == 'true'
-        uses: magmanu/github-action-bot-signed-commit@fb2582c7c22a7183a95504156c4ac02bb734d6ed # v1.0.4
-        with:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_REF: ${{ steps.target.outputs.target_branch }}
-          FILE_LIST: ${{ steps.changes.outputs.file_list }}
-          SHOULD_CREATE_NEW_BRANCH: false
-          COMMIT_MESSAGE: 'test(vrt): regenerate baselines'
-
-      - name: Open pull request
-        if: steps.target.outputs.open_pr == 'true' && steps.changes.outputs.has_changes == 'true'
+      - name: Regenerate named specs
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FILES: ${{ inputs.files }}
+          VRT_BROWSERS: chromium,firefox
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+          CI: true
         run: |
-          if gh pr list --head vrt-update-baselines --base dev --state open --json number --jq '.[0].number' | grep -q .; then
-            echo "An open PR from vrt-update-baselines to dev already exists."
+          set -euo pipefail
+          if [ -z "${FILES// }" ]; then
+            echo "files input is empty" >&2
+            exit 1
+          fi
+          market=()
+          other=()
+          for spec in $FILES; do
+            case "$spec" in
+              src/test/vrt/marketplace/*) market+=("$spec") ;;
+              *) other+=("$spec") ;;
+            esac
+          done
+          if [ "${#market[@]}" -gt 0 ]; then
+            npx vitest run --project vrt-marketplace --update "${market[@]}"
+          fi
+          if [ "${#other[@]}" -gt 0 ]; then
+            npx vitest run --project vrt --update "${other[@]}"
+          fi
+          # shellcheck disable=SC2086
+          bash scripts/vrt-revert-outside.sh $FILES
+
+      - name: Commit Linux baselines
+        env:
+          FILES: ${{ inputs.files }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086
+          bash scripts/vrt-revert-outside.sh $FILES
+          find src/test/vrt -name '*-linux.png' -exec git add -- {} +
+          if git diff --cached --quiet; then
+            echo "No Linux baseline changes."
             exit 0
           fi
-
-          gh pr create \
-            --base dev \
-            --head vrt-update-baselines \
-            --title "test(vrt): regenerate baselines" \
-            --body "$(cat <<'EOF'
-          Regenerated VRT baseline screenshots via the VRT Update Baselines workflow.
-
-          Review the image diffs carefully before merging.
-          EOF
-          )"
+          echo "Linux baselines:"
+          git diff --cached --name-only
+          git diff --cached --name-only | grep -v -- '-linux.png$' && exit 1 || true
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          HUSKY=0 git commit -m "test(vrt): regenerate Linux baselines"
+          git push
