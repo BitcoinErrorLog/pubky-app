@@ -19,7 +19,7 @@ import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetecti
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { activityRowHref } from '@/libs/commerce/activity-links';
 import { formatCommerceMoney } from '@/libs/commerce/format';
-import { partialRefundLabel } from '@/libs/commerce/partial-refund';
+import { refundActivityTitle } from '@/libs/commerce/refund-copy';
 import { returnActivityTitles } from '@/libs/commerce/return-activity-titles';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -80,7 +80,7 @@ export function MarketplaceNotifications() {
       const orderId = notification.aggregateId.startsWith('order:')
         ? notification.aggregateId.slice('order:'.length)
         : '';
-      const label = partialRefundLabel(ordersById.get(orderId));
+      const label = refundActivityTitle(ordersById.get(orderId));
       if (label) refundTitles.set(notification.id, label);
     }
   }

@@ -13,6 +13,7 @@ const ordersView = vi.hoisted(() => ({
       state?: string;
       total?: { amountMinor: number; currency: string; exponent: number };
       externalRefund?: { amountMinor: number } | null;
+      paymentReversedAt?: string | null;
       returnRequest?: { reason?: string | null } | null;
     };
   }[],
@@ -286,10 +287,58 @@ describe('MarketplaceNotifications', () => {
 
     render(<MarketplaceNotifications />);
 
-    expect(screen.getByRole('link', { name: 'External refund recorded' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Refund recorded' })).toHaveAttribute(
       'href',
       `/marketplace/orders#order-${orderId}`,
     );
+  });
+
+  it('names a PayPal reversal and a restored disputed payment without an integrity banner', () => {
+    const orderId = '018f47d2-6a27-7c23-a62f-000000000003';
+    ordersView.orders = [
+      {
+        order: {
+          id: orderId,
+          state: 'refunded_external',
+          total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+          externalRefund: { amountMinor: 250 },
+          paymentReversedAt: '2026-09-24T18:00:00.000Z',
+        },
+      },
+    ];
+    marketplaceView.notifications = [
+      {
+        id: '00000000-0000-4000-8000-000000000945',
+        recipientPubky: 'y'.repeat(52),
+        actorPubky: 'paypal-ipn',
+        type: 'refund_recorded',
+        aggregateId: `order:${orderId}`,
+        createdAt: '2026-09-24T18:00:00.000Z',
+        readAt: null,
+      },
+      {
+        id: '00000000-0000-4000-8000-000000000946',
+        recipientPubky: 'y'.repeat(52),
+        actorPubky: 'paypal-ipn',
+        type: 'payment_reversal_cancelled',
+        aggregateId: `order:${orderId}`,
+        createdAt: '2026-09-24T19:00:00.000Z',
+        readAt: null,
+      },
+    ];
+
+    render(<MarketplaceNotifications />);
+
+    expect(screen.getByRole('link', { name: 'Payment reversed in PayPal' })).toHaveAttribute(
+      'href',
+      `/marketplace/orders#order-${orderId}`,
+    );
+    expect(screen.getByRole('link', { name: 'Disputed payment restored' })).toHaveAttribute(
+      'href',
+      `/marketplace/orders#order-${orderId}`,
+    );
+    expect(screen.queryByText(/history may be incomplete/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Unrecognized marketplace event')).not.toBeInTheDocument();
   });
 
   it('still links a known event whose row failed schema checks', () => {
