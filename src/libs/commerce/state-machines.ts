@@ -82,29 +82,47 @@ export const paymentTransitions = {
  * withdrawal) move `paid`/`ready_for_pickup` straight to `cancelled` through
  * `order.cancel_request`, which also gains the ordinary `ready_for_pickup ->
  * cancel_requested` edge. Shipped orders behave exactly as before.
+ *
+ * `paypal_refund` is the service's server trigger for a verified PayPal refund
+ * or reversal whose recorded refunds reach the order total: every state holding
+ * a confirmed payment (including an open cancel or return request) reaches
+ * `refunded_external`. `paypal_reversal_cancelled` returns the order to the
+ * state a reversal replaced when PayPal cancels that reversal. No client
+ * command drives these edges; a partial refund leaves the state unchanged.
  */
 export const orderTransitions = {
   pending_payment: ['paid', 'cancelled'],
-  paid: ['shipped', 'ready_for_pickup', 'delivered', 'cancel_requested', 'cancelled'],
-  ready_for_pickup: ['delivered', 'cancel_requested', 'cancelled'],
+  paid: ['shipped', 'ready_for_pickup', 'delivered', 'cancel_requested', 'cancelled', 'refunded_external'],
+  ready_for_pickup: ['delivered', 'cancel_requested', 'cancelled', 'refunded_external'],
   processing: ['shipped', 'cancel_requested'],
-  shipped: ['delivered'],
-  delivered: ['return_requested', 'completed'],
-  completed: ['return_requested'],
-  cancel_requested: ['cancelled'],
+  shipped: ['delivered', 'refunded_external'],
+  delivered: ['return_requested', 'completed', 'refunded_external'],
+  completed: ['return_requested', 'refunded_external'],
+  cancel_requested: ['cancelled', 'refunded_external'],
   cancelled: ['paid', 'refunded_external'],
-  return_requested: ['return_approved'],
-  return_approved: ['return_received'],
+  return_requested: ['return_approved', 'refunded_external'],
+  return_approved: ['return_received', 'refunded_external'],
   return_received: ['refunded_external'],
-  refunded_external: [],
+  refunded_external: [
+    'paid',
+    'ready_for_pickup',
+    'shipped',
+    'delivered',
+    'completed',
+    'cancel_requested',
+    'cancelled',
+    'return_requested',
+    'return_approved',
+    'return_received',
+  ],
   closed: [],
 } as const satisfies TransitionMap<OrderState>;
 
 export const returnTransitions = {
-  requested: ['approved'],
-  approved: ['received'],
+  requested: ['approved', 'refunded'],
+  approved: ['received', 'refunded'],
   received: ['refunded'],
-  refunded: [],
+  refunded: ['requested', 'approved', 'received'],
 } as const satisfies TransitionMap<ReturnState>;
 
 export const dropTransitions = {
