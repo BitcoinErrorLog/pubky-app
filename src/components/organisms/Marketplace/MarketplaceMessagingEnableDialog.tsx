@@ -9,7 +9,7 @@ import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceMessagingEnable } from '@/hooks/useMarketplaceMessagingEnable/useMarketplaceMessagingEnable';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { Logger } from '@/libs/logger/logger';
-import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
+import { GRANT_SESSION_REFUSAL_COPY, GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -72,7 +72,7 @@ export function MarketplaceMessagingEnablePanel({
       </Typography>
 
       {isGrantSession ? (
-        <GrantSessionRefusal />
+        <GrantSessionRefusal message={GRANT_SESSION_REFUSAL_COPY.messaging} />
       ) : enable.status === 'error' ? (
         <div className="grid gap-3">
           <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">

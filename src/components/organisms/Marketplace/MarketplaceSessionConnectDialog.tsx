@@ -12,6 +12,7 @@ import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-co
 import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { bootstrapApprovalCaption } from '@/services/marketplace/marketplace-bootstrap-client';
 
 /**
  * The in-app UX for establishing a marketplace transaction-service session
@@ -53,14 +54,16 @@ export function MarketplaceSessionConnectDialog({
     if (autoOpen) setOpen(true);
   }, [autoOpen]);
 
-  const isGrantSession = useIsGrantSession();
+  // A Bitkit (grant) sign-in has no AuthToken to redeem; it connects through
+  // the grant bootstrap, so it is refused only where that flow is off.
+  const refusesGrantSession = useIsGrantSession() && !grantFlowEnabled;
   useEffect(() => {
     if (open) {
-      if (!isGrantSession) start();
+      if (!refusesGrantSession) start();
       return;
     }
     cancel();
-  }, [open, start, cancel, isGrantSession]);
+  }, [open, start, cancel, refusesGrantSession]);
 
   const copyUrl = async () => {
     try {
@@ -77,6 +80,9 @@ export function MarketplaceSessionConnectDialog({
   // copy could describe a different approval than the QR requests.
   const requestsFullGrant = session.requestsFullGrant;
   const requestsGrantReconnect = session.requestsGrantReconnect;
+  const requestsGrantBootstrap = session.requestsGrantBootstrap;
+  const bootstrapCaption =
+    requestsGrantBootstrap && session.authorizationUrl ? bootstrapApprovalCaption(session.authorizationUrl) : null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -88,18 +94,26 @@ export function MarketplaceSessionConnectDialog({
       </DialogTrigger>
       <DialogContent className="border-border bg-popover">
         <DialogHeader>
-          <DialogTitle>{requestsGrantReconnect ? 'Approve purchases' : 'Approve purchases in Pubky Ring'}</DialogTitle>
+          <DialogTitle>
+            {requestsGrantBootstrap
+              ? 'Approve purchases in Bitkit'
+              : requestsGrantReconnect
+                ? 'Approve purchases'
+                : 'Approve purchases in Pubky Ring'}
+          </DialogTitle>
         </DialogHeader>
 
         <Typography as="p" className="text-sm text-muted-foreground">
-          {requestsGrantReconnect
-            ? 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
-            : requestsFullGrant && !grantFlowEnabled
-              ? 'Sign in to Pubky Shop.'
-              : 'Approve purchases for this device.'}
+          {requestsGrantBootstrap
+            ? 'Approve with Bitkit to connect purchases for the identity signed in to Shop. Nothing is charged until you pay.'
+            : requestsGrantReconnect
+              ? 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
+              : requestsFullGrant && !grantFlowEnabled
+                ? 'Sign in to Pubky Shop.'
+                : 'Approve purchases for this device.'}
         </Typography>
 
-        {isGrantSession ? (
+        {refusesGrantSession ? (
           <GrantSessionRefusal />
         ) : ['error', 'mismatch', 'expired', 'cancelled'].includes(session.status) ? (
           <div className="grid gap-3">
@@ -141,20 +155,33 @@ export function MarketplaceSessionConnectDialog({
                 generatingLabel="Generating QR Code..."
                 clickToReloadLabel="Click to reload"
                 activeQrHasHoverEffect
+                showRingLogo={!requestsGrantBootstrap}
               />
             </button>
+
+            {bootstrapCaption && (
+              <Typography
+                as="p"
+                data-testid="bootstrap-approval-caption"
+                className="max-w-xs text-center text-xs text-muted-foreground"
+              >
+                {bootstrapCaption}
+              </Typography>
+            )}
 
             {session.status === 'awaiting' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
                 <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
-                Waiting for approval on your signer…
+                {requestsGrantBootstrap ? 'Waiting for approval in Bitkit…' : 'Waiting for approval on your signer…'}
               </div>
             )}
             {['creating', 'verifying', 'claiming'].includes(session.status) && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
                 <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
                 {session.status === 'creating'
-                  ? 'Preparing secure approval…'
+                  ? requestsGrantBootstrap
+                    ? 'Confirming with your homeserver…'
+                    : 'Preparing secure approval…'
                   : session.status === 'verifying'
                     ? 'Verifying approval…'
                     : 'Connecting marketplace…'}
@@ -175,12 +202,16 @@ export function MarketplaceSessionConnectDialog({
                   <Smartphone className="mr-2 size-4" />
                 )}
                 {session.isOpeningRing
-                  ? requestsGrantReconnect
-                    ? 'Opening signer...'
-                    : 'Opening Pubky Ring...'
-                  : requestsGrantReconnect
-                    ? 'Open in signer'
-                    : 'Open in Pubky Ring'}
+                  ? requestsGrantBootstrap
+                    ? 'Opening Bitkit...'
+                    : requestsGrantReconnect
+                      ? 'Opening signer...'
+                      : 'Opening Pubky Ring...'
+                  : requestsGrantBootstrap
+                    ? 'Open in Bitkit'
+                    : requestsGrantReconnect
+                      ? 'Open in signer'
+                      : 'Open in Pubky Ring'}
               </Button>
               <Button
                 variant="ghost"

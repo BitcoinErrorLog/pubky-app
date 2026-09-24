@@ -16,8 +16,14 @@ const view = vi.hoisted(() => ({
   isOpeningRing: false,
   requestsFullGrant: true,
   requestsGrantReconnect: false,
+  requestsGrantBootstrap: false,
   isGrantSession: false,
+  grantEnabled: false,
   start: vi.fn(),
+}));
+vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>()),
+  getMarketplaceGrantFlowEnabled: () => view.grantEnabled,
 }));
 vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
   useIsGrantSession: () => view.isGrantSession,
@@ -30,6 +36,7 @@ vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () 
     errorMessage: view.errorMessage,
     requestsFullGrant: view.requestsFullGrant,
     requestsGrantReconnect: view.requestsGrantReconnect,
+    requestsGrantBootstrap: view.requestsGrantBootstrap,
     start: view.start,
     cancel: vi.fn(),
     copyAuthUrl: vi.fn(async () => {}),
@@ -61,11 +68,13 @@ describe('MarketplaceSessionConnectDialog', () => {
     view.isOpeningRing = false;
     view.requestsFullGrant = true;
     view.requestsGrantReconnect = false;
+    view.requestsGrantBootstrap = false;
     view.isGrantSession = false;
+    view.grantEnabled = false;
     view.start.mockClear();
   });
 
-  it('grant session sees refusal not classic qr', () => {
+  it('grant session sees refusal not classic qr (grant flow off)', () => {
     view.status = 'awaiting';
     view.authorizationUrl = 'pubkyauth:///?relay=https%3A%2F%2Frelay.example.com%2Finbox&secret=x';
     view.isGrantSession = true;
@@ -76,6 +85,56 @@ describe('MarketplaceSessionConnectDialog', () => {
     expect(screen.queryByLabelText('Copy authorization link')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /open in pubky ring/i })).not.toBeInTheDocument();
     expect(view.start).not.toHaveBeenCalled();
+  });
+
+  it('grant session connect uses bootstrap (Bitkit copy, no refusal, flow starts)', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl = 'pubkyauth://signin_grant?caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw';
+    view.isGrantSession = true;
+    view.grantEnabled = true;
+    view.requestsGrantBootstrap = true;
+    view.requestsFullGrant = false;
+
+    render(<MarketplaceSessionConnectDialog autoOpen />);
+
+    expect(view.start).toHaveBeenCalled();
+    expect(screen.queryByTestId('grant-session-refusal')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Approve purchases in Bitkit' })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Approve with Bitkit to connect purchases for the identity signed in to Shop. Nothing is charged until you pay.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open in Bitkit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /open in pubky ring/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Waiting for approval in Bitkit…')).toBeInTheDocument();
+    expect(screen.queryByTestId('bootstrap-approval-caption')).not.toBeInTheDocument();
+  });
+
+  it('bootstrap QR carries the caption naming the client Bitkit will show', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl =
+      'pubkyauth://signin_grant?caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw&relay=r&secret=s&cid=marketplace.staging.shop.pubky.app&cpk=k';
+    view.isGrantSession = true;
+    view.grantEnabled = true;
+    view.requestsGrantBootstrap = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.getByTestId('bootstrap-approval-caption')).toHaveTextContent(
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases only.',
+    );
+  });
+
+  it('bootstrap creating state confirms with the homeserver', () => {
+    view.status = 'creating';
+    view.isGrantSession = true;
+    view.grantEnabled = true;
+    view.requestsGrantBootstrap = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.getByText('Confirming with your homeserver…')).toBeInTheDocument();
   });
 
   it('a cookie session still starts the classic approval when opened', () => {
