@@ -29,10 +29,17 @@ export const LOCKS_CONNECT_IDENTITY_ERROR =
 
 /**
  * Shown under Step 1 when this browser holds no live Lock Server sign-in and the
- * Lock Server cannot say on its own whether it still holds the connection.
+ * Lock Server does not serve the creator-keyed status that could confirm the connection.
  */
 export const LOCKS_CONNECT_REAPPROVE_NOTICE =
   'Connected before? Approve once more in Pubky Ring or Bitkit. This browser keeps its Lock Server sign-in for 24 hours, and loses it when you sign out of the Shop or use another browser. Approving again does not reset your setup.';
+
+/**
+ * Shown under Step 1 when a status check fails (a 5xx, or no answer). The connection's
+ * state is unknown, so Step 1 must not read as Not set up.
+ */
+export const LOCKS_STATUS_CHECK_ERROR =
+  "We couldn't check your Lock Server connection just now. Reload this page to try again.";
 
 const LOCKS_CONNECT_TIMEOUT_MS = 6 * 60 * 1_000;
 
@@ -143,6 +150,7 @@ export function useMarketplaceLocksConnect() {
     restoreGenerationRef.current += 1;
     const generation = restoreGenerationRef.current;
     setReapproveNotice(false);
+    setError((current) => (current === LOCKS_STATUS_CHECK_ERROR ? null : current));
     if (!currentUserPubky) {
       setConnectedCreator(null);
       return;
@@ -172,7 +180,7 @@ export function useMarketplaceLocksConnect() {
       } catch {
         if (!isCurrent()) return;
         setConnectedCreator(null);
-        setReapproveNotice(true);
+        setError(LOCKS_STATUS_CHECK_ERROR);
       }
     };
 
@@ -197,6 +205,7 @@ export function useMarketplaceLocksConnect() {
           if (!isCurrent()) return;
           if (!isRejectedLocksSession(error)) {
             setConnectedCreator(null);
+            setError(LOCKS_STATUS_CHECK_ERROR);
             return;
           }
           CommerceController.clearLocksFrontendSession();

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { LOCKS_STATUS_CHECK_ERROR } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
 import type { SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -57,7 +58,10 @@ vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
 }));
 
-vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', () => ({
+vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', async (importOriginal) => ({
+  LOCKS_STATUS_CHECK_ERROR: (
+    await importOriginal<typeof import('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect')>()
+  ).LOCKS_STATUS_CHECK_ERROR,
   useMarketplaceLocksConnect: () => ({
     ...view.locksConnect,
     setConnectIframe: vi.fn(),
@@ -320,6 +324,22 @@ describe('MarketplacePaymentSettings', () => {
 
     expect(screen.getByTestId('locks-reapprove-notice')).toHaveTextContent(notice);
     expect(screen.getByRole('button', { name: /Open Locks connect/ })).toBeInTheDocument();
+  });
+
+  it('shows a failed Lock Server status check as Needs attention with the reason, never Not set up', async () => {
+    view.locksConnect = {
+      connectedCreator: null,
+      isExchanging: false,
+      error: LOCKS_STATUS_CHECK_ERROR,
+      connectOpen: false,
+      connectUrl: null,
+    };
+
+    await renderSettings();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(LOCKS_STATUS_CHECK_ERROR);
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
+    expect(screen.getByTestId('payment-method-status-bitcoin')).not.toHaveTextContent('Not set up');
   });
 
   it('hides the fresh-approval notice once Step 1 is connected', async () => {
