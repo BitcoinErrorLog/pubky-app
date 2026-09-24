@@ -192,7 +192,12 @@ function MarketplaceCartCheckout() {
   const [hashOrderId, setHashOrderId] = useState<string | null>(null);
   const [payingOrderIds, setPayingOrderIds] = useState<string[]>([]);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodKind | null>(null);
-  const [loadedMethods, setLoadedMethods] = useState<{ sellerKey: string; methods: PaymentMethodKind[] } | null>(null);
+  const [loadedMethods, setLoadedMethods] = useState<{
+    sellerKey: string;
+    attempt: number;
+    methods: PaymentMethodKind[] | null;
+  } | null>(null);
+  const [railAttempt, setRailAttempt] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const sellerKey =
     isOfferCheckout && award
@@ -200,7 +205,13 @@ function MarketplaceCartCheckout() {
       : [...new Set(checkoutItems.map((item) => item.listing.record.ownerPubky))].join('|');
   // Rails loaded for an earlier seller set (or before the cart hydrated) are
   // still loading for this one, never "no payment method".
-  const sharedMethods = sellerKey.length > 0 && loadedMethods?.sellerKey === sellerKey ? loadedMethods.methods : null;
+  const loadedForCart =
+    sellerKey.length > 0 && loadedMethods?.sellerKey === sellerKey && loadedMethods.attempt === railAttempt
+      ? loadedMethods
+      : null;
+  // A failed config read says nothing about the seller's rails; sandbox offers every rail regardless.
+  const railsFailed = loadedForCart !== null && loadedForCart.methods === null && !isSandbox;
+  const sharedMethods = loadedForCart === null ? null : (loadedForCart.methods ?? []);
   const isMultiSeller = sellerKey.includes('|');
   const isPaying = isOfferCheckout ? offerPay.isSubmitting : checkout.isPaying;
   const listingRoute = award && getMarketplaceListingRoute(award.listing.sellerPubky, award.listing.listingId);
@@ -224,19 +235,24 @@ function MarketplaceCartCheckout() {
         try {
           return availablePaymentMethods(await CommerceController.getSellerPaymentConfig(sellerPubky));
         } catch {
-          return [] as PaymentMethodKind[];
+          return null;
         }
       }),
-    ).then((sets) => {
+    ).then((results) => {
       if (!active) return;
+      const sets = results.filter((set): set is PaymentMethodKind[] => set !== null);
+      if (sets.length !== results.length) {
+        setLoadedMethods({ sellerKey, attempt: railAttempt, methods: null });
+        return;
+      }
       const next = intersectPaymentMethods(sets);
-      setLoadedMethods({ sellerKey, methods: next });
+      setLoadedMethods({ sellerKey, attempt: railAttempt, methods: next });
       setSelectedMethod((current) => (current && next.includes(current) ? current : (next[0] ?? null)));
     });
     return () => {
       active = false;
     };
-  }, [sellerKey]);
+  }, [sellerKey, railAttempt]);
 
   const targetPayingIds = [...new Set([...payingOrderIds, ...(hashOrderId ? [hashOrderId] : [])])];
   const focusedPaying = orders.orders.filter((view) => targetPayingIds.includes(view.order.id));
@@ -722,7 +738,23 @@ function MarketplaceCartCheckout() {
                     <Typography as="p" className="font-medium">
                       Payment method
                     </Typography>
-                    {sharedMethods === null ? (
+                    {railsFailed ? (
+                      <div role="alert" className="flex flex-wrap items-center gap-3">
+                        <Typography as="p" className="text-sm text-muted-foreground">
+                          Couldn&apos;t load payment options.
+                        </Typography>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="rounded-full"
+                          data-testid="marketplace-checkout-methods-retry"
+                          onClick={() => setRailAttempt((attempt) => attempt + 1)}
+                        >
+                          Retry
+                        </Button>
+                      </div>
+                    ) : sharedMethods === null ? (
                       <Skeleton className="h-11 w-full" aria-label="Loading payment methods" />
                     ) : sharedMethods.length === 0 && !isSandbox ? (
                       <Typography as="p" role="alert" className="text-sm text-muted-foreground">
@@ -777,11 +809,13 @@ function MarketplaceCartCheckout() {
                     <Typography id="checkout-pay-reason" as="p" className="text-xs text-muted-foreground">
                       {checkout.hasFulfillmentConflict
                         ? "Some items can't be checked out together — see the note above."
-                        : sharedMethods && sharedMethods.length === 0 && !isSandbox
-                          ? isMultiSeller
-                            ? 'Choose sellers that share a payment method.'
-                            : 'Pay unlocks once this seller sets up a payment method.'
-                          : 'Fill in delivery details, accept the guarantee, and choose a payment method to pay.'}
+                        : railsFailed
+                          ? 'Pay unlocks once payment options load.'
+                          : sharedMethods && sharedMethods.length === 0 && !isSandbox
+                            ? isMultiSeller
+                              ? 'Choose sellers that share a payment method.'
+                              : 'Pay unlocks once this seller sets up a payment method.'
+                            : 'Fill in delivery details, accept the guarantee, and choose a payment method to pay.'}
                     </Typography>
                   )}
                 </section>

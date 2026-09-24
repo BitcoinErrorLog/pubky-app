@@ -1059,6 +1059,7 @@ describe('MarketplaceTransactionService read projections', () => {
       const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       expect(url).toBe(`http://127.0.0.1:8080/v0/sellers/${OTHER_ACTOR}/payment-config`);
       expect(init.headers).toEqual(expect.not.objectContaining({ authorization: expect.anything() }));
+      expect(init.signal).toBeInstanceOf(AbortSignal);
     });
 
     it('saves the own config with the bearer, omitting the key unless provided, and never gets it back', async () => {
