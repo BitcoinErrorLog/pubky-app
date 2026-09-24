@@ -1,7 +1,6 @@
-import { z } from 'zod';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { raiseLocalOrdersSeenAt, readLocalOrdersSeenAt } from '@/libs/commerce/marketplace-attention';
-import { hasHttpStatus, isAppError, isNotFound } from '@/libs/error/error.utils';
+import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
@@ -12,65 +11,58 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 
 export type MarketplaceAttentionSide = 'activity' | 'orders';
 
-const attentionSeenRecordSchema = z.object({
-  version: z.literal(1),
-  activitySeenAt: z.number().int().nonnegative(),
-  ordersSeenAt: z.number().int().nonnegative(),
-});
+/** Quiet period before a burst of "seen" moments becomes one homeserver write. */
+export const ATTENTION_SEEN_WRITE_DEBOUNCE_MS = 2_000;
 
-type AttentionSeenRecord = z.infer<typeof attentionSeenRecordSchema>;
+/** Entry names are ms epochs zero-padded to this width, so names sort by value. */
+const ENTRY_NAME_DIGITS = 13;
+const ENTRY_NAME = /^\d{13}$/;
+/** Pruning keeps each directory to a handful of entries; this bounds one read. */
+const ENTRY_LIST_LIMIT = 100;
 
-type RemoteRead = { kind: 'present'; record: AttentionSeenRecord } | { kind: 'absent' } | { kind: 'unavailable' };
-
-const SIDE_FIELD = {
-  activity: 'activitySeenAt',
-  orders: 'ordersSeenAt',
-} as const satisfies Record<MarketplaceAttentionSide, keyof AttentionSeenRecord>;
+type Entry = { url: string; at: number };
+type Listing = { kind: 'entries'; entries: Entry[] } | { kind: 'unavailable' };
+type PendingWrite = { timer: ReturnType<typeof setTimeout>; done: Promise<void>; resolve: () => void };
 
 /**
  * The account's badge checkpoints: when this account last opened Activity
  * and Orders, on any browser.
  *
  * The durable marketplace service stores no read state, so the checkpoints
- * live in the owner's private homeserver document
- * `/priv/pubky.app/marketplace/v1/attention_seen.json` (ms epoch per side).
- * Each browser keeps a local copy (Dexie for Activity, local storage for
- * Orders) that the badge hooks read live. Opening a view raises the local
- * copy, then merges into the document (GET, per-side max, PUT). Mounting a
- * badge pulls the document and raises the local copies, so a view cleared
- * in one browser clears in every other.
+ * live on the owner's homeserver under
+ * `/priv/pubky.app/marketplace/v1/attention_seen/{activity|orders}/`. Each
+ * write adds a new entry named by the checkpoint it records and never
+ * rewrites an existing one; the checkpoint is the largest entry name. The
+ * homeserver has no conditional write, and a read-modify-write of one
+ * document lets a slower writer put back an older value. A set of
+ * immutable entries whose maximum is the value cannot move backward under
+ * any interleaving of tabs or browsers. After a write, entries below the one
+ * just written are deleted; an entry is only deleted when a larger one
+ * exists, so the maximum survives concurrent pruning too.
  *
- * Checkpoints only move forward. A value from a device clock ahead of this
- * one is capped at this device's now. Without a session that can write
- * `/priv/pubky.app/` (or in the sandbox) the local copy is all there is,
- * and the badge behaves per browser.
+ * Each browser keeps a local copy (Dexie for Activity, local storage for
+ * Orders) that the badge hooks read live. `markSeen` raises the local copy
+ * at once and schedules one debounced write, which is skipped when the
+ * homeserver already holds a checkpoint at least as new. `pull` raises the
+ * local copies to the homeserver's, capped at this device's now so a clock
+ * running ahead cannot hide future activity. Without a session that can
+ * write `/priv/pubky.app/` (or in the sandbox) the local copy is all there
+ * is, and the badge behaves per browser.
  */
 export class CommerceAttentionSeenApplication {
   private constructor() {}
 
   private static pullsInFlight = new Map<string, Promise<void>>();
+  private static pendingWrites = new Map<string, PendingWrite>();
 
+  /**
+   * Records that this account saw `side` at `now`. Resolves once the
+   * debounced homeserver write for this burst has settled.
+   */
   static async markSeen(ownerPubky: string, side: MarketplaceAttentionSide, now = Date.now()): Promise<void> {
     await this.raiseLocal(ownerPubky, side, now);
     if (!this.canUseRemote(ownerPubky)) return;
-    try {
-      const remote = await this.readRemote(ownerPubky);
-      if (remote.kind === 'unavailable') return;
-      const localActivity = await LocalCommerceService.getActivityReadCheckpoint(ownerPubky);
-      const localOrders = readLocalOrdersSeenAt(ownerPubky);
-      const current: AttentionSeenRecord =
-        remote.kind === 'present' ? remote.record : { version: 1, activitySeenAt: 0, ordersSeenAt: 0 };
-      const next: AttentionSeenRecord = {
-        version: 1,
-        activitySeenAt: Math.max(current.activitySeenAt, Math.min(localActivity, now)),
-        ordersSeenAt: Math.max(current.ordersSeenAt, Math.min(localOrders, now)),
-      };
-      next[SIDE_FIELD[side]] = Math.max(next[SIDE_FIELD[side]], now);
-      if (next.activitySeenAt === current.activitySeenAt && next.ordersSeenAt === current.ordersSeenAt) return;
-      await CommerceHomeserverService.putJson(CommerceRecordNormalizer.attentionSeenUri(ownerPubky), next);
-    } catch (error) {
-      Logger.warn('Failed to save the marketplace badge checkpoint', { error });
-    }
+    await this.scheduleWrite(ownerPubky, side);
   }
 
   /** Raises this browser's checkpoints to the account's. One read per owner at a time. */
@@ -85,16 +77,87 @@ export class CommerceAttentionSeenApplication {
     return await run;
   }
 
+  /** Test support: drops scheduled writes without running them. */
+  static resetPendingWrites(): void {
+    for (const pending of this.pendingWrites.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve();
+    }
+    this.pendingWrites.clear();
+  }
+
+  private static scheduleWrite(ownerPubky: string, side: MarketplaceAttentionSide): Promise<void> {
+    const key = `${ownerPubky}|${side}`;
+    const existing = this.pendingWrites.get(key);
+    if (existing) clearTimeout(existing.timer);
+    let resolve: () => void = () => {};
+    const done = existing?.done ?? new Promise<void>((settle) => (resolve = settle));
+    const pending: PendingWrite = {
+      done,
+      resolve: existing?.resolve ?? resolve,
+      timer: setTimeout(() => {
+        this.pendingWrites.delete(key);
+        void this.writeCheckpoint(ownerPubky, side).finally(pending.resolve);
+      }, ATTENTION_SEEN_WRITE_DEBOUNCE_MS),
+    };
+    this.pendingWrites.set(key, pending);
+    return done;
+  }
+
+  private static async writeCheckpoint(ownerPubky: string, side: MarketplaceAttentionSide): Promise<void> {
+    // The account may have changed or lost its grant during the quiet period.
+    if (!this.canUseRemote(ownerPubky)) return;
+    try {
+      const local =
+        side === 'activity'
+          ? await LocalCommerceService.getActivityReadCheckpoint(ownerPubky)
+          : readLocalOrdersSeenAt(ownerPubky);
+      const value = Math.min(local, Date.now());
+      if (!(value > 0)) return;
+      const listing = await this.listEntries(ownerPubky, side);
+      if (listing.kind === 'unavailable') return;
+      if (listing.entries.some(({ at }) => at >= value)) return;
+      const directory = CommerceRecordNormalizer.attentionSeenDirectoryUri(ownerPubky, side);
+      await CommerceHomeserverService.putJson(`${directory}${entryName(value)}`, { version: 1, seenAt: value });
+      await Promise.allSettled(listing.entries.map(({ url }) => CommerceHomeserverService.delete(url)));
+    } catch (error) {
+      Logger.warn('Failed to save the marketplace badge checkpoint', { error });
+    }
+  }
+
   private static async runPull(ownerPubky: string): Promise<void> {
     try {
-      const remote = await this.readRemote(ownerPubky);
-      if (remote.kind !== 'present') return;
+      const [activity, orders] = await Promise.all([
+        this.listEntries(ownerPubky, 'activity'),
+        this.listEntries(ownerPubky, 'orders'),
+      ]);
       const now = Date.now();
-      await this.raiseLocal(ownerPubky, 'activity', Math.min(remote.record.activitySeenAt, now));
-      await this.raiseLocal(ownerPubky, 'orders', Math.min(remote.record.ordersSeenAt, now));
+      await this.raiseLocal(ownerPubky, 'activity', Math.min(latest(activity), now));
+      await this.raiseLocal(ownerPubky, 'orders', Math.min(latest(orders), now));
     } catch (error) {
       Logger.warn('Failed to load the marketplace badge checkpoint', { error });
     }
+  }
+
+  private static async listEntries(ownerPubky: string, side: MarketplaceAttentionSide): Promise<Listing> {
+    let urls: string[];
+    try {
+      urls = await CommerceHomeserverService.list(
+        CommerceRecordNormalizer.attentionSeenDirectoryUri(ownerPubky, side),
+        ENTRY_LIST_LIMIT,
+      );
+    } catch (error) {
+      if (hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED)) {
+        return { kind: 'unavailable' };
+      }
+      throw error;
+    }
+    const entries: Entry[] = [];
+    for (const url of urls) {
+      const name = url.slice(url.lastIndexOf('/') + 1);
+      if (ENTRY_NAME.test(name)) entries.push({ url, at: Number(name) });
+    }
+    return { kind: 'entries', entries };
   }
 
   private static async raiseLocal(ownerPubky: string, side: MarketplaceAttentionSide, at: number): Promise<void> {
@@ -111,27 +174,13 @@ export class CommerceAttentionSeenApplication {
     if (useAuthStore.getState().currentUserPubky !== ownerPubky) return false;
     return HomeserverService.hasActiveSession() && HomeserverService.canCurrentSessionWrite(PRIVATE_APP_DATA_PATH);
   }
+}
 
-  /**
-   * A document that fails its schema is left alone: never replaced
-   * wholesale, never trusted.
-   */
-  private static async readRemote(ownerPubky: string): Promise<RemoteRead> {
-    let payload: unknown;
-    try {
-      payload = await CommerceHomeserverService.fetchJson(CommerceRecordNormalizer.attentionSeenUri(ownerPubky));
-    } catch (error) {
-      if (isAppError(error) && isNotFound(error)) return { kind: 'absent' };
-      if (hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED)) {
-        return { kind: 'unavailable' };
-      }
-      throw error;
-    }
-    const parsed = attentionSeenRecordSchema.safeParse(payload);
-    if (!parsed.success) {
-      Logger.warn('Ignoring an unreadable marketplace badge checkpoint');
-      return { kind: 'unavailable' };
-    }
-    return { kind: 'present', record: parsed.data };
-  }
+function entryName(at: number): string {
+  return String(Math.trunc(at)).padStart(ENTRY_NAME_DIGITS, '0');
+}
+
+function latest(listing: Listing): number {
+  if (listing.kind === 'unavailable') return 0;
+  return listing.entries.reduce((max, { at }) => Math.max(max, at), 0);
 }

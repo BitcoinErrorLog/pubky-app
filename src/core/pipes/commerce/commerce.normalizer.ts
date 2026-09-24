@@ -542,9 +542,12 @@ export class CommerceRecordNormalizer {
     return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/auction_reserves/${this.entityId(listingId)}.json`;
   }
 
-  /** The owner's PRIVATE badge checkpoint document (last time Activity and Orders were opened). */
-  static attentionSeenUri(ownerPubky: unknown): string {
-    return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/attention_seen.json`;
+  /**
+   * The owner's PRIVATE badge checkpoint directory for one side (`activity`
+   * or `orders`). Each entry is named by the checkpoint it records.
+   */
+  static attentionSeenDirectoryUri(ownerPubky: unknown, side: 'activity' | 'orders'): string {
+    return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/attention_seen/${side}/`;
   }
 
   static mediaUri(ownerPubky: unknown, mediaId: unknown): string {
