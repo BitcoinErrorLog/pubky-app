@@ -122,7 +122,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
           r="10"
         />
       </svg>
-      Shipping & returns
+      Delivery & returns
       <span
         class="sr-only"
       >
@@ -297,7 +297,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
             class="sr-only"
           >
              
-            Shipping & returns
+            Delivery & returns
              incomplete
           </span>
         </a>

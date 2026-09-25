@@ -428,8 +428,7 @@ describe('Marketplace sell studio — visual regression', () => {
         throw new Error('The PayPal warning has not rendered yet.');
       }
     });
-    screen.container.querySelector('[data-testid="listing-delivery-options"]')?.scrollIntoView({ block: 'start' });
-    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-digital-delivery-desktop');
+    await expect(expectVrtSurface('listing-section-shipping')).toMatchScreenshot('sell-digital-delivery-desktop');
   });
 
   it('renders the restore prompt at desktop viewport', async () => {
@@ -667,8 +666,8 @@ describe('Marketplace sell studio — visual regression', () => {
       if (!screen.container.textContent?.includes('Publish first, then add your meeting point')) {
         throw new Error('The pickup-enabled studio copy has not rendered yet.');
       }
-      const fulfillment = screen.container.querySelector('#fulfillment');
-      if (!fulfillment?.textContent?.includes('Local pickup')) {
+      const pickup = screen.container.querySelector('#listing-delivery-pickup');
+      if (pickup?.getAttribute('data-state') !== 'checked') {
         throw new Error('The pickup fulfillment value has not restored yet.');
       }
       if (screen.container.querySelector('[data-testid="pickup-capability-skeleton"]')) {

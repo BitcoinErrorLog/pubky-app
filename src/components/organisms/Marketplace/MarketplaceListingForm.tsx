@@ -88,7 +88,7 @@ const LISTING_FORM_SECTIONS = [
   { id: 'listing-section-photos', label: 'Photos' },
   { id: 'listing-section-item', label: 'Item' },
   { id: 'listing-section-price', label: 'Price & format' },
-  { id: 'listing-section-shipping', label: 'Shipping & returns' },
+  { id: 'listing-section-shipping', label: 'Delivery & returns' },
   { id: 'listing-section-review', label: 'Review & publish' },
 ] as const;
 
