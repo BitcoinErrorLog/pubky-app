@@ -67,7 +67,7 @@ export const PAYKIT_NOISE_MESSAGE_MAX_BYTES = 1000;
  *   would be worse than none. For the same reason receivers never trust this
  *   id as written: it must pass {@link isListingConversationBound} against
  *   the link endpoints or the message is dropped.
- * - `listing_ref`: the listing aggregate id (`listing:{seller}:{listingId}`),
+ * - `listing_ref`: the listing aggregate id (`listing:{seller}_{listingId}`),
  *   so the receiving side can render the listing context without parsing the
  *   conversation id.
  * - `sent_at`: sender's wall clock, Unix-millisecond integer. Display
