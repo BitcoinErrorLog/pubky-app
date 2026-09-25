@@ -13,11 +13,12 @@ import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceNotifications } from '@/hooks/useMarketplaceNotifications/useMarketplaceNotifications';
-import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
+import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFeed/useMarketplaceWatchAlertFeed';
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { activityRowHref } from '@/libs/commerce/activity-links';
+import { isBuyerCheckoutInProgress } from '@/libs/commerce/checkout-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { returnActivityTitles } from '@/libs/commerce/return-activity-titles';
 import { Logger } from '@/libs/logger/logger';
@@ -56,6 +57,7 @@ export function MarketplaceNotifications() {
   ).length;
   const watchAlerts = useMarketplaceWatchAlertFeed();
   const { orders, isLoading: ordersLoading } = useMarketplaceOrders();
+  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const returnTitles = returnActivityTitles(
     notifications.flatMap((notification) =>
       'kind' in notification || notification.type !== 'return_updated'
@@ -213,6 +215,7 @@ export function MarketplaceNotifications() {
                 <NotificationCard
                   key={notification.id}
                   notification={notification}
+                  canCheckout={checkoutStartedCanContinue(notification, orders, currentUserPubky, ordersLoading)}
                   title={
                     notification.type === 'return_updated'
                       ? (returnTitles.get(notification.id) ?? 'Return updated')
@@ -276,9 +279,31 @@ function KnownOrGapActivityRow({ type, createdAt }: { type: string; createdAt: s
   );
 }
 
-function NotificationCard({ notification, title }: { notification: MarketplaceNotification; title?: string }) {
+function checkoutStartedCanContinue(
+  notification: MarketplaceNotification,
+  orders: MarketplaceOrderView[],
+  currentUserPubky: string | null,
+  ordersLoading: boolean,
+): boolean {
+  if (ordersLoading || notification.type !== 'order_created' || !notification.aggregateId.startsWith('order:')) {
+    return false;
+  }
+  const orderId = notification.aggregateId.slice('order:'.length);
+  const order = orders.find((view) => view.order.id === orderId)?.order;
+  return Boolean(order && isBuyerCheckoutInProgress(order, currentUserPubky));
+}
+
+function NotificationCard({
+  notification,
+  title,
+  canCheckout,
+}: {
+  notification: MarketplaceNotification;
+  title?: string;
+  canCheckout: boolean;
+}) {
   const label = title ?? notificationLabel(notification.type);
-  const href = activityRowHref(notification.type, notification.aggregateId);
+  const href = activityRowHref(notification.type, notification.aggregateId, { canCheckout });
   return (
     <ActivityRowLink href={href} label={label}>
       <Card className="border py-4">
