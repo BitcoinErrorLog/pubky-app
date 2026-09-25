@@ -288,6 +288,16 @@ describe('marketplaceOfferFailureMessage', () => {
       MARKETPLACE_FAILURE_MESSAGES.sendOffer,
     );
   });
+
+  it('names the pickup-only refusal instead of the generic send-offer fallback', () => {
+    // Refusal logged by production marketplace-service on 2026-09-25 (issue #57).
+    const refused = marketplaceOfferFailureMessage('INVALID_STATE', 'Offers are available only on listings that ship.');
+    expect(refused).toBe(MARKETPLACE_FAILURE_MESSAGES.offerShippingOnly);
+    expect(refused).not.toBe(MARKETPLACE_FAILURE_MESSAGES.sendOffer);
+    expect(marketplaceOfferFailureMessage('INVALID_COMMAND', 'Offers are available only on listings that ship.')).toBe(
+      MARKETPLACE_FAILURE_MESSAGES.sendOffer,
+    );
+  });
 });
 
 describe('Bitkit purchase bootstrap reason codes', () => {

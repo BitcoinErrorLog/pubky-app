@@ -11,6 +11,7 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   offerExpired: 'This accepted offer expired before checkout. Nothing was reserved.',
   offerAlreadyConverted: 'This accepted offer has already been converted.',
   sendOffer: 'Could not send this offer.',
+  offerShippingOnly: 'This listing is local pickup only. Offers are available only on listings that ship.',
   counterOffer: 'Could not send this counteroffer.',
   bid: 'Could not place this bid.',
   bidTooLow: 'Your new maximum must be higher than your previous maximum and the current visible price.',
@@ -165,6 +166,9 @@ const OFFER_HOLD_MESSAGES = new Set([
   CHECKOUT_HOLD_COPY.listingReserved,
 ]);
 
+/** Service `offer.create` refusal for a listing that does not publish shipping (`handlers/offers.rs`). */
+export const OFFER_SHIPPING_ONLY_REFUSAL = 'Offers are available only on listings that ship.';
+
 /**
  * Offer.create failures must never use drop copy. `INSUFFICIENT_INVENTORY` on
  * a listing is sold-out or held inventory, not "this drop is sold out."
@@ -173,6 +177,9 @@ export function marketplaceOfferFailureMessage(code: MarketplaceFailureCode, mes
   if (code === 'INSUFFICIENT_INVENTORY') return MARKETPLACE_FAILURE_MESSAGES.listingSoldOut;
   if (code === 'INVALID_STATE' && typeof message === 'string' && OFFER_HOLD_MESSAGES.has(message)) {
     return CHECKOUT_HOLD_COPY.heldWhileAnotherPays;
+  }
+  if (code === 'INVALID_STATE' && message === OFFER_SHIPPING_ONLY_REFUSAL) {
+    return MARKETPLACE_FAILURE_MESSAGES.offerShippingOnly;
   }
   return marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sendOffer);
 }

@@ -47,6 +47,7 @@ import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
   commerceListingFulfillmentMethods,
+  commerceListingTakesOffers,
   type CommerceListingRecord,
   type CommerceShippingOption,
 } from '@/libs/commerce/marketplace-records';
@@ -488,7 +489,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       {CHECKOUT_HOLD_COPY.listingReserved}
                     </Typography>
                   )}
-                  {record.sale.acceptsOffers && !viewerOfferHold && (
+                  {commerceListingTakesOffers(record) && !viewerOfferHold && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}
