@@ -133,6 +133,7 @@ import type {
   NexusListingSaleFormat,
 } from '@/services/nexus/marketplace/marketplace.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
+import { PaykitMessagingService } from '@/services/paykit/paykit-messaging';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
@@ -929,6 +930,15 @@ export class CommerceApplication {
 
   static async getSellerPaymentConfig(sellerPubky: string) {
     return await MarketplaceGatewayService.getSellerPaymentConfig(sellerPubky);
+  }
+
+  /**
+   * Whether the buyer can receive a Bitcoin payment request: a public Paykit
+   * receiver that takes payment requests (a Paykit wallet such as Bitkit).
+   * Rejects when it cannot be read.
+   */
+  static async hasBuyerPaykitWallet(buyerPubky: string) {
+    return await PaykitMessagingService.hasPaymentRequestReceiver(buyerPubky);
   }
 
   static async getMyPaymentConfig(actorPubky: string) {
