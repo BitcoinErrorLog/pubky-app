@@ -608,6 +608,10 @@ export const marketplaceOrderProjectionSchema = z
       .enum(['preparing', 'pending', 'detected', 'confirmed', 'awaiting_seller_confirmation'])
       .nullable()
       .optional(),
+    // Whether the Paykit payment request reached the buyer's wallet
+    // (`pending`, `delivered`, `failed`; null before the first poll). Typed
+    // as a string so a new service value never fails the order parse.
+    paykitDeliveryState: z.string().nullable().optional(),
     // Seller-only evidence. The service omits these keys from buyer and
     // system projections; nullable/optional preserves that distinction.
     paykitObservation: sellerPaymentObservationSchema.nullable().optional(),
