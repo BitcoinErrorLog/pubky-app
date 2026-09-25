@@ -73,7 +73,32 @@ const fixtures = vi.hoisted(async () => {
     listing,
   });
 
+  const digitalListing = (
+    listingId: string,
+    title: string,
+    fulfillmentMethods: Array<'physical' | 'shipping' | 'digital'>,
+  ) =>
+    toCommerceListingModel(
+      createCommerceListingFixture({
+        listingId,
+        title,
+        fulfillmentMethods,
+        ...(fulfillmentMethods.includes('shipping') ? {} : { package: undefined, shippingOptions: [] }),
+        variants: [{ id: 'variant_01', options: {}, quantity: 5, mediaIds: ['image_01'], enabled: true }],
+        sale: {
+          format: 'fixed_price',
+          unitPrice: { amountMinor: 1_500, currency: 'USD', exponent: 2 },
+          acceptsOffers: false,
+        },
+      }),
+    );
+  const guide = digitalListing('field_guide', 'Field guide to film cameras (PDF)', ['digital']);
+  const album = digitalListing('night_train_album', 'Night Train, the album', ['physical', 'shipping', 'digital']);
+  const pattern = digitalListing('jacket_pattern', 'Selvedge jacket sewing pattern', ['digital']);
+
   return {
+    digitalOnly: [item(guide, 'variant_01', 1)],
+    digitalMixed: [item(boots, 'variant_42', 1), item(album, 'variant_01', 1), item(pattern, 'variant_01', 1)],
     singleSeller: [item(boots, 'variant_42', 1), item(boots, 'variant_43', 1)],
     multiSeller: [item(boots, 'variant_42', 2), item(jacket, 'variant_01', 1), item(camera, 'variant_01', 1)],
   };
@@ -108,6 +133,12 @@ const view = vi.hoisted(() => ({
   fulfillmentEffective: {} as Record<string, 'shipping' | 'pickup'>,
   requiresDeliveryAddress: true,
   orderCount: 1,
+  fulfillmentByItem: {} as Record<string, 'shipping' | 'pickup' | 'digital'>,
+  digitalKinds: {} as Record<string, 'file' | 'link' | 'text' | 'email' | 'message' | null>,
+  digitalChoosable: [] as string[],
+  requiresDeliveryEmail: false,
+  hasInstantDigitalLine: false,
+  hasManualDigitalLine: false,
 }));
 
 const savedAddresses = vi.hoisted(() => {
@@ -223,17 +254,21 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
         const line = (view.items as Array<{ id: string; listing: { record: { ownerPubky: string } } }>).find(
           ({ id }) => id === itemId,
         );
-        return view.fulfillmentEffective[line?.listing.record.ownerPubky ?? ''] ?? 'shipping';
+        return (
+          view.fulfillmentByItem[itemId] ??
+          view.fulfillmentEffective[line?.listing.record.ownerPubky ?? ''] ??
+          'shipping'
+        );
       },
       setDigitalChoice: vi.fn(),
-      canChooseDigitalForItem: () => false,
-      digitalKindForItem: () => undefined,
+      canChooseDigitalForItem: (itemId: string) => view.digitalChoosable.includes(itemId),
+      digitalKindForItem: (itemId: string) => view.digitalKinds[itemId],
       isDigitalCapabilityLoading: false,
       digitalNotReadyItemIds: [],
       isDigitalReady: true,
-      requiresDeliveryEmail: false,
-      hasInstantDigitalLine: false,
-      hasManualDigitalLine: false,
+      requiresDeliveryEmail: view.requiresDeliveryEmail,
+      hasInstantDigitalLine: view.hasInstantDigitalLine,
+      hasManualDigitalLine: view.hasManualDigitalLine,
     }),
   };
 });
@@ -320,6 +355,12 @@ beforeEach(async () => {
   view.fulfillmentEffective = {};
   view.requiresDeliveryAddress = true;
   view.orderCount = 1;
+  view.fulfillmentByItem = {};
+  view.digitalKinds = {};
+  view.digitalChoosable = [];
+  view.requiresDeliveryEmail = false;
+  view.hasInstantDigitalLine = false;
+  view.hasManualDigitalLine = false;
   window.history.replaceState(null, '', '/marketplace/checkout');
 });
 
@@ -400,6 +441,40 @@ describe('Marketplace checkout — visual regression', () => {
 
     await renderForVRT(<MarketplaceCheckout />, { viewport: VRT_VIEWPORT_MOBILE });
     await captureCheckout('checkout-single-seller-mobile');
+  });
+
+  // Digital delivery design §3 "Checkout".
+  it('renders an all-digital checkout at desktop viewport', async () => {
+    const { digitalOnly } = await fixtures;
+    const [guide] = digitalOnly;
+    view.items = digitalOnly;
+    view.requiresDeliveryAddress = false;
+    view.fulfillmentByItem = { [guide.id]: 'digital' };
+    view.digitalKinds = { [guide.id]: 'file' };
+    view.hasInstantDigitalLine = true;
+
+    await renderForVRT(<MarketplaceCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCheckout('checkout-digital-only-desktop');
+  });
+
+  it('renders shipped, picked-digital and emailed lines from one seller at desktop viewport', async () => {
+    const { digitalMixed } = await fixtures;
+    const [, album, pattern] = digitalMixed;
+    view.items = digitalMixed;
+    view.orderCount = 2;
+    view.fulfillmentByItem = { [album.id]: 'digital', [pattern.id]: 'digital' };
+    view.digitalKinds = { [album.id]: 'link', [pattern.id]: 'email' };
+    view.digitalChoosable = [album.id];
+    view.requiresDeliveryEmail = true;
+    view.hasInstantDigitalLine = true;
+    view.hasManualDigitalLine = true;
+
+    await renderForVRT(<MarketplaceCheckout />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await captureCheckout('checkout-digital-mixed-desktop');
+    await expect(expectVrtSurface('checkout-delivery-email')).toMatchScreenshot(
+      'checkout-delivery-email-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
   });
 
   it('renders a multi-seller checkout at desktop viewport', async () => {

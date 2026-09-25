@@ -6,9 +6,11 @@ import {
   classifyDigitalDeliverySetupRefusal,
   classifyDigitalReadRefusal,
   DELIVERY_EMAIL_MAX_CHARS,
+  DIGITAL_CHECKOUT_COPY,
   DIGITAL_CHECKOUT_REFUSAL_COPY,
   DIGITAL_DELIVERY_COPY,
   DIGITAL_DELIVERY_SETUP_COPY,
+  digitalCheckoutLineLabel,
   digitalContentTypeLabel,
   digitalDeliveryBadgeLabel,
   digitalDeliveryCurrentSummary,
@@ -317,5 +319,28 @@ describe('digital checkout contract (§3 "Checkout", §6 B4, B5, F1–F3)', () =
       'Enter the email the seller should send your purchase to.',
     );
     expect(DIGITAL_CHECKOUT_REFUSAL_COPY.invalid_email).toBe('Check the email address.');
+  });
+});
+
+describe('digital checkout lines (§3 "Checkout")', () => {
+  it('says how each kind arrives, and when a line cannot be bought yet', () => {
+    expect(digitalCheckoutLineLabel('file')).toBe('Digital delivery · Instant download');
+    expect(digitalCheckoutLineLabel('link')).toBe('Digital delivery · Instant access');
+    expect(digitalCheckoutLineLabel('text')).toBe('Digital delivery · Instant access');
+    expect(digitalCheckoutLineLabel('email')).toBe('Digital delivery · Emailed by the seller after payment');
+    expect(digitalCheckoutLineLabel('message')).toBe('Digital delivery · Sent by the seller in messages after payment');
+    expect(digitalCheckoutLineLabel(null)).toBe("The seller hasn't finished setting up delivery for this item.");
+    expect(digitalCheckoutLineLabel(undefined)).toBe('Digital delivery');
+  });
+
+  it('carries the design copy for the email field and consent lines', () => {
+    expect(DIGITAL_CHECKOUT_COPY.emailHeading).toBe('Email for delivery');
+    expect(DIGITAL_CHECKOUT_COPY.emailDisclosure).toBe(
+      "The seller of this item sees this after your payment is confirmed, to send your order. It isn't used for anything else.",
+    );
+    expect(DIGITAL_CHECKOUT_COPY.consentInstant).toBe(
+      "Delivery starts as soon as payment is confirmed. Digital orders can't be cancelled once delivered; message the seller about a refund.",
+    );
+    expect(DIGITAL_CHECKOUT_COPY.consentManual).toBe('You can ask to cancel until the seller marks it delivered.');
   });
 });

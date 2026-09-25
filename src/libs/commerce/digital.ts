@@ -442,3 +442,26 @@ export const DIGITAL_CHECKOUT_REFUSAL_COPY: Readonly<Record<DigitalCheckoutRefus
   email_not_needed: 'A listing changed while you were checking out. Review your cart and try again.',
   fulfillment_not_published: "A listing in your cart changed how it's delivered. Reload Shop to check out.",
 };
+
+/** Checkout copy for digital lines (§3 "Checkout"). */
+export const DIGITAL_CHECKOUT_COPY = {
+  emailHeading: 'Email for delivery',
+  emailDisclosure:
+    "The seller of this item sees this after your payment is confirmed, to send your order. It isn't used for anything else.",
+  consentInstant:
+    "Delivery starts as soon as payment is confirmed. Digital orders can't be cancelled once delivered; message the seller about a refund.",
+  consentManual: 'You can ask to cancel until the seller marks it delivered.',
+  physicalOption: 'Physical copy',
+  digitalOption: 'Digital delivery',
+  noShippingDigital: 'No shipping for digital items.',
+  noShippingMixed: 'No shipping for these items.',
+  payReasonNotReady: "An item's seller hasn't finished setting up delivery. Remove it in the cart to continue.",
+  payReasonLoading: 'Pay unlocks once delivery options load.',
+} as const;
+
+/** The line under a digital checkout item: how it arrives, or that it cannot be bought yet. */
+export function digitalCheckoutLineLabel(kind: MarketplaceDigitalDeliveryKind | null | undefined): string {
+  if (kind === null) return DIGITAL_CHECKOUT_REFUSAL_COPY.not_ready;
+  if (kind === undefined) return DIGITAL_DELIVERY_COPY.badge;
+  return `${DIGITAL_DELIVERY_COPY.badge} · ${digitalDeliveryBadgeLabel({ kind })}`;
+}

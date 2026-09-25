@@ -30,6 +30,12 @@ const view = vi.hoisted(() => ({
   fulfillmentByItem: {} as Record<string, 'shipping' | 'pickup' | 'digital'>,
   isDigitalReady: true,
   isDigitalCapabilityLoading: false,
+  digitalKinds: {} as Record<string, 'file' | 'link' | 'text' | 'email' | 'message' | null | undefined>,
+  digitalChoosable: [] as string[],
+  digitalNotReadyItemIds: [] as string[],
+  requiresDeliveryEmail: false,
+  hasInstantDigitalLine: false,
+  hasManualDigitalLine: false,
   orderCount: 1,
   payResult: { ok: false, orderIds: [] as string[], boundOrders: [] as unknown[] },
   awardItems: [] as Array<{ awardId: string; listingId: string; variantId: string }>,
@@ -38,6 +44,7 @@ const view = vi.hoisted(() => ({
 const checkoutActions = vi.hoisted(() => ({
   pay: vi.fn(async () => view.payResult),
   setFulfillmentChoice: vi.fn(),
+  setDigitalChoice: vi.fn(),
   remove: vi.fn(async () => {}),
   rememberAddress: vi.fn(async () => {}),
 }));
@@ -182,15 +189,15 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
           'shipping'
         );
       },
-      setDigitalChoice: vi.fn(),
-      canChooseDigitalForItem: () => false,
-      digitalKindForItem: () => undefined,
+      setDigitalChoice: checkoutActions.setDigitalChoice,
+      canChooseDigitalForItem: (itemId: string) => view.digitalChoosable.includes(itemId),
+      digitalKindForItem: (itemId: string) => view.digitalKinds[itemId],
       isDigitalCapabilityLoading: view.isDigitalCapabilityLoading,
-      digitalNotReadyItemIds: [],
+      digitalNotReadyItemIds: view.digitalNotReadyItemIds,
       isDigitalReady: view.isDigitalReady,
-      requiresDeliveryEmail: false,
-      hasInstantDigitalLine: false,
-      hasManualDigitalLine: false,
+      requiresDeliveryEmail: view.requiresDeliveryEmail,
+      hasInstantDigitalLine: view.hasInstantDigitalLine,
+      hasManualDigitalLine: view.hasManualDigitalLine,
     }),
   };
 });
@@ -294,6 +301,13 @@ function resetCheckoutView() {
   view.fulfillmentByItem = {};
   view.isDigitalReady = true;
   view.isDigitalCapabilityLoading = false;
+  view.digitalKinds = {};
+  view.digitalChoosable = [];
+  view.digitalNotReadyItemIds = [];
+  view.requiresDeliveryEmail = false;
+  view.hasInstantDigitalLine = false;
+  view.hasManualDigitalLine = false;
+  checkoutActions.setDigitalChoice.mockReset();
   view.orderCount = 1;
   view.payResult = { ok: false, orderIds: [], boundOrders: [] };
   view.awardItems = [];
@@ -637,6 +651,114 @@ describe('MarketplaceCheckout digital lines (digital delivery design §3 "Checko
 
     expect(screen.queryByText(/can't be checked out together/)).not.toBeInTheDocument();
     expect(screen.getByTestId('marketplace-checkout-pay')).toBeDisabled();
+  });
+
+  it('labels a digital line with how it arrives', () => {
+    seededCart();
+    view.requiresDeliveryAddress = false;
+    view.fulfillmentByItem = { [CART_ITEM_ID]: 'digital' };
+    view.digitalKinds = { [CART_ITEM_ID]: 'file' };
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.getByTestId('checkout-digital-line')).toHaveTextContent('Digital delivery · Instant download');
+  });
+
+  it('says a line cannot be bought until its seller sets delivery (B4)', () => {
+    seededCart();
+    view.requiresDeliveryAddress = false;
+    view.fulfillmentByItem = { [CART_ITEM_ID]: 'digital' };
+    view.digitalKinds = { [CART_ITEM_ID]: null };
+    view.digitalNotReadyItemIds = [CART_ITEM_ID];
+    view.isDigitalReady = false;
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.getByTestId('checkout-digital-line')).toHaveAttribute('role', 'alert');
+    expect(screen.getByTestId('checkout-digital-line')).toHaveTextContent(
+      "The seller hasn't finished setting up delivery for this item.",
+    );
+    expect(document.getElementById('checkout-pay-reason')).toHaveTextContent(
+      "An item's seller hasn't finished setting up delivery. Remove it in the cart to continue.",
+    );
+  });
+
+  it('says Pay unlocks once delivery options load', () => {
+    seededCart();
+    view.isDigitalReady = false;
+
+    render(<MarketplaceCheckout />);
+
+    expect(document.getElementById('checkout-pay-reason')).toHaveTextContent('Pay unlocks once delivery options load.');
+  });
+
+  it('offers Physical copy or Digital delivery on a line whose listing offers both', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.digitalChoosable = [CART_ITEM_ID];
+
+    render(<MarketplaceCheckout />);
+
+    const select = screen.getByLabelText(`Delivery for ${listing.record.title}`);
+    expect(select).toHaveTextContent('Physical copy');
+    await user.click(select);
+    await user.click(screen.getByRole('option', { name: 'Digital delivery' }));
+    expect(checkoutActions.setDigitalChoice).toHaveBeenCalledWith(CART_ITEM_ID, true);
+  });
+
+  it('asks for the email for an email-kind line, with the disclosure (§3, F1)', () => {
+    seededCart();
+    view.requiresDeliveryAddress = false;
+    view.requiresDeliveryEmail = true;
+    view.fulfillmentByItem = { [CART_ITEM_ID]: 'digital' };
+    view.digitalKinds = { [CART_ITEM_ID]: 'email' };
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.getByRole('heading', { name: 'Email for delivery' })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The seller of this item sees this after your payment is confirmed, to send your order. It isn't used for anything else.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Email')).toHaveAttribute('maxLength', '254');
+    expect(screen.queryByLabelText('Recipient')).not.toBeInTheDocument();
+  });
+
+  it('asks for no email when no line is email-kind', () => {
+    seededCart();
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.queryByRole('heading', { name: 'Email for delivery' })).not.toBeInTheDocument();
+  });
+
+  it('states each consent line above Pay', () => {
+    seededCart();
+    view.hasInstantDigitalLine = true;
+    view.hasManualDigitalLine = true;
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.getByTestId('checkout-consent-instant')).toHaveTextContent(
+      "Delivery starts as soon as payment is confirmed. Digital orders can't be cancelled once delivered; message the seller about a refund.",
+    );
+    expect(screen.getByTestId('checkout-consent-manual')).toHaveTextContent(
+      'You can ask to cancel until the seller marks it delivered.',
+    );
+  });
+
+  it('shows no pickup copy on an all-digital checkout', () => {
+    seededCart();
+    view.requiresDeliveryAddress = false;
+    view.fulfillmentByItem = { [CART_ITEM_ID]: 'digital' };
+    view.digitalKinds = { [CART_ITEM_ID]: 'file' };
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.queryByText(/No delivery address is needed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pickup is arranged/)).not.toBeInTheDocument();
+    expect(screen.getByText('No shipping for digital items.')).toBeInTheDocument();
   });
 
   it('keeps Pay disabled until every digital line is ready', async () => {
