@@ -566,42 +566,38 @@ export class PaykitMessagingService {
       for (const item of inbound) {
         const routed = this.routeInboundMessage(item.rawJson, ownerPubky, counterpartyPubky);
         if (!routed) continue;
-        // `event_id` is sender-chosen too. A replay of the same received
-        // message may overwrite itself; anything else holding that row id
-        // (our own sent message, another counterparty's message, another
-        // conversation) must never be rewritten by this sender.
-        const existing = await LocalMessagingService.getMessage(ownerPubky, routed.event_id);
-        if (
-          existing &&
-          (existing.direction !== 'received' ||
-            existing.counterparty_pubky !== counterpartyPubky ||
-            existing.conversation_id !== routed.conversation_id)
-        ) {
+        // `event_id` is sender-chosen too, so a stored row is never
+        // overwritten: an exact redelivery is a no-op and any other reuse of
+        // the id is dropped.
+        const stored = await LocalMessagingService.insertReceivedMessage(routed.event_id, {
+          owner_id: ownerPubky,
+          conversation_id: routed.conversation_id,
+          listing_ref: routed.listing_ref,
+          counterparty_pubky: counterpartyPubky,
+          body: routed.body,
+          sent_at: routed.sent_at,
+          recorded_at: now,
+        });
+        if (stored.status === 'conflict') {
           Logger.warn('Dropped an inbound message that reuses the id of a different stored message', {
             reason: 'event_id_collision',
           });
           continue;
         }
-        await LocalMessagingService.upsertMessage(routed.event_id, {
-          owner_id: ownerPubky,
-          conversation_id: routed.conversation_id,
-          listing_ref: routed.listing_ref,
-          counterparty_pubky: counterpartyPubky,
-          direction: 'received',
-          body: routed.body,
-          sent_at: routed.sent_at,
-          recorded_at: now,
-        });
+        // A replay still ensures the conversation row exists (the first
+        // delivery may have crashed before this write) but never moves its
+        // timestamps past the original receipt.
+        const touchedAt = stored.status === 'replay' ? stored.recordedAt : now;
         await LocalMessagingService.touchConversation({
           owner_id: ownerPubky,
           conversation_id: routed.conversation_id,
           kind: routed.kind,
           listing_ref: routed.listing_ref,
           counterparty_pubky: counterpartyPubky,
-          last_message_at: now,
-          updated_at: now,
+          last_message_at: touchedAt,
+          updated_at: touchedAt,
         });
-        received.push(routed);
+        if (stored.status === 'inserted') received.push(routed);
       }
       if (inbound.length > 0) {
         await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);

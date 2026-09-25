@@ -13,6 +13,7 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { buildDmConversationId, parseDmConversationId } from '@/libs/messaging/dm-contracts';
+import { parsePamSentAt } from '@/libs/messaging/pam-sent-at';
 import {
   CommerceMessagingConversationModel,
   CommerceMessagingLinkModel,
@@ -241,9 +242,42 @@ export class LocalMessagingService {
     return messages.filter(isBoundToCounterparty);
   }
 
-  /** The stored row for one event id, bound or not — the receive path's collision check. */
-  static async getMessage(ownerId: string, eventId: string): Promise<CommerceMessagingMessageModelSchema | null> {
-    return await CommerceMessagingMessageModel.findById(`${ownerId}:${eventId}`);
+  /**
+   * First-write-wins persistence for an inbound message. The row id is
+   * `${owner}:${event_id}` and `event_id` is chosen by the sender, so an
+   * existing row is never overwritten:
+   *
+   * - `inserted`: no row held the id; this message is now stored.
+   * - `replay`: the stored row is this same received message (counterparty,
+   *   conversation, listing ref, body, and `sent_at` all equal) — the
+   *   redelivery expected after a snapshot restore. Nothing is written.
+   * - `conflict`: the id is held by anything else (another body or time,
+   *   another counterparty or conversation, or a sent message). Nothing is
+   *   written and the caller drops the message.
+   *
+   * The claim is atomic, so concurrent drains on different links cannot
+   * both insert one id.
+   */
+  static async insertReceivedMessage(
+    eventId: string,
+    message: Omit<CommerceMessagingMessageModelSchema, 'id' | 'direction'>,
+  ): Promise<{ status: 'inserted' } | { status: 'replay'; recordedAt: number } | { status: 'conflict' }> {
+    const row: CommerceMessagingMessageModelSchema = {
+      ...message,
+      id: `${message.owner_id}:${eventId}`,
+      direction: 'received',
+    };
+    const existing = await CommerceMessagingMessageModel.insertIfAbsent(row);
+    if (!existing) return { status: 'inserted' };
+    const sameMessage =
+      existing.owner_id === row.owner_id &&
+      existing.direction === 'received' &&
+      existing.counterparty_pubky === row.counterparty_pubky &&
+      existing.conversation_id === row.conversation_id &&
+      existing.listing_ref === row.listing_ref &&
+      existing.body === row.body &&
+      parsePamSentAt((existing as { sent_at: unknown }).sent_at) === row.sent_at;
+    return sameMessage ? { status: 'replay', recordedAt: existing.recorded_at } : { status: 'conflict' };
   }
 
   /**

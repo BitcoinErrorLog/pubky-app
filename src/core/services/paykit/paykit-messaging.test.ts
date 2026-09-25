@@ -526,10 +526,11 @@ describe('PaykitMessagingService', () => {
 
     it('persists received messages BEFORE the advanced link snapshot', async () => {
       const order: string[] = [];
-      const upsertSpy = vi.spyOn(LocalMessagingService, 'upsertMessage');
+      const insertSpy = vi.spyOn(LocalMessagingService, 'insertReceivedMessage');
       const snapshotSpy = vi.spyOn(LocalMessagingService, 'updateLinkSnapshot');
-      upsertSpy.mockImplementation(async () => {
+      insertSpy.mockImplementation(async () => {
         order.push('message');
+        return { status: 'inserted' };
       });
       snapshotSpy.mockImplementation(async () => {
         order.push('snapshot');
@@ -798,6 +799,114 @@ describe('PaykitMessagingService', () => {
       const thread = await LocalMessagingService.getMessages(OWNER, ownThread);
       expect(thread).toHaveLength(1);
       expect(thread[0]).toMatchObject({ direction: 'sent', body: 'what I actually said' });
+    });
+
+    it.each([
+      {
+        kind: 'listing message',
+        conversationId: buildMarketplaceConversationAggregateId(ATTACKER, OWNER, LISTING_ID),
+        envelope: (eventId: string, body: string, sentAt: number) =>
+          chatRaw({
+            conversationId: buildMarketplaceConversationAggregateId(ATTACKER, OWNER, LISTING_ID),
+            listingRef: buildMarketplaceListingAggregateId(ATTACKER, LISTING_ID),
+            eventId,
+            body,
+          }).replace('1787306400000', String(sentAt)),
+      },
+      {
+        kind: 'direct message',
+        conversationId: `dm:${ATTACKER}`,
+        envelope: (eventId: string, body: string, sentAt: number) =>
+          JSON.stringify({ version: 1, kind: 'pubky_app.dm.v0', event_id: eventId, sent_at: sentAt, body }),
+      },
+    ])('never lets the sender rewrite a received $kind by reusing its event id', async (fixture) => {
+      const eventId = crypto.randomUUID();
+      const link = world.links.at(-1)!;
+      link.inboundQueue.push({
+        version: 1,
+        kind: 'x',
+        rawJson: fixture.envelope(eventId, 'original', 1_787_306_400_000),
+      });
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toHaveLength(1);
+      const original = await CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`);
+      await LocalMessagingService.markConversationRead(OWNER, fixture.conversationId, original!.recorded_at + 1);
+      vi.useFakeTimers({ toFake: ['Date'], now: original!.recorded_at + 60_000 });
+
+      link.inboundQueue.push(
+        { version: 1, kind: 'x', rawJson: fixture.envelope(eventId, 'edited later', 1_787_306_400_000) },
+        { version: 1, kind: 'x', rawJson: fixture.envelope(eventId, 'original', 1_787_399_999_000) },
+        { version: 1, kind: 'x', rawJson: fixture.envelope(eventId, 'original', 1_787_306_400_000) },
+      );
+      try {
+        await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const thread = await LocalMessagingService.getMessages(OWNER, fixture.conversationId);
+      expect(thread).toHaveLength(1);
+      expect(thread[0]).toMatchObject({
+        body: 'original',
+        sent_at: 1_787_306_400_000,
+        recorded_at: original!.recorded_at,
+      });
+      await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(0);
+      const conversation = await LocalMessagingService.getConversation(OWNER, fixture.conversationId);
+      expect(conversation?.last_message_at).toBe(original!.recorded_at);
+    });
+
+    it('lets exactly one of two links claim an event id when their drains overlap', async () => {
+      const SECOND = 'x'.repeat(52);
+      world.markers.set(SECOND, { receiverPath: 'marketplace/wallet', noisePublicKey: 'q'.repeat(52) });
+      world.advanceScript.push('complete');
+      await PaykitMessagingService.ensureLink(OWNER, SECOND);
+      const linkTo = (counterparty: string) => world.links.find((link) => link.counterparty === counterparty)!;
+      const eventId = crypto.randomUUID();
+      const threadWith = (counterparty: string) =>
+        buildMarketplaceConversationAggregateId(counterparty, OWNER, LISTING_ID);
+      for (const [counterparty, body] of [
+        [ATTACKER, 'from the attacker'],
+        [SECOND, 'from the second contact'],
+      ]) {
+        linkTo(counterparty).inboundQueue.push({
+          version: 1,
+          kind: 'marketplace.chat_message.v0',
+          rawJson: chatRaw({
+            conversationId: threadWith(counterparty),
+            listingRef: buildMarketplaceListingAggregateId(counterparty, LISTING_ID),
+            eventId,
+            body,
+          }),
+        });
+      }
+      // Holds any per-id lookup until both drains have made one, so a
+      // check-then-write collision guard sees an empty slot on both links.
+      const findById = CommerceMessagingMessageModel.findById.bind(CommerceMessagingMessageModel);
+      const parked: (() => void)[] = [];
+      vi.spyOn(CommerceMessagingMessageModel, 'findById').mockImplementation(
+        asOpaque(async (id: string) => {
+          await new Promise<void>((resolve) => {
+            parked.push(resolve);
+            if (parked.length === 2) parked.forEach((release) => release());
+            else setTimeout(resolve, 200);
+          });
+          return await findById(id);
+        }),
+      );
+
+      const [fromAttacker, fromSecond] = await Promise.all([
+        PaykitMessagingService.receiveMessages(OWNER, ATTACKER),
+        PaykitMessagingService.receiveMessages(OWNER, SECOND),
+      ]);
+
+      expect(fromAttacker.length + fromSecond.length).toBe(1);
+      const winner = fromAttacker.length === 1 ? ATTACKER : SECOND;
+      const loser = winner === ATTACKER ? SECOND : ATTACKER;
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`)).resolves.toMatchObject({
+        counterparty_pubky: winner,
+        conversation_id: threadWith(winner),
+      });
+      await expect(LocalMessagingService.getMessages(OWNER, threadWith(loser))).resolves.toEqual([]);
     });
 
     it('refuses to send into a thread that does not name the link counterparty', async () => {

@@ -405,6 +405,60 @@ describe('LocalMessagingService', () => {
     });
   });
 
+  describe('insertReceivedMessage (first write wins)', () => {
+    const received = (body: string, overrides: Partial<ReturnType<typeof messageRow>> = {}) => {
+      const { direction: _direction, ...row } = { ...messageRow(body, 100), ...overrides };
+      return row;
+    };
+
+    it('inserts once, treats an identical redelivery as a replay, and rejects any change as a conflict', async () => {
+      const eventId = crypto.randomUUID();
+      await expect(LocalMessagingService.insertReceivedMessage(eventId, received('one'))).resolves.toEqual({
+        status: 'inserted',
+      });
+      await expect(
+        LocalMessagingService.insertReceivedMessage(eventId, received('one', { recorded_at: 999 })),
+      ).resolves.toEqual({ status: 'replay', recordedAt: 100 });
+      for (const change of [
+        received('two'),
+        received('one', { sent_at: 1 }),
+        received('one', { counterparty_pubky: 'y'.repeat(52) }),
+        received('one', { listing_ref: null }),
+      ]) {
+        await expect(LocalMessagingService.insertReceivedMessage(eventId, change)).resolves.toEqual({
+          status: 'conflict',
+        });
+      }
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`)).resolves.toMatchObject({
+        body: 'message one',
+        recorded_at: 100,
+      });
+    });
+
+    it('never overwrites a sent message that holds the id', async () => {
+      const eventId = crypto.randomUUID();
+      await LocalMessagingService.upsertMessage(eventId, { ...messageRow('mine', 100), direction: 'sent' });
+      await expect(LocalMessagingService.insertReceivedMessage(eventId, received('mine'))).resolves.toEqual({
+        status: 'conflict',
+      });
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`)).resolves.toMatchObject({
+        direction: 'sent',
+      });
+    });
+
+    it('lets exactly one of two concurrent claims of one id insert', async () => {
+      const eventId = crypto.randomUUID();
+      const outcomes = await Promise.all([
+        LocalMessagingService.insertReceivedMessage(eventId, received('first')),
+        LocalMessagingService.insertReceivedMessage(
+          eventId,
+          received('second', { counterparty_pubky: 'y'.repeat(52) }),
+        ),
+      ]);
+      expect(outcomes.map(({ status }) => status).sort()).toEqual(['conflict', 'inserted']);
+    });
+  });
+
   // Rows stored before inbound listing messages were bound to their link: a
   // contact (ATTACKER) could file text under a thread with someone else. The
   // row's counterparty is the link it arrived on, so it is detectable.
