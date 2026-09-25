@@ -881,7 +881,6 @@ describe('PaykitMessagingService', () => {
       }
       // Holds any per-id lookup until both drains have made one, so a
       // check-then-write collision guard sees an empty slot on both links.
-      const findById = CommerceMessagingMessageModel.findById.bind(CommerceMessagingMessageModel);
       const parked: (() => void)[] = [];
       vi.spyOn(CommerceMessagingMessageModel, 'findById').mockImplementation(
         asOpaque(async (id: string) => {
@@ -890,7 +889,7 @@ describe('PaykitMessagingService', () => {
             if (parked.length === 2) parked.forEach((release) => release());
             else setTimeout(resolve, 200);
           });
-          return await findById(id);
+          return (await CommerceMessagingMessageModel.table.get(id)) ?? null;
         }),
       );
 

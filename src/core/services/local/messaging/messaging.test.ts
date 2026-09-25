@@ -9,7 +9,10 @@ import {
   CommerceMessagingOutboxModel,
   CommerceMessagingReceiverModel,
 } from '@/models/messaging/messaging.models';
-import type { CommerceMessagingOutboxModelSchema } from '@/models/messaging/messaging.schema';
+import type {
+  CommerceMessagingMessageModelSchema,
+  CommerceMessagingOutboxModelSchema,
+} from '@/models/messaging/messaging.schema';
 import { asInvalid } from '@/test-utils/type-assertions';
 import { LocalMessagingService } from './messaging';
 
@@ -406,7 +409,7 @@ describe('LocalMessagingService', () => {
   });
 
   describe('insertReceivedMessage (first write wins)', () => {
-    const received = (body: string, overrides: Partial<ReturnType<typeof messageRow>> = {}) => {
+    const received = (body: string, overrides: Partial<Omit<CommerceMessagingMessageModelSchema, 'id'>> = {}) => {
       const { direction: _direction, ...row } = { ...messageRow(body, 100), ...overrides };
       return row;
     };
