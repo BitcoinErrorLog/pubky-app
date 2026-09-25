@@ -81,6 +81,8 @@ vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
           ? new Promise(() => {})
           : Promise.resolve({ available: digitalCapability.available, maxBytes: 52_428_800 }),
       getSellerPaymentConfig: digitalCapability.getSellerPaymentConfig,
+      fetchSellerDigitalDelivery: () =>
+        Promise.resolve({ listingAggregateId: 'listing:agg', current: null, lastVersion: 0, pinnedVersions: [] }),
     },
   };
 });
@@ -1143,6 +1145,51 @@ describe('MarketplaceListingForm digital delivery (digital delivery design §2)'
     expect(await screen.findByText(DIGITAL_DELIVERY_COPY.unavailable)).toBeInTheDocument();
     expect(deliveryBox('Digital delivery')).toBeChecked();
     expect(deliveryBox('Digital delivery')).toBeEnabled();
+    expect(document.querySelector('[data-surface="digital-delivery-editor"]')).toBeNull();
+  });
+
+  it('mounts the digital delivery panel on the edit page of a digital listing', async () => {
+    render(<FormHarness fulfillment="shipping_and_digital" mode="edit" listingId="guide_01" />);
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-surface="digital-delivery-editor"]')).not.toBeNull();
+    });
+    expect(await screen.findByText(/^Not set yet/)).toBeInTheDocument();
+  });
+
+  it('does not mount the panel for a new listing or a listing without digital delivery', () => {
+    const { unmount } = render(<FormHarness fulfillment="digital" />);
+    expect(document.querySelector('[data-surface="digital-delivery-editor"]')).toBeNull();
+    unmount();
+
+    render(<FormHarness fulfillment="shipping" mode="edit" listingId="guide_01" />);
+    expect(document.querySelector('[data-surface="digital-delivery-editor"]')).toBeNull();
+  });
+
+  it('asks to save the listing first when digital delivery is newly checked, then opens once saved', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => true);
+    render(
+      <FormHarness
+        mode="edit"
+        listingId="guide_01"
+        defaultValues={editReady}
+        media={buildMedia([photoItem('one', 'Front')])}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(deliveryBox('Digital delivery')).toBeEnabled();
+    });
+    await user.click(deliveryBox('Digital delivery'));
+    expect(
+      screen.getByText('Save the listing with Digital delivery first, then set how buyers receive it.'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText(/^Not set yet/)).toBeInTheDocument();
   });
 
   it('points a new digital listing at the edit page for delivery setup', () => {

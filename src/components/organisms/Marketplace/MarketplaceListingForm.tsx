@@ -77,6 +77,7 @@ import { ListingPublishGuardNotice } from '@/molecules/Marketplace/ListingPublis
 import { RequiredToPublishSummary } from '@/molecules/Marketplace/RequiredToPublishSummary';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { MarketplaceCategoryPicker } from '@/organisms/Marketplace/MarketplaceCategoryPicker';
+import { MarketplaceDigitalDeliveryEditor } from '@/organisms/Marketplace/MarketplaceDigitalDeliveryEditor';
 import { MarketplaceListingAttributeFields } from '@/organisms/Marketplace/MarketplaceListingAttributeFields';
 import {
   MarketplacePickupDetailsEditor,
@@ -316,6 +317,9 @@ export function MarketplaceListingForm({
   };
   const pickupEditorRef = useRef<MarketplacePickupDetailsEditorHandle>(null);
   const publishedFulfillmentRef = useRef(form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT));
+  // The saved record's delivery options, so the digital delivery panel knows
+  // whether the service already sells this listing digitally.
+  const [publishedFulfillment, setPublishedFulfillment] = useState(publishedFulfillmentRef.current);
   const persistListing = async (options?: { silent?: boolean }): Promise<boolean> => {
     const result = await onSubmit(options);
     return result !== false;
@@ -397,6 +401,7 @@ export function MarketplaceListingForm({
       }
     }
     publishedFulfillmentRef.current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT);
+    setPublishedFulfillment(publishedFulfillmentRef.current);
     onPublished?.();
   };
 
@@ -728,6 +733,16 @@ export function MarketplaceListingForm({
             <Typography as="p" className="text-sm text-muted-foreground">
               {DIGITAL_DELIVERY_COPY.unavailable}
             </Typography>
+          )}
+          {/* The note above already says when the deployment cannot deliver. */}
+          {delivery.digital && listingId && isEdit && digitalAvailable !== false && (
+            <MarketplaceDigitalDeliveryEditor
+              listingId={listingId}
+              available={digitalAvailable}
+              maxBytes={digitalCapability?.maxBytes ?? null}
+              published={fulfillmentFlags(publishedFulfillment).digital}
+              disabled={isPublishing}
+            />
           )}
           {delivery.digital && !isEdit && (
             <Typography as="p" className="text-sm text-muted-foreground">

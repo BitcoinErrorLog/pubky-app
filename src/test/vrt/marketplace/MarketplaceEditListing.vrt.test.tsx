@@ -2,7 +2,7 @@
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController } from '@/test/mocks/marketplace-vrt';
 import { describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceEditListing } from '@/templates/Marketplace/MarketplaceEditListing';
 
@@ -114,6 +114,26 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     fetchPickupAvailable: () => Promise.resolve(false),
     fetchDigitalDeliveryCapability: () =>
       Promise.resolve({ available: view.digitalAvailable, maxBytes: view.digitalAvailable ? 52_428_800 : null }),
+    // The seller's owner read (handlers/digital.rs): a live file at version 2
+    // with one older version still downloaded.
+    fetchSellerDigitalDelivery: () =>
+      Promise.resolve({
+        listingAggregateId: 'listing:field_guide',
+        current: {
+          kind: 'file',
+          deliverableId: 'a'.repeat(32),
+          version: 2,
+          createdAt: '2026-09-25T10:00:00.000Z',
+          contentType: 'application/pdf',
+          sizeBytes: 12_582_912,
+          fileName: 'Field Guide.pdf',
+        },
+        lastVersion: 2,
+        pinnedVersions: [
+          { version: 1, liveOrders: 3 },
+          { version: 2, liveOrders: 1 },
+        ],
+      }),
   },
 }));
 
@@ -166,9 +186,13 @@ describe('Marketplace edit listing — visual regression', () => {
     await vi.waitFor(() => {
       const digital = screen.container.querySelector('#listing-delivery-digital');
       if (digital?.getAttribute('data-state') !== 'checked') throw new Error('Digital delivery is not checked yet.');
+      if (!screen.container.querySelector('[data-testid="digital-delivery-current"]')) {
+        throw new Error('The digital delivery panel has not loaded yet.');
+      }
     });
     screen.container.querySelector('[data-testid="listing-delivery-options"]')?.scrollIntoView({ block: 'center' });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('edit-listing-digital-desktop');
+    await expect(expectVrtSurface('digital-delivery-editor')).toMatchScreenshot('edit-listing-digital-panel-desktop');
     view.digitalAvailable = false;
   });
 
