@@ -236,7 +236,10 @@ export function useMarketplaceCheckout(
   const sellersPublishingPickup = new Set<string>();
   for (const item of items) {
     const sellerPubky = item.listing.record.ownerPubky;
-    const published = commerceListingFulfillmentMethods(item.listing.record.fulfillmentMethods);
+    const published = commerceListingFulfillmentMethods(
+      item.listing.record.fulfillmentMethods,
+      item.listing.record.digitalLock !== undefined,
+    );
     if (published.includes('pickup')) sellersPublishingPickup.add(sellerPubky);
     const allowed = pickupAvailable === true ? published : published.filter((method) => method !== 'pickup');
     const existing = optionsBySeller.get(sellerPubky);
@@ -357,7 +360,10 @@ export function useMarketplaceCheckout(
         return {
           listingAggregateId: projection.aggregateId,
           sellerPubky: record.ownerPubky,
-          publishedFulfillmentMethods: commerceListingFulfillmentMethods(record.fulfillmentMethods),
+          publishedFulfillmentMethods: commerceListingFulfillmentMethods(
+            record.fulfillmentMethods,
+            record.digitalLock !== undefined,
+          ),
           expectedRevision: projection.serverRevision,
           quantity: item.quantity,
           ...(variant ? { variantId: variant.id } : {}),

@@ -58,6 +58,13 @@ import {
 // ---------------------------------------------------------------------------
 
 export type MarketplaceFulfillmentMethod = 'shipping' | 'pickup';
+/**
+ * What a listing publishes. `digital` is stored as registered, but the
+ * prototype seals and releases nothing, so its checkout lines accept only
+ * shipping and pickup: a digital listing is never sold here, and never as
+ * shipping (digital delivery design §6 A1, B5).
+ */
+export type MarketplaceListingFulfillmentMethod = MarketplaceFulfillmentMethod | 'digital';
 
 const fulfillmentMethodSchema = z.enum(['shipping', 'pickup']);
 
@@ -262,7 +269,7 @@ export interface MarketplaceListingAggregate {
    * Public like the rest of the listing — the seller's pickup DETAILS are
    * never placed here; they live only in the service's sealed store.
    */
-  fulfillmentMethods: MarketplaceFulfillmentMethod[];
+  fulfillmentMethods: MarketplaceListingFulfillmentMethod[];
   auction: {
     status: 'scheduled' | 'active' | 'sold' | 'unsold' | 'cancelled';
     startsAt: string;

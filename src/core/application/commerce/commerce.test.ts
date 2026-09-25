@@ -349,6 +349,53 @@ describe('CommerceApplication', () => {
     );
   });
 
+  // Digital delivery design §6 A1–A4: the register payload's methods mirror
+  // the service's own derivation of the record.
+  it.each([
+    [['digital'], false, ['digital']],
+    [['physical', 'shipping', 'digital'], false, ['shipping', 'digital']],
+    [['pickup', 'digital'], false, ['pickup', 'digital']],
+    [['digital'], true, ['shipping']],
+  ] as const)('register_accepts_digital_method: %j (lock %s) registers %j', async (methods, locks, expected) => {
+    const physical = (methods as readonly string[]).includes('physical');
+    const base = createCommerceListingFixture();
+    const record = createCommerceListingFixture({
+      fulfillmentMethods: [...methods],
+      package: physical ? base.package : undefined,
+      shippingOptions: physical ? base.shippingOptions : [],
+      ...(locks
+        ? {
+            digitalLock: {
+              policyUri: `pubky://${COMMERCE_FIXTURE_SELLER}/pub/locks.app/boots_01.json`,
+              criterionId: 'criterion-1',
+              contentPath: 'premium.txt',
+              resourceHash: 'b'.repeat(64),
+              minimumConfirmations: 6,
+            },
+          }
+        : {}),
+    });
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+    const execute = vi
+      .spyOn(MarketplaceGatewayService, 'execute')
+      .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
+
+    await CommerceApplication.commitUpsertListing(record);
+
+    expect(execute).toHaveBeenCalledWith(
+      record.ownerPubky,
+      expect.objectContaining({
+        kind: 'listing.register',
+        payload: expect.objectContaining({ fulfillmentMethods: [...expected] }),
+      }),
+    );
+  });
+
   it('registers a sandbox auction with an explicit null private reserve', async () => {
     const record = createCommerceListingFixture();
     record.sale = {

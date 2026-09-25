@@ -9,7 +9,8 @@ import {
   commerceAttributeFieldsFor,
   resolveCommerceCategory,
 } from '@/config/taxonomy/taxonomy';
-import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
+import { DIGITAL_DELIVERY_COPY } from '@/libs/commerce/digital';
+import { commerceListingFulfillmentMethods, type CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import {
   amountInputSchemaForAsset,
   amountInputToMoney,
@@ -224,6 +225,44 @@ function validatePackageDimension(
   }
 }
 
+/** Every combination of the studio's three delivery options (at least one). */
+export const listingFulfillmentSchema = z.enum([
+  'shipping',
+  'pickup',
+  'shipping_and_pickup',
+  'digital',
+  'shipping_and_digital',
+  'pickup_and_digital',
+  'shipping_pickup_and_digital',
+]);
+export type ListingFulfillment = z.infer<typeof listingFulfillmentSchema>;
+
+/** The three delivery checkboxes (§2): Ship, Local pickup, Digital delivery. */
+export type ListingFulfillmentFlags = { ship: boolean; pickup: boolean; digital: boolean };
+
+const FULFILLMENT_FLAGS: Readonly<Record<ListingFulfillment, ListingFulfillmentFlags>> = {
+  shipping: { ship: true, pickup: false, digital: false },
+  pickup: { ship: false, pickup: true, digital: false },
+  shipping_and_pickup: { ship: true, pickup: true, digital: false },
+  digital: { ship: false, pickup: false, digital: true },
+  shipping_and_digital: { ship: true, pickup: false, digital: true },
+  pickup_and_digital: { ship: false, pickup: true, digital: true },
+  shipping_pickup_and_digital: { ship: true, pickup: true, digital: true },
+};
+
+export function fulfillmentFlags(fulfillment: ListingFulfillment): ListingFulfillmentFlags {
+  return FULFILLMENT_FLAGS[fulfillment];
+}
+
+/** The form value for a checkbox combination, or null when none is checked. */
+export function fulfillmentFromFlags(flags: ListingFulfillmentFlags): ListingFulfillment | null {
+  const match = (Object.keys(FULFILLMENT_FLAGS) as ListingFulfillment[]).find((value) => {
+    const candidate = FULFILLMENT_FLAGS[value];
+    return candidate.ship === flags.ship && candidate.pickup === flags.pickup && candidate.digital === flags.digital;
+  });
+  return match ?? null;
+}
+
 export const createMarketplaceListingSchema = z
   .object({
     title: z
@@ -259,7 +298,7 @@ export const createMarketplaceListingSchema = z
     price: z.string().trim(),
     reservePrice: z.string().trim(),
     variants: z.array(listingVariantSchema).min(1, 'Add at least one variant.').max(100, 'Too many variants.'),
-    fulfillment: z.enum(['shipping', 'pickup', 'shipping_and_pickup']),
+    fulfillment: listingFulfillmentSchema,
     shippingLabel: z.string().trim().max(100, 'Keep the shipping label under 100 characters.'),
     /** When true the listing ships free: the price field is skipped and the record emits a `pricing: 'free'` option. */
     freeShipping: z.boolean(),
@@ -298,7 +337,7 @@ export const createMarketplaceListingSchema = z
         validateMoneyField(variant.priceOverride, data.currency, ['variants', index, 'priceOverride'], context);
       }
     });
-    if (data.fulfillment !== 'pickup') {
+    if (fulfillmentFlags(data.fulfillment).ship) {
       // Free shipping emits the record's `pricing: 'free'` option — there is
       // no price to validate. The label is still required either way.
       if (!data.freeShipping) {
@@ -348,15 +387,16 @@ export const createMarketplaceListingSchema = z
         validatePackageDimension(data[field], field, data.measurementSystem, context);
       }
     }
-    // Auctions are shipping-only (local pickup design §A2): an auction order
-    // carries no address and no checkout step, so a pickup choice could never
-    // be expressed. The studio coerces the field on format switch; this rule
-    // is the schema backstop (and drives the publish checklist).
+    // Auctions are shipping-only (local pickup design §A2; digital delivery
+    // design §6 A5): an auction order carries no address and no checkout
+    // step, so neither a pickup nor a digital choice could be expressed. The
+    // studio coerces the field on format switch; this rule is the schema
+    // backstop (and drives the publish checklist).
     if (data.saleFormat === 'auction' && data.fulfillment !== 'shipping') {
       context.addIssue({
         code: 'custom',
         path: [CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT],
-        message: 'Auctions ship only — pickup is available on Buy now listings.',
+        message: DIGITAL_DELIVERY_COPY.auctionsShipOnly,
       });
     }
     if (data.saleFormat === 'auction' && data.variants.length !== 1) {
@@ -411,7 +451,7 @@ export const createMarketplaceListingDraftSchema = z
       }),
     ),
     /** Legacy drafts stored the shipping choice as 'physical'; accepted here and migrated to 'shipping' on restore. */
-    fulfillment: z.enum(['pickup', 'physical', 'shipping', 'shipping_and_pickup']),
+    fulfillment: z.union([listingFulfillmentSchema, z.literal('physical')]),
     shippingLabel: z.string(),
     freeShipping: z.boolean(),
     shippingPrice: z.string(),
@@ -446,47 +486,60 @@ export type CreateMarketplaceListingData = z.infer<typeof createMarketplaceListi
 export type CreateMarketplaceListingDraftData = z.infer<typeof createMarketplaceListingDraftSchema>;
 
 /**
- * The studio's fulfillment axis (local pickup design §A2). The record
- * vocabulary couples `physical` to package facts and a shipping option (the
- * record schema's own rule), so: a shipped listing is `['physical']` (the
- * service defaults it to shipping-only); a pickup-only listing is
- * `['pickup']` (no package facts — nothing ships); a both-ways listing ships
- * too, so it keeps `physical` AND must carry `shipping` explicitly alongside
- * `pickup` — without it the service's derivation would converge to
- * pickup-only.
+ * The studio's delivery options (local pickup design §A2; digital delivery
+ * design §2). The record vocabulary couples `physical` to package facts and
+ * a shipping option (the record schema's own rule), and the service derives
+ * its methods from the record (`commerceListingFulfillmentMethods`), so:
+ *
+ * | Seller picks            | `fulfillmentMethods` written                  |
+ * |-------------------------|-----------------------------------------------|
+ * | Ship                    | `['physical']`                                |
+ * | Pickup                  | `['pickup']`                                  |
+ * | Ship + Pickup           | `['physical', 'shipping', 'pickup']`          |
+ * | Digital                 | `['digital']`                                 |
+ * | Ship + Digital          | `['physical', 'shipping', 'digital']`         |
+ * | Pickup + Digital        | `['pickup', 'digital']`                       |
+ * | Ship + Pickup + Digital | `['physical', 'shipping', 'pickup', 'digital']` |
+ *
+ * `shipping` is written explicitly whenever another method is present,
+ * because the service's derivation would otherwise drop shipping.
  */
 export function fulfillmentMethodsFromForm(
   fulfillment: CreateMarketplaceListingData['fulfillment'],
 ): CommerceListingRecord['fulfillmentMethods'] {
-  switch (fulfillment) {
-    case 'shipping':
-      return ['physical'];
-    case 'pickup':
-      return ['pickup'];
-    case 'shipping_and_pickup':
-      return ['physical', 'shipping', 'pickup'];
-  }
+  const { ship, pickup, digital } = fulfillmentFlags(fulfillment);
+  if (ship && !pickup && !digital) return ['physical'];
+  return [
+    ...(ship ? (['physical', 'shipping'] as const) : []),
+    ...(pickup ? (['pickup'] as const) : []),
+    ...(digital ? (['digital'] as const) : []),
+  ];
 }
 
 /**
- * The inverse mapping for edit/duplicate hydration. Records published before
- * the fulfillment choice existed carry no pickup vocabulary and read as
- * shipping (existing seller listings default to shipping); a legacy
- * pickup-only record (`['pickup']` or `['physical','pickup']`) reads as
- * pickup, and only an explicit `shipping` entry alongside `pickup` reads as
- * both — mirroring `commerceListingFulfillmentMethods`.
+ * The inverse mapping for edit/duplicate hydration: the form reads back the
+ * methods the service derives from the record, so a record reads exactly as
+ * it sells. Records published before the fulfillment choice existed derive
+ * to shipping; a legacy pickup-only record (`['pickup']` or
+ * `['physical','pickup']`) reads as pickup; `['physical','digital']`
+ * without an explicit `shipping` reads as digital-only.
  */
 export function fulfillmentFormValueFromRecord(
   methods: readonly CommerceListingRecord['fulfillmentMethods'][number][],
 ): CreateMarketplaceListingData['fulfillment'] {
-  const offersPickup = methods.includes('pickup');
-  if (!offersPickup) return 'shipping';
-  return methods.includes('shipping') ? 'shipping_and_pickup' : 'pickup';
+  const derived = commerceListingFulfillmentMethods(methods);
+  return (
+    fulfillmentFromFlags({
+      ship: derived.includes('shipping'),
+      pickup: derived.includes('pickup'),
+      digital: derived.includes('digital'),
+    }) ?? 'shipping'
+  );
 }
 
 /** True when the fulfillment choice includes shipping (the shipping/package fields stay required). */
 export function fulfillmentRequiresShipping(fulfillment: CreateMarketplaceListingData['fulfillment']): boolean {
-  return fulfillment !== 'pickup';
+  return fulfillmentFlags(fulfillment).ship;
 }
 
 /** Schema field names for a scoped `useWatch` — keep this derived, never hand-typed. */

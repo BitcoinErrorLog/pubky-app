@@ -7,6 +7,7 @@ import { ToastAction } from '@/atoms/Toast/Toast';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { commerceListingShippingMinor } from '@/libs/commerce/marketplace-records';
+import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import { sumMoneyByAsset } from '@/libs/commerce/pricing';
 import type { CommerceListingModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -31,7 +32,7 @@ export interface MarketplaceCartGroup {
 
 export function marketplaceCartShippingTotals(
   groups: MarketplaceCartGroup[],
-  fulfillmentForSeller: (sellerPubky: string) => 'shipping' | 'pickup' | undefined,
+  fulfillmentForSeller: (sellerPubky: string) => MarketplaceFulfillmentMethod | undefined,
 ): { totals: ReturnType<typeof sumMoneyByAsset>; hasCalculatedShipping: boolean } {
   const shippingLines: Array<{ money: { amountMinor: number; currency: string; exponent: number }; quantity: number }> =
     [];

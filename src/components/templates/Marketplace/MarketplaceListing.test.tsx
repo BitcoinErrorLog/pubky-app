@@ -6,13 +6,18 @@ import { CAPABILITIES } from '@/config/app';
 import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
-import { createCommerceListingFixture, createCommerceShopFixture } from '@/test/fixtures/commerce/commerce';
+import {
+  COMMERCE_FIXTURE_SELLER,
+  createCommerceListingFixture,
+  createCommerceShopFixture,
+} from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel, toCommerceShopModel } from '@/test/fixtures/commerce/listing-models';
 import { parseContractFaithfulOffer } from '@/test/fixtures/commerce/offer-award';
 import { createOrderFixture } from '@/test/fixtures/commerce/orders';
 import { createListingProjectionFixture } from '@/test/fixtures/commerce/projections';
 import { MarketplaceListing } from './MarketplaceListing';
 
+const LOCKS_POLICY_URL = `pubky://${COMMERCE_FIXTURE_SELLER}/pub/locks.app/boots_01.json`;
 const cartAdd = vi.hoisted(() => vi.fn());
 const projectionRefresh = vi.hoisted(() => vi.fn());
 const sellerReputation = vi.hoisted((): { value: CommerceSellerReputationOverview | { status: 'loading' } } => ({
@@ -279,6 +284,80 @@ describe('MarketplaceListing', () => {
       purchase.compareDocumentPosition(screen.getByRole('heading', { name: 'Item specifics' })) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  // Digital delivery design §3 and §6 B7, B8.
+  const digitalOnly = () =>
+    toCommerceListingModel(
+      createCommerceListingFixture({ fulfillmentMethods: ['digital'], package: undefined, shippingOptions: [] }),
+    );
+
+  it('badges a digital-only listing by its delivery kind and takes no offers', () => {
+    view.listing = digitalOnly();
+    view.projection = createListingProjectionFixture({
+      fulfillmentMethods: ['digital'],
+      digitalDelivery: { kind: 'file', contentType: 'application/pdf', sizeBytes: 12_582_912 },
+    });
+    renderListing();
+
+    expect(screen.getByTestId('marketplace-listing-digital-badge')).toHaveTextContent('Instant download · PDF · 12 MB');
+    expect(screen.queryByText('Ships from')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pickup location')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Make offer/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-listing-digital-offer-note')).toHaveTextContent(
+      "Offers aren't available on digital items yet.",
+    );
+  });
+
+  it('shows the plain digital badge until the seller sets delivery', () => {
+    view.listing = digitalOnly();
+    view.projection = createListingProjectionFixture({ fulfillmentMethods: ['digital'], digitalDelivery: null });
+    renderListing();
+
+    expect(screen.getByTestId('marketplace-listing-digital-badge')).toHaveTextContent(/^Digital delivery$/);
+  });
+
+  it('keeps shipping facts and offers on a listing that ships and delivers digitally', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({ fulfillmentMethods: ['physical', 'shipping', 'digital'] }),
+    );
+    view.projection = createListingProjectionFixture({
+      fulfillmentMethods: ['shipping', 'digital'],
+      digitalDelivery: { kind: 'email' },
+    });
+    renderListing();
+
+    expect(screen.getByText('Shipping: $12.00')).toHaveAttribute('data-slot', 'badge');
+    expect(screen.getByTestId('marketplace-listing-digital-badge')).toHaveTextContent(
+      'Emailed by the seller after payment',
+    );
+    expect(screen.getByText('Ships from')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Make offer/ })).toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-listing-digital-offer-note')).toHaveTextContent(
+      'Offers buy the shipped version.',
+    );
+  });
+
+  it('leaves a Locks listing on its own digital notice', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['digital'],
+        package: undefined,
+        shippingOptions: [],
+        digitalLock: {
+          policyUri: LOCKS_POLICY_URL,
+          criterionId: 'criterion-1',
+          contentPath: 'premium.txt',
+          resourceHash: 'b'.repeat(64),
+          minimumConfirmations: 6,
+        },
+      }),
+    );
+    renderListing();
+
+    expect(screen.queryByTestId('marketplace-listing-digital-badge')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('marketplace-listing-digital-offer-note')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Make offer/ })).toBeInTheDocument();
   });
 
   it('falls back to the seller pubky when no shop record exists', () => {

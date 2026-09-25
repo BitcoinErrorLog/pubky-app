@@ -33,9 +33,17 @@ import {
   type CreateMarketplaceListingData,
   createMarketplaceListingPublishChecklist,
   createMarketplaceListingValuesFromWatch,
+  fulfillmentFlags,
+  fulfillmentFromFlags,
   isCreateMarketplaceListingPublishReady,
   listingAttributeFormField,
+  type ListingFulfillment,
+  type ListingFulfillmentFlags,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
+import {
+  useDigitalDeliveryCapability,
+  useSellerAcceptsPaypal,
+} from '@/hooks/useDigitalDeliveryCapability/useDigitalDeliveryCapability';
 import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
@@ -46,6 +54,7 @@ import {
   presetToShippingFields,
   shippingFieldsToPresetInput,
 } from '@/hooks/useMarketplaceShippingPresets/useMarketplaceShippingPresets.types';
+import { DIGITAL_DELIVERY_COPY } from '@/libs/commerce/digital';
 import { isListingDraftSectionId, type ListingDraftSectionId } from '@/libs/commerce/listing-drafts';
 import {
   LISTING_PUBLISH_BLOCK_COPY,
@@ -232,14 +241,31 @@ export function MarketplaceListingForm({
       form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, 'shipping', { shouldValidate: true });
     }
   }, [saleFormat, form]);
-  // A deployment without pickup cannot publish it either — coerce any pickup
-  // value to shipping the same way the auction path does, so a stale form
-  // value never slips past the hidden options.
+  // A deployment without pickup cannot publish it either — drop a pickup
+  // choice the same way the auction path does, so a stale form value never
+  // slips past the disabled option. The other choices are kept.
   useEffect(() => {
-    if (pickupAvailable === false && form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT) !== 'shipping') {
-      form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, 'shipping', { shouldValidate: true });
-    }
+    if (pickupAvailable !== false) return;
+    const current = fulfillmentFlags(form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT));
+    if (!current.pickup) return;
+    const next = fulfillmentFromFlags({ ...current, pickup: false }) ?? 'shipping';
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, next, { shouldValidate: true });
   }, [pickupAvailable, form]);
+  // The deployment's digital delivery capability (digital delivery design §6
+  // B5). A new listing drops a digital choice the deployment cannot deliver.
+  // An edit keeps what the published record says: coercing there would
+  // silently rewrite a live listing, so the option is disabled with a note.
+  const digitalCapability = useDigitalDeliveryCapability();
+  const digitalAvailable = digitalCapability?.available ?? null;
+  const acceptsPaypal = useSellerAcceptsPaypal();
+  useEffect(() => {
+    if (digitalAvailable !== false || mode === 'edit') return;
+    const current = fulfillmentFlags(form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT));
+    if (!current.digital) return;
+    const next = fulfillmentFromFlags({ ...current, digital: false }) ?? 'shipping';
+    form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, next, { shouldValidate: true });
+  }, [digitalAvailable, mode, form]);
+  const delivery = fulfillmentFlags(fulfillment);
   const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
   const pricePlaceholder = currency === 'BTC' ? '150000' : '125.00';
   const isImperial = measurementSystem === 'imperial';
@@ -320,7 +346,7 @@ export function MarketplaceListingForm({
   };
   const submitListing = async () => {
     const editor = pickupEditorRef.current;
-    const offersPickup = fulfillment !== 'shipping';
+    const offersPickup = delivery.pickup;
     if (isEdit && listingId && offersPickup && pickupAvailable === true && editor) {
       if (editor.capability === 'loading' || editor.readState === 'loading') {
         toast({
@@ -654,25 +680,20 @@ export function MarketplaceListingForm({
 
         <ListingFormSection
           id="listing-section-shipping"
-          title="Shipping & returns"
-          description="Fulfillment: ship the item, offer local pickup, or both. Shipping requires the shipping details and package size; pickup-only listings skip those fields."
+          title="Delivery & returns"
+          description="Ship the item, offer local pickup, deliver it digitally, or any mix. Shipping requires the shipping details and package size; the other options skip those fields."
           complete={sectionStatuses['listing-section-shipping']}
         >
           <div className="grid gap-5 sm:grid-cols-2">
-            <FormSelect
-              form={form}
-              name={CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT}
-              label="Fulfillment"
-              disabled={isPublishing || saleFormat === 'auction' || pickupAvailable !== true}
-              options={
-                pickupAvailable === false
-                  ? [{ value: 'shipping', label: 'Ship item' }]
-                  : [
-                      { value: 'shipping', label: 'Ship item' },
-                      { value: 'pickup', label: 'Local pickup' },
-                      { value: 'shipping_and_pickup', label: 'Pickup or shipping' },
-                    ]
+            <ListingDeliveryOptions
+              value={fulfillment}
+              onChange={(next) =>
+                form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, next, { shouldValidate: true })
               }
+              disabled={isPublishing}
+              auction={saleFormat === 'auction'}
+              pickupAvailable={pickupAvailable === true}
+              digitalAvailable={digitalAvailable === true}
             />
             <FormSelect
               form={form}
@@ -695,7 +716,7 @@ export function MarketplaceListingForm({
           )}
           {saleFormat === 'auction' && (
             <Typography as="p" className="text-sm text-muted-foreground">
-              Auctions ship only — local pickup is available on Buy now listings.
+              {DIGITAL_DELIVERY_COPY.auctionsShipOnly}
             </Typography>
           )}
           {pickupAvailable === false && (
@@ -703,12 +724,32 @@ export function MarketplaceListingForm({
               Local pickup is not available on this deployment.
             </Typography>
           )}
+          {digitalAvailable === false && (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              {DIGITAL_DELIVERY_COPY.unavailable}
+            </Typography>
+          )}
+          {delivery.digital && !isEdit && (
+            <Typography as="p" className="text-sm text-muted-foreground">
+              Publish first, then set how buyers receive it from the listing&apos;s edit page.
+            </Typography>
+          )}
+          {delivery.digital && acceptsPaypal && (
+            <Typography
+              as="p"
+              role="note"
+              data-testid="listing-digital-paypal-warning"
+              className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200"
+            >
+              {DIGITAL_DELIVERY_COPY.paypalWarning}
+            </Typography>
+          )}
 
           {/* The pickup-details editor only exists post-publish: the service
               accepts `pickup_details.set` for a REGISTERED listing that
               publishes pickup, so a create-mode mount could only ever fail
               its owner read. Create mode points at the edit page instead. */}
-          {fulfillment !== 'shipping' && listingId && isEdit && (
+          {delivery.pickup && listingId && isEdit && (
             <MarketplacePickupDetailsEditor
               ref={pickupEditorRef}
               listingId={listingId}
@@ -717,13 +758,13 @@ export function MarketplaceListingForm({
               revertListing={revertListing}
             />
           )}
-          {fulfillment !== 'shipping' && !isEdit && (
+          {delivery.pickup && !isEdit && (
             <Typography as="p" className="text-sm text-muted-foreground">
               Publish first, then add your meeting point from the listing&apos;s edit page.
             </Typography>
           )}
 
-          {fulfillment !== 'pickup' && (
+          {delivery.ship && (
             <>
               <ListingShippingPresetRow form={form} isPublishing={isPublishing} />
               <div className="grid gap-5 sm:grid-cols-2">
@@ -1135,7 +1176,7 @@ function getListingSectionStatuses(
     /^[A-Za-z]{2}$/.test(values.countryCode.trim()) &&
     categoryRequiredAttributesComplete(values);
   const shippingComplete =
-    values.fulfillment === 'pickup' ||
+    !fulfillmentFlags(values.fulfillment).ship ||
     (values.shippingLabel.trim().length > 0 &&
       (values.freeShipping ||
         amountInputSchemaForAsset(assetForListingCurrency(values.currency)).safeParse(values.shippingPrice).success) &&
@@ -1184,10 +1225,77 @@ function getOptionalLaterItems(values: CreateMarketplaceListingData): string[] {
   ) {
     optionalItems.push('Variant SKUs, options, and price overrides');
   }
-  if (values.fulfillment === 'pickup') optionalItems.push('Shipping details');
+  if (!fulfillmentFlags(values.fulfillment).ship) optionalItems.push('Shipping details');
   if (values.returnDays === 'none') optionalItems.push('Returns policy');
 
   return optionalItems;
+}
+
+const DELIVERY_OPTIONS: ReadonlyArray<{ key: keyof ListingFulfillmentFlags; id: string; label: string }> = [
+  { key: 'ship', id: 'listing-delivery-ship', label: 'Ship' },
+  { key: 'pickup', id: 'listing-delivery-pickup', label: 'Local pickup' },
+  { key: 'digital', id: 'listing-delivery-digital', label: 'Digital delivery' },
+];
+
+/**
+ * The three delivery checkboxes (digital delivery design §2): at least one
+ * stays checked (the only checked box cannot be cleared), auctions ship
+ * only, and pickup and digital can be added only while the deployment
+ * offers them. A choice the deployment has since turned off stays checked on
+ * an edit until the seller clears it, so the published record is never
+ * rewritten by accident.
+ */
+function ListingDeliveryOptions({
+  value,
+  onChange,
+  disabled,
+  auction,
+  pickupAvailable,
+  digitalAvailable,
+}: {
+  value: ListingFulfillment;
+  onChange: (next: ListingFulfillment) => void;
+  disabled: boolean;
+  auction: boolean;
+  pickupAvailable: boolean;
+  digitalAvailable: boolean;
+}) {
+  const flags = fulfillmentFlags(value);
+  const checkedCount = Number(flags.ship) + Number(flags.pickup) + Number(flags.digital);
+  const available: ListingFulfillmentFlags = {
+    ship: true,
+    pickup: pickupAvailable && !auction,
+    digital: digitalAvailable && !auction,
+  };
+  return (
+    <fieldset className="grid gap-2" data-testid="listing-delivery-options">
+      <legend className={FORM_LABEL_CLASSES}>Delivery options</legend>
+      {DELIVERY_OPTIONS.map((option) => {
+        const checked = flags[option.key];
+        const isOnlyChecked = checked && checkedCount === 1;
+        return (
+          <div key={option.key} className="flex items-center gap-2">
+            <Checkbox
+              id={option.id}
+              aria-label={option.label}
+              checked={checked}
+              disabled={disabled || isOnlyChecked || (!checked && !available[option.key])}
+              onCheckedChange={(next) => {
+                const updated = fulfillmentFromFlags({ ...flags, [option.key]: next === true });
+                if (updated) onChange(updated);
+              }}
+            />
+            <Label htmlFor={option.id} className="cursor-pointer text-sm">
+              {option.label}
+            </Label>
+          </div>
+        );
+      })}
+      <Typography as="p" className="text-xs text-muted-foreground">
+        {DIGITAL_DELIVERY_COPY.atLeastOneMethod}
+      </Typography>
+    </fieldset>
+  );
 }
 
 /**

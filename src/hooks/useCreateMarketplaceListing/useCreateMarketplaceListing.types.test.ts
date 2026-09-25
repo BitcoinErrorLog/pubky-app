@@ -5,7 +5,14 @@ import {
   createMarketplaceListingPublishChecklist,
   createMarketplaceListingSchema,
   createMarketplaceListingValuesFromWatch,
+  fulfillmentFlags,
+  fulfillmentFormValueFromRecord,
+  fulfillmentFromFlags,
+  fulfillmentMethodsFromForm,
+  fulfillmentRequiresShipping,
   isCreateMarketplaceListingPublishReady,
+  type ListingFulfillment,
+  listingFulfillmentSchema,
 } from './useCreateMarketplaceListing.types';
 
 /**
@@ -333,5 +340,80 @@ describe('isCreateMarketplaceListingPublishReady', () => {
     expect(zipped.price).toBe(pickupReady.price);
     expect(zipped.categoryId).toBe(pickupReady.categoryId);
     expect(createMarketplaceListingPublishChecklist(zipped, 1)).toEqual([]);
+  });
+});
+
+describe('delivery options record encoding (digital delivery design §2)', () => {
+  const table: Array<[ListingFulfillment, string[]]> = [
+    ['shipping', ['physical']],
+    ['pickup', ['pickup']],
+    ['shipping_and_pickup', ['physical', 'shipping', 'pickup']],
+    ['digital', ['digital']],
+    ['shipping_and_digital', ['physical', 'shipping', 'digital']],
+    ['pickup_and_digital', ['pickup', 'digital']],
+    ['shipping_pickup_and_digital', ['physical', 'shipping', 'pickup', 'digital']],
+  ];
+
+  it('writes every combination exactly as the design table', () => {
+    for (const [value, methods] of table) {
+      expect(fulfillmentMethodsFromForm(value), value).toEqual(methods);
+    }
+    expect(table.map(([value]) => value).sort()).toEqual([...listingFulfillmentSchema.options].sort());
+  });
+
+  it('reads every written record back to the same choice', () => {
+    for (const [value, methods] of table) {
+      expect(fulfillmentFormValueFromRecord(methods as never), value).toBe(value);
+    }
+  });
+
+  it('reads records the studio never wrote as the service sells them', () => {
+    expect(fulfillmentFormValueFromRecord(['physical', 'pickup'])).toBe('pickup');
+    expect(fulfillmentFormValueFromRecord(['physical', 'digital'])).toBe('digital');
+    expect(fulfillmentFormValueFromRecord([])).toBe('shipping');
+  });
+
+  it('maps checkboxes to values and back, with no value for none checked', () => {
+    for (const value of listingFulfillmentSchema.options) {
+      expect(fulfillmentFromFlags(fulfillmentFlags(value))).toBe(value);
+    }
+    expect(fulfillmentFromFlags({ ship: false, pickup: false, digital: false })).toBeNull();
+  });
+
+  it('requires the shipping fields exactly when the listing ships', () => {
+    for (const value of listingFulfillmentSchema.options) {
+      expect(fulfillmentRequiresShipping(value), value).toBe(fulfillmentFlags(value).ship);
+    }
+  });
+
+  it('auction_with_digital_refused: auctions allow shipping only', () => {
+    for (const value of listingFulfillmentSchema.options) {
+      const parsed = createMarketplaceListingSchema.safeParse({
+        ...formDefaults,
+        title: 'Field guide',
+        description: 'A guide.',
+        saleFormat: 'auction',
+        price: '10.00',
+        fulfillment: value,
+      });
+      const fulfillmentIssue = parsed.success
+        ? undefined
+        : parsed.error.issues.find((issue) => issue.path[0] === 'fulfillment');
+      expect(Boolean(fulfillmentIssue), value).toBe(value !== 'shipping');
+    }
+  });
+
+  it('a digital-only listing needs no shipping or package fields', () => {
+    const parsed = createMarketplaceListingSchema.safeParse({
+      ...formDefaults,
+      title: 'Field guide',
+      description: 'A printable guide.',
+      price: '10.00',
+      fulfillment: 'digital',
+      shippingLabel: '',
+      shippingPrice: '',
+      packageWeight: '',
+    });
+    expect(parsed.success).toBe(true);
   });
 });

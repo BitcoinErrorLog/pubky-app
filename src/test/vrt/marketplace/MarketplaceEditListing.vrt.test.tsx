@@ -56,6 +56,16 @@ const fixtures = vi.hoisted(async () => {
       ...shipping,
       media: [image('image_01', 'Front view'), image('image_02', 'Sole view')],
     }),
+    // A digital-only listing (digital delivery design §2): no package facts,
+    // no shipping option, so the edit studio hides those fields.
+    digitalRecord: createCommerceListingFixture({
+      listingId: 'field_guide',
+      title: 'Printable field guide',
+      fulfillmentMethods: ['digital' as const],
+      shippingOptions: [],
+      package: undefined,
+      media: [image('image_01', 'Guide cover')],
+    }),
     auctionRecord: createCommerceListingFixture({
       ...shipping,
       listingId: 'rangefinder_camera',
@@ -76,6 +86,7 @@ const fixtures = vi.hoisted(async () => {
 const view = vi.hoisted(() => ({
   record: undefined as unknown,
   currentUserPubky: '',
+  digitalAvailable: false,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -101,6 +112,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     // Pickup is unavailable on this capture's deployment: the studio renders
     // the deterministic unavailability note, not an async capability race.
     fetchPickupAvailable: () => Promise.resolve(false),
+    fetchDigitalDeliveryCapability: () =>
+      Promise.resolve({ available: view.digitalAvailable, maxBytes: view.digitalAvailable ? 52_428_800 : null }),
   },
 }));
 
@@ -138,6 +151,25 @@ describe('Marketplace edit listing — visual regression', () => {
     });
     await waitForHydration(screen, record.title);
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('edit-listing-prefilled-mobile');
+  });
+
+  it('renders a digital-only listing in the edit studio at desktop viewport', async () => {
+    const { seller, digitalRecord } = await fixtures;
+    view.record = digitalRecord;
+    view.currentUserPubky = seller;
+    view.digitalAvailable = true;
+
+    const screen = await renderForVRT(<MarketplaceEditListing sellerPubky={seller} listingId="field_guide" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await waitForHydration(screen, digitalRecord.title);
+    await vi.waitFor(() => {
+      const digital = screen.container.querySelector('#listing-delivery-digital');
+      if (digital?.getAttribute('data-state') !== 'checked') throw new Error('Digital delivery is not checked yet.');
+    });
+    screen.container.querySelector('[data-testid="listing-delivery-options"]')?.scrollIntoView({ block: 'center' });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('edit-listing-digital-desktop');
+    view.digitalAvailable = false;
   });
 
   it('renders the locked auction terms notice at desktop viewport', async () => {

@@ -2,6 +2,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
+import type { MarketplaceDigitalDeliveryCapability } from '@/libs/commerce/digital';
 import type {
   PaymentMethodKind,
   SellerPaymentConfig,
@@ -471,6 +472,22 @@ export class MarketplaceGatewayService {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return false;
     const health = await MarketplaceTransactionService.getHealth();
     return health.pickupAvailable;
+  }
+
+  /**
+   * The deployment's digital delivery capability (digital delivery design
+   * §6 B5): available iff the durable service reports its digital sealing
+   * key configured, with the file cap it enforces. Off in every non-durable
+   * mode — the sandbox seals and releases nothing — so UI gates the Digital
+   * delivery option off everywhere else.
+   */
+  static async getDigitalDeliveryCapability(): Promise<MarketplaceDigitalDeliveryCapability> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return { available: false, maxBytes: null };
+    const health = await MarketplaceTransactionService.getHealth();
+    return {
+      available: health.digitalDeliveryAvailable,
+      maxBytes: health.digitalDeliveryMaxBytes ?? null,
+    };
   }
 
   /**

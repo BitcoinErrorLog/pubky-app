@@ -268,22 +268,26 @@ export function commerceListingShippingMinor(shippingOptions: readonly CommerceS
 
 /**
  * The service-facing fulfillment methods a listing record publishes
- * (`shipping` | `pickup`), derived from the record's `fulfillmentMethods`
- * EXACTLY as the durable service derives them from a fetched record
- * (`homeserver.rs::registration_payload_from_record`): only the
- * `shipping`/`pickup` vocabulary maps, first-seen dedup (not just adjacent),
- * and an empty result defaults to shipping-only — so records predating
- * pickup, and digital listings (which carry no fulfillment choice, §A2),
- * register as shipping-only. The register payload validation mirrors the
+ * (`shipping` | `pickup` | `digital`), derived from the record's
+ * `fulfillmentMethods` EXACTLY as the durable service derives them from a
+ * fetched record (`homeserver.rs::registration_payload_from_record`, digital
+ * delivery design §6 A1–A3): `shipping`, `pickup` and `digital` map, except
+ * that a Locks listing (one carrying `digitalLock`) skips `digital`;
+ * first-seen dedup (not just adjacent); an empty result defaults to
+ * shipping-only. So records predating pickup, and Locks listings, register
+ * as shipping-only, and `['physical', 'digital']` (no explicit `shipping`)
+ * registers as digital-only. The register payload validation mirrors the
  * service (non-empty, known values, deduped), so this derivation's output
  * always validates.
  */
 export function commerceListingFulfillmentMethods(
   methods: readonly CommerceListingRecord['fulfillmentMethods'][number][],
+  hasDigitalLock = false,
 ): MarketplaceFulfillmentMethod[] {
   const derived: MarketplaceFulfillmentMethod[] = [];
   for (const method of methods) {
-    if ((method === 'shipping' || method === 'pickup') && !derived.includes(method)) {
+    const maps = method === 'shipping' || method === 'pickup' || (method === 'digital' && !hasDigitalLock);
+    if (maps && !derived.includes(method)) {
       derived.push(method);
     }
   }
@@ -575,10 +579,12 @@ const commerceListingRecordSchemaInner = commercePublicRecordBaseSchema
         path: ['fulfillmentMethods'],
       });
     }
-    if (hasDigital !== (listing.digitalLock !== undefined)) {
+    // Digital delivery design §6 A6–A8, A13: a digital listing may carry no
+    // lock (marketplace-held delivery); a lock still requires `digital`.
+    if (listing.digitalLock !== undefined && !hasDigital) {
       context.addIssue({
         code: 'custom',
-        message: 'Digital fulfillment and digitalLock must be configured together',
+        message: 'digitalLock requires digital fulfillment',
         path: ['digitalLock'],
       });
     }

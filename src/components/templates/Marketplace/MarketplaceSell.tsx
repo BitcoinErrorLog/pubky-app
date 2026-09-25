@@ -45,10 +45,11 @@ export function MarketplaceSell() {
       const separator = compositeId.indexOf(':');
       const sellerPubky = compositeId.slice(0, separator);
       const listingId = compositeId.slice(separator + 1);
-      // A listing published WITH pickup still needs its meeting point, and
-      // the pickup-details editor only exists post-publish (the service
-      // accepts pickup_details.set for a registered listing): land the
-      // seller on the edit page's pickup section instead of the public page.
+      // A listing published WITH pickup still needs its meeting point, and a
+      // digital one still needs its delivery; both editors exist only
+      // post-publish (the service accepts their commands for a registered
+      // listing): land the seller on the edit page's delivery section
+      // instead of the public page.
       const fulfillment = listing.form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT);
       router.push(
         fulfillment === 'shipping'

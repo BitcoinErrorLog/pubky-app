@@ -9,6 +9,7 @@ import {
   isTransactionalCommerceMode,
 } from '@/config/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
+import type { MarketplaceDigitalDeliveryCapability } from '@/libs/commerce/digital';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
@@ -843,6 +844,11 @@ export class CommerceController {
   /** The deployment's `pickup_available` capability (§A7) — false unless the durable service reports pickup on. */
   static async fetchPickupAvailable(): Promise<boolean> {
     return await CommerceApplication.fetchPickupAvailable();
+  }
+
+  /** The deployment's digital delivery capability (§6 B5) — unavailable unless the durable service reports it on. */
+  static async fetchDigitalDeliveryCapability(): Promise<MarketplaceDigitalDeliveryCapability> {
+    return await CommerceApplication.fetchDigitalDeliveryCapability();
   }
 
   /**

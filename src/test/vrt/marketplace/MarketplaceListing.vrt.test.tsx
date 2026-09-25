@@ -145,6 +145,31 @@ const fixtures = vi.hoisted(async () => {
     vacationShop: toCommerceShopModel(createCommerceShopFixture({ vacationMode: true })),
     fixedPriceProjection: createListingProjectionFixture(),
     auctionProjection: createAuctionProjectionFixture(),
+    // Marketplace-held digital delivery (digital delivery design §3): a
+    // digital-only file listing, and one that ships or is emailed.
+    fileListing: toCommerceListingModel(
+      createCommerceListingFixture({
+        listingId: 'field_guide',
+        title: 'Printable field guide',
+        description: 'A 40-page printable guide to coastal birds.',
+        condition: 'new',
+        fulfillmentMethods: ['digital'],
+        package: undefined,
+        shippingOptions: [],
+      }),
+    ),
+    fileProjection: createListingProjectionFixture({
+      listingId: 'field_guide',
+      fulfillmentMethods: ['digital'],
+      digitalDelivery: { kind: 'file', contentType: 'application/pdf', sizeBytes: 12_582_912 },
+    }),
+    shipOrEmailListing: toCommerceListingModel(
+      createCommerceListingFixture({ fulfillmentMethods: ['physical', 'shipping', 'digital'] }),
+    ),
+    shipOrEmailProjection: createListingProjectionFixture({
+      fulfillmentMethods: ['shipping', 'digital'],
+      digitalDelivery: { kind: 'email' },
+    }),
   };
 });
 
@@ -505,6 +530,26 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-digital-locks-paykit-desktop');
+  });
+
+  it('renders a digital-only file listing at desktop viewport', async () => {
+    const { seller, fileListing, fileProjection } = await fixtures;
+    await setView({ listing: fileListing, projection: fileProjection });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="field_guide" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-digital-file-desktop');
+  });
+
+  it('renders a listing that ships or is emailed at desktop viewport', async () => {
+    const { seller, shipOrEmailListing, shipOrEmailProjection } = await fixtures;
+    await setView({ listing: shipOrEmailListing, projection: shipOrEmailProjection });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-ship-or-email-desktop');
   });
 
   it('renders community tags separated from seller keywords at desktop viewport', async () => {

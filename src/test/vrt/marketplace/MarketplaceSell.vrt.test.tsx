@@ -57,6 +57,7 @@ const view = vi.hoisted(() => ({
   mediaItems: [] as unknown[],
   shippingPresets: [] as unknown[],
   pickupAvailable: false,
+  digitalAvailable: false,
   marketplaceSession: {
     pubky: 'y'.repeat(52),
     capabilities: '/pub/pubky.app/:rw',
@@ -155,6 +156,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getShippingPresets: () => Promise.resolve(view.shippingPresets),
     commitUpsertShippingPreset: () => Promise.resolve(),
     fetchPickupAvailable: () => Promise.resolve(view.pickupAvailable),
+    fetchDigitalDeliveryCapability: () =>
+      Promise.resolve({ available: view.digitalAvailable, maxBytes: view.digitalAvailable ? 52_428_800 : null }),
     getSellerPaymentConfig: sellerPaymentConfig,
     hasFullHomeserverGrant: () => true,
   },
@@ -242,6 +245,7 @@ describe('Marketplace sell studio — visual regression', () => {
     // committed baselines were captured with.
     useMarketplaceDisplayStore.setState({ measurementSystem: 'imperial' });
     view.pickupAvailable = false;
+    view.digitalAvailable = false;
     view.adapterMode = 'sandbox';
     view.drafts = [];
     view.mediaItems = [];
@@ -402,6 +406,30 @@ describe('Marketplace sell studio — visual regression', () => {
     });
     await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-shipping-presets-desktop');
     view.shippingPresets = [];
+  });
+
+  // Digital delivery beside shipping (digital delivery design §2): the three
+  // delivery checkboxes, the publish-first note and the PayPal warning.
+  it('renders digital delivery beside shipping with the PayPal warning at desktop viewport', async () => {
+    view.drafts = [
+      { ...draftFixture, data: { form: { ...draftFixture.data.form, fulfillment: 'shipping_and_digital' } } },
+    ];
+    view.mediaItems = [];
+    view.pickupAvailable = true;
+    view.digitalAvailable = true;
+    sellerPaymentConfig.mockImplementation(() =>
+      Promise.resolve({ ...paidSellerPaymentConfig, paypalMerchantEmail: 'seller@example.com' }),
+    );
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('[data-testid="listing-digital-paypal-warning"]')) {
+        throw new Error('The PayPal warning has not rendered yet.');
+      }
+    });
+    screen.container.querySelector('[data-testid="listing-delivery-options"]')?.scrollIntoView({ block: 'start' });
+    await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-digital-delivery-desktop');
   });
 
   it('renders the restore prompt at desktop viewport', async () => {

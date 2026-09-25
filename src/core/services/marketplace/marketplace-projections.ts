@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marketplaceListingDigitalDeliveryFieldSchema } from '@/libs/commerce/digital';
 import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-payment-review';
 import { findForbiddenPublicReserveKey } from '@/libs/commerce/marketplace-records';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
@@ -50,6 +51,9 @@ const marketplaceListingProjectionBaseSchema = z
     // §A1), served by both backends. Defaults to shipping-only for rows
     // registered before the field existed — the service's own default.
     fulfillmentMethods: marketplaceFulfillmentMethodsSchema,
+    // Digital delivery facts (kind, file type and size) — null until the
+    // seller sets delivery, and absent from services predating it.
+    digitalDelivery: marketplaceListingDigitalDeliveryFieldSchema.optional(),
     auction: z
       .object({
         startsAt: z.string(),

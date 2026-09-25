@@ -22,6 +22,7 @@ import {
   verifyOwnOrderReceipt,
   verifyOwnReviewAttestation,
 } from '@/libs/commerce/attestation';
+import type { MarketplaceDigitalDeliveryCapability } from '@/libs/commerce/digital';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import {
   assertReserveFreePublicRecord,
@@ -557,6 +558,11 @@ export class CommerceApplication {
    */
   static async fetchPickupAvailable(): Promise<boolean> {
     return await MarketplaceGatewayService.getPickupAvailability();
+  }
+
+  /** The deployment's digital delivery capability (digital delivery design §6 B5), read from /health. */
+  static async fetchDigitalDeliveryCapability(): Promise<MarketplaceDigitalDeliveryCapability> {
+    return await MarketplaceGatewayService.getDigitalDeliveryCapability();
   }
 
   /**
@@ -3318,7 +3324,10 @@ export class CommerceApplication {
         unitPrice,
         shippingMinor: commerceListingShippingMinor(listing.shippingOptions),
         saleFormat: 'auction',
-        fulfillmentMethods: commerceListingFulfillmentMethods(listing.fulfillmentMethods),
+        fulfillmentMethods: commerceListingFulfillmentMethods(
+          listing.fulfillmentMethods,
+          listing.digitalLock !== undefined,
+        ),
         auctionTerms: {
           startsAt: listing.sale.startsAt,
           endsAt: listing.sale.endsAt,
@@ -3396,7 +3405,10 @@ export class CommerceApplication {
         saleFormat: listing.sale.format,
         // The service-facing fulfillment methods (§A1), derived from the
         // record exactly as the service's own homeserver derivation would.
-        fulfillmentMethods: commerceListingFulfillmentMethods(listing.fulfillmentMethods),
+        fulfillmentMethods: commerceListingFulfillmentMethods(
+          listing.fulfillmentMethods,
+          listing.digitalLock !== undefined,
+        ),
         auctionTerms:
           listing.sale.format === 'auction'
             ? {

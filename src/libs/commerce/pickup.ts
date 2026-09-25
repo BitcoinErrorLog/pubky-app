@@ -13,8 +13,11 @@ import { commerceDeliveryAddressValueSchema } from './postal-address';
 // at the transport boundary, as with every marketplace contract.
 // -----------------------------------------------------------------------------
 
-/** How a physical order reaches the buyer (§A2). Distinct from the listing's item type. */
-export const marketplaceFulfillmentMethodSchema = z.enum(['shipping', 'pickup']);
+/**
+ * How an order reaches the buyer (§A2; digital delivery design §6 A1–A4).
+ * Distinct from the listing's item type.
+ */
+export const marketplaceFulfillmentMethodSchema = z.enum(['shipping', 'pickup', 'digital']);
 export type MarketplaceFulfillmentMethod = z.infer<typeof marketplaceFulfillmentMethodSchema>;
 
 /**
@@ -28,7 +31,7 @@ export type MarketplaceFulfillmentMethod = z.infer<typeof marketplaceFulfillment
 export const marketplaceFulfillmentMethodsSchema = z
   .array(marketplaceFulfillmentMethodSchema)
   .min(1, 'Expected at least one fulfillment method')
-  .max(2)
+  .max(3)
   .refine((methods) => new Set(methods).size === methods.length, {
     message: 'Fulfillment methods must be unique',
   })
@@ -245,13 +248,17 @@ export const marketplaceSellerPickupDetailsSchema = z
  * The public health/capability surface (`GET /health`): `pickupAvailable` is
  * on iff the deployment has the pickup sealing key configured AND sandbox
  * payments are disabled (§A7). The client hides the pickup option everywhere
- * when it is off.
+ * when it is off. `digitalDeliveryAvailable` is on iff the digital sealing
+ * key is configured (digital delivery design §6 B5); absent reads as off,
+ * and `digitalDeliveryMaxBytes` is the file cap the service enforces.
  */
 export const marketplaceHealthSchema = z
   .object({
     status: z.string(),
     // The health endpoint may add capability telemetry without changing this client contract.
     pickupAvailable: z.boolean().default(false),
+    digitalDeliveryAvailable: z.boolean().catch(false).default(false),
+    digitalDeliveryMaxBytes: z.number().int().positive().optional().catch(undefined),
   })
   .passthrough();
 

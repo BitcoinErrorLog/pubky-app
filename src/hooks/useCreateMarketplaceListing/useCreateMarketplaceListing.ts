@@ -488,8 +488,8 @@ export function seedDraftFormFromListing(
   if (currency === null) {
     throw new Error('unsupported-currency');
   }
-  const isPhysical = record.fulfillmentMethods.includes('physical');
-  if (!isPhysical && !record.fulfillmentMethods.includes('pickup')) {
+  // A Locks listing (`digitalLock`) is not authored by this studio.
+  if (record.digitalLock !== undefined) {
     throw new Error('unsupported-fulfillment');
   }
   const fulfillment = fulfillmentFormValueFromRecord(record.fulfillmentMethods);

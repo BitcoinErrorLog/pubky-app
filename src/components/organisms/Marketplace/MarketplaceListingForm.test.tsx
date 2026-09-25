@@ -1,5 +1,5 @@
 import { createRef } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm } from 'react-hook-form';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,8 +13,10 @@ import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import { DIGITAL_DELIVERY_COPY } from '@/libs/commerce/digital';
 import { PICKUP_NOTHING_PUBLISHED_TOAST } from '@/libs/commerce/pickup';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceListingForm } from './MarketplaceListingForm';
 
 // The form reads the deployment's `pickup_available` capability through the
@@ -25,6 +27,15 @@ const pickupCapability = vi.hoisted(() => ({
   available: true,
   pending: false,
   commitSetPickupDetails: vi.fn(async () => ({ ok: true })),
+}));
+
+// The digital delivery capability (/health) and the seller's own payment
+// config (the PayPal warning) ride the same controller seam.
+const digitalCapability = vi.hoisted(() => ({
+  available: true,
+  pending: false,
+  paypalMerchantEmail: null as string | null,
+  getSellerPaymentConfig: vi.fn(),
 }));
 
 // Presets are device-local (Dexie) and not under test here; the row's own
@@ -65,6 +76,11 @@ vi.mock('@/controllers/commerce/commerce', async (importOriginal) => {
         Promise.resolve({ listingAggregateId: 'listing:agg', current: null, lastVersion: 0 }),
       commitSetPickupDetails: pickupCapability.commitSetPickupDetails,
       hasFullHomeserverGrant: () => true,
+      fetchDigitalDeliveryCapability: () =>
+        digitalCapability.pending
+          ? new Promise(() => {})
+          : Promise.resolve({ available: digitalCapability.available, maxBytes: 52_428_800 }),
+      getSellerPaymentConfig: digitalCapability.getSellerPaymentConfig,
     },
   };
 });
@@ -86,6 +102,17 @@ beforeEach(() => {
   shippingPresetsMock.presets = [];
   pickupCapability.available = true;
   pickupCapability.pending = false;
+  digitalCapability.available = true;
+  digitalCapability.pending = false;
+  digitalCapability.paypalMerchantEmail = null;
+  digitalCapability.getSellerPaymentConfig.mockReset();
+  digitalCapability.getSellerPaymentConfig.mockImplementation(async () => ({
+    bitcoinAvailable: true,
+    bitcoinOfferAvailable: true,
+    stripePaymentLink: null,
+    paypalMerchantEmail: digitalCapability.paypalMerchantEmail,
+  }));
+  useAuthStore.setState({ currentUserPubky: null });
   pickupCapability.commitSetPickupDetails.mockReset();
   pickupCapability.commitSetPickupDetails.mockResolvedValue({ ok: true });
   vi.mocked(toast).mockReset();
@@ -183,7 +210,7 @@ describe('MarketplaceListingForm', () => {
     expect(screen.getByRole('heading', { name: 'Photos' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Item' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Price & format' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Shipping & returns' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Delivery & returns' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeInTheDocument();
     expect(screen.getByText('Pricing currency')).toBeInTheDocument();
     expect(screen.getByText('Flat shipping (USD)')).toBeInTheDocument();
@@ -207,9 +234,13 @@ describe('MarketplaceListingForm', () => {
   });
 });
 
-async function waitForFulfillmentEnabled() {
+function deliveryBox(name: 'Ship' | 'Local pickup' | 'Digital delivery') {
+  return screen.getByRole('checkbox', { name });
+}
+
+async function waitForPickupEnabled() {
   await waitFor(() => {
-    expect(screen.getByRole('combobox', { name: 'Fulfillment' })).toBeEnabled();
+    expect(deliveryBox('Local pickup')).toBeEnabled();
   });
 }
 
@@ -218,18 +249,19 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     pickupCapability.available = true;
   });
 
-  it('offers all three fulfillment choices when the deployment has pickup', async () => {
-    const user = userEvent.setup();
+  it('offers Ship, Local pickup and Digital delivery when the deployment has both', async () => {
     render(<FormHarness />);
 
-    await waitForFulfillmentEnabled();
-    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
-    expect(await screen.findByRole('option', { name: 'Ship item' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Local pickup' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Pickup or shipping' })).toBeInTheDocument();
+    await waitForPickupEnabled();
+    expect(deliveryBox('Ship')).toBeChecked();
+    expect(deliveryBox('Local pickup')).not.toBeChecked();
+    expect(deliveryBox('Digital delivery')).not.toBeChecked();
+    await waitFor(() => {
+      expect(deliveryBox('Digital delivery')).toBeEnabled();
+    });
   });
 
-  it('shows a skeleton and disables fulfillment while pickup capability is unknown', () => {
+  it('shows a skeleton and keeps pickup off while pickup capability is unknown', () => {
     pickupCapability.pending = true;
     render(<FormHarness />);
 
@@ -237,16 +269,15 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
       'aria-label',
       'Checking pickup availability',
     );
-    expect(screen.getByRole('combobox', { name: 'Fulfillment' })).toBeDisabled();
+    expect(deliveryBox('Local pickup')).toBeDisabled();
   });
 
   it('keeps a restored pickup value while pickup capability is still unknown', () => {
     pickupCapability.pending = true;
     render(<FormHarness fulfillment="pickup" />);
 
-    const select = screen.getByRole('combobox', { name: 'Fulfillment' });
-    expect(select).toBeDisabled();
-    expect(select).toHaveTextContent('Local pickup');
+    expect(deliveryBox('Local pickup')).toBeChecked();
+    expect(deliveryBox('Ship')).not.toBeChecked();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByTestId('pickup-capability-skeleton')).toBeInTheDocument();
   });
@@ -261,9 +292,9 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     await waitFor(() => {
       expect(screen.getByText('Weight (g)')).toBeInTheDocument();
     });
-    const select = screen.getByRole('combobox', { name: 'Fulfillment' });
-    expect(select).toBeDisabled();
-    expect(select).toHaveTextContent('Ship item');
+    expect(deliveryBox('Ship')).toBeChecked();
+    expect(deliveryBox('Local pickup')).not.toBeChecked();
+    expect(deliveryBox('Local pickup')).toBeDisabled();
   });
 
   it('does not mount the pickup-details editor in create mode — it points at the edit page', async () => {
@@ -387,9 +418,9 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
       />,
     );
 
-    await waitForFulfillmentEnabled();
-    await user.click(screen.getByRole('combobox', { name: 'Fulfillment' }));
-    await user.click(await screen.findByRole('option', { name: 'Local pickup' }));
+    await waitForPickupEnabled();
+    await user.click(deliveryBox('Local pickup'));
+    await user.click(deliveryBox('Ship'));
     await user.type(await screen.findByLabelText('Meeting point'), 'Harbor Market, stall 12');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
@@ -1001,14 +1032,154 @@ describe('MarketplaceListingForm durable publish guards at the button', () => {
 describe('MarketplaceListingForm - Snapshots', () => {
   it('matches the physical listing form snapshot', async () => {
     const { container } = render(<FormHarness />);
-    await screen.findByRole('combobox', { name: 'Fulfillment' });
-    // Fulfillment is on the first paint while pickupAvailable is still
-    // null, so the combobox exists under the pickup-capability skeleton.
-    // The committed snapshot is the settled form (capability on, no
-    // skeleton). Wait for that world; do not refresh the baseline.
+    await screen.findByRole('checkbox', { name: 'Ship' });
+    // The delivery options are on the first paint while pickupAvailable is
+    // still null, so they exist under the pickup-capability skeleton. The
+    // committed snapshot is the settled form (both capabilities on, no
+    // skeleton). Wait for that world.
     await waitFor(() => {
       expect(screen.queryByTestId('pickup-capability-skeleton')).not.toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Digital delivery' })).toBeEnabled();
     });
     expect(container.firstChild).toMatchSnapshot();
+  });
+});
+
+describe('MarketplaceListingForm digital delivery (digital delivery design §2)', () => {
+  const editReady = {
+    title: 'Field guide',
+    description: 'A printable field guide.',
+    categoryId: 'fashion',
+    price: '12.00',
+    shippingPrice: '4.00',
+    packageWeight: '300',
+    packageLength: '30.0',
+    packageWidth: '20.0',
+    packageHeight: '2.0',
+  };
+
+  it('adds Digital delivery beside shipping and keeps the shipping fields', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => true);
+    const submittedFulfillment: CreateMarketplaceListingData['fulfillment'][] = [];
+    render(
+      <FormHarness
+        mode="edit"
+        listingId="guide_01"
+        defaultValues={editReady}
+        media={buildMedia([photoItem('one', 'Front')])}
+        onSubmit={onSubmit}
+        submittedFulfillment={submittedFulfillment}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(deliveryBox('Digital delivery')).toBeEnabled();
+    });
+    await user.click(deliveryBox('Digital delivery'));
+    expect(screen.getByText('Weight (g)')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledOnce();
+    });
+    expect(submittedFulfillment).toEqual(['shipping_and_digital']);
+  });
+
+  it('skips the shipping and package fields for a digital-only listing', () => {
+    render(<FormHarness fulfillment="digital" />);
+
+    expect(deliveryBox('Digital delivery')).toBeChecked();
+    expect(deliveryBox('Ship')).not.toBeChecked();
+    expect(screen.queryByText('Flat shipping (USD)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Weight (g)')).not.toBeInTheDocument();
+  });
+
+  it('never lets the only checked option be cleared', async () => {
+    const user = userEvent.setup();
+    render(<FormHarness />);
+
+    expect(deliveryBox('Ship')).toBeDisabled();
+    await waitFor(() => {
+      expect(deliveryBox('Digital delivery')).toBeEnabled();
+    });
+    await user.click(deliveryBox('Digital delivery'));
+    expect(deliveryBox('Ship')).toBeEnabled();
+    await user.click(deliveryBox('Ship'));
+
+    expect(deliveryBox('Ship')).not.toBeChecked();
+    expect(deliveryBox('Digital delivery')).toBeChecked();
+    expect(deliveryBox('Digital delivery')).toBeDisabled();
+  });
+
+  it('ships auctions only', async () => {
+    render(<FormHarness fulfillment="shipping_and_digital" defaultValues={{ saleFormat: 'auction' }} />);
+
+    expect(await screen.findByText(DIGITAL_DELIVERY_COPY.auctionsShipOnly)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(deliveryBox('Digital delivery')).not.toBeChecked();
+    });
+    expect(deliveryBox('Digital delivery')).toBeDisabled();
+    expect(deliveryBox('Local pickup')).toBeDisabled();
+    expect(deliveryBox('Ship')).toBeChecked();
+  });
+
+  it('drops digital from a new listing and says why when the deployment cannot deliver', async () => {
+    digitalCapability.available = false;
+    render(<FormHarness fulfillment="shipping_and_digital" />);
+
+    expect(await screen.findByText(DIGITAL_DELIVERY_COPY.unavailable)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(deliveryBox('Digital delivery')).not.toBeChecked();
+    });
+    expect(deliveryBox('Digital delivery')).toBeDisabled();
+    expect(deliveryBox('Ship')).toBeChecked();
+  });
+
+  it('keeps a published digital choice on an edit when the deployment turns it off', async () => {
+    digitalCapability.available = false;
+    render(<FormHarness fulfillment="shipping_and_digital" mode="edit" listingId="guide_01" />);
+
+    expect(await screen.findByText(DIGITAL_DELIVERY_COPY.unavailable)).toBeInTheDocument();
+    expect(deliveryBox('Digital delivery')).toBeChecked();
+    expect(deliveryBox('Digital delivery')).toBeEnabled();
+  });
+
+  it('points a new digital listing at the edit page for delivery setup', () => {
+    render(<FormHarness fulfillment="digital" />);
+
+    expect(
+      screen.getByText("Publish first, then set how buyers receive it from the listing's edit page."),
+    ).toBeInTheDocument();
+  });
+
+  it('warns about PayPal reversals on a digital listing when the shop accepts PayPal', async () => {
+    useAuthStore.setState({ currentUserPubky: 'seller_pubky' });
+    digitalCapability.paypalMerchantEmail = 'seller@example.com';
+    const { unmount } = render(<FormHarness fulfillment="shipping_and_digital" />);
+
+    expect(await screen.findByTestId('listing-digital-paypal-warning')).toHaveTextContent(
+      DIGITAL_DELIVERY_COPY.paypalWarning,
+    );
+    unmount();
+
+    render(<FormHarness fulfillment="shipping" />);
+    await waitFor(() => {
+      expect(deliveryBox('Digital delivery')).toBeEnabled();
+    });
+    expect(screen.queryByTestId('listing-digital-paypal-warning')).not.toBeInTheDocument();
+  });
+
+  it('shows no PayPal warning when the shop does not accept PayPal', async () => {
+    useAuthStore.setState({ currentUserPubky: 'seller_pubky' });
+    render(<FormHarness fulfillment="digital" />);
+
+    await waitFor(() => {
+      expect(digitalCapability.getSellerPaymentConfig).toHaveBeenCalledWith('seller_pubky');
+    });
+    await act(async () => {
+      await digitalCapability.getSellerPaymentConfig.mock.results[0]?.value;
+    });
+    expect(screen.queryByTestId('listing-digital-paypal-warning')).not.toBeInTheDocument();
   });
 });
