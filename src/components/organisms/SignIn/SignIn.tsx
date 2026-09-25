@@ -110,10 +110,13 @@ async function copyWithToast(copy: () => Promise<void>) {
 
 type TSignerAuth = ReturnType<typeof useMobileAuth>;
 
+const BITKIT_IDENTITY_HINT = "New Bitkit users must create a Pubky identity in Bitkit's profile before scanning.";
+
 const SIGNERS = {
   ring: {
     name: 'Pubky Ring',
     hint: 'Scan with Pubky Ring.',
+    identityHint: null,
     copyLabel: 'Copy authentication link',
     reloadLabel: 'Reload sign-in QR code',
     openingLabel: 'Opening Pubky Ring...',
@@ -122,6 +125,7 @@ const SIGNERS = {
   bitkit: {
     name: 'Bitkit',
     hint: 'Scan with Bitkit.',
+    identityHint: BITKIT_IDENTITY_HINT,
     copyLabel: 'Copy Bitkit authentication link',
     reloadLabel: 'Reload Bitkit sign-in QR code',
     openingLabel: 'Opening Bitkit...',
@@ -162,6 +166,11 @@ const SignInQrOption = ({ signer, auth }: { signer: keyof typeof SIGNERS; auth: 
       <Typography as="span" className="text-center text-muted-foreground">
         {copy.hint}
       </Typography>
+      {copy.identityHint ? (
+        <Typography as="p" className="max-w-48 text-center text-sm text-muted-foreground">
+          {copy.identityHint}
+        </Typography>
+      ) : null}
     </div>
   );
 };
@@ -227,6 +236,9 @@ const SignInBothSigners = ({ ring }: { ring: TSignerAuth }) => {
           <Container className="flex-col items-center justify-center gap-4">
             <SignInAuthorizeButton signer="ring" auth={ring} />
             <SignInAuthorizeButton signer="bitkit" auth={bitkit} />
+            <Typography as="p" className="text-center text-sm text-muted-foreground">
+              {BITKIT_IDENTITY_HINT}
+            </Typography>
           </Container>
         </ContentCard>
       </Container>
