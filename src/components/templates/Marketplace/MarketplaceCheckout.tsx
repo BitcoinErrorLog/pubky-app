@@ -166,7 +166,7 @@ function MarketplaceCartCheckout() {
     () => (isOfferCheckout ? [] : groupMarketplaceCartItems(checkoutItems)),
     [checkoutItems, isOfferCheckout],
   );
-  const shipping = marketplaceCartShippingTotals(displayGroups, checkout.fulfillmentForSeller);
+  const shipping = marketplaceCartShippingTotals(displayGroups, (item) => checkout.fulfillmentForItem(item.id));
   const itemSubtotals =
     isOfferCheckout && award
       ? [award.subtotal]
@@ -275,6 +275,7 @@ function MarketplaceCartCheckout() {
     !approvalNeeded &&
     formValid &&
     !checkout.hasFulfillmentConflict &&
+    checkout.isDigitalReady &&
     !isPaying &&
     (!isOfferCheckout || offerEligible) &&
     (isSandbox || (sharedMethods !== null && sharedMethods.length > 0 && selectedMethod !== null));
@@ -475,6 +476,7 @@ function MarketplaceCartCheckout() {
                 const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
                 const isPickupGroup = fulfillment === 'pickup';
                 const isPickupCapabilityLoading = checkout.isPickupCapabilityLoadingForSeller(group.sellerPubky);
+                const shipsOrPicksUp = group.items.some((item) => checkout.fulfillmentForItem(item.id) !== 'digital');
                 return (
                   <section
                     key={group.sellerPubky}
@@ -528,17 +530,20 @@ function MarketplaceCartCheckout() {
                         after payment confirms.
                       </Typography>
                     )}
-                    {!isPickupCapabilityLoading && fulfillmentOptions.length === 0 && (
-                      <Typography
-                        as="p"
-                        role="alert"
-                        className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
-                      >
-                        These items can&apos;t be checked out together: they don&apos;t share a fulfillment method this
-                        deployment supports (one ships while another is pickup-only). Remove one in the cart to
-                        continue.
-                      </Typography>
-                    )}
+                    {!isPickupCapabilityLoading &&
+                      !checkout.isDigitalCapabilityLoading &&
+                      shipsOrPicksUp &&
+                      fulfillmentOptions.length === 0 && (
+                        <Typography
+                          as="p"
+                          role="alert"
+                          className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
+                        >
+                          These items can&apos;t be checked out together: they don&apos;t share a fulfillment method
+                          this deployment supports (one ships while another is pickup-only). Remove one in the cart to
+                          continue.
+                        </Typography>
+                      )}
                     {group.items.map((item) => {
                       const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
                       const price =

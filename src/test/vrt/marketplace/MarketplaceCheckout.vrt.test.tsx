@@ -219,6 +219,21 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       isPickupCapabilityLoadingForSeller: () => false,
       orderCount: view.orderCount,
       rememberAddress: vi.fn(async () => {}),
+      fulfillmentForItem: (itemId: string) => {
+        const line = (view.items as Array<{ id: string; listing: { record: { ownerPubky: string } } }>).find(
+          ({ id }) => id === itemId,
+        );
+        return view.fulfillmentEffective[line?.listing.record.ownerPubky ?? ''] ?? 'shipping';
+      },
+      setDigitalChoice: vi.fn(),
+      canChooseDigitalForItem: () => false,
+      digitalKindForItem: () => undefined,
+      isDigitalCapabilityLoading: false,
+      digitalNotReadyItemIds: [],
+      isDigitalReady: true,
+      requiresDeliveryEmail: false,
+      hasInstantDigitalLine: false,
+      hasManualDigitalLine: false,
     }),
   };
 });

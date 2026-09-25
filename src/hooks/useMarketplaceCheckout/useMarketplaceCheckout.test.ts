@@ -47,6 +47,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     syncListingRegistration: vi.fn(),
     executeMarketplaceCommand: vi.fn(),
     fetchPickupAvailable: vi.fn(async () => true),
+    fetchDigitalDeliveryCapability: vi.fn(async () => ({ available: true, maxBytes: null })),
     commitCreateMarketplaceCheckout: vi.fn(),
     getDeliveryAddresses: vi.fn(async () => []),
     commitUpsertDeliveryAddress: vi.fn(async () => {}),
@@ -916,5 +917,343 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
       await result.current.submit();
     });
     expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain(sentinel);
+  });
+});
+
+describe('useMarketplaceCheckout digital delivery (digital delivery design §3 "Checkout", §6 B2–B5, F1)', () => {
+  type Kind = 'file' | 'link' | 'text' | 'email' | 'message';
+  const kinds: Record<string, Kind | null> = {};
+
+  function digitalCartItem(
+    listingId: string,
+    methods: Array<'physical' | 'digital' | 'shipping' | 'pickup'>,
+    sellerPubky = listing.ownerPubky,
+  ): MarketplaceCartItem {
+    return {
+      ...item,
+      id: `cart-${listingId}`,
+      listingId: `${sellerPubky}:${listingId}`,
+      listing: {
+        ...item.listing,
+        id: `${sellerPubky}:${listingId}`,
+        seller_id: sellerPubky,
+        listing_id: listingId,
+        record: { ...item.listing.record, ownerPubky: sellerPubky, listingId, fulfillmentMethods: methods },
+      },
+    };
+  }
+
+  const fillAddress = (form: ReturnType<typeof useMarketplaceCheckout>['form']) => {
+    form.setValue('name', 'Alice Buyer');
+    form.setValue('line1', '1 Market Street');
+    form.setValue('city', 'New York');
+    form.setValue('region', 'NY');
+    form.setValue('postalCode', '10001');
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    config.mode = 'sandbox';
+    authMock.currentUserPubky = null;
+    useCommerceStore.setState({ marketplaceSession: null });
+    for (const key of Object.keys(kinds)) delete kinds[key];
+    vi.mocked(CommerceController.getDeliveryAddresses).mockResolvedValue([]);
+    vi.mocked(CommerceController.fetchPickupAvailable).mockResolvedValue(true);
+    vi.mocked(CommerceController.fetchDigitalDeliveryCapability).mockResolvedValue({ available: true, maxBytes: null });
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockImplementation(
+      async (sellerPubky: unknown, listingId: unknown) => ({
+        aggregateId: `listing:${String(sellerPubky)}_${String(listingId)}`,
+        sellerPubky: String(sellerPubky),
+        listingId: String(listingId),
+        listingRevision: listing.revision,
+        contentHash: listing.media[0].contentHash,
+        serverRevision: 1,
+        state: 'available',
+        availableQuantity: 1,
+        reservedQuantity: 0,
+        unitPrice: price,
+        saleFormat: 'fixed_price',
+        fulfillmentMethods: ['shipping'],
+        auction: null,
+        digitalDelivery:
+          String(listingId) in kinds ? (kinds[String(listingId)] ? { kind: kinds[String(listingId)]! } : null) : null,
+      }),
+    );
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '00000000-0000-4000-8000-000000001100',
+      aggregateId: 'checkout:00000000-0000-4000-8000-000000001100',
+      revision: 1,
+      eventIds: ['00000000-0000-4000-8000-000000001101'],
+      result: { kind: 'checkout' },
+    });
+  });
+
+  it('sends an all-digital checkout as digital with no address and no email', async () => {
+    kinds.guide = 'file';
+    const guide = digitalCartItem('guide', ['digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [guide],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    await waitFor(() => expect(result.current.isDigitalReady).toBe(true));
+    expect(result.current.fulfillmentForItem(guide.id)).toBe('digital');
+    expect(result.current.digitalKindForItem(guide.id)).toBe('file');
+    expect(result.current.requiresDeliveryAddress).toBe(false);
+    expect(result.current.requiresDeliveryEmail).toBe(false);
+    expect(result.current.hasInstantDigitalLine).toBe(true);
+    expect(result.current.hasManualDigitalLine).toBe(false);
+    expect(result.current.orderCount).toBe(1);
+    act(() => result.current.form.setValue('acceptsGuarantee', true));
+
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(true);
+    const command = vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mock.calls[0][0];
+    expect(command.lines.map((line) => line.fulfillmentChoice)).toEqual(['digital']);
+    expect(command).not.toHaveProperty('deliveryAddress');
+    expect(command).not.toHaveProperty('deliveryEmail');
+    expect(command.fulfillmentChoiceBySeller).toEqual({});
+  });
+
+  it('requires the email for an email-kind line and sends it only then', async () => {
+    kinds.pattern = 'email';
+    const pattern = digitalCartItem('pattern', ['digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [pattern],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    await waitFor(() => expect(result.current.requiresDeliveryEmail).toBe(true));
+    expect(result.current.hasManualDigitalLine).toBe(true);
+    act(() => result.current.form.setValue('acceptsGuarantee', true));
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(CommerceController.commitCreateMarketplaceCheckout).not.toHaveBeenCalled();
+    expect(result.current.form.getFieldState('deliveryEmail').error?.message).toBe(
+      'Enter the email the seller should send your purchase to.',
+    );
+
+    act(() => result.current.form.setValue('deliveryEmail', 'buyer@example'));
+    await act(async () => {
+      await result.current.submit();
+    });
+    const command = vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mock.calls[0][0];
+    expect(command.deliveryEmail).toBe('buyer@example');
+    expect(command).not.toHaveProperty('deliveryAddress');
+  });
+
+  it('refuses a malformed delivery email in the form', async () => {
+    kinds.pattern = 'email';
+    const pattern = digitalCartItem('pattern', ['digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [pattern],
+        vi.fn(async () => {}),
+      ),
+    );
+    await waitFor(() => expect(result.current.requiresDeliveryEmail).toBe(true));
+    act(() => {
+      result.current.form.setValue('acceptsGuarantee', true);
+      result.current.form.setValue('deliveryEmail', 'buyer at example.com');
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(CommerceController.commitCreateMarketplaceCheckout).not.toHaveBeenCalled();
+    expect(result.current.form.getFieldState('deliveryEmail').error?.message).toBe('Check the email address.');
+  });
+
+  it('splits one seller’s shipped and digital lines into two orders and keeps the address', async () => {
+    kinds.guide = 'file';
+    const lamp = digitalCartItem('lamp', ['physical']);
+    const guide = digitalCartItem('guide', ['digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [lamp, guide],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    await waitFor(() => expect(result.current.isDigitalReady).toBe(true));
+    expect(result.current.fulfillmentForItem(lamp.id)).toBe('shipping');
+    expect(result.current.fulfillmentForItem(guide.id)).toBe('digital');
+    expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual(['shipping']);
+    expect(result.current.hasFulfillmentConflict).toBe(false);
+    expect(result.current.requiresDeliveryAddress).toBe(true);
+    expect(result.current.orderCount).toBe(2);
+    act(() => {
+      fillAddress(result.current.form);
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const command = vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mock.calls[0][0];
+    expect(command.lines.map((line) => line.fulfillmentChoice)).toEqual([undefined, 'digital']);
+    expect(command.fulfillmentChoiceBySeller).toEqual({ [listing.ownerPubky]: 'shipping' });
+    expect(command.deliveryAddress).toEqual(expect.objectContaining({ line1: '1 Market Street' }));
+  });
+
+  it('ships a listing that offers both until the buyer picks digital delivery', async () => {
+    kinds.album = 'link';
+    const album = digitalCartItem('album', ['physical', 'shipping', 'digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [album],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    await waitFor(() => expect(result.current.canChooseDigitalForItem(album.id)).toBe(true));
+    expect(result.current.fulfillmentForItem(album.id)).toBe('shipping');
+    expect(result.current.requiresDeliveryAddress).toBe(true);
+
+    act(() => result.current.setDigitalChoice(album.id, true));
+    await waitFor(() => expect(result.current.digitalKindForItem(album.id)).toBe('link'));
+    expect(result.current.fulfillmentForItem(album.id)).toBe('digital');
+    expect(result.current.requiresDeliveryAddress).toBe(false);
+    expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual([]);
+    expect(result.current.hasFulfillmentConflict).toBe(false);
+  });
+
+  it('offers no digital line on a deployment without digital delivery (B5)', async () => {
+    vi.mocked(CommerceController.fetchDigitalDeliveryCapability).mockResolvedValue({
+      available: false,
+      maxBytes: null,
+    });
+    const guide = digitalCartItem('guide', ['digital']);
+    const album = digitalCartItem('album', ['physical', 'shipping', 'digital'], 'z'.repeat(52));
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [guide, album],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    await waitFor(() => expect(result.current.isDigitalCapabilityLoading).toBe(false));
+    expect(result.current.fulfillmentForItem(guide.id)).toBeUndefined();
+    expect(result.current.hasFulfillmentConflict).toBe(true);
+    expect(result.current.canChooseDigitalForItem(album.id)).toBe(false);
+    expect(result.current.fulfillmentForItem(album.id)).toBe('shipping');
+  });
+
+  it('holds a digital line unresolved while the capability loads', async () => {
+    let resolve: (value: { available: boolean; maxBytes: null }) => void = () => {};
+    vi.mocked(CommerceController.fetchDigitalDeliveryCapability).mockReturnValue(
+      new Promise((next) => {
+        resolve = next;
+      }),
+    );
+    kinds.guide = 'file';
+    const guide = digitalCartItem('guide', ['digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [guide],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    expect(result.current.isDigitalCapabilityLoading).toBe(true);
+    expect(result.current.isDigitalReady).toBe(false);
+    expect(result.current.fulfillmentForItem(guide.id)).toBeUndefined();
+    expect(result.current.hasFulfillmentConflict).toBe(false);
+    expect(result.current.requiresDeliveryAddress).toBe(false);
+
+    await act(async () => resolve({ available: true, maxBytes: null }));
+    await waitFor(() => expect(result.current.isDigitalReady).toBe(true));
+  });
+
+  it('keeps Pay closed for a line whose seller has not set delivery (B4)', async () => {
+    kinds.guide = null;
+    const guide = digitalCartItem('guide', ['digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [guide],
+        vi.fn(async () => {}),
+      ),
+    );
+
+    await waitFor(() => expect(result.current.digitalNotReadyItemIds).toEqual([guide.id]));
+    expect(result.current.isDigitalReady).toBe(false);
+    expect(result.current.digitalKindForItem(guide.id)).toBeNull();
+  });
+
+  it('re-reads the kind at Pay and asks for the email when the seller switched to email', async () => {
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    kinds.pattern = 'file';
+    const pattern = digitalCartItem('pattern', ['digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [pattern],
+        vi.fn(async () => {}),
+      ),
+    );
+    await waitFor(() => expect(result.current.isDigitalReady).toBe(true));
+    act(() => result.current.form.setValue('acceptsGuarantee', true));
+
+    kinds.pattern = 'email';
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(CommerceController.commitCreateMarketplaceCheckout).not.toHaveBeenCalled();
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'Enter the email the seller should send your purchase to.',
+    });
+    await waitFor(() => expect(result.current.requiresDeliveryEmail).toBe(true));
+  });
+
+  it('names a digital refusal from its reason and re-reads the kinds', async () => {
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    kinds.guide = 'file';
+    const guide = digitalCartItem('guide', ['digital']);
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [guide],
+        vi.fn(async () => {}),
+      ),
+    );
+    await waitFor(() => expect(result.current.isDigitalReady).toBe(true));
+    act(() => result.current.form.setValue('acceptsGuarantee', true));
+    vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'INVALID_STATE',
+        message: 'SENTINEL_SERVER_TEXT_digital',
+        reason: 'digital_delivery_not_ready',
+      },
+    } as never);
+    const reads = vi.mocked(CommerceController.getMarketplaceListingProjection).mock.calls.length;
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: "The seller hasn't finished setting up delivery for this item.",
+    });
+    expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('SENTINEL_SERVER_TEXT_digital');
+    await waitFor(() =>
+      expect(vi.mocked(CommerceController.getMarketplaceListingProjection).mock.calls.length).toBeGreaterThan(
+        reads + 1,
+      ),
+    );
   });
 });

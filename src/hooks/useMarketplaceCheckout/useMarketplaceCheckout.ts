@@ -13,6 +13,12 @@ import {
   resolveCreatedCheckoutOrderIds,
 } from '@/libs/commerce/checkout-phase';
 import {
+  classifyDigitalCheckoutRefusal,
+  DIGITAL_CHECKOUT_REFUSAL_COPY,
+  isInstantDigitalDeliveryKind,
+  type MarketplaceDigitalDeliveryKind,
+} from '@/libs/commerce/digital';
+import {
   MARKETPLACE_FAILURE_MESSAGES,
   marketplaceCheckoutRefusalMessage,
   marketplaceErrorCode,
@@ -124,8 +130,31 @@ export function useMarketplaceCheckout(
   /** The group's effective choice: the buyer's, else shipping when shippable. */
   fulfillmentForSeller: (sellerPubky: string) => MarketplaceFulfillmentMethod | undefined;
   setFulfillmentChoice: (sellerPubky: string, method: MarketplaceFulfillmentMethod) => void;
-  /** False only when EVERY group is pickup — a pickup-only checkout sends no address (§A2). */
+  /** True only when a line ships — pickup and digital lines send no address (§A2). */
   requiresDeliveryAddress: boolean;
+  /**
+   * The line's method: digital for a digital line (digital delivery design
+   * §3 "Mixed carts"), else its seller group's choice. Undefined while a
+   * capability it depends on loads, or when the group has no shared method.
+   */
+  fulfillmentForItem: (itemId: string) => MarketplaceFulfillmentMethod | undefined;
+  /** True when the line's listing both ships (or offers pickup) and delivers digitally here. */
+  canChooseDigitalForItem: (itemId: string) => boolean;
+  /** Moves a line that offers both between digital delivery and its seller group's method. */
+  setDigitalChoice: (itemId: string, digital: boolean) => void;
+  /** The seller's delivery kind for a digital line; null when not set up yet, undefined while it loads. */
+  digitalKindForItem: (itemId: string) => MarketplaceDigitalDeliveryKind | null | undefined;
+  /** True while the deployment's digital capability is unknown and a line publishes digital. */
+  isDigitalCapabilityLoading: boolean;
+  /** Digital lines whose seller has not set delivery (§6 B4): Pay stays disabled. */
+  digitalNotReadyItemIds: string[];
+  /** False while a digital line's kind loads or a digital line is not ready. */
+  isDigitalReady: boolean;
+  /** True when a digital line is email-kind, so the checkout needs "Email for delivery" (§4.3). */
+  requiresDeliveryEmail: boolean;
+  /** Digital lines released at payment (file, link, text), and ones the seller sends (email, message). */
+  hasInstantDigitalLine: boolean;
+  hasManualDigitalLine: boolean;
   /** True when a group's lines force incompatible single fulfillments. */
   hasFulfillmentConflict: boolean;
   /**
@@ -150,6 +179,13 @@ export function useMarketplaceCheckout(
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [pickupAvailable, setPickupAvailable] = useState<boolean | null>(null);
   const [choiceOverrides, setChoiceOverrides] = useState<Record<string, MarketplaceFulfillmentMethod>>({});
+  const [digitalAvailable, setDigitalAvailable] = useState<boolean | null>(null);
+  const [digitalChoices, setDigitalChoices] = useState<Record<string, boolean>>({});
+  const [digitalKinds, setDigitalKinds] = useState<{
+    key: string;
+    kinds: Record<string, MarketplaceDigitalDeliveryKind | null>;
+  } | null>(null);
+  const [digitalKindsAttempt, setDigitalKindsAttempt] = useState(0);
   const appliedInitialAddressRef = useRef(false);
   const form = useForm<MarketplaceCheckoutData>({
     resolver: zodResolver(marketplaceCheckoutSchema),
@@ -228,20 +264,64 @@ export function useMarketplaceCheckout(
     };
   }, []);
 
+  const publishedByItem = new Map<string, MarketplaceFulfillmentMethod[]>();
+  for (const item of items) {
+    publishedByItem.set(
+      item.id,
+      commerceListingFulfillmentMethods(
+        item.listing.record.fulfillmentMethods,
+        item.listing.record.digitalLock !== undefined,
+      ),
+    );
+  }
+  const publishedFor = (item: MarketplaceCartItem) => publishedByItem.get(item.id) ?? [];
+  const anyPublishesDigital = items.some((item) => publishedFor(item).includes('digital'));
+
+  // The deployment's digital capability (digital delivery design §6 B5):
+  // digital lines are offered only when /health reports it.
+  useEffect(() => {
+    if (!anyPublishesDigital) return;
+    let active = true;
+    CommerceController.fetchDigitalDeliveryCapability()
+      .then(({ available }) => {
+        if (active) setDigitalAvailable(available);
+      })
+      .catch(() => {
+        if (active) setDigitalAvailable(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [anyPublishesDigital]);
+
+  // Per-line resolution (digital delivery design §3 "Mixed carts"): a line
+  // whose listing only delivers digitally is digital; one that also ships or
+  // offers pickup is digital only when the buyer picks it. Every other line
+  // joins its seller group, which resolves as §A2 below.
+  const physicalOptionsFor = (item: MarketplaceCartItem) =>
+    publishedFor(item).filter((method) => method === 'shipping' || (method === 'pickup' && pickupAvailable === true));
+  const digitalOffered = (item: MarketplaceCartItem) =>
+    digitalAvailable === true && publishedFor(item).includes('digital');
+  // A pickup line whose capability is still loading may yet be physical.
+  const physicalPossible = (item: MarketplaceCartItem) =>
+    physicalOptionsFor(item).length > 0 || (pickupAvailable === null && publishedFor(item).includes('pickup'));
+  const digitalPending = (item: MarketplaceCartItem) =>
+    digitalAvailable === null && publishedFor(item).includes('digital') && !physicalPossible(item);
+  const goesDigital = (item: MarketplaceCartItem) =>
+    digitalOffered(item) && (!physicalPossible(item) || digitalChoices[item.id] === true);
+  const digitalItems = items.filter(goesDigital);
+  const physicalItems = items.filter((item) => !goesDigital(item) && !digitalPending(item));
+
   // Per-seller-group fulfillment resolution (§A2): the intersection of the
-  // methods every line in the group publishes — the choice is selectable
-  // only among those, never silently rewritten to shipping (the prior art's
-  // `?? 'shipping'` defect, PR 22 review item 1).
+  // methods every physical line in the group publishes — the choice is
+  // selectable only among those, never silently rewritten to shipping (the
+  // prior art's `?? 'shipping'` defect, PR 22 review item 1).
   const optionsBySeller = new Map<string, MarketplaceFulfillmentMethod[]>();
   const sellersPublishingPickup = new Set<string>();
-  for (const item of items) {
+  for (const item of physicalItems) {
     const sellerPubky = item.listing.record.ownerPubky;
-    const published = commerceListingFulfillmentMethods(
-      item.listing.record.fulfillmentMethods,
-      item.listing.record.digitalLock !== undefined,
-    );
-    if (published.includes('pickup')) sellersPublishingPickup.add(sellerPubky);
-    const allowed = pickupAvailable === true ? published : published.filter((method) => method !== 'pickup');
+    if (publishedFor(item).includes('pickup')) sellersPublishingPickup.add(sellerPubky);
+    const allowed = physicalOptionsFor(item);
     const existing = optionsBySeller.get(sellerPubky);
     optionsBySeller.set(sellerPubky, existing ? existing.filter((method) => allowed.includes(method)) : [...allowed]);
   }
@@ -253,20 +333,77 @@ export function useMarketplaceCheckout(
     if (override && options.includes(override)) return override;
     return options.includes('shipping') ? 'shipping' : options[0];
   };
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const fulfillmentForItem = (itemId: string): MarketplaceFulfillmentMethod | undefined => {
+    const item = itemById.get(itemId);
+    if (!item || digitalPending(item)) return undefined;
+    return goesDigital(item) ? 'digital' : fulfillmentForSeller(item.listing.record.ownerPubky);
+  };
   const hasFulfillmentConflict = [...optionsBySeller.values()].some((options) => options.length === 0);
   const requiresDeliveryAddress =
-    items.length === 0 ||
-    [...optionsBySeller.keys()].some((sellerPubky) => fulfillmentForSeller(sellerPubky) !== 'pickup');
-  const orderCount = optionsBySeller.size;
+    items.length === 0 || physicalItems.some((item) => fulfillmentForItem(item.id) !== 'pickup');
+  const orderCount = new Set(
+    items.map((item) => `${item.listing.record.ownerPubky}|${fulfillmentForItem(item.id) ?? ''}`),
+  ).size;
+
+  // The seller's delivery kind per digital line, from the listing projection
+  // (§6 B4: a line with none cannot check out). Re-read when the digital
+  // lines change or a checkout refusal says the delivery moved.
+  const digitalKindsKey = JSON.stringify({
+    attempt: digitalKindsAttempt,
+    lines: digitalItems.map((item) => [item.id, item.listing.record.ownerPubky, item.listing.record.listingId]),
+  });
+  useEffect(() => {
+    const { lines } = JSON.parse(digitalKindsKey) as { lines: Array<[string, string, string]> };
+    if (lines.length === 0) return;
+    let active = true;
+    void Promise.all(
+      lines.map(async ([itemId, ownerPubky, listingId]) => {
+        try {
+          let projection = await CommerceController.getMarketplaceListingProjection(ownerPubky, listingId);
+          if (!projection && isDurableCommerceMode(getCommerceAdapterMode())) {
+            projection = await syncLineProjection(ownerPubky, listingId);
+          }
+          return [itemId, projection?.digitalDelivery?.kind ?? null] as const;
+        } catch {
+          return [itemId, null] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (active) setDigitalKinds({ key: digitalKindsKey, kinds: Object.fromEntries(entries) });
+    });
+    return () => {
+      active = false;
+    };
+  }, [digitalKindsKey]);
+  const kindsLoaded = digitalItems.length === 0 || digitalKinds?.key === digitalKindsKey;
+  const digitalKindForItem = (itemId: string): MarketplaceDigitalDeliveryKind | null | undefined => {
+    const item = itemById.get(itemId);
+    if (!item || !goesDigital(item) || !kindsLoaded) return undefined;
+    return digitalKinds?.kinds[itemId] ?? null;
+  };
+  const digitalLineKinds = digitalItems.map((item) => digitalKindForItem(item.id));
+  const digitalNotReadyItemIds = kindsLoaded
+    ? digitalItems.filter((item) => digitalKindForItem(item.id) === null).map((item) => item.id)
+    : [];
+  const isDigitalCapabilityLoading = anyPublishesDigital && digitalAvailable === null;
+  const isDigitalReady = !isDigitalCapabilityLoading && kindsLoaded && digitalNotReadyItemIds.length === 0;
+  const requiresDeliveryEmail = digitalLineKinds.includes('email');
 
   // Keep the hidden schema flag in sync so the address requirement follows
   // the groups (a pickup-only checkout must not demand — or send — one, §A2).
   useEffect(() => {
     form.setValue('requiresDeliveryAddress', requiresDeliveryAddress, { shouldValidate: true });
   }, [form, requiresDeliveryAddress]);
+  useEffect(() => {
+    form.setValue('requiresDeliveryEmail', requiresDeliveryEmail, { shouldValidate: true });
+  }, [form, requiresDeliveryEmail]);
 
   const setFulfillmentChoice = (sellerPubky: string, method: MarketplaceFulfillmentMethod) => {
     setChoiceOverrides((current) => ({ ...current, [sellerPubky]: method }));
+  };
+  const setDigitalChoice = (itemId: string, digital: boolean) => {
+    setDigitalChoices((current) => ({ ...current, [itemId]: digital }));
   };
 
   const selectAddress = (id: string | null) => {
@@ -317,6 +454,7 @@ export function useMarketplaceCheckout(
     listingAggregateId: string;
     sellerPubky: string;
     publishedFulfillmentMethods: MarketplaceFulfillmentMethod[];
+    fulfillmentChoice?: 'digital';
     expectedRevision: number;
     quantity: number;
     variantId?: string;
@@ -347,6 +485,7 @@ export function useMarketplaceCheckout(
   const createCheckout = async (
     data: MarketplaceCheckoutData,
   ): Promise<{ ok: true; result: unknown; lines: CheckoutLine[] } | { ok: false }> => {
+    const freshKinds: Array<MarketplaceDigitalDeliveryKind | null> = [];
     const lines = await Promise.all(
       items.map(async (item) => {
         const record = item.listing.record;
@@ -355,15 +494,15 @@ export function useMarketplaceCheckout(
           projection = await syncLineProjection(record.ownerPubky, record.listingId);
         }
         if (!projection) return null;
+        const digital = goesDigital(item);
+        if (digital) freshKinds.push(projection.digitalDelivery?.kind ?? null);
         const variant = record.variants.find(({ id }) => id === item.variantId);
         const variantOptions = variant ? Object.entries(variant.options) : [];
         return {
           listingAggregateId: projection.aggregateId,
           sellerPubky: record.ownerPubky,
-          publishedFulfillmentMethods: commerceListingFulfillmentMethods(
-            record.fulfillmentMethods,
-            record.digitalLock !== undefined,
-          ),
+          publishedFulfillmentMethods: publishedFor(item),
+          ...(digital ? { fulfillmentChoice: 'digital' as const } : {}),
           expectedRevision: projection.serverRevision,
           quantity: item.quantity,
           ...(variant ? { variantId: variant.id } : {}),
@@ -381,6 +520,18 @@ export function useMarketplaceCheckout(
       });
       return { ok: false };
     }
+    // The kinds read at Pay are the ones the service checks: a delivery that
+    // moved since the page loaded is caught here, before anything is held.
+    if (freshKinds.includes(null) || (freshKinds.includes('email') && !data.deliveryEmail)) {
+      setDigitalKindsAttempt((attempt) => attempt + 1);
+      toast({
+        variant: 'error',
+        description: freshKinds.includes(null)
+          ? DIGITAL_CHECKOUT_REFUSAL_COPY.not_ready
+          : DIGITAL_CHECKOUT_REFUSAL_COPY.email_required,
+      });
+      return { ok: false };
+    }
     const fulfillmentChoiceBySeller: Record<string, MarketplaceFulfillmentMethod> = {};
     for (const sellerPubky of optionsBySeller.keys()) {
       const fulfillment = fulfillmentForSeller(sellerPubky);
@@ -390,6 +541,7 @@ export function useMarketplaceCheckout(
     const response = await CommerceController.commitCreateMarketplaceCheckout({
       lines: checkoutLines,
       fulfillmentChoiceBySeller,
+      ...(freshKinds.includes('email') ? { deliveryEmail: data.deliveryEmail } : {}),
       ...(requiresDeliveryAddress
         ? {
             deliveryAddress: {
@@ -410,6 +562,12 @@ export function useMarketplaceCheckout(
           variant: 'error',
           description: 'A listing changed while you were checking out. Review your cart and try again.',
         });
+        return { ok: false };
+      }
+      const digitalRefusal = classifyDigitalCheckoutRefusal(response.error);
+      if (digitalRefusal) {
+        if (digitalRefusal !== 'invalid_email') setDigitalKindsAttempt((attempt) => attempt + 1);
+        toast({ variant: 'error', description: DIGITAL_CHECKOUT_REFUSAL_COPY[digitalRefusal] });
         return { ok: false };
       }
       const pickupRefusal = classifyMarketplacePickupCommandRefusal(response);
@@ -554,6 +712,19 @@ export function useMarketplaceCheckout(
     fulfillmentForSeller,
     setFulfillmentChoice,
     requiresDeliveryAddress,
+    fulfillmentForItem,
+    canChooseDigitalForItem: (itemId: string) => {
+      const item = itemById.get(itemId);
+      return item !== undefined && digitalOffered(item) && physicalOptionsFor(item).length > 0;
+    },
+    setDigitalChoice,
+    digitalKindForItem,
+    isDigitalCapabilityLoading,
+    digitalNotReadyItemIds,
+    isDigitalReady,
+    requiresDeliveryEmail,
+    hasInstantDigitalLine: digitalLineKinds.some((kind) => kind != null && isInstantDigitalDeliveryKind(kind)),
+    hasManualDigitalLine: digitalLineKinds.some((kind) => kind === 'email' || kind === 'message'),
     hasFulfillmentConflict,
     isPickupCapabilityLoadingForSeller: (sellerPubky: string) =>
       pickupAvailable === null && sellersPublishingPickup.has(sellerPubky),

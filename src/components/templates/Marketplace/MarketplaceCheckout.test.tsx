@@ -27,6 +27,9 @@ const view = vi.hoisted(() => ({
   requiresDeliveryAddress: true,
   hasFulfillmentConflict: false,
   isPickupCapabilityLoading: false,
+  fulfillmentByItem: {} as Record<string, 'shipping' | 'pickup' | 'digital'>,
+  isDigitalReady: true,
+  isDigitalCapabilityLoading: false,
   orderCount: 1,
   payResult: { ok: false, orderIds: [] as string[], boundOrders: [] as unknown[] },
   awardItems: [] as Array<{ awardId: string; listingId: string; variantId: string }>,
@@ -169,6 +172,25 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       hasFulfillmentConflict: view.hasFulfillmentConflict,
       isPickupCapabilityLoadingForSeller: () => view.isPickupCapabilityLoading,
       orderCount: view.orderCount,
+      fulfillmentForItem: (itemId: string) => {
+        const line = (view.items as Array<{ id: string; listing: { record: { ownerPubky: string } } }>).find(
+          ({ id }) => id === itemId,
+        );
+        return (
+          view.fulfillmentByItem[itemId] ??
+          view.fulfillmentEffective[line?.listing.record.ownerPubky ?? ''] ??
+          'shipping'
+        );
+      },
+      setDigitalChoice: vi.fn(),
+      canChooseDigitalForItem: () => false,
+      digitalKindForItem: () => undefined,
+      isDigitalCapabilityLoading: view.isDigitalCapabilityLoading,
+      digitalNotReadyItemIds: [],
+      isDigitalReady: view.isDigitalReady,
+      requiresDeliveryEmail: false,
+      hasInstantDigitalLine: false,
+      hasManualDigitalLine: false,
     }),
   };
 });
@@ -269,6 +291,9 @@ function resetCheckoutView() {
   view.requiresDeliveryAddress = true;
   view.hasFulfillmentConflict = false;
   view.isPickupCapabilityLoading = false;
+  view.fulfillmentByItem = {};
+  view.isDigitalReady = true;
+  view.isDigitalCapabilityLoading = false;
   view.orderCount = 1;
   view.payResult = { ok: false, orderIds: [], boundOrders: [] };
   view.awardItems = [];
@@ -548,6 +573,82 @@ describe('MarketplaceCheckout local pickup (Wave 7, §A2)', () => {
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText(/Local pickup — no delivery address/)).not.toBeInTheDocument();
+  });
+});
+
+describe('MarketplaceCheckout digital lines (digital delivery design §3 "Checkout")', () => {
+  const CART_ITEM_ID = 'seller:boots:variant_42';
+
+  beforeEach(() => {
+    resetCheckoutView();
+  });
+
+  it('adds no shipping for a line the buyer takes digitally', () => {
+    view.items = [
+      {
+        id: CART_ITEM_ID,
+        listingId: listing.id,
+        variantId: 'variant_42',
+        quantity: 1,
+        listing: {
+          ...listing,
+          record: {
+            ...listing.record,
+            shippingOptions: [
+              {
+                id: 'ground',
+                pricing: 'flat',
+                label: 'Ground',
+                price: { amountMinor: 500, currency: 'USD', exponent: 2 },
+                estimatedMinDays: 3,
+                estimatedMaxDays: 7,
+              },
+            ],
+          },
+        },
+      },
+    ];
+    const { unmount } = render(<MarketplaceCheckout />);
+    expect(screen.getByText('Shipping')).toBeInTheDocument();
+    unmount();
+
+    view.fulfillmentByItem = { [CART_ITEM_ID]: 'digital' };
+    render(<MarketplaceCheckout />);
+    expect(screen.queryByText('Shipping')).not.toBeInTheDocument();
+  });
+
+  it('shows no fulfillment conflict for a seller whose lines are all digital', () => {
+    seededCart();
+    view.fulfillmentOptions = { [listing.record.ownerPubky]: [] };
+    view.fulfillmentByItem = { [CART_ITEM_ID]: 'digital' };
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.queryByText(/can't be checked out together/)).not.toBeInTheDocument();
+  });
+
+  it('shows no fulfillment conflict while the digital capability loads', () => {
+    seededCart();
+    view.fulfillmentOptions = { [listing.record.ownerPubky]: [] };
+    view.isDigitalCapabilityLoading = true;
+    view.isDigitalReady = false;
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.queryByText(/can't be checked out together/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-checkout-pay')).toBeDisabled();
+  });
+
+  it('keeps Pay disabled until every digital line is ready', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.isDigitalReady = false;
+
+    render(<MarketplaceCheckout />);
+    await fillValidDelivery(user);
+    await user.click(screen.getByRole('checkbox', { name: /I accept sandbox guarantee policy v1/ }));
+
+    expect(screen.getByTestId('marketplace-checkout-pay')).toBeDisabled();
   });
 });
 

@@ -189,6 +189,13 @@ describe('groupMarketplaceCartItems', () => {
       totals: [{ amountMinor: 1000, currency: 'USD', exponent: 2 }],
       hasCalculatedShipping: false,
     });
+    // Digital delivery design §3 "Mixed carts": the jacket's buyer took the digital version.
+    expect(
+      marketplaceCartShippingTotals(group, (item) => (item.listing.record.title === 'jacket' ? 'digital' : 'shipping')),
+    ).toEqual({
+      totals: [{ amountMinor: 500, currency: 'USD', exponent: 2 }],
+      hasCalculatedShipping: false,
+    });
   });
 
   it('charges priceable lines while flagging calculated lines', () => {

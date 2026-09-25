@@ -30,16 +30,17 @@ export interface MarketplaceCartGroup {
   subtotals: ReturnType<typeof sumMoneyByAsset>;
 }
 
+/** Shipping for the lines that ship: a pickup or digital line adds none, even beside shipped ones. */
 export function marketplaceCartShippingTotals(
   groups: MarketplaceCartGroup[],
-  fulfillmentForSeller: (sellerPubky: string) => MarketplaceFulfillmentMethod | undefined,
+  fulfillmentForItem: (item: MarketplaceCartItem) => MarketplaceFulfillmentMethod | undefined,
 ): { totals: ReturnType<typeof sumMoneyByAsset>; hasCalculatedShipping: boolean } {
   const shippingLines: Array<{ money: { amountMinor: number; currency: string; exponent: number }; quantity: number }> =
     [];
   let hasCalculatedShipping = false;
   for (const group of groups) {
-    if (fulfillmentForSeller(group.sellerPubky) !== 'shipping') continue;
     for (const item of group.items) {
+      if (fulfillmentForItem(item) !== 'shipping') continue;
       const options = item.listing.record.shippingOptions ?? [];
       if (options.length === 0) continue;
       const shippingMinor = commerceListingShippingMinor(options);

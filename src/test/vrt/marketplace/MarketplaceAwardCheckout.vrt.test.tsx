@@ -105,6 +105,16 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
       isPickupCapabilityLoadingForSeller: () => false,
       orderCount: 1,
       rememberAddress: vi.fn(async () => {}),
+      fulfillmentForItem: () => 'shipping',
+      setDigitalChoice: vi.fn(),
+      canChooseDigitalForItem: () => false,
+      digitalKindForItem: () => undefined,
+      isDigitalCapabilityLoading: false,
+      digitalNotReadyItemIds: [],
+      isDigitalReady: true,
+      requiresDeliveryEmail: false,
+      hasInstantDigitalLine: false,
+      hasManualDigitalLine: false,
     }),
   };
 });
