@@ -13,6 +13,7 @@ const ordersView = vi.hoisted(() => ({
       state?: string;
       total?: { amountMinor: number; currency: string; exponent: number };
       externalRefund?: { amountMinor: number } | null;
+      paymentReversedAt?: string | null;
       returnRequest?: { reason?: string | null } | null;
     };
   }[],
@@ -228,68 +229,78 @@ describe('MarketplaceNotifications', () => {
     );
   });
 
-  it('names a partial refund on the activity row and links that order', () => {
-    const orderId = '018f47d2-6a27-7c23-a62f-000000000001';
+  it('labels each PayPal refund row from its own data, not the order it later became', () => {
+    const orderId = '018f47d2-6a27-7c23-a62f-000000000003';
+    const total = { amountMinor: 250, currency: 'USD', exponent: 2 };
+    const row = (id: string, type: string, createdAt: string) => ({
+      id,
+      recipientPubky: 'y'.repeat(52),
+      actorPubky: 'paypal-ipn',
+      type,
+      aggregateId: `order:${orderId}`,
+      createdAt,
+      readAt: null,
+    });
+    // An ordinary partial refund, then a reversal: the service sends both as
+    // `refund_recorded` with no subtype and no amount.
+    marketplaceView.notifications = [
+      row('00000000-0000-4000-8000-000000000946', 'refund_recorded', '2026-09-24T19:00:00.000Z'),
+      row('00000000-0000-4000-8000-000000000945', 'refund_recorded', '2026-09-24T18:00:00.000Z'),
+    ];
     ordersView.orders = [
       {
         order: {
           id: orderId,
-          state: 'refunded_external',
-          total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+          state: 'shipped',
+          total,
           externalRefund: { amountMinor: 189 },
+          paymentReversedAt: '2026-09-24T19:00:00.000Z',
         },
       },
     ];
+
+    const { rerender } = render(<MarketplaceNotifications />);
+
+    const titles = () => screen.getAllByRole('link').map((link) => link.getAttribute('aria-label'));
+    expect(titles()).toEqual(['Refund recorded', 'Refund recorded']);
+    expect(screen.queryByText(/Payment reversed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Refunded \$1\.89 of \$2\.50/)).not.toBeInTheDocument();
+    for (const link of screen.getAllByRole('link')) {
+      expect(link).toHaveAttribute('href', `/marketplace/orders#order-${orderId}`);
+    }
+
+    // PayPal cancels the reversal: the same rows keep the same titles.
     marketplaceView.notifications = [
-      {
-        id: '00000000-0000-4000-8000-000000000943',
-        recipientPubky: 'y'.repeat(52),
-        actorPubky: 's'.repeat(52),
-        type: 'refund_recorded',
-        aggregateId: `order:${orderId}`,
-        createdAt: '2026-08-20T11:00:00.000Z',
-        readAt: null,
-      },
+      row('00000000-0000-4000-8000-000000000947', 'payment_reversal_cancelled', '2026-09-24T20:00:00.000Z'),
+      ...marketplaceView.notifications,
     ];
+    ordersView.orders = [
+      { order: { id: orderId, state: 'shipped', total, externalRefund: { amountMinor: 50 }, paymentReversedAt: null } },
+    ];
+    rerender(<MarketplaceNotifications />);
 
-    render(<MarketplaceNotifications />);
-
-    expect(screen.getByRole('link', { name: 'Refunded $1.89 of $2.50' })).toHaveAttribute(
-      'href',
-      `/marketplace/orders#order-${orderId}`,
-    );
+    expect(titles()).toEqual(['Disputed payment restored', 'Refund recorded', 'Refund recorded']);
+    expect(screen.queryByText(/history may be incomplete/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Unrecognized marketplace event')).not.toBeInTheDocument();
   });
 
-  it('keeps the full-refund activity label when the recorded amount matches the total', () => {
-    const orderId = '018f47d2-6a27-7c23-a62f-000000000002';
-    ordersView.orders = [
-      {
-        order: {
-          id: orderId,
-          state: 'refunded_external',
-          total: { amountMinor: 250, currency: 'USD', exponent: 2 },
-          externalRefund: { amountMinor: 250 },
-        },
-      },
-    ];
+  it('shows a refund amount only when the row itself carries one', () => {
     marketplaceView.notifications = [
       {
-        id: '00000000-0000-4000-8000-000000000944',
+        id: '00000000-0000-4000-8000-000000000948',
         recipientPubky: 'y'.repeat(52),
-        actorPubky: 's'.repeat(52),
+        actorPubky: 'paypal-ipn',
         type: 'refund_recorded',
-        aggregateId: `order:${orderId}`,
-        createdAt: '2026-08-20T11:00:00.000Z',
+        aggregateId: 'order:018f47d2-6a27-7c23-a62f-000000000004',
+        amount: { amountMinor: 189, currency: 'USD', exponent: 2 },
+        createdAt: '2026-09-24T18:00:00.000Z',
         readAt: null,
       },
     ];
 
     render(<MarketplaceNotifications />);
 
-    expect(screen.getByRole('link', { name: 'External refund recorded' })).toHaveAttribute(
-      'href',
-      `/marketplace/orders#order-${orderId}`,
-    );
+    expect(screen.getByText('Refund recorded · $1.89')).toBeInTheDocument();
   });
 
   it('still links a known event whose row failed schema checks', () => {
