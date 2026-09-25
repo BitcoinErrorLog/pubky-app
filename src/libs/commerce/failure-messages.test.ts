@@ -197,6 +197,20 @@ describe('marketplacePaymentMethodFailureMessage', () => {
     );
   });
 
+  it('tells a buyer without a Paykit wallet to connect Bitkit, never that Paykit is down', () => {
+    const error = new AppError({
+      category: ErrorCategory.Client,
+      code: ClientErrorCode.CONFLICT,
+      message: 'SENTINEL',
+      service: ErrorService.Marketplace,
+      operation: 'bindPaymentMethod',
+      context: { statusCode: 409, reason: 'buyer_paykit_wallet_required' },
+    });
+    expect(marketplacePaymentMethodFailureMessage(error, 'fallback')).toBe(
+      'Connect Bitkit to pay with Bitcoin: this account has no Paykit wallet that can receive a payment request.',
+    );
+  });
+
   it('keeps the action fallback when no payment-method reason is present', () => {
     const error = new AppError({
       category: ErrorCategory.Client,
