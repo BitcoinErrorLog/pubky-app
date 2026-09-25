@@ -151,13 +151,10 @@ function MarketplaceCartCheckout() {
   // snapshot), never from the listing as it is now.
   const awardSeller = offerEligible && award ? award.listing.sellerPubky : null;
   const awardFulfillmentMethods = award?.fulfillmentMethods;
-  const awardFulfillment = useMemo(
-    () =>
-      awardSeller && awardFulfillmentMethods
-        ? { sellerPubky: awardSeller, fulfillmentMethods: awardFulfillmentMethods }
-        : null,
-    [awardSeller, awardFulfillmentMethods],
-  );
+  const awardFulfillment =
+    awardSeller && awardFulfillmentMethods
+      ? { sellerPubky: awardSeller, fulfillmentMethods: awardFulfillmentMethods }
+      : null;
 
   const ordinaryItems = cart.ordinaryItems ?? cart.items;
   const checkoutItems = useMemo(() => {
@@ -178,10 +175,7 @@ function MarketplaceCartCheckout() {
   const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
   const displayGroups = useMemo(() => groupMarketplaceCartItems(checkoutItems), [checkoutItems]);
   // The award renders as its own fulfillment section (no cart line cards).
-  const fulfillmentGroups = useMemo(
-    () => (awardSeller ? [{ sellerPubky: awardSeller, items: [], subtotals: [] }] : displayGroups),
-    [awardSeller, displayGroups],
-  );
+  const fulfillmentGroups = awardSeller ? [{ sellerPubky: awardSeller, items: [], subtotals: [] }] : displayGroups;
   const shipping = marketplaceCartShippingTotals(displayGroups, checkout.fulfillmentForSeller);
   // A pickup award pays the accepted merchandise only; its shipping is zero.
   const isPickupAward = Boolean(awardSeller && checkout.fulfillmentForSeller(awardSeller) === 'pickup');
