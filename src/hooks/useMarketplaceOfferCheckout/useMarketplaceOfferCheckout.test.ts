@@ -67,6 +67,13 @@ const address = {
   countryCode: 'US',
 };
 
+function committedPayload(): Record<string, unknown> | undefined {
+  const command = vi.mocked(CommerceController.commitOfferCheckout).mock.calls[0]?.[0] as
+    | { payload: Record<string, unknown> }
+    | undefined;
+  return command?.payload;
+}
+
 describe('useMarketplaceOfferCheckout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,7 +118,7 @@ describe('useMarketplaceOfferCheckout', () => {
     await act(async () => {
       await result.current.submit(offer, address);
     });
-    const payload = vi.mocked(CommerceController.commitOfferCheckout).mock.calls[0]?.[0]?.payload;
+    const payload = committedPayload();
     expect(payload).toMatchObject({ deliveryAddress: address });
     expect(payload).not.toHaveProperty('fulfillment');
   });
@@ -121,7 +128,7 @@ describe('useMarketplaceOfferCheckout', () => {
     await act(async () => {
       await expect(result.current.submit(offer, null)).resolves.toMatchObject({ ok: true });
     });
-    const payload = vi.mocked(CommerceController.commitOfferCheckout).mock.calls[0]?.[0]?.payload;
+    const payload = committedPayload();
     expect(payload).toMatchObject({ fulfillment: 'pickup' });
     expect(payload).not.toHaveProperty('deliveryAddress');
   });
