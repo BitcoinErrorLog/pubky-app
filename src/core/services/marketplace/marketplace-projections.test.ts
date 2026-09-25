@@ -562,3 +562,36 @@ describe('marketplace bid history reserve secrecy', () => {
     },
   );
 });
+
+describe('marketplace order projection — PayPal refund notification fields', () => {
+  // Key names and value types from pubky-marketplace-service 94ecb0d
+  // `contracts/samples/projections.json` and `OrderRow::view`.
+  const wire = (values: Record<string, unknown>) => ({
+    ...createOrderFixture('refunded_external'),
+    ...(toCamelCaseWire(values) as Record<string, unknown>),
+  });
+
+  it('reads the reversal, cancelled-reversal, review, and hold fields through wire casing', () => {
+    const parsed = marketplaceOrderSchema.parse(
+      wire({
+        payment_reversed_at: '2026-09-24T18:00:00.000Z',
+        payment_reversal_cancelled_at: null,
+        gateway_refund_review_at: '2026-09-24T18:05:00.000Z',
+        gateway_refund_unmatched: true,
+      }),
+    );
+    expect(parsed.paymentReversedAt).toBe('2026-09-24T18:00:00.000Z');
+    expect(parsed.paymentReversalCancelledAt).toBeNull();
+    expect(parsed.gatewayRefundReviewAt).toBe('2026-09-24T18:05:00.000Z');
+    expect(parsed.gatewayRefundUnmatched).toBe(true);
+  });
+
+  it('keeps the order when a refund flag is malformed and drops only that flag', () => {
+    const parsed = marketplaceOrderSchema.parse(
+      wire({ payment_reversed_at: 17, gateway_refund_review_at: {}, gateway_refund_unmatched: 'yes' }),
+    );
+    expect(parsed.paymentReversedAt).toBeNull();
+    expect(parsed.gatewayRefundReviewAt).toBeNull();
+    expect(parsed.gatewayRefundUnmatched).toBe(false);
+  });
+});

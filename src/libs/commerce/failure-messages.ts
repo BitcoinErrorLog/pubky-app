@@ -21,6 +21,12 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   notifications: 'Could not update commerce notifications.',
   order: 'Could not update this order.',
   orderChanged: 'This order changed since you loaded it. The latest state was reloaded — retry from there.',
+  orderReversedMeanwhile:
+    'PayPal reversed the payment for this order while you were working on it. The latest state was reloaded.',
+  orderRefundedMeanwhile:
+    'This order was refunded while you were working on it, so there is nothing left to do here. The latest state was reloaded.',
+  orderRefundRecordedMeanwhile:
+    'A refund was recorded on this order while you were working on it. The latest state was reloaded — check it and retry.',
   paymentChanged: 'This payment changed since you loaded it. The latest state was reloaded — retry from there.',
   checkout: 'Checkout could not be completed.',
   claim: 'The claim could not be submitted. Check your connection and try again.',

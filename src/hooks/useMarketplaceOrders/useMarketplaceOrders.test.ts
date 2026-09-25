@@ -5,6 +5,7 @@ import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useMarketplaceOrders } from './useMarketplaceOrders';
 
@@ -265,6 +266,44 @@ describe('useMarketplaceOrders', () => {
     expect(vi.mocked(toast)).toHaveBeenCalledWith(
       expect.objectContaining({ description: expect.stringContaining('reloaded') }),
     );
+  });
+
+  it.each<[string, Partial<MarketplaceOrder>, string]>([
+    ['a PayPal full refund', { state: 'refunded_external' }, MARKETPLACE_FAILURE_MESSAGES.orderRefundedMeanwhile],
+    [
+      'a PayPal reversal',
+      { state: 'refunded_external', paymentReversedAt: '2026-09-24T18:00:00.000Z' },
+      MARKETPLACE_FAILURE_MESSAGES.orderReversedMeanwhile,
+    ],
+    ['a PayPal partial refund', {}, MARKETPLACE_FAILURE_MESSAGES.orderRefundRecordedMeanwhile],
+  ])('names %s that landed during a conflicting action', async (_name, change, message) => {
+    const { result } = renderHook(() => useMarketplaceOrders());
+    await waitFor(() => expect(result.current.orders).toHaveLength(1));
+    const order = result.current.orders[0].order;
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValue({
+      ok: false,
+      error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.', currentRevision: 2 },
+    });
+    vi.mocked(CommerceController.getMarketplaceOrders).mockResolvedValue([
+      {
+        ...order,
+        revision: 2,
+        externalRefund: {
+          amountMinor: 100,
+          transactionId: '9RF12345AB678901C',
+          recordedAt: '2026-09-24T18:00:00.000Z',
+        },
+        ...change,
+      },
+    ]);
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    vi.mocked(toast).mockClear();
+
+    await act(async () => {
+      await result.current.actOnOrder(order, 'fulfillment.confirm_delivery', {});
+    });
+
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({ variant: 'error', description: message });
   });
 
   it('treats a revision conflict as success when the re-read already shows the action', async () => {

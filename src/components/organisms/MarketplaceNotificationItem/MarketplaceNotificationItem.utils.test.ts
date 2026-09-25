@@ -41,6 +41,13 @@ describe('getMarketplaceNotificationActionText', () => {
     );
   });
 
+  it('renders the PayPal refund and reversal copy after the PayPal actor', () => {
+    expect(getMarketplaceNotificationActionText({ type: 'refund_recorded' })).toBe('recorded a refund');
+    expect(getMarketplaceNotificationActionText({ type: 'payment_reversal_cancelled' })).toBe(
+      'restored a disputed payment',
+    );
+  });
+
   it('appends the §8-permitted amount to auction and offer copy', () => {
     const usd = { amountMinor: 8_500, currency: 'USD', exponent: 2 };
     expect(getMarketplaceNotificationActionText({ type: 'auction_ended', amount: usd })).toBe(

@@ -122,6 +122,24 @@ describe('orderShowsCommandResult', () => {
     ).toBe(false);
   });
 
+  it('does not read a PayPal refund of a shipped order as a confirmed delivery', () => {
+    const shipped = { carrier: 'Local Courier', trackingNumber: 'LC-1', state: 'shipped' };
+    expect(
+      orderShowsCommandResult(
+        order({ state: 'refunded_external', shipment: shipped }),
+        'fulfillment.confirm_delivery',
+        {},
+      ),
+    ).toBe(false);
+    expect(
+      orderShowsCommandResult(
+        order({ state: 'refunded_external', shipment: { ...shipped, state: 'delivered' } }),
+        'fulfillment.confirm_delivery',
+        {},
+      ),
+    ).toBe(true);
+  });
+
   it('does not treat an unrecognized command as applied', () => {
     expect(orderShowsCommandResult(order({ state: 'delivered' }), 'fulfillment.confirm_pickup', {})).toBe(false);
   });

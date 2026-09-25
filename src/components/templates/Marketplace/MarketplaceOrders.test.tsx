@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { REFUND_ORDER_NOTICES } from '@/libs/commerce/refund-copy';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 import {
   createOrderFixture,
@@ -279,7 +280,63 @@ describe('MarketplaceOrders tabs', () => {
 
     expect(screen.getByText('Refunded $1.89 of $2.50')).toBeInTheDocument();
     expect(screen.getByTestId('order-refund-record')).toHaveTextContent(
-      'Refunded $1.89 of $2.50. Recorded from external evidence: PAYPAL-REFUND-189',
+      'Refunded $1.89 of $2.50. Reference: PAYPAL-REFUND-189',
+    );
+  });
+
+  it('names a PayPal full refund, a reversal, and held refund notices in plain words', () => {
+    const refund = {
+      amountMinor: 250,
+      transactionId: '9RF12345AB678901C',
+      recordedAt: '2026-09-24T18:00:00.000Z',
+    };
+    ordersState.orders = [
+      orderView('refunded_external', 'Sold refunded lamp', 'seller', {
+        total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+        externalRefund: refund,
+      }),
+      orderView('refunded_external', 'Sold reversed lamp', 'seller', {
+        total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+        externalRefund: refund,
+        paymentReversedAt: '2026-09-24T18:00:00.000Z',
+        gatewayRefundUnmatched: true,
+        gatewayRefundReviewAt: '2026-09-24T18:05:00.000Z',
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    const refunded = screen.getByText(/Sold refunded lamp/).closest('[id^="order-"]') as HTMLElement;
+    const reversed = screen.getByText(/Sold reversed lamp/).closest('[id^="order-"]') as HTMLElement;
+    expect(within(refunded).getByText('Refunded')).toBeInTheDocument();
+    expect(within(refunded).getByTestId('order-refund-record')).toHaveTextContent(
+      'Refunded in full ($2.50). Reference: 9RF12345AB678901C',
+    );
+    expect(within(refunded).queryByTestId(/order-refund-notice-/)).not.toBeInTheDocument();
+    expect(within(reversed).getByText('Payment reversed')).toBeInTheDocument();
+    expect(within(reversed).getByTestId('order-refund-notice-reversed')).toHaveTextContent(
+      REFUND_ORDER_NOTICES.reversed,
+    );
+    expect(within(reversed).getByTestId('order-refund-notice-refundOnHold')).toHaveTextContent(
+      REFUND_ORDER_NOTICES.refundOnHold,
+    );
+    expect(within(reversed).getByTestId('order-refund-notice-refundNeedsCheck')).toHaveTextContent(
+      REFUND_ORDER_NOTICES.refundNeedsCheck,
+    );
+    expect(screen.queryByText(/refunded external/i)).not.toBeInTheDocument();
+  });
+
+  it('explains a cancelled PayPal reversal on the reopened order', () => {
+    ordersState.orders = [
+      orderView('paid', 'Sold restored lamp', 'seller', {
+        paymentReversalCancelledAt: '2026-09-24T19:00:00.000Z',
+      }),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    expect(screen.getByTestId('order-refund-notice-reversalCancelled')).toHaveTextContent(
+      REFUND_ORDER_NOTICES.reversalCancelled,
     );
   });
 

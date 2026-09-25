@@ -5,7 +5,9 @@ import type { MarketplaceNotification } from '@/services/marketplace/marketplace
  * Extracted from `insert_notification_intent` literals, `finish_order_action`
  * `(type, recipient)` tuples, and `notify_paid_buyers` on
  * BitcoinErrorLog/pubky-marketplace-service `origin/main`
- * `947f5574ef38c3eb4e5c9bc2e73fef3d17b12fc7`.
+ * `947f5574ef38c3eb4e5c9bc2e73fef3d17b12fc7`, plus the PayPal refund
+ * notification `finish` in `payment_methods/paypal_refund.rs` at
+ * `94ecb0d11b16808dd56e475e5308953f85a561f7`.
  *
  * Shop-only types (`message_received`, `order_cancelled_terms_change`) are
  * mapped too, but they are not in this list because that service revision
@@ -32,6 +34,7 @@ export const SERVICE_NOTIFICATION_TYPES = [
   'payment_confirmed',
   'payment_method_bound',
   'payment_refund_required',
+  'payment_reversal_cancelled',
   'pickup_details_cleared',
   'pickup_details_updated',
   'pickup_ready',
@@ -71,13 +74,14 @@ export const MARKETPLACE_ACTIVITY_LABELS = {
   order_delivered: 'Delivery confirmed',
   order_completed: 'Order completed',
   return_updated: 'Return updated',
-  refund_recorded: 'External refund recorded',
+  refund_recorded: 'Refund recorded',
   review_received: 'New review received',
   pickup_details_updated: 'Pickup details updated',
   pickup_details_cleared: 'Pickup details removed',
   pickup_ready: 'Order ready for pickup',
   payment_refund_required: 'Payment requires a refund',
   drop_sold_out: 'Drop sold out',
+  payment_reversal_cancelled: 'Disputed payment restored',
 } as const satisfies Record<MarketplaceNotification['type'], string>;
 
 export function marketplaceActivityLabel(type: string): string | null {
