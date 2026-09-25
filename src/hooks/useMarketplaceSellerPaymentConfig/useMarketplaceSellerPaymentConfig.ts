@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
@@ -28,14 +28,20 @@ export function useMarketplaceSellerPaymentConfig() {
   const [config, setConfig] = useState<SellerPaymentConfigOwnView | null>(null);
   const [accountClaimed, setAccountClaimed] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Reads overlap: a session refresh can still be in flight when Step 2's
+  // claim read returns. The older read must not put the claim back.
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async (): Promise<boolean | null> => {
+    const generation = ++loadGeneration.current;
     setIsLoading(true);
     setLoadError(null);
     const [configResult, claimedResult] = await Promise.allSettled([
       CommerceController.getMyPaymentConfig(),
       CommerceController.isOwnPaykitAccountClaimed(),
     ]);
+    const claimed = claimedResult.status === 'fulfilled' ? claimedResult.value : null;
+    if (generation !== loadGeneration.current) return claimed;
     if (configResult.status === 'fulfilled') {
       setConfig(configResult.value);
     } else {
@@ -48,10 +54,14 @@ export function useMarketplaceSellerPaymentConfig() {
         ),
       );
     }
-    const claimed = claimedResult.status === 'fulfilled' ? claimedResult.value : null;
     setAccountClaimed(claimed);
     setIsLoading(false);
     return claimed;
+  }, []);
+
+  const commitAccountClaimed = useCallback((claimed: boolean) => {
+    loadGeneration.current += 1;
+    setAccountClaimed(claimed);
   }, []);
 
   useEffect(() => {
@@ -156,5 +166,6 @@ export function useMarketplaceSellerPaymentConfig() {
     save,
     clearStripeKey,
     refresh: load,
+    commitAccountClaimed,
   };
 }
