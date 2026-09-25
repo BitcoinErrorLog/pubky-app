@@ -351,6 +351,13 @@ const marketplaceOfferProjectionSchema = z
         subtotal: marketplaceMoneySchema,
         shipping: marketplaceMoneySchema,
         merchandiseTotal: marketplaceMoneySchema,
+        // The methods the accepted snapshot published — the only ones award
+        // checkout may settle with. Services that predate it are shipping-only.
+        fulfillmentMethods: z
+          .array(z.enum(['shipping', 'pickup']))
+          .min(1)
+          .max(2)
+          .default(['shipping']),
       })
       .passthrough()
       .optional(),

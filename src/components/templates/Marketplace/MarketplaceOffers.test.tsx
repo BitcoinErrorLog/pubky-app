@@ -164,6 +164,7 @@ describe('Marketplace offers UX', () => {
         subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
         shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
         merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
+        fulfillmentMethods: ['shipping'],
       },
     } as MarketplaceOffer;
     offerView.offers = [accepted];
@@ -225,6 +226,7 @@ describe('Marketplace offers UX', () => {
         subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
         shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
         merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
+        fulfillmentMethods: ['shipping'],
       },
     } as MarketplaceOffer;
     offerView.offers = [accepted];

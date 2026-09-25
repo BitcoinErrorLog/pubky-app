@@ -290,6 +290,21 @@ export function commerceListingFulfillmentMethods(
   return derived.length > 0 ? derived : ['shipping'];
 }
 
+/**
+ * Whether the listing offers **Make offer**: a fixed-price sale that accepts
+ * offers and publishes a physical fulfillment (shipping or pickup). Digital
+ * items take no offers — the service refuses them (`offers_unavailable_for_digital`).
+ */
+export function commerceListingTakesOffers(
+  record: Pick<CommerceListingRecord, 'sale' | 'fulfillmentMethods'>,
+): boolean {
+  return (
+    record.sale.format === 'fixed_price' &&
+    record.sale.acceptsOffers &&
+    record.fulfillmentMethods.some((method) => method === 'physical' || method === 'shipping' || method === 'pickup')
+  );
+}
+
 export const commercePackageSchema = z
   .object({
     weightGrams: z.number().int().positive().max(1_000_000),
