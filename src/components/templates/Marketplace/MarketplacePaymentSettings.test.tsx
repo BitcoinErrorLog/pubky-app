@@ -268,6 +268,51 @@ describe('MarketplacePaymentSettings', () => {
     expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
   });
 
+  it('saves PayPal for a seller whose stored payment config is null', async () => {
+    const user = userEvent.setup();
+    mockedController.getMyPaymentConfig.mockResolvedValue(null);
+
+    await renderSettings();
+    const save = screen.getAllByRole('button', { name: 'Save payment settings' })[0];
+    await waitFor(() => expect(save).toBeEnabled());
+
+    await user.type(screen.getByLabelText('PayPal merchant email'), 'new-seller@example.com');
+    await user.click(save);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith({
+      bitcoinEnabled: false,
+      paypalMerchantEmail: 'new-seller@example.com',
+      stripePaymentLink: null,
+    });
+  });
+
+  it('keeps stored bitcoin and the Stripe link when an existing config PayPal email changes', async () => {
+    const user = userEvent.setup();
+    mockedController.getMyPaymentConfig.mockResolvedValue({
+      ...EMPTY_CONFIG,
+      bitcoinEnabled: true,
+      paypalMerchantEmail: 'old@example.com',
+      stripePaymentLink: 'https://buy.stripe.com/test_kept',
+    });
+
+    await renderSettings();
+    const save = screen.getAllByRole('button', { name: 'Save payment settings' })[0];
+    await waitFor(() => expect(save).toBeEnabled());
+
+    const email = screen.getByLabelText('PayPal merchant email');
+    await user.clear(email);
+    await user.type(email, 'updated@example.com');
+    await user.click(save);
+
+    await waitFor(() => expect(mockedController.putMyPaymentConfig).toHaveBeenCalledTimes(1));
+    expect(mockedController.putMyPaymentConfig).toHaveBeenLastCalledWith({
+      bitcoinEnabled: true,
+      paypalMerchantEmail: 'updated@example.com',
+      stripePaymentLink: 'https://buy.stripe.com/test_kept',
+    });
+  });
+
   it('saves PayPal without writing a card key', async () => {
     const user = userEvent.setup();
     await renderSettings();

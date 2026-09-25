@@ -294,6 +294,23 @@ export function commerceListingFulfillmentMethods(
   return derived.length > 0 ? derived : ['shipping'];
 }
 
+/**
+ * Whether the service will take an `offer.create` on this listing: a
+ * fixed-price sale that accepts offers and whose registered fulfillment
+ * methods include shipping. The service refuses offers on listings that
+ * do not ship, pickup-only or digital-only (`INVALID_STATE`), so the Shop
+ * must not offer the action there. A Locks listing registers as shipping.
+ */
+export function commerceListingTakesOffers(
+  record: Pick<CommerceListingRecord, 'sale' | 'fulfillmentMethods' | 'digitalLock'>,
+): boolean {
+  return (
+    record.sale.format === 'fixed_price' &&
+    record.sale.acceptsOffers &&
+    commerceListingFulfillmentMethods(record.fulfillmentMethods, record.digitalLock !== undefined).includes('shipping')
+  );
+}
+
 export const commercePackageSchema = z
   .object({
     weightGrams: z.number().int().positive().max(1_000_000),

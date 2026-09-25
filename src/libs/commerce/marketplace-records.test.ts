@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
+import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import receiptAttestationV1 from '@/test/fixtures/commerce/receipt-attestation-v1.json';
 import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attestation-v2-bitcoin.json';
 import receiptAttestationV2SameCurrency from '@/test/fixtures/commerce/receipt-attestation-v2-same-currency.json';
@@ -13,6 +14,7 @@ import {
   type CommerceListingRecord,
   commerceListingRecordSchema,
   commerceListingShippingMinor,
+  commerceListingTakesOffers,
   commerceOrderReceiptRecordSchema,
   commercePublicRecordSchema,
   commerceReviewRecordSchema,
@@ -768,6 +770,28 @@ describe('commerceListingFulfillmentMethods (mirrors the service homeserver deri
     // The service deliberately dedupes set-wise (not Vec::dedup's adjacent-only
     // collapse) so a non-adjacent repeat cannot fail registration validation.
     expect(commerceListingFulfillmentMethods(['shipping', 'pickup', 'shipping'])).toEqual(['shipping', 'pickup']);
+  });
+});
+
+describe('commerceListingTakesOffers (the service takes offers only on listings that ship)', () => {
+  const listing = (overrides: Partial<CommerceListingRecord>) => createCommerceListingFixture(overrides);
+  const lock = {
+    policyUri: 'pubky://seller/pub/locks.app/v1/policies/policy-1',
+    criterionId: 'criterion-1',
+    contentPath: 'premium.txt',
+    resourceHash: 'b'.repeat(64),
+    minimumConfirmations: 6,
+  };
+
+  it('refuses digital-only and pickup-only listings and takes a listing that also ships', () => {
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['digital'] }))).toBe(false);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['pickup', 'digital'] }))).toBe(false);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['pickup'] }))).toBe(false);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['physical', 'shipping', 'digital'] }))).toBe(true);
+  });
+
+  it('takes offers on a Locks listing, which registers as shipping', () => {
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['digital'], digitalLock: lock }))).toBe(true);
   });
 });
 
