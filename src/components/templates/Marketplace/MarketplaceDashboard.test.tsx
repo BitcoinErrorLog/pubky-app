@@ -321,6 +321,39 @@ describe('MarketplaceDashboard', () => {
       expect(link).toHaveAttribute('href', MARKETPLACE_ROUTES.SELL);
     }
   });
+
+  it('styles Payment settings like the other studio actions and keeps the setup notice on that row', () => {
+    viewport.isMobile = false;
+    paymentGate.isDurable = true;
+    paymentGate.ready = true;
+    paymentGate.reason = 'no-method';
+    dashboardState.listings = [];
+    dashboardState.metrics = {
+      activeListings: 0,
+      totalInventory: 0,
+      lowStock: 0,
+      paidOrders: 0,
+      revenue: [],
+      openOffers: 0,
+    };
+
+    render(<MarketplaceDashboard />);
+
+    const settings = screen.getByRole('link', { name: 'Payment settings' });
+    const shop = screen.getByRole('link', { name: 'My shop' });
+    expect(settings.className).toContain('bg-secondary');
+    expect(settings.className).not.toContain('border-none');
+    expect(shop.className).toContain('bg-secondary');
+    expect(settings.parentElement?.className).toContain('items-center');
+    expect(settings.parentElement?.className).not.toContain('flex-col');
+
+    const note = settings.parentElement?.querySelector('[data-testid="create-listing-payment-precondition"]');
+    expect(note).not.toBeNull();
+    expect(note).toHaveTextContent('Payment setup required');
+    expect(note).toHaveTextContent('Set up how you get paid first');
+    const headerSell = screen.getAllByRole('link', { name: 'Sell an item' })[0];
+    expect(headerSell.parentElement?.contains(note as Node)).toBe(false);
+  });
 });
 
 function listing(overrides: Partial<Parameters<typeof createCommerceListingFixture>[0]> = {}) {

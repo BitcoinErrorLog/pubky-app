@@ -140,7 +140,7 @@ export function MarketplaceDashboard() {
             </Typography>
           </div>
           <div className="flex flex-wrap gap-2">
-            <SellAnItemControl paymentSetupRequired={paymentSetupRequired} align="end" />
+            <SellAnItemControl align="end" />
             <Button asChild variant="secondary" className="rounded-full">
               <Link href={MARKETPLACE_ROUTES.MY_SHOP} overrideDefaults>
                 <Store className="mr-2 size-4" />
@@ -163,11 +163,14 @@ export function MarketplaceDashboard() {
                 Offers
               </Link>
             </Button>
-            <Button asChild variant="ghost" className="rounded-full">
-              <Link href={MARKETPLACE_ROUTES.SETTINGS} overrideDefaults>
-                Payment settings
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="secondary" className="rounded-full">
+                <Link href={MARKETPLACE_ROUTES.SETTINGS} overrideDefaults>
+                  Payment settings
+                </Link>
+              </Button>
+              {paymentSetupRequired ? <PaymentSetupNotice /> : null}
+            </div>
           </div>
         </div>
 
@@ -583,29 +586,33 @@ export function MarketplaceDashboard() {
   );
 }
 
+function PaymentSetupNotice() {
+  return (
+    <span
+      data-testid="create-listing-payment-precondition"
+      className="inline-flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+    >
+      <Badge variant="outline">Payment setup required</Badge>
+      Set up how you get paid first
+    </span>
+  );
+}
+
 function SellAnItemControl({
-  paymentSetupRequired,
+  paymentSetupRequired = false,
   align,
 }: {
-  paymentSetupRequired: boolean;
+  paymentSetupRequired?: boolean;
   align: 'end' | 'center';
 }) {
   return (
-    <div className={`flex flex-col gap-1 ${align === 'center' ? 'mt-6 items-center' : 'items-end'}`}>
+    <div className={`flex flex-wrap items-center gap-2 ${align === 'center' ? 'mt-6 justify-center' : 'justify-end'}`}>
       <Button asChild className="rounded-full">
         <Link href={MARKETPLACE_ROUTES.SELL} overrideDefaults>
           Sell an item
         </Link>
       </Button>
-      {paymentSetupRequired ? (
-        <span
-          data-testid="create-listing-payment-precondition"
-          className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground"
-        >
-          <Badge variant="outline">Payment setup required</Badge>
-          Set up how you get paid first
-        </span>
-      ) : null}
+      {paymentSetupRequired ? <PaymentSetupNotice /> : null}
     </div>
   );
 }
