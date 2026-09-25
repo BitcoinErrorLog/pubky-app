@@ -35,7 +35,7 @@ export const marketplaceOrderActionSchema = z
       }
     }
     if (data.action === 'refund') {
-      if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount) || Number(data.amount) <= 0) {
+      if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount)) {
         context.addIssue({ code: 'custom', path: ['amount'], message: 'Enter a valid refund amount.' });
       }
       if (data.transactionId.length < 8) {
@@ -64,22 +64,42 @@ export function formatOrderMajor(total: MarketplaceRefundCap): string {
 }
 
 /**
- * Same action schema, plus the service rule that a recorded refund cannot
- * exceed the order total. A smaller positive amount is a partial refund.
+ * Same action schema, plus the service rules for `refund.record_external`.
+ * The entered amount is what has not been recorded yet: the whole refund,
+ * or what was refunded outside PayPal after PayPal refunds (`refundedMinor`).
+ * The recorded total, `refundedMinor` plus the entry, must be positive and
+ * at most the order total.
  */
-export function marketplaceOrderActionSchemaFor(total: MarketplaceRefundCap) {
+export function marketplaceOrderActionSchemaFor(total: MarketplaceRefundCap, refundedMinor = 0) {
   return marketplaceOrderActionSchema.superRefine((data, context) => {
     if (data.action !== 'refund') return;
-    if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount) || Number(data.amount) <= 0) return;
+    if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount)) return;
     const amountMinor = majorToMinor(data.amount, total.exponent);
-    if (!Number.isSafeInteger(amountMinor) || amountMinor > total.amountMinor) {
+    if (refundedMinor === 0 && amountMinor <= 0) {
+      context.addIssue({ code: 'custom', path: ['amount'], message: 'Enter a valid refund amount.' });
+      return;
+    }
+    if (!Number.isSafeInteger(amountMinor) || refundedMinor + amountMinor > total.amountMinor) {
       context.addIssue({
         code: 'custom',
         path: ['amount'],
-        message: 'Enter a refund up to the order total.',
+        message:
+          refundedMinor === 0
+            ? 'Enter a refund up to the order total.'
+            : 'Enter a refund up to the amount PayPal has not refunded.',
       });
     }
   });
+}
+
+/**
+ * What PayPal refund notifications already recorded on an order the seller
+ * can still record a refund on. A seller's own record always moves the order
+ * to `refunded_external`, so an `externalRefund` on `return_received` or
+ * `cancelled` is PayPal's running sum.
+ */
+export function paypalRefundedMinor(order: { externalRefund?: { amountMinor: number } | null }): number {
+  return order.externalRefund?.amountMinor ?? 0;
 }
 
 export const marketplaceOrderActionDefaults: MarketplaceOrderActionData = {

@@ -159,6 +159,33 @@ describe('marketplace attention', () => {
     expect(keys).toEqual(['order:open', 'offer:pending', 'notification:m']);
   });
 
+  it('badges PayPal refund activity only when a restored payment hands the order back to this identity', () => {
+    const keys = activityNeedingAttentionKeys({
+      notifications: [
+        row('refund-full', 'refund_recorded', 'order:refunded'),
+        row('refund-partial', 'refund_recorded', 'order:partial'),
+        row('reversal', 'refund_recorded', 'order:reversed'),
+        row('restored-open', 'payment_reversal_cancelled', 'order:reopened'),
+        row('restored-buyer', 'payment_reversal_cancelled', 'order:in-transit'),
+        row('restored-done', 'payment_reversal_cancelled', 'order:closed-out'),
+      ],
+      orders: [
+        order('refunded', { state: 'refunded_external', nextActor: 'none' }),
+        order('partial', { state: 'shipped', nextActor: 'buyer' }),
+        order('reversed', { state: 'refunded_external', nextActor: 'none' }),
+        order('reopened', { state: 'paid', nextActor: 'seller' }),
+        order('in-transit', { state: 'shipped', nextActor: 'buyer' }),
+        order('closed-out', { state: 'completed', nextActor: 'none' }),
+      ],
+      offers: [],
+      currentUserPubky: ME,
+      clearedBy: { kind: 'seen', seenAt: 0 },
+      now: NOW,
+    });
+    expect(keys).toEqual(['order:reopened']);
+    expect(isMarketplaceActionActivity('refund_recorded')).toBe(false);
+  });
+
   it('counts several rows about one subject once', () => {
     const keys = activityNeedingAttentionKeys({
       notifications: [
