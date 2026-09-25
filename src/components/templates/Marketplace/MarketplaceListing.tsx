@@ -47,8 +47,8 @@ import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
   commerceListingFulfillmentMethods,
-  commerceListingTakesOffers,
   type CommerceListingRecord,
+  commerceListingTakesOffers,
   type CommerceShippingOption,
 } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
