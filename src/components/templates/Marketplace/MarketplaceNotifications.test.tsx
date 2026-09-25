@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { MarketplaceNotifications } from './MarketplaceNotifications';
 
-const authStoreState = vi.hoisted(() => ({ session: {} as unknown }));
+const authStoreState = vi.hoisted(() => ({ session: {} as unknown, currentUserPubky: null as string | null }));
 const markAllSeen = vi.hoisted(() => vi.fn(async () => {}));
 const marketplaceView = vi.hoisted(() => ({ notifications: [] as unknown[] }));
 const ordersView = vi.hoisted(() => ({
@@ -11,6 +11,7 @@ const ordersView = vi.hoisted(() => ({
     order: {
       id: string;
       state?: string;
+      buyerPubky?: string;
       total?: { amountMinor: number; currency: string; exponent: number };
       externalRefund?: { amountMinor: number } | null;
       paymentReversedAt?: string | null;
@@ -21,7 +22,8 @@ const ordersView = vi.hoisted(() => ({
 }));
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { session: unknown | null }) => unknown) => selector(authStoreState),
+  useAuthStore: (selector: (state: { session: unknown | null; currentUserPubky: string | null }) => unknown) =>
+    selector(authStoreState),
 }));
 
 vi.mock('@/controllers/commerce/commerce', () => ({
@@ -67,6 +69,7 @@ describe('MarketplaceNotifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authStoreState.session = {};
+    authStoreState.currentUserPubky = null;
     marketplaceView.notifications = [];
     ordersView.orders = [];
     ordersView.isLoading = false;
@@ -301,6 +304,47 @@ describe('MarketplaceNotifications', () => {
     render(<MarketplaceNotifications />);
 
     expect(screen.getByText('Refund recorded · $1.89')).toBeInTheDocument();
+  });
+
+  it('opens Checkout started on that order, and on checkout only while the order can still be checked out', () => {
+    const orderId = '018f47d2-6a27-7c23-a62f-000000000010';
+    const buyer = 'b'.repeat(52);
+    authStoreState.currentUserPubky = buyer;
+    marketplaceView.notifications = [
+      {
+        id: '00000000-0000-4000-8000-000000000950',
+        recipientPubky: buyer,
+        actorPubky: 's'.repeat(52),
+        type: 'order_created',
+        aggregateId: `order:${orderId}`,
+        createdAt: '2026-08-20T00:00:00.000Z',
+        readAt: null,
+      },
+    ];
+    ordersView.orders = [{ order: { id: orderId, state: 'cancelled', buyerPubky: buyer } }];
+
+    const { rerender } = render(<MarketplaceNotifications />);
+    const link = () => screen.getByRole('link', { name: 'Checkout started' });
+
+    expect(link()).toHaveAttribute('href', `/marketplace/orders#order-${orderId}`);
+
+    ordersView.orders = [{ order: { id: orderId, state: 'pending_payment', buyerPubky: buyer } }];
+    rerender(<MarketplaceNotifications />);
+    expect(link()).toHaveAttribute('href', `/marketplace/checkout#${orderId}`);
+
+    authStoreState.currentUserPubky = 's'.repeat(52);
+    rerender(<MarketplaceNotifications />);
+    expect(link()).toHaveAttribute('href', `/marketplace/orders#order-${orderId}`);
+
+    authStoreState.currentUserPubky = buyer;
+    ordersView.orders = [];
+    rerender(<MarketplaceNotifications />);
+    expect(link()).toHaveAttribute('href', `/marketplace/orders#order-${orderId}`);
+
+    ordersView.isLoading = true;
+    ordersView.orders = [{ order: { id: orderId, state: 'pending_payment', buyerPubky: buyer } }];
+    rerender(<MarketplaceNotifications />);
+    expect(link()).toHaveAttribute('href', `/marketplace/orders#order-${orderId}`);
   });
 
   it('still links a known event whose row failed schema checks', () => {
