@@ -10,14 +10,16 @@ import {
   type MarketplaceOrderActionData,
   marketplaceOrderActionDefaults,
   marketplaceOrderActionSchemaFor,
+  paypalRefundedMinor,
 } from './useMarketplaceOrderAction.types';
 
 export function useMarketplaceOrderAction(
   order: MarketplaceOrder,
   actOnOrder: (order: MarketplaceOrder, kind: string, payload: Record<string, unknown>) => Promise<boolean>,
 ) {
+  const refundedMinor = paypalRefundedMinor(order);
   const form = useForm<MarketplaceOrderActionData>({
-    resolver: zodResolver(marketplaceOrderActionSchemaFor(order.total)),
+    resolver: zodResolver(marketplaceOrderActionSchemaFor(order.total, refundedMinor)),
     defaultValues: marketplaceOrderActionDefaults,
     mode: 'onChange',
   });
@@ -29,7 +31,13 @@ export function useMarketplaceOrderAction(
     form.reset({
       ...marketplaceOrderActionDefaults,
       action,
-      amount: formatOrderMajor(order.total),
+      amount:
+        action === 'refund'
+          ? formatOrderMajor({
+              amountMinor: Math.max(0, order.total.amountMinor - refundedMinor),
+              exponent: order.total.exponent,
+            })
+          : formatOrderMajor(order.total),
       ...overrides,
     });
   };
@@ -61,8 +69,10 @@ export function useMarketplaceOrderAction(
           });
           break;
         case 'refund':
+          // The record replaces PayPal's running sum, so it carries the
+          // recorded total, never below what PayPal already refunded.
           succeeded = await actOnOrder(order, 'refund.record_external', {
-            amountMinor: majorToMinor(data.amount, order.total.exponent),
+            amountMinor: refundedMinor + majorToMinor(data.amount, order.total.exponent),
             transactionId: data.transactionId,
           });
           break;
