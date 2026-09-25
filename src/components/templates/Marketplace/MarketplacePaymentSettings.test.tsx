@@ -451,6 +451,33 @@ describe('MarketplacePaymentSettings', () => {
     expect(screen.queryByText(/creator_connect_flow_unavailable/)).not.toBeInTheDocument();
   });
 
+  // The pages inside the payout setup iframes hand off to pubkyring:// and pubkyauth:// links;
+  // without these sandbox tokens a tap on Android Chrome does nothing.
+  const HANDOFF_SANDBOX_TOKENS = ['allow-popups', 'allow-top-navigation-to-custom-protocols'];
+
+  it('lets the Lock Server connect iframe open Pubky Ring', async () => {
+    view.locksConnect = {
+      connectedCreator: null,
+      isExchanging: false,
+      error: null,
+      connectOpen: true,
+      connectUrl: 'https://locks.example.com/connect?delivery=postmessage&state=abc',
+    };
+
+    await renderSettings();
+
+    const sandbox = screen.getByTitle('Connect Lock Server').getAttribute('sandbox')?.split(' ') ?? [];
+    expect(sandbox).toEqual(expect.arrayContaining(HANDOFF_SANDBOX_TOKENS));
+  });
+
+  it('lets the Bitkit setup iframe open Bitkit', async () => {
+    await renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+
+    const sandbox = screen.getByTitle('Connect Bitkit').getAttribute('sandbox')?.split(' ') ?? [];
+    expect(sandbox).toEqual(expect.arrayContaining(HANDOFF_SANDBOX_TOKENS));
+  });
+
   it('does not offer a card rail to a seller who already saved one', async () => {
     mockedController.getMyPaymentConfig.mockResolvedValue({
       ...EMPTY_CONFIG,

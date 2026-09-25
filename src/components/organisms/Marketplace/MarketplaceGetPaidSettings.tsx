@@ -516,7 +516,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
               key={connectUrl}
               src={connectUrl}
               title="Connect Lock Server"
-              sandbox="allow-scripts allow-same-origin allow-forms"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-to-custom-protocols"
               referrerPolicy="no-referrer"
               className="h-[min(22rem,45vh)] w-full rounded-lg border bg-popover"
             />
@@ -586,7 +586,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
                 key={paykitSetupUrl}
                 src={`${paykitSetupUrl}#embed`}
                 title="Connect Bitkit"
-                sandbox="allow-scripts allow-same-origin allow-forms"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-to-custom-protocols"
                 referrerPolicy="no-referrer"
                 scrolling="no"
                 className="h-[40rem] w-full rounded-lg border bg-popover"
