@@ -13,8 +13,10 @@ import { FORM_LABEL_CLASSES } from '@/config/forms';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction';
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
+import { paypalRefundedMinor } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
 import { usePickupOrderActions } from '@/hooks/usePickupOrderActions/usePickupOrderActions';
 import { OTHER_CARRIER_ID, SHIPPING_CARRIERS } from '@/libs/commerce/carriers';
+import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
@@ -123,6 +125,11 @@ export function MarketplaceOrderActions({
   const pickup = usePickupOrderActions(order, reloadOrders);
   const [handoverOpen, setHandoverOpen] = useState(false);
   const [termsBlocked, setTermsBlocked] = useState(false);
+  // `refund.record_external` is accepted from these states whether or not
+  // PayPal already recorded partial refunds; the record must cover them.
+  const canRecordRefund = !isBuyer && ['return_received', 'cancelled'].includes(order.state);
+  const refundedMinor = paypalRefundedMinor(order);
+  const refundedMoney = formatCommerceMoney({ ...order.total, amountMinor: refundedMinor });
   const canReveal =
     isBuyer &&
     isPickup &&
@@ -254,7 +261,7 @@ export function MarketplaceOrderActions({
             Mark return received
           </Button>
         )}
-        {!isBuyer && ['return_received', 'cancelled'].includes(order.state) && !order.externalRefund && (
+        {canRecordRefund && (
           <Button size="sm" className="rounded-full" onClick={() => begin('refund')}>
             Record refund
           </Button>
@@ -283,14 +290,16 @@ export function MarketplaceOrderActions({
           Press when the buyer has brought it back
         </p>
       )}
-      {!isBuyer &&
-        order.paymentMethod === 'paypal' &&
-        ['return_received', 'cancelled'].includes(order.state) &&
-        !order.externalRefund && (
-          <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-refund-hint">
-            Refund the buyer in PayPal first, then record it here
-          </p>
-        )}
+      {canRecordRefund && order.paymentMethod === 'paypal' && refundedMinor === 0 && (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-refund-hint">
+          Refund the buyer in PayPal first, then record it here
+        </p>
+      )}
+      {canRecordRefund && refundedMinor > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-partial-refund-hint">
+          PayPal refunded {refundedMoney} of {formatCommerceMoney(order.total)}. Record the rest to close this order.
+        </p>
+      )}
 
       {ownReview && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="own-review-status">
@@ -348,8 +357,21 @@ export function MarketplaceOrderActions({
               <ControlledInputField name="trackingNumber" control={action.form.control} label="Tracking number" />
             </>
           )}
-          {['return', 'refund'].includes(actionType) && (
+          {actionType === 'refund' && refundedMinor > 0 && (
+            <Typography as="p" className="text-sm text-muted-foreground" data-testid="refund-paypal-already">
+              PayPal already refunded {refundedMoney}. Enter what you refunded outside PayPal, or 0 to close the order
+              at the PayPal amount.
+            </Typography>
+          )}
+          {(actionType === 'return' || (actionType === 'refund' && refundedMinor === 0)) && (
             <ControlledInputField name="amount" control={action.form.control} label="Amount (USD)" />
+          )}
+          {actionType === 'refund' && refundedMinor > 0 && (
+            <ControlledInputField
+              name="amount"
+              control={action.form.control}
+              label={`Refunded outside PayPal (${order.total.currency})`}
+            />
           )}
           {actionType === 'refund' && (
             <ControlledInputField

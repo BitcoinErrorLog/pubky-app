@@ -312,6 +312,57 @@ describe('MarketplaceOrderActions refund reference labels', () => {
     expect(screen.getByLabelText('Amount (USD)')).toHaveValue('137.00');
     expect(screen.getByLabelText('PayPal refund transaction id')).toBeInTheDocument();
   });
+
+  it.each(['return_received', 'cancelled'] as const)(
+    'lets the seller close a %s order after a PayPal partial refund, prefilled with the rest',
+    async (state) => {
+      const order = createOrderFixture(state, {
+        paymentMethod: 'paypal',
+        total: { amountMinor: 250, currency: 'USD', exponent: 2 },
+        externalRefund: {
+          amountMinor: 189,
+          transactionId: '9RF12345AB678901C',
+          recordedAt: '2026-09-24T18:00:00.000Z',
+        },
+      });
+      const actOnOrder = vi.fn(async () => true);
+      render(<MarketplaceOrderActions order={order} isBuyer={false} canEditReview={false} actOnOrder={actOnOrder} />);
+
+      expect(screen.queryByTestId('paypal-refund-hint')).not.toBeInTheDocument();
+      expect(screen.getByTestId('paypal-partial-refund-hint')).toHaveTextContent(
+        'PayPal refunded $1.89 of $2.50. Record the rest to close this order.',
+      );
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: 'Record refund' }));
+      expect(screen.getByTestId('refund-paypal-already')).toHaveTextContent('PayPal already refunded $1.89.');
+      expect(screen.getByLabelText('Refunded outside PayPal (USD)')).toHaveValue('0.61');
+      await user.type(screen.getByLabelText('PayPal refund transaction id'), 'BANKTRANSFER061');
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      await waitFor(() =>
+        expect(actOnOrder).toHaveBeenCalledWith(order, 'refund.record_external', {
+          amountMinor: 250,
+          transactionId: 'BANKTRANSFER061',
+        }),
+      );
+    },
+  );
+
+  it('offers no refund record once the order is refunded', () => {
+    const order = createOrderFixture('refunded_external', {
+      externalRefund: { amountMinor: 250, transactionId: '9RF12345AB678901C', recordedAt: '2026-09-24T18:00:00.000Z' },
+    });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Record refund' })).not.toBeInTheDocument();
+  });
 });
 
 describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
