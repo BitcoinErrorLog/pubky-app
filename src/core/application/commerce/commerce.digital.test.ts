@@ -1,0 +1,231 @@
+import { blake3 } from '@noble/hashes/blake3.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as commerceConfig from '@/config/commerce';
+import { openDigitalDeliverable } from '@/libs/commerce/digital-file';
+import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
+import { Logger } from '@/libs/logger/logger';
+import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import { COMMERCE_FIXTURE_SELLER } from '@/test/fixtures/commerce/commerce';
+import { asOpaque } from '@/test-utils/type-assertions';
+import { CommerceApplication } from './commerce';
+
+const SELLER = COMMERCE_FIXTURE_SELLER;
+const LISTING_ID = 'guide_01';
+const LISTING_AGGREGATE_ID = buildMarketplaceListingAggregateId(SELLER, LISTING_ID);
+const PLAINTEXT = new TextEncoder().encode('%PDF-1.7 printable field guide');
+const DELIVERABLE_URL = new RegExp(`^pubky://${SELLER}/pub/pubky\\.app/marketplace/v1/deliverables/[0-9a-f]{32}/3$`);
+
+const okResponse = {
+  ok: true as const,
+  version: 1 as const,
+  commandId: '018f47d2-6a27-7c23-a62f-000000000761',
+  aggregateId: LISTING_AGGREGATE_ID,
+  revision: 1,
+  eventIds: [],
+  result: { kind: 'digital_delivery', listingAggregateId: LISTING_AGGREGATE_ID, version: 3, updatedAt: '' },
+};
+const refusal = {
+  ok: false as const,
+  error: { code: 'INVALID_STATE', message: 'x', reason: 'deliverable_unverifiable' },
+};
+
+type ExecutedCommand = { kind: string; aggregateId: string; expectedRevision: number; payload: Record<string, never> };
+
+function executedCommand(execute: ReturnType<typeof vi.spyOn>): ExecutedCommand {
+  return execute.mock.calls[0][1] as ExecutedCommand;
+}
+
+describe('CommerceApplication digital delivery seller setup (digital delivery design §2)', () => {
+  beforeEach(() => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(LocalCommerceService, 'getShop').mockResolvedValue({ record: {} } as never);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('encrypts a file, writes only the ciphertext, then sets it as the next version with the sealed facts', async () => {
+    const put = vi.spyOn(CommerceHomeserverService, 'putDeliverable').mockResolvedValue(undefined);
+    const remove = vi.spyOn(CommerceHomeserverService, 'deleteDeliverable').mockResolvedValue(undefined);
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(okResponse as never);
+
+    const response = await CommerceApplication.commitSetDigitalDelivery(SELLER, {
+      sellerPubky: SELLER,
+      listingId: LISTING_ID,
+      expectedVersion: 2,
+      delivery: {
+        kind: 'file',
+        bytes: PLAINTEXT,
+        fileName: 'C:\\drafts\\Field Guide.pdf',
+        contentType: 'application/pdf',
+      },
+    });
+
+    expect(response.ok).toBe(true);
+    const [url, ciphertext] = put.mock.calls[0];
+    expect(url).toMatch(DELIVERABLE_URL);
+    expect(new TextDecoder().decode(ciphertext)).not.toContain('field guide');
+    expect(put.mock.invocationCallOrder[0]).toBeLessThan(execute.mock.invocationCallOrder[0]);
+
+    const command = executedCommand(execute);
+    expect(command).toMatchObject({
+      kind: 'digital_delivery.set',
+      aggregateId: LISTING_AGGREGATE_ID,
+      expectedRevision: 0,
+    });
+    const payload = asOpaque<{
+      expectedVersion: number;
+      delivery: {
+        kind: 'file';
+        deliverableId: string;
+        version: number;
+        key: string;
+        iv: string;
+        ciphertextBlake3: string;
+        plaintextBlake3: string;
+        sizeBytes: number;
+        contentType: string;
+        fileName: string;
+      };
+    }>(command.payload);
+    expect(payload.expectedVersion).toBe(2);
+    expect(payload.delivery).toMatchObject({
+      kind: 'file',
+      version: 3,
+      sizeBytes: PLAINTEXT.byteLength,
+      contentType: 'application/pdf',
+      fileName: 'Field Guide.pdf',
+      ciphertextBlake3: bytesToHex(blake3(ciphertext)),
+      plaintextBlake3: bytesToHex(blake3(PLAINTEXT)),
+    });
+    expect(url).toContain(`/deliverables/${payload.delivery.deliverableId}/3`);
+    // The buyer's side can open what was uploaded with what was sent to the service.
+    const opened = await openDigitalDeliverable({
+      ciphertext: new Uint8Array(ciphertext),
+      sellerPubky: SELLER,
+      ...payload.delivery,
+    });
+    expect(opened.ok && new TextDecoder().decode(opened.plaintext)).toBe('%PDF-1.7 printable field guide');
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('deletes the new ciphertext when the service refuses the set', async () => {
+    vi.spyOn(CommerceHomeserverService, 'putDeliverable').mockResolvedValue(undefined);
+    const remove = vi.spyOn(CommerceHomeserverService, 'deleteDeliverable').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(refusal as never);
+
+    const response = await CommerceApplication.commitSetDigitalDelivery(SELLER, {
+      sellerPubky: SELLER,
+      listingId: LISTING_ID,
+      expectedVersion: 2,
+      delivery: { kind: 'file', bytes: PLAINTEXT, fileName: 'guide.pdf', contentType: 'application/pdf' },
+    });
+
+    expect(response.ok).toBe(false);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove.mock.calls[0][0]).toMatch(DELIVERABLE_URL);
+  });
+
+  it('still returns the refusal when the cleanup delete fails, logging no path', async () => {
+    vi.spyOn(CommerceHomeserverService, 'putDeliverable').mockResolvedValue(undefined);
+    vi.spyOn(CommerceHomeserverService, 'deleteDeliverable').mockRejectedValue(new TypeError('offline'));
+    vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(refusal as never);
+    const warn = vi.spyOn(Logger, 'warn');
+
+    const response = await CommerceApplication.commitSetDigitalDelivery(SELLER, {
+      sellerPubky: SELLER,
+      listingId: LISTING_ID,
+      expectedVersion: 2,
+      delivery: { kind: 'file', bytes: PLAINTEXT, fileName: 'guide.pdf', contentType: 'application/pdf' },
+    });
+
+    expect(response.ok).toBe(false);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('/deliverables/');
+  });
+
+  it('sends no command when the homeserver refuses the upload', async () => {
+    vi.spyOn(CommerceHomeserverService, 'putDeliverable').mockRejectedValue(new TypeError('quota'));
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+    await expect(
+      CommerceApplication.commitSetDigitalDelivery(SELLER, {
+        sellerPubky: SELLER,
+        listingId: LISTING_ID,
+        expectedVersion: 0,
+        delivery: { kind: 'file', bytes: PLAINTEXT, fileName: 'guide.pdf', contentType: 'application/pdf' },
+      }),
+    ).rejects.toThrow('quota');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ kind: 'link' as const, url: 'https://example.com/course' }],
+    [{ kind: 'text' as const, text: 'LICENCE-1234' }],
+    [{ kind: 'email' as const }],
+    [{ kind: 'message' as const }],
+  ])('sets %j without touching the homeserver', async (delivery) => {
+    const put = vi.spyOn(CommerceHomeserverService, 'putDeliverable');
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(okResponse as never);
+
+    await CommerceApplication.commitSetDigitalDelivery(SELLER, {
+      sellerPubky: SELLER,
+      listingId: LISTING_ID,
+      expectedVersion: 0,
+      delivery,
+    });
+
+    expect(put).not.toHaveBeenCalled();
+    expect(executedCommand(execute).payload).toEqual({ expectedVersion: 0, delivery });
+  });
+
+  it('clears on the listing aggregate with the payload CAS', async () => {
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(okResponse as never);
+
+    await CommerceApplication.commitClearDigitalDelivery(SELLER, {
+      sellerPubky: SELLER,
+      listingId: LISTING_ID,
+      expectedVersion: 4,
+    });
+
+    expect(executedCommand(execute)).toMatchObject({
+      kind: 'digital_delivery.clear',
+      aggregateId: LISTING_AGGREGATE_ID,
+      expectedRevision: 0,
+      payload: { expectedVersion: 4 },
+    });
+  });
+
+  it('refuses both commands before any bytes leave on a non-durable deployment', async () => {
+    vi.mocked(commerceConfig.getCommerceAdapterMode).mockReturnValue('sandbox');
+    const put = vi.spyOn(CommerceHomeserverService, 'putDeliverable');
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+    await expect(
+      CommerceApplication.commitSetDigitalDelivery(SELLER, {
+        sellerPubky: SELLER,
+        listingId: LISTING_ID,
+        expectedVersion: 0,
+        delivery: { kind: 'file', bytes: PLAINTEXT, fileName: 'guide.pdf', contentType: 'application/pdf' },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', context: { refusal: 'digital_delivery_unavailable' } });
+    await expect(
+      CommerceApplication.commitClearDigitalDelivery(SELLER, {
+        sellerPubky: SELLER,
+        listingId: LISTING_ID,
+        expectedVersion: 0,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(put).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('delegates the owner read to the gateway', async () => {
+    const read = vi.spyOn(MarketplaceGatewayService, 'getListingDigitalDelivery').mockResolvedValue({} as never);
+    await CommerceApplication.fetchSellerDigitalDelivery(SELLER, LISTING_AGGREGATE_ID);
+    expect(read).toHaveBeenCalledWith(SELLER, LISTING_AGGREGATE_ID);
+  });
+});

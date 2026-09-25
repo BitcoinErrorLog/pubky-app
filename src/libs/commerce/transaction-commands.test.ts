@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
+  asDigitalDeliveryCommandResult,
   asPickupDetailsCommandResult,
+  clearDigitalDeliveryCommandSchema,
   clearPickupDetailsCommandSchema,
   confirmPickupCommandSchema,
   createMarketplaceCheckoutCommandSchema,
   createReviewCommandSchema,
   isMarketplaceRevisionConflict,
   isSuccessfulListingRegistrationResponse,
+  marketplaceCommandResponseSchema,
   marketplaceCommandSchema,
   markReadyForPickupCommandSchema,
   registerListingCommandSchema,
+  setDigitalDeliveryCommandSchema,
   setPickupDetailsCommandSchema,
   updateReviewCommandSchema,
 } from './transaction-commands';
+import { toSnakeCaseWire } from './wire-casing';
 
 const ORDER_ID = '018f47d2-6a27-7c23-a62f-000000000720';
 
@@ -465,5 +470,92 @@ describe('checkout.create fulfillment and address rules (§A2)', () => {
       countryCode: 'GB',
     };
     expect(createMarketplaceCheckoutCommandSchema.safeParse(gb).success).toBe(true);
+  });
+});
+
+describe('digital_delivery.set / .clear command contract (digital delivery design §2, §6 C1–C5)', () => {
+  const file = {
+    kind: 'file',
+    deliverableId: 'a'.repeat(32),
+    version: 3,
+    key: 'b'.repeat(64),
+    iv: 'c'.repeat(24),
+    ciphertextBlake3: 'd'.repeat(64),
+    plaintextBlake3: 'e'.repeat(64),
+    sizeBytes: 1024,
+    contentType: 'application/pdf',
+    fileName: 'Field Guide.pdf',
+  };
+  const command = (kind: 'digital_delivery.set' | 'digital_delivery.clear', payload: Record<string, unknown>) =>
+    pickupCommand(kind, payload);
+
+  it('accepts a file as the next version and puts it on the wire in the service shape', () => {
+    const parsed = setDigitalDeliveryCommandSchema.parse(
+      command('digital_delivery.set', { expectedVersion: 2, delivery: file }),
+    );
+    expect(marketplaceCommandSchema.parse(parsed).kind).toBe('digital_delivery.set');
+    const wire = toSnakeCaseWire(parsed) as {
+      payload: { expected_version: number; delivery: Record<string, unknown> };
+    };
+    expect(wire.payload.expected_version).toBe(2);
+    expect(Object.keys(wire.payload.delivery).sort()).toEqual(
+      [
+        'ciphertext_blake3',
+        'content_type',
+        'deliverable_id',
+        'file_name',
+        'iv',
+        'key',
+        'kind',
+        'plaintext_blake3',
+        'size_bytes',
+        'version',
+      ].sort(),
+    );
+  });
+
+  it('refuses a file that is not the next version', () => {
+    expect(
+      setDigitalDeliveryCommandSchema.safeParse(command('digital_delivery.set', { expectedVersion: 3, delivery: file }))
+        .success,
+    ).toBe(false);
+  });
+
+  it('accepts the manual kinds and refuses unknown payload fields', () => {
+    for (const delivery of [{ kind: 'email' }, { kind: 'message' }, { kind: 'text', text: 'KEY' }]) {
+      expect(
+        setDigitalDeliveryCommandSchema.safeParse(command('digital_delivery.set', { expectedVersion: 0, delivery }))
+          .success,
+      ).toBe(true);
+    }
+    expect(
+      setDigitalDeliveryCommandSchema.safeParse(
+        command('digital_delivery.set', { expectedVersion: 0, delivery: { kind: 'email' }, note: 'x' }),
+      ).success,
+    ).toBe(false);
+    expect(
+      clearDigitalDeliveryCommandSchema.safeParse(command('digital_delivery.clear', { expectedVersion: 4 })).success,
+    ).toBe(true);
+  });
+
+  it('parses and narrows the service result (handlers/digital.rs)', () => {
+    const response = marketplaceCommandResponseSchema.parse({
+      ok: true,
+      version: 1,
+      commandId: '018f47d2-6a27-7c23-a62f-000000000741',
+      aggregateId: LISTING_AGGREGATE_ID,
+      revision: 1,
+      eventIds: ['018f47d2-6a27-7c23-a62f-000000000742'],
+      result: {
+        kind: 'digital_delivery',
+        listingAggregateId: LISTING_AGGREGATE_ID,
+        deliveryKind: 'file',
+        deliverableId: 'a'.repeat(32),
+        version: 3,
+        updatedAt: '2026-09-25T10:00:00.000Z',
+      },
+    });
+    expect(asDigitalDeliveryCommandResult(response)).toMatchObject({ version: 3, deliveryKind: 'file' });
+    expect(asPickupDetailsCommandResult(response)).toBeNull();
   });
 });

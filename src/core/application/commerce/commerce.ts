@@ -22,7 +22,20 @@ import {
   verifyOwnOrderReceipt,
   verifyOwnReviewAttestation,
 } from '@/libs/commerce/attestation';
-import type { MarketplaceDigitalDeliveryCapability } from '@/libs/commerce/digital';
+import {
+  DIGITAL_DELIVERY_COPY,
+  type MarketplaceDigitalDeliveryCapability,
+  type MarketplaceDigitalDeliveryInput,
+  type MarketplaceDigitalDeliverySet,
+  type MarketplaceSellerDigitalDelivery,
+} from '@/libs/commerce/digital';
+import {
+  digitalDeliverableUrl,
+  digitalFileContentType,
+  digitalFileName,
+  encryptDigitalDeliverable,
+  newDigitalDeliverableId,
+} from '@/libs/commerce/digital-file';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import {
   assertReserveFreePublicRecord,
@@ -644,6 +657,118 @@ export class CommerceApplication {
     const response = await this.executeMarketplaceCommand(actorPubky, command);
     this.throwIfPickupCommandRefusal('commitClearPickupDetails', response);
     return response;
+  }
+
+  // ---------------------------------------------------------------------
+  // Digital delivery seller setup (digital delivery design §2, §6 C1–C5)
+  //
+  // A file is encrypted here with a fresh AES-256-GCM key; only the
+  // ciphertext goes to the seller's homeserver, and the key goes once, to the
+  // service, inside `digital_delivery.set`, which seals it. Neither the key
+  // nor the plaintext is persisted, stored or logged; the seller's own link
+  // or text from the owner read is returned to the caller only.
+  // ---------------------------------------------------------------------
+
+  /** The durable-service boundary for digital delivery: the sandbox seals and releases nothing. */
+  private static assertDigitalDeployment(operation: string): void {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
+      throw Err.client(ClientErrorCode.CONFLICT, DIGITAL_DELIVERY_COPY.unavailable, {
+        service: ErrorService.Marketplace,
+        operation,
+        context: { refusal: 'digital_delivery_unavailable' },
+      });
+    }
+  }
+
+  /** The seller's owner read of one listing's digital delivery (§6 C5). */
+  static async fetchSellerDigitalDelivery(
+    actorPubky: string,
+    listingAggregateId: string,
+  ): Promise<MarketplaceSellerDigitalDelivery> {
+    return await MarketplaceGatewayService.getListingDigitalDelivery(actorPubky, listingAggregateId);
+  }
+
+  /**
+   * `digital_delivery.set`: sets how buyers receive the listing as version
+   * `expectedVersion + 1`. A file is encrypted, bound to the seller,
+   * deliverable id and version, and written to the seller's homeserver
+   * before the command. When the service refuses, the new ciphertext is
+   * referenced by no version, so it is deleted (best effort). The response
+   * is returned as-is; refusals stay in the envelope.
+   */
+  static async commitSetDigitalDelivery(
+    actorPubky: string,
+    input: {
+      sellerPubky: string;
+      listingId: string;
+      expectedVersion: number;
+      delivery: MarketplaceDigitalDeliveryInput;
+    },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertDigitalDeployment('commitSetDigitalDelivery');
+    let uploadedUrl: string | null = null;
+    let delivery: MarketplaceDigitalDeliverySet;
+    if (input.delivery.kind === 'file') {
+      const version = input.expectedVersion + 1;
+      const deliverableId = newDigitalDeliverableId();
+      const encrypted = await encryptDigitalDeliverable({
+        plaintext: input.delivery.bytes,
+        sellerPubky: input.sellerPubky,
+        deliverableId,
+        version,
+      });
+      const url = digitalDeliverableUrl(input.sellerPubky, deliverableId, version);
+      await CommerceHomeserverService.putDeliverable(url, encrypted.ciphertext);
+      uploadedUrl = url;
+      delivery = {
+        kind: 'file',
+        deliverableId,
+        version,
+        key: encrypted.key,
+        iv: encrypted.iv,
+        ciphertextBlake3: encrypted.ciphertextBlake3,
+        plaintextBlake3: encrypted.plaintextBlake3,
+        sizeBytes: encrypted.sizeBytes,
+        contentType: digitalFileContentType(input.delivery.contentType),
+        fileName: digitalFileName(input.delivery.fileName),
+      };
+    } else {
+      delivery = input.delivery;
+    }
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(input.sellerPubky, input.listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'digital_delivery.set',
+      payload: { expectedVersion: input.expectedVersion, delivery },
+    });
+    const response = await this.executeMarketplaceCommand(actorPubky, command);
+    if (!response.ok && uploadedUrl) {
+      await CommerceHomeserverService.deleteDeliverable(uploadedUrl).catch(() => {
+        Logger.warn('An unreferenced digital deliverable could not be deleted');
+      });
+    }
+    return response;
+  }
+
+  /** `digital_delivery.clear`: removes delivery; the service refuses while buyers pay for or download it (C4). */
+  static async commitClearDigitalDelivery(
+    actorPubky: string,
+    input: { sellerPubky: string; listingId: string; expectedVersion: number },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertDigitalDeployment('commitClearDigitalDelivery');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(input.sellerPubky, input.listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'digital_delivery.clear',
+      payload: { expectedVersion: input.expectedVersion },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
   }
 
   /**

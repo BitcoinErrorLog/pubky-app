@@ -806,7 +806,7 @@ export class HomeserverService {
     }
   }
 
-  private static async fetch({ url, options }: THomeserverFetchParams): Promise<Response> {
+  private static async fetch({ url, options, logUrl }: THomeserverFetchParams): Promise<Response> {
     try {
       const pubkySdk = this.getPubkySdk();
       const httpBridge = pubkySdk.client;
@@ -818,11 +818,12 @@ export class HomeserverService {
         credentials: 'include',
       });
 
-      Logger.debug('Response from homeserver', { response });
+      // A redacted request logs its status only: the response carries the URL.
+      Logger.debug('Response from homeserver', logUrl === undefined ? { response } : { status: response.status });
 
       return response;
     } catch (error) {
-      return handleError({ error, additionalContext: { url, method: options?.method } });
+      return handleError({ error, additionalContext: { url: logUrl ?? url, method: options?.method } });
     }
   }
 
@@ -836,7 +837,8 @@ export class HomeserverService {
    * @param {string} url - Pubky URL.
    * @param {Record<string, unknown>} [bodyJson] - JSON body to serialize and send.
    */
-  static async request<T>({ method, url, bodyJson }: THomeserverRequestParams): Promise<T> {
+  static async request<T>({ method, url, bodyJson, logUrl }: THomeserverRequestParams): Promise<T> {
+    const contextUrl = logUrl ?? url;
     const owned = this.resolveOwnedSessionPath(url);
 
     // Handle owned session paths
@@ -845,18 +847,18 @@ export class HomeserverService {
 
       switch (method) {
         case HttpMethod.GET: {
-          const response = await getOwnedResponse({ session, path, url });
+          const response = await getOwnedResponse({ session, path, url: contextUrl });
           return (await parseResponseOrUndefined<T>({ response })) as T;
         }
         case HttpMethod.PUT:
           await session.storage
             .putJson(toSdkPath(path), bodyJson ?? {})
-            .catch((error) => handleError({ error, additionalContext: { url, method } }));
+            .catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
           return undefined as T;
         case HttpMethod.DELETE:
           await session.storage
             .delete(toSdkPath(path))
-            .catch((error) => handleError({ error, additionalContext: { url, method } }));
+            .catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
           return undefined as T;
       }
     }
@@ -869,7 +871,7 @@ export class HomeserverService {
         {
           service: ErrorService.Homeserver,
           operation: 'request',
-          context: { url, method, statusCode: HttpStatusCode.BAD_REQUEST },
+          context: { url: contextUrl, method, statusCode: HttpStatusCode.BAD_REQUEST },
         },
       );
     }
@@ -881,11 +883,13 @@ export class HomeserverService {
         ? isHttpUrl(url)
           ? pubkySdk.client.fetch(url)
           : pubkySdk.publicStorage.get(url as Address)
-        : this.fetch({ url, options: { method, body: bodyJson ? JSON.stringify(bodyJson) : undefined } });
+        : this.fetch({ url, logUrl, options: { method, body: bodyJson ? JSON.stringify(bodyJson) : undefined } });
 
-    const response = await fetchPromise.catch((error) => handleError({ error, additionalContext: { url, method } }));
+    const response = await fetchPromise.catch((error) =>
+      handleError({ error, additionalContext: { url: contextUrl, method } }),
+    );
 
-    await assertOk({ response, url, operation: 'request' });
+    await assertOk({ response, url: contextUrl, operation: 'request' });
 
     return method === HttpMethod.GET ? ((await parseResponseOrUndefined<T>({ response })) as T) : (undefined as T);
   }
@@ -899,14 +903,15 @@ export class HomeserverService {
    * @param {string} url - Pubky URL.
    * @param {Uint8Array} blob - Raw bytes of the blob to upload.
    */
-  static async putBlob({ url, blob }: TPutBlobParams) {
+  static async putBlob({ url, blob, logUrl }: TPutBlobParams) {
+    const contextUrl = logUrl ?? url;
     const owned = this.resolveOwnedSessionPath(url);
     if (owned) {
       try {
         await owned.session.storage.putBytes(toSdkPath(owned.path), blob);
         return;
       } catch (error) {
-        return handleError({ error, additionalContext: { url, method: HttpMethod.PUT } });
+        return handleError({ error, additionalContext: { url: contextUrl, method: HttpMethod.PUT } });
       }
     }
 
@@ -917,13 +922,13 @@ export class HomeserverService {
         {
           service: ErrorService.Homeserver,
           operation: 'putBlob',
-          context: { url, statusCode: HttpStatusCode.BAD_REQUEST },
+          context: { url: contextUrl, statusCode: HttpStatusCode.BAD_REQUEST },
         },
       );
     }
 
-    const response = await this.fetch({ url, options: { method: HttpMethod.PUT, body: blob } });
-    await assertOk({ response, url, operation: 'putBlob' });
+    const response = await this.fetch({ url, logUrl, options: { method: HttpMethod.PUT, body: blob } });
+    await assertOk({ response, url: contextUrl, operation: 'putBlob' });
   }
 
   /**

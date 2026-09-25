@@ -2,12 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { marketplaceListingProjectionSchema } from '@/core/services/marketplace/marketplace-projections';
 import { serviceListingProjectionWire as serviceListingSample } from '@/test/fixtures/commerce/listing-projection.wire';
 import {
+  classifyDigitalDeliverySetupRefusal,
+  classifyDigitalReadRefusal,
   DIGITAL_DELIVERY_COPY,
+  DIGITAL_DELIVERY_SETUP_COPY,
   digitalContentTypeLabel,
   digitalDeliveryBadgeLabel,
+  digitalDeliveryCurrentSummary,
+  digitalDeliverySetSchema,
+  digitalDeliveryVersionLine,
+  digitalFileTooLargeCopy,
   formatDigitalFileSize,
+  isDigitalDeliveryLink,
   isInstantDigitalDeliveryKind,
   marketplaceListingDigitalDeliveryFieldSchema,
+  marketplaceSellerDigitalDeliverySchema,
 } from './digital';
 import { marketplaceHealthSchema } from './pickup';
 import { toCamelCaseWire } from './wire-casing';
@@ -106,5 +115,145 @@ describe('digital delivery listing badge (§3)', () => {
     expect(['file', 'link', 'text'].every((kind) => isInstantDigitalDeliveryKind(kind as never))).toBe(true);
     expect(isInstantDigitalDeliveryKind('email')).toBe(false);
     expect(isInstantDigitalDeliveryKind('message')).toBe(false);
+  });
+});
+
+describe('digital delivery seller setup contract (§2, §6 C1–C5)', () => {
+  const file = {
+    kind: 'file' as const,
+    deliverableId: 'a'.repeat(32),
+    version: 1,
+    key: 'b'.repeat(64),
+    iv: 'c'.repeat(24),
+    ciphertextBlake3: 'd'.repeat(64),
+    plaintextBlake3: 'e'.repeat(64),
+    sizeBytes: 1024,
+    contentType: 'application/pdf',
+    fileName: 'Field Guide.pdf',
+  };
+
+  it('accepts each kind the service accepts', () => {
+    for (const delivery of [
+      file,
+      { kind: 'link', url: 'https://example.com/course' },
+      { kind: 'text', text: 'LICENCE-1234' },
+      { kind: 'email' },
+      { kind: 'message' },
+    ]) {
+      expect(digitalDeliverySetSchema.safeParse(delivery).success, delivery.kind).toBe(true);
+    }
+  });
+
+  it('refuses what the service refuses', () => {
+    for (const bad of [
+      { ...file, deliverableId: 'A'.repeat(32) },
+      { ...file, key: 'b'.repeat(63) },
+      { ...file, iv: 'c'.repeat(32) },
+      { ...file, fileName: '../guide.pdf' },
+      { ...file, fileName: ' guide.pdf' },
+      { ...file, extra: true },
+      { kind: 'link', url: 'http://example.com' },
+      { kind: 'link', url: 'https://exa mple.com' },
+      { kind: 'link', url: `https://example.com/${'a'.repeat(2050)}` },
+      { kind: 'text', text: '   ' },
+      { kind: 'text', text: 'x'.repeat(4001) },
+      { kind: 'text', text: 'a\0b' },
+      { kind: 'email', url: 'https://example.com' },
+      { kind: 'bundle' },
+    ]) {
+      expect(digitalDeliverySetSchema.safeParse(bad).success, JSON.stringify(bad).slice(0, 60)).toBe(false);
+    }
+    expect(isDigitalDeliveryLink('https://example.com')).toBe(true);
+    expect(isDigitalDeliveryLink('ftp://example.com')).toBe(false);
+  });
+
+  it('parses the owner read the service serves (handlers/digital.rs get_listing_digital_delivery)', () => {
+    const wire = {
+      listing_aggregate_id: `listing:${'s'.repeat(52)}_guide_01`,
+      current: {
+        kind: 'file',
+        deliverable_id: 'a'.repeat(32),
+        version: 2,
+        created_at: '2026-09-25T10:00:00.000Z',
+        content_type: 'application/pdf',
+        size_bytes: 12_582_912,
+        file_name: 'Field Guide.pdf',
+      },
+      last_version: 2,
+      pinned_versions: [
+        { version: 1, live_orders: 3 },
+        { version: 2, live_orders: 1 },
+      ],
+    };
+    const parsed = marketplaceSellerDigitalDeliverySchema.parse(toCamelCaseWire(wire));
+    expect(parsed.lastVersion).toBe(2);
+    expect(parsed.current?.fileName).toBe('Field Guide.pdf');
+    expect(digitalDeliveryVersionLine(parsed)).toBe('Version 2 is live. 3 buyers still download version 1.');
+    expect(digitalDeliveryCurrentSummary(parsed.current)).toBe(
+      'Buyers download Field Guide.pdf (12 MB) after payment.',
+    );
+  });
+
+  it('reads an unset delivery', () => {
+    const parsed = marketplaceSellerDigitalDeliverySchema.parse(
+      toCamelCaseWire({ listing_aggregate_id: 'listing:x_y', current: null, last_version: 0, pinned_versions: [] }),
+    );
+    expect(digitalDeliveryVersionLine(parsed)).toBeNull();
+    expect(digitalDeliveryCurrentSummary(null)).toMatch(/^Not set yet/);
+  });
+
+  it('writes one version line per older pinned version', () => {
+    const delivery = {
+      listingAggregateId: 'listing:x_y',
+      current: { kind: 'text' as const, deliverableId: 'f'.repeat(32), version: 3, createdAt: '' },
+      lastVersion: 3,
+      pinnedVersions: [
+        { version: 1, liveOrders: 1 },
+        { version: 2, liveOrders: 0 },
+        { version: 3, liveOrders: 4 },
+      ],
+    };
+    expect(digitalDeliveryVersionLine(delivery)).toBe('Version 3 is live. 1 buyer still downloads version 1.');
+  });
+
+  it('classifies setup refusals from the reason, then the code', () => {
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'INVALID_STATE', reason: 'digital_delivery_in_use' })).toBe(
+      'in_use',
+    );
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'INVALID_STATE', reason: 'deliverable_unverifiable' })).toBe(
+      'unverifiable',
+    );
+    expect(
+      classifyDigitalDeliverySetupRefusal({ code: 'UPSTREAM_UNAVAILABLE', reason: 'deliverable_unverifiable' }),
+    ).toBe('upstream_unavailable');
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'INVALID_COMMAND', reason: 'deliverable_too_large' })).toBe(
+      'too_large',
+    );
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'INVALID_STATE', reason: 'digital_delivery_unavailable' })).toBe(
+      'unavailable',
+    );
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'UNAUTHORIZED' })).toBe('not_seller');
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'NOT_FOUND' })).toBe('not_found');
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'REVISION_CONFLICT' })).toBe('changed');
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'INVALID_STATE' })).toBe('not_published');
+    expect(classifyDigitalDeliverySetupRefusal({ code: 'INTERNAL' })).toBeNull();
+  });
+
+  it('carries the design copy (C1, C2, C4)', () => {
+    expect(DIGITAL_DELIVERY_SETUP_COPY.not_seller).toBe('Only the seller can set delivery.');
+    expect(DIGITAL_DELIVERY_SETUP_COPY.unverifiable).toBe(
+      "We couldn't read your file back from your homeserver. Upload it again.",
+    );
+    expect(DIGITAL_DELIVERY_SETUP_COPY.in_use).toBe(
+      'Buyers are paying for or still downloading this. Pause the listing to stop new sales.',
+    );
+    expect(digitalFileTooLargeCopy(null)).toBe('Files can be up to 50 MB for now.');
+    expect(digitalFileTooLargeCopy(52_428_800)).toBe('Files can be up to 50 MB for now.');
+  });
+
+  it('classifies only the fixed read refusals', () => {
+    expect(classifyDigitalReadRefusal('not_paid')).toBe('not_paid');
+    expect(classifyDigitalReadRefusal('something_else')).toBeNull();
+    expect(classifyDigitalReadRefusal(7)).toBeNull();
   });
 });

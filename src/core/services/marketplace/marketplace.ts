@@ -2,7 +2,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
-import type { MarketplaceDigitalDeliveryCapability } from '@/libs/commerce/digital';
+import type { MarketplaceDigitalDeliveryCapability, MarketplaceSellerDigitalDelivery } from '@/libs/commerce/digital';
 import type {
   PaymentMethodKind,
   SellerPaymentConfig,
@@ -456,6 +456,19 @@ export class MarketplaceGatewayService {
    * version counter (§A4) — durable service only, same boundary as the
    * buyer reveal.
    */
+  /**
+   * The seller's owner read of their listing's digital delivery (digital
+   * delivery design §6 C5) — durable service only: the sandbox seals and
+   * releases nothing.
+   */
+  static async getListingDigitalDelivery(
+    actor: string,
+    aggregateId: string,
+  ): Promise<MarketplaceSellerDigitalDelivery> {
+    this.assertDurableServiceOnly('getListingDigitalDelivery');
+    return await MarketplaceTransactionService.getListingDigitalDelivery(actor, aggregateId);
+  }
+
   static async getListingPickupDetails(actor: string, aggregateId: string): Promise<MarketplaceSellerPickupDetails> {
     this.assertDurableServiceOnly('getListingPickupDetails');
     return await MarketplaceTransactionService.getListingPickupDetails(actor, aggregateId);

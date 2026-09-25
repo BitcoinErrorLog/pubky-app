@@ -119,3 +119,262 @@ export type MarketplaceDigitalDeliveryCapability = {
   /** The per-file cap the service enforces; null when the service does not report one. */
   maxBytes: number | null;
 };
+
+// -----------------------------------------------------------------------------
+// Seller setup (§2, §6 C1–C5): the `digital_delivery.set` payload, the
+// owner read, and the refusals the studio can receive. Validation mirrors
+// the service's `validate_set_digital_delivery`, so a command the studio
+// sends is one the service accepts.
+// -----------------------------------------------------------------------------
+
+/** Longest text a text-kind listing hands every buyer. */
+export const DIGITAL_TEXT_MAX_CHARS = 4_000;
+/** Longest link a link-kind listing hands every buyer. */
+export const DIGITAL_LINK_MAX_CHARS = 2_048;
+
+const lowerHex = (length: number) => z.string().regex(new RegExp(`^[0-9a-f]{${length}}$`));
+const noControl = (value: string) => !/\p{Cc}/u.test(value);
+const charCount = (value: string) => Array.from(value).length;
+
+/** An `https://` link with a host and no whitespace or control characters, at most 2,048 characters. */
+export function isDigitalDeliveryLink(value: string): boolean {
+  if (charCount(value) > DIGITAL_LINK_MAX_CHARS || /\s/u.test(value) || !noControl(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname !== '';
+  } catch {
+    return false;
+  }
+}
+
+export const digitalDeliveryFileSchema = z
+  .object({
+    kind: z.literal('file'),
+    deliverableId: lowerHex(32),
+    version: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+    key: lowerHex(64),
+    iv: lowerHex(24),
+    ciphertextBlake3: lowerHex(64),
+    plaintextBlake3: lowerHex(64),
+    sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    contentType: z.string().min(3).max(127),
+    fileName: z
+      .string()
+      .min(1)
+      .refine((value) => charCount(value) <= 255 && value.trim() === value && noControl(value), {
+        message: 'Expected a file name of at most 255 characters',
+      })
+      .refine((value) => value !== '.' && value !== '..' && !/[/\\]/.test(value), {
+        message: 'Expected a file name without path separators',
+      }),
+  })
+  .strict();
+
+export const digitalDeliverySetSchema = z.discriminatedUnion('kind', [
+  digitalDeliveryFileSchema,
+  z
+    .object({
+      kind: z.literal('link'),
+      url: z.string().refine(isDigitalDeliveryLink, { message: 'Expected an https:// link' }),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('text'),
+      text: z
+        .string()
+        .refine((value) => value.trim() !== '' && charCount(value) <= DIGITAL_TEXT_MAX_CHARS && !value.includes('\0'), {
+          message: 'Expected 1-4000 characters of text',
+        }),
+    })
+    .strict(),
+  z.object({ kind: z.literal('email') }).strict(),
+  z.object({ kind: z.literal('message') }).strict(),
+]);
+export type MarketplaceDigitalDeliverySet = z.infer<typeof digitalDeliverySetSchema>;
+
+/**
+ * The seller's owner read (`GET /v1/listings/{id}/digital-delivery`): the
+ * current delivery as set (never the file key), the counter the next set
+ * compares against, and how many live orders still pin each version.
+ */
+export const marketplaceSellerDigitalDeliverySchema = z
+  .object({
+    listingAggregateId: z.string().min(1),
+    current: z
+      .object({
+        kind: marketplaceDigitalDeliveryKindSchema,
+        deliverableId: z.string(),
+        version: z.number().int().positive(),
+        createdAt: z.string(),
+        contentType: z.string().nullable().optional(),
+        sizeBytes: z.number().int().nonnegative().nullable().optional(),
+        fileName: z.string().nullable().optional(),
+        url: z.string().nullable().optional(),
+        text: z.string().nullable().optional(),
+      })
+      .passthrough()
+      .nullable(),
+    lastVersion: z.number().int().nonnegative(),
+    pinnedVersions: z.array(
+      z.object({ version: z.number().int().positive(), liveOrders: z.number().int().nonnegative() }).passthrough(),
+    ),
+  })
+  .passthrough();
+export type MarketplaceSellerDigitalDelivery = z.infer<typeof marketplaceSellerDigitalDeliverySchema>;
+
+/** The `result` view of a successful `digital_delivery.set` / `.clear` (mirrors `handlers/digital.rs`). */
+export const digitalDeliveryCommandResultSchema = z
+  .object({
+    kind: z.literal('digital_delivery'),
+    listingAggregateId: z.string().min(1),
+    version: z.number().int().nonnegative(),
+    deliveryKind: marketplaceDigitalDeliveryKindSchema.optional(),
+    deliverableId: z.string().optional(),
+    cleared: z.boolean().optional(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+export type DigitalDeliveryCommandResult = z.infer<typeof digitalDeliveryCommandResultSchema>;
+
+/**
+ * Why the service refused a seller's digital delivery setup (§6 C1–C5).
+ * Classified from the refusal's `reason`, then its `code`; the service's
+ * `message` is never shown or logged.
+ */
+export type DigitalDeliverySetupRefusal =
+  | 'not_seller'
+  | 'not_found'
+  | 'not_published'
+  | 'unavailable'
+  | 'in_use'
+  | 'unverifiable'
+  | 'upstream_unavailable'
+  | 'too_large'
+  | 'changed';
+
+const SETUP_REASONS: Readonly<Record<string, DigitalDeliverySetupRefusal>> = {
+  digital_delivery_unavailable: 'unavailable',
+  digital_delivery_in_use: 'in_use',
+  deliverable_unverifiable: 'unverifiable',
+  deliverable_too_large: 'too_large',
+};
+
+export function classifyDigitalDeliverySetupRefusal(error: {
+  code: string;
+  reason?: unknown;
+}): DigitalDeliverySetupRefusal | null {
+  const reason = typeof error.reason === 'string' ? SETUP_REASONS[error.reason] : undefined;
+  if (reason === 'unverifiable' && error.code === 'UPSTREAM_UNAVAILABLE') return 'upstream_unavailable';
+  if (reason) return reason;
+  switch (error.code) {
+    case 'UNAUTHORIZED':
+      return 'not_seller';
+    case 'NOT_FOUND':
+      return 'not_found';
+    case 'REVISION_CONFLICT':
+      return 'changed';
+    case 'INVALID_STATE':
+      return 'not_published';
+    default:
+      return null;
+  }
+}
+
+export const DIGITAL_DELIVERY_SETUP_COPY = {
+  not_seller: 'Only the seller can set delivery.',
+  not_found: 'This listing was not found. Reload and try again.',
+  not_published: 'Save the listing with Digital delivery first, then set how buyers receive it.',
+  unavailable: DIGITAL_DELIVERY_COPY.unavailable,
+  in_use: 'Buyers are paying for or still downloading this. Pause the listing to stop new sales.',
+  unverifiable: "We couldn't read your file back from your homeserver. Upload it again.",
+  upstream_unavailable: "We couldn't reach your homeserver to check the file. Try again shortly.",
+  too_large: 'Files can be up to 50 MB for now.',
+  changed: 'This delivery changed. Refresh to see the latest.',
+  uploadStorageFull: 'Your homeserver refused the upload: storage is full.',
+  uploadFailed: 'Your homeserver refused the upload. Try again.',
+  failed: 'Delivery could not be saved. Try again.',
+} as const;
+
+/** "Files can be up to 50 MB for now.", with the deployment's cap when it reports one. */
+export function digitalFileTooLargeCopy(maxBytes: number | null): string {
+  if (maxBytes === null) return DIGITAL_DELIVERY_SETUP_COPY.too_large;
+  return `Files can be up to ${formatDigitalFileSize(maxBytes)} for now.`;
+}
+
+/**
+ * The owner read's version line (§6 C5): "Version 2 is live. 3 buyers still
+ * download version 1." Counts only versions other than the live one.
+ */
+export function digitalDeliveryVersionLine(delivery: MarketplaceSellerDigitalDelivery): string | null {
+  const current = delivery.current;
+  if (!current) return null;
+  const older = delivery.pinnedVersions
+    .filter(({ version, liveOrders }) => version !== current.version && liveOrders > 0)
+    .map(
+      ({ version, liveOrders }) =>
+        `${liveOrders} ${liveOrders === 1 ? 'buyer still downloads' : 'buyers still download'} version ${version}`,
+    );
+  const live = `Version ${current.version} is live.`;
+  return older.length === 0 ? live : `${live} ${older.join('. ')}.`;
+}
+
+/** The typed refusals the digital entitled reads answer with (§6 D5–D11, F5–F10). */
+export const DIGITAL_READ_REFUSALS = [
+  'digital_delivery_unavailable',
+  'not_paid',
+  'delivery_ended',
+  'sandbox_confirmed',
+  'email_missing',
+  'rate_limited',
+] as const;
+export type DigitalReadRefusal = (typeof DIGITAL_READ_REFUSALS)[number];
+
+export function classifyDigitalReadRefusal(reason: unknown): DigitalReadRefusal | null {
+  return typeof reason === 'string' && (DIGITAL_READ_REFUSALS as readonly string[]).includes(reason)
+    ? (reason as DigitalReadRefusal)
+    : null;
+}
+
+/** Static copy per read refusal: the service's message is never shown or logged. */
+export const DIGITAL_READ_REFUSAL_COPY: Readonly<Record<DigitalReadRefusal | 'not_found' | 'failed', string>> = {
+  digital_delivery_unavailable: DIGITAL_DELIVERY_COPY.unavailable,
+  not_paid: 'Available as soon as payment is confirmed.',
+  delivery_ended: 'This order was refunded or cancelled, so the download is no longer available.',
+  sandbox_confirmed: "Sandbox orders don't deliver files.",
+  email_missing: 'No delivery email is on file for this order.',
+  rate_limited: 'Too many downloads in a row. Wait a minute and try again.',
+  not_found: 'This was not found.',
+  failed: 'This could not be loaded. Try again.',
+};
+
+/** What the studio hands the application to set: a file's bytes are encrypted there, never here. */
+export type MarketplaceDigitalDeliveryInput =
+  | { kind: 'file'; bytes: Uint8Array<ArrayBuffer>; fileName: string; contentType: string }
+  | { kind: 'link'; url: string }
+  | { kind: 'text'; text: string }
+  | { kind: 'email' }
+  | { kind: 'message' };
+
+/** One line for the seller: what buyers receive now, from the owner read (never the link or text itself). */
+export function digitalDeliveryCurrentSummary(current: MarketplaceSellerDigitalDelivery['current']): string {
+  if (!current) return 'Not set yet. Buyers cannot check out until you choose how they receive it.';
+  switch (current.kind) {
+    case 'file': {
+      const size = typeof current.sizeBytes === 'number' ? ` (${formatDigitalFileSize(current.sizeBytes)})` : '';
+      return `Buyers download ${current.fileName ?? 'your file'}${size} after payment.`;
+    }
+    case 'link':
+      return 'Buyers get your link after payment.';
+    case 'text':
+      return 'Buyers see your text after payment.';
+    case 'email':
+      return 'You email buyers after payment, then mark it emailed.';
+    case 'message':
+      return 'You send it in the order messages after payment, then mark it delivered.';
+  }
+}
+
+/** The trust line beside the seller's file (§9 D2). */
+export const DIGITAL_DELIVERY_TRUST_COPY =
+  'Shop encrypts your file on this device and stores only the encrypted copy on your homeserver. The marketplace keeps the unlock key sealed and releases it only to a buyer whose payment is confirmed, so the marketplace operator could technically open it, the same trust as delivery addresses and pickup details.';

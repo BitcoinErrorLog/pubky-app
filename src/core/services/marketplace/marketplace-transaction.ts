@@ -6,6 +6,12 @@ import {
   type MarketplaceReceiptAttestation,
   marketplaceReceiptAttestationSchema,
 } from '@/libs/commerce/attestation';
+import {
+  classifyDigitalReadRefusal,
+  DIGITAL_READ_REFUSAL_COPY,
+  type MarketplaceSellerDigitalDelivery,
+  marketplaceSellerDigitalDeliverySchema,
+} from '@/libs/commerce/digital';
 import { marketplacePaymentMethodReasonMessage } from '@/libs/commerce/failure-messages';
 import {
   sellerPaymentConfirmationSchema,
@@ -48,7 +54,7 @@ import {
 } from '@/libs/commerce/transaction-commands';
 import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire, toSnakeCaseWire } from '@/libs/commerce/wire-casing';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode, RateLimitErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
@@ -126,6 +132,9 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   // application layer.
   'pickup_details.set',
   'pickup_details.clear',
+  // Digital delivery seller setup (digital delivery design §6 C1–C5).
+  'digital_delivery.set',
+  'digital_delivery.clear',
   'fulfillment.mark_ready',
   'fulfillment.confirm_pickup',
   'order.cancel_request',
@@ -411,6 +420,115 @@ export class MarketplaceTransactionService {
       raw,
       'Marketplace returned an invalid seller pickup-details read.',
     );
+  }
+
+  /**
+   * The seller's owner read of their listing's digital delivery (digital
+   * delivery design §2, §6 C5): the current delivery as set, the version
+   * counter for the next set, and the live orders pinning each version. The
+   * seller's own link or text is held in memory only.
+   */
+  static async getListingDigitalDelivery(
+    actor: string,
+    aggregateId: string,
+  ): Promise<MarketplaceSellerDigitalDelivery> {
+    const raw = await this.readDigitalEntitled(
+      'getListingDigitalDelivery',
+      actor,
+      `/v1/listings/${encodeURIComponent(aggregateId)}/digital-delivery`,
+    );
+    return this.parseProjection(
+      'getListingDigitalDelivery',
+      marketplaceSellerDigitalDeliverySchema,
+      raw,
+      'Marketplace returned an invalid seller digital-delivery read.',
+    );
+  }
+
+  /**
+   * One bearer-authenticated digital read (`no-store` on both sides). A
+   * refusal becomes a typed `Err.client` carrying only the refusal reason
+   * from the fixed set and the status; the service's message, which can
+   * describe the order, is never copied. The body is parsed locally so no
+   * parse error can attach an excerpt of a link, text or key.
+   */
+  private static async readDigitalEntitled(operation: string, actor: string, path: string): Promise<unknown> {
+    this.assertTransactionServiceMode(operation);
+    const session = this.requireSession(operation, actor);
+    const url = `${getMarketplaceUrl()}${path}`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { authorization: `Bearer ${session.token}` }, cache: 'no-store' },
+      ErrorService.Marketplace,
+      operation,
+    );
+    this.throwIfSessionRejected(response.status, operation);
+    if (!response.ok) {
+      throw await this.digitalReadRefusal(response, operation);
+    }
+    const text = await response.text();
+    let raw: unknown;
+    try {
+      raw = JSON.parse(text) as unknown;
+    } catch {
+      throw Err.server(
+        ServerErrorCode.INVALID_RESPONSE,
+        'Marketplace returned an unreadable digital-delivery response.',
+        {
+          service: ErrorService.Marketplace,
+          operation,
+          context: { statusCode: response.status },
+        },
+      );
+    }
+    return toCamelCaseWire(raw);
+  }
+
+  private static async digitalReadRefusal(response: Response, operation: string): Promise<Error> {
+    let code: string | undefined;
+    let reason: unknown;
+    try {
+      const body = (await response.json()) as { error?: { code?: unknown; reason?: unknown } };
+      code = typeof body.error?.code === 'string' ? body.error.code : undefined;
+      reason = body.error?.reason;
+    } catch {
+      code = undefined;
+    }
+    const refusal = classifyDigitalReadRefusal(reason);
+    const context = { statusCode: response.status, ...(refusal ? { refusal } : {}) };
+    if (code === 'NOT_FOUND' || response.status === 404) {
+      return Err.client(ClientErrorCode.NOT_FOUND, DIGITAL_READ_REFUSAL_COPY.not_found, {
+        service: ErrorService.Marketplace,
+        operation,
+        context,
+      });
+    }
+    if (refusal === 'rate_limited') {
+      return Err.rateLimit(RateLimitErrorCode.RATE_LIMITED, DIGITAL_READ_REFUSAL_COPY.rate_limited, {
+        service: ErrorService.Marketplace,
+        operation,
+        context,
+      });
+    }
+    if (refusal) {
+      return Err.client(ClientErrorCode.CONFLICT, DIGITAL_READ_REFUSAL_COPY[refusal], {
+        service: ErrorService.Marketplace,
+        operation,
+        context,
+      });
+    }
+    if (code === 'UNAUTHORIZED' || response.status === 403) {
+      return Err.auth(AuthErrorCode.FORBIDDEN, DIGITAL_READ_REFUSAL_COPY.failed, {
+        service: ErrorService.Marketplace,
+        operation,
+        context,
+      });
+    }
+    return Err.server(ServerErrorCode.INVALID_RESPONSE, DIGITAL_READ_REFUSAL_COPY.failed, {
+      service: ErrorService.Marketplace,
+      operation,
+      context,
+    });
   }
 
   /**

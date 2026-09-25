@@ -75,17 +75,23 @@ export type TGenerateSignupAuthUrlParams = {
 export type THomeserverFetchParams = {
   url: string;
   options?: FetchOptions;
+  /** The URL recorded in error context and logs; defaults to `url`. */
+  logUrl?: string;
 };
 
 export type THomeserverRequestParams = {
   method: HttpMethod;
   url: string;
   bodyJson?: Record<string, unknown>;
+  /** The URL recorded in error context and logs; defaults to `url`. Unpublished paths pass a redacted form. */
+  logUrl?: string;
 };
 
 export type TPutBlobParams = {
   url: string;
   blob: Uint8Array;
+  /** The URL recorded in error context and logs; defaults to `url`. Unpublished paths pass a redacted form. */
+  logUrl?: string;
 };
 
 export type THomeserverListParams = {

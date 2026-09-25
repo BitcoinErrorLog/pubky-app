@@ -1869,3 +1869,134 @@ describe('MarketplaceTransactionService.getDrop (the seller drop projection)', (
     loggerError.mockRestore();
   });
 });
+
+describe('MarketplaceTransactionService.getListingDigitalDelivery (digital delivery owner read, §6 C5)', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  const LINK_SENTINEL = 'https://example.com/seller-only-course-link';
+
+  it('reads the current delivery with the bearer and no-store', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        listing_aggregate_id: AGGREGATE_ID,
+        current: {
+          kind: 'link',
+          deliverable_id: 'a'.repeat(32),
+          version: 2,
+          created_at: '2026-09-25T10:00:00.000Z',
+          url: LINK_SENTINEL,
+        },
+        last_version: 2,
+        pinned_versions: [{ version: 1, live_orders: 3 }],
+      }),
+    );
+
+    const read = await MarketplaceTransactionService.getListingDigitalDelivery(ACTOR, AGGREGATE_ID);
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/listings/${encodeURIComponent(AGGREGATE_ID)}/digital-delivery`);
+    expect(init.cache).toBe('no-store');
+    expect(new Headers(init.headers).get('authorization')).toMatch(/^Bearer /);
+    expect(read.current?.url).toBe(LINK_SENTINEL);
+    expect(read.pinnedVersions).toEqual([{ version: 1, liveOrders: 3 }]);
+  });
+
+  it('maps the unavailable refusal to a typed conflict carrying only the reason', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(409, {
+        ok: false,
+        error: {
+          code: 'INVALID_STATE',
+          message: 'Digital delivery is unavailable on this deployment.',
+          reason: 'digital_delivery_unavailable',
+        },
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getListingDigitalDelivery(ACTOR, AGGREGATE_ID)).rejects.toMatchObject({
+      category: 'client',
+      code: 'CONFLICT',
+      message: "Digital delivery isn't available on this deployment.",
+      context: { refusal: 'digital_delivery_unavailable', statusCode: 409 },
+    });
+  });
+
+  it('maps a foreign or absent listing to NOT_FOUND, and never copies the service message', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: `not found ${LINK_SENTINEL}` } }),
+    );
+
+    const error = (await MarketplaceTransactionService.getListingDigitalDelivery(ACTOR, AGGREGATE_ID).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({ category: 'client', code: 'NOT_FOUND' });
+    expect(`${error.message} ${JSON.stringify(error.context)}`).not.toContain(LINK_SENTINEL);
+  });
+
+  it('throws INVALID_RESPONSE with no body excerpt for a malformed 200', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(`{"current":{"url":"${LINK_SENTINEL}`, {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const loggerError = vi.spyOn(Logger, 'error');
+
+    const error = (await MarketplaceTransactionService.getListingDigitalDelivery(ACTOR, AGGREGATE_ID).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({ category: 'server', code: 'INVALID_RESPONSE' });
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(error.context)).not.toContain(LINK_SENTINEL);
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain(LINK_SENTINEL);
+    loggerError.mockRestore();
+  });
+
+  it('carries digital_delivery.set and .clear to the service', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        ok: true,
+        version: 1,
+        command_id: '018f47d2-6a27-7c23-a62f-000000000751',
+        aggregate_id: AGGREGATE_ID,
+        revision: 1,
+        event_ids: ['018f47d2-6a27-7c23-a62f-000000000752'],
+        result: {
+          kind: 'digital_delivery',
+          listing_aggregate_id: AGGREGATE_ID,
+          delivery_kind: 'email',
+          deliverable_id: 'a'.repeat(32),
+          version: 1,
+          updated_at: '2026-09-25T10:00:00.000Z',
+        },
+      }),
+    );
+
+    const response = await MarketplaceTransactionService.execute(ACTOR, {
+      version: 1,
+      commandId: '018f47d2-6a27-7c23-a62f-000000000751',
+      aggregateId: AGGREGATE_ID,
+      expectedRevision: 0,
+      issuedAt: '2026-09-25T10:00:00.000Z',
+      kind: 'digital_delivery.set',
+      payload: { expectedVersion: 0, delivery: { kind: 'email' } },
+    });
+
+    expect(response.ok).toBe(true);
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      kind: 'digital_delivery.set',
+      payload: { expected_version: 0, delivery: { kind: 'email' } },
+    });
+  });
+});

@@ -727,6 +727,8 @@ export type MarketplaceCommandFailure = {
     message: string;
     currentRevision?: number;
     issues?: Array<{ path: string; message: string }>;
+    /** A typed refusal reason, as the durable service sends it. */
+    reason?: string;
   };
 };
 
@@ -1143,6 +1145,13 @@ export class MarketplaceTransactionService {
         return failure('INVALID_COMMAND', 'Listing sync is not available on the sandbox service.');
       case 'pickup_details.set':
         return this.setPickupDetails(actorPubky, command);
+      case 'digital_delivery.set':
+      case 'digital_delivery.clear':
+        // The prototype seals and releases nothing: it refuses digital
+        // delivery the way an unkeyed durable service does (§6 B5).
+        return failure('INVALID_STATE', 'Digital delivery is unavailable on this deployment.', {
+          reason: 'digital_delivery_unavailable',
+        });
       case 'pickup_details.clear':
         return this.clearPickupDetails(actorPubky, command);
       case 'fulfillment.mark_ready':
@@ -3208,7 +3217,7 @@ function success(
 function failure(
   code: MarketplaceCommandFailure['error']['code'],
   message: string,
-  details: Pick<MarketplaceCommandFailure['error'], 'currentRevision' | 'issues'> = {},
+  details: Pick<MarketplaceCommandFailure['error'], 'currentRevision' | 'issues' | 'reason'> = {},
 ): MarketplaceCommandFailure {
   return { ok: false, error: { code, message, ...details } };
 }

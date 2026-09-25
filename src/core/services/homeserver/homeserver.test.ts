@@ -1326,6 +1326,54 @@ describe('HomeserverService', () => {
         });
       });
 
+      // Digital deliverables live at unpublished paths (digital delivery
+      // design §2): errors and logs name the redacted path only.
+      it('records the redacted logUrl, never the real path, when an upload fails', async () => {
+        mockState.currentSession = createMockSession();
+        const realPath = 'pubky://user/pub/pubky.app/marketplace/v1/deliverables/0123456789abcdef0123456789abcdef/1';
+        const logUrl = '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>';
+        mockState.sessionStoragePutBytes.mockRejectedValue({
+          name: 'RequestError',
+          message: 'Insufficient Storage',
+          data: { statusCode: 507 },
+        });
+        const loggerError = vi.spyOn(Logger, 'error');
+
+        const error = (await HomeserverService.putBlob({ url: realPath, blob: new Uint8Array([1]), logUrl }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(error.context).toMatchObject({ endpoint: logUrl, statusCode: 507 });
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+        expect(JSON.stringify(loggerError.mock.calls)).not.toContain('0123456789abcdef');
+        loggerError.mockRestore();
+      });
+
+      it('records the redacted logUrl when an upload has no session', async () => {
+        mockState.currentSession = null;
+        const error = (await HomeserverService.putBlob({
+          url: 'pubky://someone/pub/pubky.app/marketplace/v1/deliverables/0123456789abcdef0123456789abcdef/1',
+          blob: new Uint8Array([1]),
+          logUrl: '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>',
+        }).catch((caught: unknown) => caught)) as AppError;
+
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+      });
+
+      it('records the redacted logUrl when a delete fails', async () => {
+        mockState.currentSession = createMockSession();
+        mockState.sessionStorageDelete.mockRejectedValue(new Error('Network error'));
+
+        const error = (await HomeserverService.request({
+          method: HttpMethod.DELETE,
+          url: 'pubky://user/pub/pubky.app/marketplace/v1/deliverables/0123456789abcdef0123456789abcdef/1',
+          logUrl: '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>',
+        }).catch((caught: unknown) => caught)) as AppError;
+
+        expect(error.context).toMatchObject({ endpoint: '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>' });
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+      });
+
       it('should throw INVALID_INPUT when uploading blob without a session to a pubky:// address', async () => {
         mockState.currentSession = null;
         const blobData = new Uint8Array([1, 2, 3]);

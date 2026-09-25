@@ -1,5 +1,10 @@
 import { z } from 'zod';
 import {
+  type DigitalDeliveryCommandResult,
+  digitalDeliveryCommandResultSchema,
+  digitalDeliverySetSchema,
+} from './digital';
+import {
   classifyMarketplacePickupRefusal,
   marketplaceFulfillmentMethodSchema,
   marketplaceFulfillmentMethodsSchema,
@@ -440,6 +445,44 @@ export const clearPickupDetailsCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
+/**
+ * `digital_delivery.set` (seller, own digital listing only; digital delivery
+ * design §2, §6 C1–C5): sets how buyers receive the listing. A file names
+ * the encrypted deliverable already written to the seller's homeserver, as
+ * version `expectedVersion + 1`; the service reads it back, checks its
+ * length and BLAKE3, and seals the key. `expectedVersion` is the owner
+ * read's `lastVersion`, the compare-and-swap against lost updates. The
+ * envelope's `expectedRevision` is always 0.
+ */
+export const setDigitalDeliveryCommandSchema = createCommerceCommandSchema(
+  'digital_delivery.set',
+  z
+    .object({
+      expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      delivery: digitalDeliverySetSchema,
+    })
+    .strict()
+    .superRefine((payload, context) => {
+      if (payload.delivery.kind === 'file' && payload.delivery.version !== payload.expectedVersion + 1) {
+        context.addIssue({
+          code: 'custom',
+          path: ['delivery', 'version'],
+          message: 'Expected the next delivery version',
+        });
+      }
+    }),
+);
+
+/** `digital_delivery.clear` (seller, own listing only): removes delivery; refused while buyers pay for or download it (C4). */
+export const clearDigitalDeliveryCommandSchema = createCommerceCommandSchema(
+  'digital_delivery.clear',
+  z
+    .object({
+      expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    })
+    .strict(),
+);
+
 /** `fulfillment.mark_ready` (seller, own pickup order in `paid`): order → `ready_for_pickup`; notifies the buyer. */
 export const markReadyForPickupCommandSchema = createCommerceCommandSchema('fulfillment.mark_ready', orderIdPayload);
 
@@ -548,6 +591,8 @@ export const marketplaceCommandSchema = z.union([
   confirmOrderDeliveryCommandSchema,
   setPickupDetailsCommandSchema,
   clearPickupDetailsCommandSchema,
+  setDigitalDeliveryCommandSchema,
+  clearDigitalDeliveryCommandSchema,
   markReadyForPickupCommandSchema,
   confirmPickupCommandSchema,
   requestReturnCommandSchema,
@@ -588,6 +633,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'review',
             'drop',
             'pickup_details',
+            'digital_delivery',
           ]),
         })
         .passthrough(),
@@ -635,6 +681,8 @@ export type ShipOrderCommand = z.infer<typeof shipOrderCommandSchema>;
 export type ConfirmOrderDeliveryCommand = z.infer<typeof confirmOrderDeliveryCommandSchema>;
 export type SetPickupDetailsCommand = z.infer<typeof setPickupDetailsCommandSchema>;
 export type ClearPickupDetailsCommand = z.infer<typeof clearPickupDetailsCommandSchema>;
+export type SetDigitalDeliveryCommand = z.infer<typeof setDigitalDeliveryCommandSchema>;
+export type ClearDigitalDeliveryCommand = z.infer<typeof clearDigitalDeliveryCommandSchema>;
 export type MarkReadyForPickupCommand = z.infer<typeof markReadyForPickupCommandSchema>;
 export type ConfirmPickupCommand = z.infer<typeof confirmPickupCommandSchema>;
 export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;
@@ -718,6 +766,15 @@ export type PickupDetailsCommandResult = z.infer<typeof pickupDetailsCommandResu
 export function asPickupDetailsCommandResult(response: MarketplaceCommandResponse): PickupDetailsCommandResult | null {
   if (!response.ok) return null;
   const parsed = pickupDetailsCommandResultSchema.safeParse(response.result);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Narrows a command response to the digital-delivery result, or null for a refusal or another result. */
+export function asDigitalDeliveryCommandResult(
+  response: MarketplaceCommandResponse,
+): DigitalDeliveryCommandResult | null {
+  if (!response.ok) return null;
+  const parsed = digitalDeliveryCommandResultSchema.safeParse(response.result);
   return parsed.success ? parsed.data : null;
 }
 
