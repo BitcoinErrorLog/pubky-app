@@ -1,1 +1,1 @@
-Pickup-only listings no longer show Make offer, because offers settle only on listings that ship. If an offer is refused for that reason, the Shop now says so instead of "Could not send this offer."
+Make offer works on pickup listings. An accepted offer on a pickup-only listing checks out as local pickup, with no delivery address and no shipping. On a listing that offers both, the buyer chooses shipping or pickup at checkout. If an older service refuses an offer because the listing does not ship, the Shop says so instead of "Could not send this offer."

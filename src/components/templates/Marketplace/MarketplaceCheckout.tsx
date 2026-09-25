@@ -146,12 +146,52 @@ function MarketplaceCartCheckout() {
     };
   }, [dropSeller, dropListingId]);
 
+  // The award's listing drives the fulfillment choice exactly as a cart line
+  // does (§A2): a pickup-only listing settles by pickup, a listing that
+  // offers both lets the buyer choose. Until it loads nothing is payable;
+  // if it cannot load, the award falls back to shipping as before.
+  const awardSeller = award?.listing.sellerPubky ?? null;
+  const awardListingId = award?.listing.listingId ?? null;
+  const awardVariantId = award?.variant.id ?? null;
+  const awardQuantity = award?.quantity ?? null;
+  const [awardItem, setAwardItem] = useState<MarketplaceCartItem | null>(null);
+  const [awardListingState, setAwardListingState] = useState<'idle' | 'loading' | 'ready' | 'missing'>('idle');
+  useEffect(() => {
+    if (!isOfferCheckout || !awardSeller || !awardListingId || !awardVariantId || awardQuantity === null) {
+      setAwardItem(null);
+      setAwardListingState('idle');
+      return;
+    }
+    let active = true;
+    setAwardListingState('loading');
+    void (async () => {
+      try {
+        try {
+          await CommerceController.getOrFetchListing(awardSeller, awardListingId);
+        } catch {
+          // Local Dexie may still have the listing after a homeserver miss.
+        }
+        const listing = await CommerceController.getListing(awardSeller, awardListingId);
+        if (!active) return;
+        setAwardItem(listing ? awardCheckoutItem(listing, awardVariantId, awardQuantity) : null);
+        setAwardListingState(listing ? 'ready' : 'missing');
+      } catch {
+        if (!active) return;
+        setAwardItem(null);
+        setAwardListingState('missing');
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isOfferCheckout, awardSeller, awardListingId, awardVariantId, awardQuantity]);
+
   const ordinaryItems = cart.ordinaryItems ?? cart.items;
   const checkoutItems = useMemo(() => {
-    if (isOfferCheckout) return EMPTY_CHECKOUT_ITEMS;
+    if (isOfferCheckout) return awardItem ? [awardItem] : EMPTY_CHECKOUT_ITEMS;
     if (isDropCheckout) return dropItem ? [dropItem] : EMPTY_CHECKOUT_ITEMS;
     return ordinaryItems;
-  }, [dropItem, isDropCheckout, isOfferCheckout, ordinaryItems]);
+  }, [awardItem, dropItem, isDropCheckout, isOfferCheckout, ordinaryItems]);
   const checkout = useMarketplaceCheckout(
     checkoutItems,
     isOfferCheckout || isDropCheckout ? async () => undefined : cart.clear,
@@ -162,21 +202,23 @@ function MarketplaceCartCheckout() {
   const isStaging = getDeployEnv() === 'staging';
   const formValues = useWatch({ control: checkout.form.control });
   const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
-  const displayGroups = useMemo(
-    () => (isOfferCheckout ? [] : groupMarketplaceCartItems(checkoutItems)),
-    [checkoutItems, isOfferCheckout],
-  );
+  const displayGroups = useMemo(() => groupMarketplaceCartItems(checkoutItems), [checkoutItems]);
   const shipping = marketplaceCartShippingTotals(displayGroups, checkout.fulfillmentForSeller);
+  // A pickup award pays the accepted merchandise only; its shipping is zero.
+  const isPickupAward = Boolean(awardSeller && checkout.fulfillmentForSeller(awardSeller) === 'pickup');
   const itemSubtotals =
     isOfferCheckout && award
       ? [award.subtotal]
       : isDropCheckout
         ? displayGroups.flatMap((group) => group.subtotals)
         : cart.subtotals;
-  const shippingTotals = isOfferCheckout && award ? [award.shipping] : shipping.totals;
+  const shippingTotals =
+    isOfferCheckout && award
+      ? [isPickupAward ? { ...award.shipping, amountMinor: 0 } : award.shipping]
+      : shipping.totals;
   const totalSubtotals =
     isOfferCheckout && award
-      ? [award.merchandiseTotal]
+      ? [isPickupAward ? award.subtotal : award.merchandiseTotal]
       : [...itemSubtotals, ...shipping.totals].reduce<
           Array<{ amountMinor: number; currency: string; exponent: number }>
         >((totals, money) => {
@@ -276,7 +318,7 @@ function MarketplaceCartCheckout() {
     formValid &&
     !checkout.hasFulfillmentConflict &&
     !isPaying &&
-    (!isOfferCheckout || offerEligible) &&
+    (!isOfferCheckout || (offerEligible && awardListingState !== 'loading')) &&
     (isSandbox || (sharedMethods !== null && sharedMethods.length > 0 && selectedMethod !== null));
 
   const removeAwardLine = async () => {
@@ -291,21 +333,23 @@ function MarketplaceCartCheckout() {
     if (!marketplaceCheckoutSchema.safeParse(values).success) return;
     const result = await offerPay.submit(
       offer,
-      {
-        name: values.name,
-        line1: values.line1,
-        line2: values.line2,
-        city: values.city,
-        region: values.region,
-        postalCode: values.postalCode,
-        countryCode: values.countryCode,
-      },
+      isPickupAward
+        ? null
+        : {
+            name: values.name,
+            line1: values.line1,
+            line2: values.line2,
+            city: values.city,
+            region: values.region,
+            postalCode: values.postalCode,
+            countryCode: values.countryCode,
+          },
       method,
     );
     if (result.ok) {
       await removeAwardLine();
       await offers.refresh();
-      await checkout.rememberAddress();
+      if (!isPickupAward) await checkout.rememberAddress();
       if (result.boundOrder?.fiatCheckoutUrl) {
         window.location.assign(result.boundOrder.fiatCheckoutUrl);
         return;
@@ -534,44 +578,51 @@ function MarketplaceCartCheckout() {
                         role="alert"
                         className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
                       >
-                        These items can&apos;t be checked out together: they don&apos;t share a fulfillment method this
-                        deployment supports (one ships while another is pickup-only). Remove one in the cart to
-                        continue.
+                        {isOfferCheckout
+                          ? 'This listing is local pickup only, and pickup is unavailable on this deployment right now.'
+                          : "These items can't be checked out together: they don't share a fulfillment method this deployment supports (one ships while another is pickup-only). Remove one in the cart to continue."}
                       </Typography>
                     )}
-                    {group.items.map((item) => {
-                      const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
-                      const price =
-                        variant?.priceOverride ??
-                        (item.listing.record.sale.format === 'fixed_price' ? item.listing.record.sale.unitPrice : null);
-                      const listingRoute = getMarketplaceListingRoute(
-                        item.listing.record.ownerPubky,
-                        item.listing.listing_id,
-                      );
-                      return (
-                        <Card key={item.id} className="border py-4">
-                          <CardContent className="flex items-center gap-4 px-4">
-                            <div className="min-w-0 flex-1">
-                              <Typography as="h2" className="truncate font-semibold">
-                                <Link href={listingRoute} overrideDefaults className="hover:text-brand hover:underline">
-                                  {item.listing.record.title}
-                                </Link>
-                              </Typography>
-                              <Typography as="p" className="text-sm text-muted-foreground">
-                                {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'} · Qty{' '}
-                                {item.quantity}
-                              </Typography>
-                              {price && (
-                                <Typography as="p" className="mt-1 font-bold text-brand">
-                                  {formatCommerceMoney(price)}{' '}
-                                  <MarketplaceIndicativePrice money={price} className="font-normal" />
+                    {!isOfferCheckout &&
+                      group.items.map((item) => {
+                        const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
+                        const price =
+                          variant?.priceOverride ??
+                          (item.listing.record.sale.format === 'fixed_price'
+                            ? item.listing.record.sale.unitPrice
+                            : null);
+                        const listingRoute = getMarketplaceListingRoute(
+                          item.listing.record.ownerPubky,
+                          item.listing.listing_id,
+                        );
+                        return (
+                          <Card key={item.id} className="border py-4">
+                            <CardContent className="flex items-center gap-4 px-4">
+                              <div className="min-w-0 flex-1">
+                                <Typography as="h2" className="truncate font-semibold">
+                                  <Link
+                                    href={listingRoute}
+                                    overrideDefaults
+                                    className="hover:text-brand hover:underline"
+                                  >
+                                    {item.listing.record.title}
+                                  </Link>
                                 </Typography>
-                              )}
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
+                                <Typography as="p" className="text-sm text-muted-foreground">
+                                  {variant ? Object.values(variant.options).join(' · ') || 'Default' : 'Default'} · Qty{' '}
+                                  {item.quantity}
+                                </Typography>
+                                {price && (
+                                  <Typography as="p" className="mt-1 font-bold text-brand">
+                                    {formatCommerceMoney(price)}{' '}
+                                    <MarketplaceIndicativePrice money={price} className="font-normal" />
+                                  </Typography>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
                   </section>
                 );
               })}
@@ -899,6 +950,21 @@ function MarketplaceCheckoutSellerHeader({ group }: { group: MarketplaceCartGrou
       </CardContent>
     </Card>
   );
+}
+
+function awardCheckoutItem(
+  listing: CommerceListingModelSchema,
+  variantId: string,
+  quantity: number,
+): MarketplaceCartItem {
+  return {
+    id: `${listing.id}:${variantId}:award`,
+    listingId: listing.id,
+    variantId,
+    quantity,
+    listing,
+    pricingSource: 'offer',
+  };
 }
 
 function dropCheckoutItem(listing: CommerceListingModelSchema, variantId: string): MarketplaceCartItem {

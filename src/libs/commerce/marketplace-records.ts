@@ -290,22 +290,6 @@ export function commerceListingFulfillmentMethods(
   return derived.length > 0 ? derived : ['shipping'];
 }
 
-/**
- * Whether the service will take an `offer.create` on this listing: a
- * fixed-price sale that accepts offers and whose registered fulfillment
- * methods include shipping. The service refuses offers on pickup-only
- * listings (`INVALID_STATE`), so the Shop must not offer the action there.
- */
-export function commerceListingTakesOffers(
-  record: Pick<CommerceListingRecord, 'sale' | 'fulfillmentMethods'>,
-): boolean {
-  return (
-    record.sale.format === 'fixed_price' &&
-    record.sale.acceptsOffers &&
-    commerceListingFulfillmentMethods(record.fulfillmentMethods).includes('shipping')
-  );
-}
-
 export const commercePackageSchema = z
   .object({
     weightGrams: z.number().int().positive().max(1_000_000),

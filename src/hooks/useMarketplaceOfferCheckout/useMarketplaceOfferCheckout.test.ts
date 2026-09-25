@@ -106,6 +106,26 @@ describe('useMarketplaceOfferCheckout', () => {
     expect(completed).toHaveBeenCalledTimes(1);
   });
 
+  it('sends a shipped award exactly as before: the address and no fulfillment field', async () => {
+    const { result } = renderHook(() => useMarketplaceOfferCheckout());
+    await act(async () => {
+      await result.current.submit(offer, address);
+    });
+    const payload = vi.mocked(CommerceController.commitOfferCheckout).mock.calls[0]?.[0]?.payload;
+    expect(payload).toMatchObject({ deliveryAddress: address });
+    expect(payload).not.toHaveProperty('fulfillment');
+  });
+
+  it('settles a pickup award with fulfillment pickup and no delivery address', async () => {
+    const { result } = renderHook(() => useMarketplaceOfferCheckout());
+    await act(async () => {
+      await expect(result.current.submit(offer, null)).resolves.toMatchObject({ ok: true });
+    });
+    const payload = vi.mocked(CommerceController.commitOfferCheckout).mock.calls[0]?.[0]?.payload;
+    expect(payload).toMatchObject({ fulfillment: 'pickup' });
+    expect(payload).not.toHaveProperty('deliveryAddress');
+  });
+
   it.each([
     ['AWARD_EXPIRED', 'This accepted offer expired before checkout. Nothing was reserved.'],
     ['AWARD_ALREADY_CONVERTED', 'This accepted offer has already been converted.'],

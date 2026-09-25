@@ -147,9 +147,10 @@ vi.mock('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout', async () => {
     await import('@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types');
   return {
     useMarketplaceCheckout: () => ({
+      // The real hook keeps the hidden address flag in sync with the groups.
       form: useForm({
         resolver: zodResolver(marketplaceCheckoutSchema),
-        defaultValues: marketplaceCheckoutDefaults,
+        defaultValues: { ...marketplaceCheckoutDefaults, requiresDeliveryAddress: view.requiresDeliveryAddress },
         mode: 'onTouched',
       }),
       submit: vi.fn(async () => false),
@@ -764,9 +765,44 @@ describe('MarketplaceCheckout accepted-offer path', () => {
     await fillAndPay(user);
 
     expect(offerState.submit).toHaveBeenCalled();
+    expect(offerState.submit.mock.calls[0]?.[1]).toMatchObject({ name: 'Alice Buyer', line1: '1 Market Street' });
     expect(checkoutActions.remove).toHaveBeenCalledWith('s:boots', 'variant_42', 'award-1');
     expect(offerState.refresh).toHaveBeenCalledTimes(1);
     expect(checkoutActions.rememberAddress).toHaveBeenCalled();
+  });
+
+  it('checks out a pickup award with the pickup UI: no address, no shipping, merchandise only', async () => {
+    view.fulfillmentEffective = { ['s'.repeat(52)]: 'pickup' };
+    view.requiresDeliveryAddress = false;
+    const user = userEvent.setup();
+    render(<MarketplaceCheckout />);
+
+    expect(
+      await screen.findByText(/Local pickup — no delivery address or shipping for these items/),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Recipient')).not.toBeInTheDocument();
+    expect(screen.getByText('Shipping').parentElement).toHaveTextContent('$0.00');
+    expect(screen.getByText('Merchandise total').parentElement).toHaveTextContent('$6.00');
+
+    await user.click(screen.getByRole('checkbox', { name: /I accept sandbox guarantee policy v1/ }));
+    const pay = screen.getByTestId('marketplace-checkout-pay');
+    await waitFor(() => expect(pay).toBeEnabled());
+    await user.click(pay);
+
+    expect(offerState.submit).toHaveBeenCalledTimes(1);
+    expect(offerState.submit.mock.calls[0]?.[1]).toBeNull();
+    expect(checkoutActions.rememberAddress).not.toHaveBeenCalled();
+  });
+
+  it('offers the shipping-or-pickup choice for an award on a listing that publishes both', async () => {
+    view.fulfillmentOptions = { ['s'.repeat(52)]: ['shipping', 'pickup'] };
+    const user = userEvent.setup();
+    render(<MarketplaceCheckout />);
+
+    const select = await screen.findByLabelText(`Fulfillment for items from ${'s'.repeat(52)}`);
+    await user.click(select);
+    await user.click(screen.getByRole('option', { name: 'Local pickup' }));
+    expect(checkoutActions.setFulfillmentChoice).toHaveBeenCalledWith('s'.repeat(52), 'pickup');
   });
 
   it('shows expiry copy, removes the line, refreshes offers, and offers both next actions', async () => {
