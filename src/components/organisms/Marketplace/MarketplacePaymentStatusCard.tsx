@@ -45,6 +45,9 @@ import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
+const PAYKIT_DELIVERY_FAILED_COPY =
+  "Your wallet didn't receive the request. In Bitkit, add the seller as a contact, then try again.";
+
 /**
  * The buyer-visible payment status vocabulary is deliberately small
  * (implementation plan, "Paykit, Locks, and payment confirmation"): awaiting
@@ -252,6 +255,14 @@ export function MarketplacePaymentStatusCard({
             : 'The marketplace payment window elapsed before a verified payment arrived, so this checkout was not completed. A payment verified after expiry is reconciled manually — never silently applied or discarded.'}
         </Typography>
       )}
+      {visibleStatus === 'expired' &&
+        isBuyer &&
+        order.paymentMethod === 'bitcoin' &&
+        order.paykitDeliveryState !== 'delivered' && (
+          <Typography as="p" role="alert" className="text-sm text-amber-300" data-testid="paykit-delivery-failed">
+            {PAYKIT_DELIVERY_FAILED_COPY}
+          </Typography>
+        )}
       {visibleStatus === 'manual_review' && !refundRequired && (
         <Typography as="p" className="text-sm text-muted-foreground">
           A verified event arrived outside the normal flow (for example after the payment window expired), so the seller
@@ -415,17 +426,24 @@ export function MarketplacePaymentStatusCard({
         </div>
       )}
 
-      {/* Bound bitcoin: the private Paykit request is out; the service confirms independently. */}
+      {/* Bound bitcoin: Paykit delivers the request to the buyer's wallet; the service confirms independently. */}
       {usesMethodFlow && isBuyer && order.paymentMethod === 'bitcoin' && (
         <div className="grid gap-2">
           <Typography as="p" className="text-sm text-muted-foreground">
             {holderBoundCopy(order.holdExpiresAt)}
           </Typography>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <LoaderCircle className="size-4 animate-spin" />
-            The Bitcoin payment request was delivered privately to your wallet via Paykit. This page updates once the
-            marketplace independently verifies the payment on-chain.
-          </div>
+          {order.paykitDeliveryState === 'failed' ? (
+            <Typography as="p" role="alert" className="text-sm text-amber-300" data-testid="paykit-delivery-failed">
+              {PAYKIT_DELIVERY_FAILED_COPY}
+            </Typography>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="paykit-delivery-status">
+              <LoaderCircle className="size-4 animate-spin" />
+              {order.paykitDeliveryState === 'delivered'
+                ? 'Delivered to your wallet. Open Bitkit to pay. This page updates once the marketplace independently verifies the payment on-chain.'
+                : 'Waiting for your wallet. Keep Bitkit open so it can receive the payment request.'}
+            </div>
+          )}
         </div>
       )}
 
