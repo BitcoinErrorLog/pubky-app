@@ -65,16 +65,19 @@ import type {
 } from './homeserver.types';
 import {
   assertOk,
+  AUTH_POLL_MAX_RESUMES,
   bytesToBase64,
   capabilitiesGrantWrite,
   createCancelableAuthApproval,
   getOwnedResponse,
   isHttpUrl,
+  isTransientPollError,
   parseResponseOrUndefined,
   PUBKY_PREFIX,
   readResponseBytes,
   resolveOwnedSessionPath,
   toSdkPath,
+  waitUntilVisible,
 } from './homeserver.utils';
 import { retryHomeserverWrite } from './write-retry';
 
@@ -630,10 +633,15 @@ export class HomeserverService {
     try {
       const pubkySdk = this.getPubkySdk();
       const flow = pubkySdk.startCookieAuthFlow(capabilities, AuthFlowKind.signin(), getDefaultHttpRelay());
-      const approval = createCancelableAuthApproval(flow);
+      const authorizationUrl = flow.authorizationUrl;
+      // The SDK gives up on a flow once the page's network drops in the background; resume reconnects to the
+      // same relay channel when the page is visible again.
+      const approval = createCancelableAuthApproval(flow, {
+        resume: () => pubkySdk.resumeCookieAuthFlow(authorizationUrl),
+      });
 
       return {
-        authorizationUrl: flow.authorizationUrl,
+        authorizationUrl,
         awaitApproval: approval.awaitApproval,
         cancelAuthFlow: approval.cancel,
       };
@@ -664,19 +672,32 @@ export class HomeserverService {
       const pubkySdk = this.getPubkySdk();
       const flow = pubkySdk.startCookieAuthFlow(capabilities, AuthFlowKind.signin(), getDefaultHttpRelay());
       const authorizationUrl = flow.authorizationUrl;
+      let live = flow;
       let freed = false;
       const free = () => {
         if (freed) return;
         freed = true;
         try {
-          flow.free();
+          live.free();
         } catch {
           // Ignore double-free or already-finalized WASM objects.
         }
       };
       const awaitToken = async () => {
         try {
-          return await flow.awaitToken();
+          for (let resumes = 0; ; ) {
+            try {
+              return await live.awaitToken();
+            } catch (error) {
+              // The SDK gives up on a flow once the page's network drops in the background (the user is
+              // approving in Pubky Ring), and it never polls that flow again. Reconnect to the same relay
+              // channel when the page is visible again: an approval made meanwhile is still there.
+              if (freed || !isTransientPollError(error) || ++resumes > AUTH_POLL_MAX_RESUMES) throw error;
+              await waitUntilVisible();
+              if (freed) throw error;
+              live = pubkySdk.resumeCookieAuthFlow(authorizationUrl);
+            }
+          }
         } finally {
           free();
         }

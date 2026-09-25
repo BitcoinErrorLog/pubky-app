@@ -50,6 +50,7 @@ const mockState = vi.hoisted(() => ({
   grantStoreList: vi.fn(),
   grantStoreIsAvailable: vi.fn(),
   startAuthFlow: vi.fn(),
+  resumeAuthFlow: vi.fn(),
   authFlowKindSignin: vi.fn(),
   authFlowKindSignup: vi.fn(),
   authTokenFromBytes: vi.fn(),
@@ -99,6 +100,7 @@ vi.mock('@synonymdev/pubky', () => {
     getHomeserverOf: (...args: unknown[]) => mockState.getHomeserverOf(...args),
     restoreSession: (...args: unknown[]) => mockState.restoreSession(...args),
     startCookieAuthFlow: (...args: unknown[]) => mockState.startAuthFlow(...args),
+    resumeCookieAuthFlow: (...args: unknown[]) => mockState.resumeAuthFlow(...args),
     eventStreamForUser: (...args: unknown[]) => mockState.eventStreamForUser(...args),
     client: {
       fetch: (...args: unknown[]) => mockState.clientFetch(...args),
@@ -839,6 +841,79 @@ describe('HomeserverService', () => {
           // Loop must not retry on a dead flow; one throw is terminal.
           expect(tryPollOnce).toHaveBeenCalledTimes(1);
         } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('resumes the flow on the same relay channel when the page is visible again after the relay poll dropped', async () => {
+        vi.useFakeTimers();
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+          const session = createMockSession();
+          // The SDK gives up on a flow after a few failed relay requests; polling that flow again never recovers it.
+          const transportError = new Error('Request failed: HTTP transport error: error sending request');
+          transportError.name = 'RequestError';
+          const deadFlow = {
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce: vi.fn().mockRejectedValueOnce(transportError).mockResolvedValue(undefined),
+            free: vi.fn(),
+          };
+          const resumedFlow = { tryPollOnce: vi.fn().mockResolvedValue(session), free: vi.fn() };
+          mockState.startAuthFlow.mockReturnValue(deadFlow);
+          mockState.resumeAuthFlow.mockReturnValue(resumedFlow);
+
+          const result = await HomeserverService.generateAuthUrl();
+          await vi.advanceTimersByTimeAsync(0);
+          expect(deadFlow.tryPollOnce).toHaveBeenCalledTimes(1);
+          // Still in the background: nothing resumes yet.
+          await vi.advanceTimersByTimeAsync(5_000);
+          expect(mockState.resumeAuthFlow).not.toHaveBeenCalled();
+
+          // Back from Pubky Ring: the page becomes visible and reconnects to the same channel.
+          visibility.mockReturnValue('visible');
+          document.dispatchEvent(new Event('visibilitychange'));
+          await vi.advanceTimersByTimeAsync(0);
+
+          await expect(result.awaitApproval).resolves.toBe(session);
+          expect(mockState.resumeAuthFlow).toHaveBeenCalledWith('https://auth.example.com/authorize');
+          expect(deadFlow.free).toHaveBeenCalled();
+        } finally {
+          visibility.mockRestore();
+          vi.useRealTimers();
+        }
+      });
+
+      it('resumes the token flow (single-approval Ring sign-in) after the relay poll dropped in the background', async () => {
+        vi.useFakeTimers();
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+          const token = { publicKey: 'token-key' };
+          const transportError = new Error('Request failed: HTTP transport error: error sending request');
+          transportError.name = 'RequestError';
+          const deadFlow = {
+            authorizationUrl: 'https://auth.example.com/authorize',
+            awaitToken: vi.fn().mockRejectedValue(transportError),
+            free: vi.fn(),
+          };
+          const resumedFlow = { awaitToken: vi.fn().mockResolvedValue(token), free: vi.fn() };
+          mockState.startAuthFlow.mockReturnValue(deadFlow);
+          mockState.resumeAuthFlow.mockReturnValue(resumedFlow);
+
+          const flow = HomeserverService.generateAuthTokenFlow();
+          const approved = flow.awaitToken();
+          await vi.advanceTimersByTimeAsync(5_000);
+          // Still in the background: nothing resumes yet.
+          expect(mockState.resumeAuthFlow).not.toHaveBeenCalled();
+
+          visibility.mockReturnValue('visible');
+          document.dispatchEvent(new Event('visibilitychange'));
+          await vi.advanceTimersByTimeAsync(0);
+
+          await expect(approved).resolves.toBe(token);
+          expect(mockState.resumeAuthFlow).toHaveBeenCalledWith('https://auth.example.com/authorize');
+          expect(resumedFlow.free).toHaveBeenCalled();
+        } finally {
+          visibility.mockRestore();
           vi.useRealTimers();
         }
       });

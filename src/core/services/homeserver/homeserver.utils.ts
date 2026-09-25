@@ -162,16 +162,55 @@ export const parseResponseOrUndefined = async <T>({
 };
 
 /**
+ * Times a flow is resumed after the relay could not be reached before the flow counts as dead. Each resume waits
+ * until the page is visible (a second when it already is).
+ */
+export const AUTH_POLL_MAX_RESUMES = 60;
+
+/**
+ * A transport failure with no HTTP status: the relay never answered (aborted, refused or offline fetch).
+ * The SDK reports it as a `RequestError` without `data.statusCode`; an HTTP error response carries one.
+ */
+export const isTransientPollError = (error: unknown): boolean => {
+  if (extractStatusCode(error) !== undefined) return false;
+  if (error instanceof Error && error.name === 'RequestError') return true;
+  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return /abort|network|failed to fetch|load failed|connection|timed? ?out/i.test(message);
+};
+
+/** Resolves at once when the page is visible, else on the next `visibilitychange` to visible. */
+export const waitUntilVisible = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
+      setTimeout(resolve, 1000);
+      return;
+    }
+    const onChange = () => {
+      if (document.visibilityState === 'hidden') return;
+      document.removeEventListener('visibilitychange', onChange);
+      resolve();
+    };
+    document.addEventListener('visibilitychange', onChange);
+  });
+
+/**
  * Creates a cancelable auth approval wrapper around an AuthFlow.
  * Pubky rc7: awaitApproval consumes the WASM handle, so we use tryPollOnce to keep flow.free() usable.
  * @param flow - The auth flow to wrap
- * @param options - Optional configuration with poll interval in milliseconds
+ * @param options - Optional configuration: poll interval in milliseconds and `resume`, which reconnects to
+ * the same relay channel. The SDK gives up on a flow after a few failed relay requests and never polls again,
+ * so a later `tryPollOnce` cannot recover it; only a resumed flow can pick up an approval posted meanwhile.
  * @returns CancelableAuthApproval with awaitApproval promise and cancel function
  */
 export const createCancelableAuthApproval = (
-  flow: Pick<AuthFlow, 'tryPollOnce' | 'free'>,
-  options?: { pollIntervalMs?: number; maxPollAttempts?: number },
+  initialFlow: Pick<AuthFlow, 'tryPollOnce' | 'free'>,
+  options?: {
+    pollIntervalMs?: number;
+    maxPollAttempts?: number;
+    resume?: () => Pick<AuthFlow, 'tryPollOnce' | 'free'>;
+  },
 ): CancelableAuthApproval => {
+  let flow = initialFlow;
   const pollIntervalMs = options?.pollIntervalMs ?? AUTH_POLL_INTERVAL_MS;
   const maxPollAttempts = options?.maxPollAttempts ?? AUTH_POLL_MAX_ATTEMPTS;
 
@@ -193,6 +232,7 @@ export const createCancelableAuthApproval = (
     await sleep(0);
 
     let attempts = 0;
+    let resumes = 0;
     for (;;) {
       if (canceled) throw createCanceledError();
       if (++attempts > maxPollAttempts) {
@@ -208,6 +248,25 @@ export const createCancelableAuthApproval = (
         if (maybeSession) return maybeSession;
       } catch (error) {
         if (canceled) throw createCanceledError();
+        // A mobile browser cuts the page's network once it goes to the background (the user is approving in
+        // Pubky Ring or Bitkit). The SDK gives up on the flow after a few failed relay requests, so wait until the
+        // page is visible again and resume the flow on the same relay channel: an approval made meanwhile is
+        // still there, and completes the sign-in.
+        if (options?.resume && isTransientPollError(error) && ++resumes <= AUTH_POLL_MAX_RESUMES) {
+          await waitUntilVisible();
+          if (canceled) throw createCanceledError();
+          try {
+            flow.free();
+          } catch {
+            // Ignore double-free or already-finalized WASM objects.
+          }
+          try {
+            flow = options.resume();
+            continue;
+          } catch {
+            // The channel cannot be resumed: fall through to the dead-flow error below.
+          }
+        }
         // From the caller's view, tryPollOnce is one-shot: one call, one outcome
         // (pubky SDK 0.8 — it doesn't loop or retry on our behalf). If it throws,
         // we treat the flow as dead and fail fast — showing "session expired" now
