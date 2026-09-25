@@ -73,7 +73,7 @@ const sellerPaymentConfig = vi.hoisted(() =>
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
       stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalMerchantEmail: null as string | null,
     }),
   ),
 );
