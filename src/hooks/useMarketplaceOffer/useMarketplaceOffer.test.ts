@@ -147,4 +147,29 @@ describe('useMarketplaceOffer', () => {
     expect(vi.mocked(toast).mock.calls.at(-1)?.[0]?.description).toBe('This listing has sold out.');
     expect(JSON.stringify(vi.mocked(toast).mock.calls)).not.toContain('This drop is sold out.');
   });
+
+  it('tells the buyer a pickup-only listing does not take offers', async () => {
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    const { result } = renderHook(() => useMarketplaceOffer('listing:seller_item', 11, vi.fn(), USD_ASSET));
+    act(() => {
+      result.current.form.setValue('amount', '1.00');
+      result.current.form.setValue('quantity', '1');
+    });
+
+    // The 409 production refused for issue #57 (offer.create, revision 11).
+    vi.mocked(CommerceController.executeMarketplaceCommand).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'INVALID_STATE', message: 'Offers are available only on listings that ship.' },
+    });
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(vi.mocked(toast).mock.calls.at(-1)?.[0]).toEqual({
+      variant: 'error',
+      description: 'This listing is local pickup only. Offers are available only on listings that ship.',
+    });
+  });
 });
