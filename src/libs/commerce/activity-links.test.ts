@@ -25,6 +25,17 @@ describe('activityRowHref', () => {
     expect(href).toContain(SELLER);
     expect(href).toContain('boots');
   });
+
+  it('opens checkout started on the order, and on checkout only while that order can still be checked out', () => {
+    expect(activityRowHref('order_created', `order:${ORDER}`)).toBe(`${MARKETPLACE_ROUTES.ORDERS}#order-${ORDER}`);
+    expect(activityRowHref('order_created', `order:${ORDER}`, { canCheckout: false })).toBe(
+      `${MARKETPLACE_ROUTES.ORDERS}#order-${ORDER}`,
+    );
+    expect(activityRowHref('order_created', `order:${ORDER}`, { canCheckout: true })).toBe(
+      `${MARKETPLACE_ROUTES.CHECKOUT}#${ORDER}`,
+    );
+    expect(activityRowHref('order_created', null, { canCheckout: true })).toBe(MARKETPLACE_ROUTES.ORDERS);
+  });
 });
 
 describe('readOrderAnchorId', () => {

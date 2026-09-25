@@ -549,7 +549,8 @@ describe('SignInContent - Bitkit grant sign-in', () => {
     expect(within(ring).getByText('Pubky Ring')).toBeInTheDocument();
     expect(within(ring).getByRole('button', { name: 'Copy authentication link' })).toBeInTheDocument();
     expect(within(bitkit).getByText('Bitkit')).toBeInTheDocument();
-    expect(within(bitkit).getByText('Scan with Bitkit 2.5 or newer.')).toBeInTheDocument();
+    expect(within(bitkit).getByText('Scan with Bitkit.')).toBeInTheDocument();
+    expect(within(bitkit).queryByText(/\d+\.\d+/)).not.toBeInTheDocument();
     expect(within(bitkit).getByRole('button', { name: 'Copy Bitkit authentication link' })).toBeInTheDocument();
     expect(screen.queryByTestId('sign-in-use-grant')).not.toBeInTheDocument();
     expect(screen.queryByTestId('sign-in-use-ring')).not.toBeInTheDocument();

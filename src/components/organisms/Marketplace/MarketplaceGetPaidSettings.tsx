@@ -59,6 +59,20 @@ type MarketplaceGetPaidSettingsProps = {
 type PaykitSetupStatus = 'idle' | 'error' | 'mismatch' | 'verifying' | 'timeout';
 
 const PAYKIT_SETUP_TIMEOUT_MS = 6 * 60 * 1_000;
+
+/**
+ * A seller who has never saved has no payment-config row. The service
+ * returns null for that read. Save uses this empty start so the first
+ * write can store PayPal or bitcoin. It is not used while the read is in
+ * flight or has failed.
+ */
+const UNSAVED_SELLER_PAYMENT_CONFIG: SellerPaymentConfigOwnView = {
+  bitcoinEnabled: false,
+  stripePaymentLink: null,
+  paypalMerchantEmail: null,
+  stripeRestrictedKeySet: false,
+  updatedAt: '',
+};
 const PAYKIT_SETUP_EXPLANATION = 'Scan the code with Bitkit, or open this page on your phone and tap Open in Bitkit.';
 const PAYKIT_RING_IDENTITY_HELPER =
   'Your Shop identity must live in Bitkit. Signed up with Pubky Ring? Create a new Shop account by scanning the sign-up QR with Bitkit — Ring import is coming to Bitkit.';
@@ -165,7 +179,8 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
     setPaykitSetupStatus('idle');
   }
 
-  const serverConfig = payments.config;
+  const serverConfig =
+    payments.config ?? (!payments.isLoading && !payments.loadError ? UNSAVED_SELLER_PAYMENT_CONFIG : null);
   const serverBaseline = serverConfig
     ? `${serverConfig.updatedAt}\0${serverConfig.bitcoinEnabled}\0${serverConfig.paypalMerchantEmail ?? ''}\0${serverConfig.stripePaymentLink ?? ''}`
     : null;
