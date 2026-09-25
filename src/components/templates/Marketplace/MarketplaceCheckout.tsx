@@ -492,6 +492,10 @@ function MarketplaceCartCheckout() {
                 const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
                 const isPickupGroup = fulfillment === 'pickup';
                 const isPickupCapabilityLoading = checkout.isPickupCapabilityLoadingForSeller(group.sellerPubky);
+                // A shipping-only award has no fulfillment step to show.
+                const hasFulfillmentStep =
+                  isPickupCapabilityLoading || isPickupGroup || fulfillmentOptions.length !== 1;
+                if (group.items.length === 0 && !hasFulfillmentStep) return null;
                 return (
                   <section
                     key={group.sellerPubky}
