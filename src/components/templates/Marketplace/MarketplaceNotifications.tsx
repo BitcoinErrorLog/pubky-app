@@ -19,7 +19,6 @@ import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetecti
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { activityRowHref } from '@/libs/commerce/activity-links';
 import { formatCommerceMoney } from '@/libs/commerce/format';
-import { refundActivityTitle } from '@/libs/commerce/refund-copy';
 import { returnActivityTitles } from '@/libs/commerce/return-activity-titles';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -72,18 +71,6 @@ export function MarketplaceNotifications() {
     new Map(orders.map(({ order }) => [order.id, order.returnRequest?.reason ?? null])),
     !ordersLoading,
   );
-  const refundTitles = new Map<string, string>();
-  if (!ordersLoading) {
-    const ordersById = new Map(orders.map(({ order }) => [order.id, order]));
-    for (const notification of notifications) {
-      if ('kind' in notification || notification.type !== 'refund_recorded') continue;
-      const orderId = notification.aggregateId.startsWith('order:')
-        ? notification.aggregateId.slice('order:'.length)
-        : '';
-      const label = refundActivityTitle(ordersById.get(orderId));
-      if (label) refundTitles.set(notification.id, label);
-    }
-  }
   // Opening the commerce activity page also runs the bounded watchlist check.
   useMarketplaceWatchDetection();
 
@@ -229,9 +216,7 @@ export function MarketplaceNotifications() {
                   title={
                     notification.type === 'return_updated'
                       ? (returnTitles.get(notification.id) ?? 'Return updated')
-                      : notification.type === 'refund_recorded'
-                        ? refundTitles.get(notification.id)
-                        : undefined
+                      : undefined
                   }
                 />
               ),

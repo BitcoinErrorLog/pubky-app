@@ -3,11 +3,9 @@ import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import {
   orderChangedMessage,
   REFUND_ORDER_NOTICES,
-  refundActivityTitle,
   refundOrderNotices,
   refundRecordLine,
   refundStateLabel,
-  REVERSED_ACTIVITY_TITLE,
 } from './refund-copy';
 
 const total = { amountMinor: 250, currency: 'USD', exponent: 2 };
@@ -37,20 +35,6 @@ describe('refund copy', () => {
       'Refunded $1.00 of $2.50. Reference: 9RF12345AB678901C',
     );
     expect(refundRecordLine({ state: 'paid', total })).toBeNull();
-  });
-
-  it('titles a refund_recorded Activity row by what happened to the order', () => {
-    expect(refundActivityTitle({ state: 'refunded_external', total, externalRefund: refund(250) })).toBeNull();
-    expect(refundActivityTitle({ state: 'paid', total, externalRefund: refund(100) })).toBe('Refunded $1.00 of $2.50');
-    expect(
-      refundActivityTitle({
-        state: 'refunded_external',
-        total,
-        externalRefund: refund(250),
-        paymentReversedAt: '2026-09-24T18:00:00.000Z',
-      }),
-    ).toBe(REVERSED_ACTIVITY_TITLE);
-    expect(refundActivityTitle(undefined)).toBeNull();
   });
 
   it('lists a reversal, a cancelled reversal, and each held refund notice', () => {

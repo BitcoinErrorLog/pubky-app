@@ -25,15 +25,6 @@ export const REFUND_ORDER_NOTICES = {
 
 export type RefundOrderNotice = keyof typeof REFUND_ORDER_NOTICES;
 
-export const REVERSED_ACTIVITY_TITLE = 'Payment reversed in PayPal';
-
-/** Activity title for a `refund_recorded` row, from the order it names. Null keeps the generic label. */
-export function refundActivityTitle(order: RefundCopyOrder | null | undefined): string | null {
-  if (!order) return null;
-  if (order.paymentReversedAt) return REVERSED_ACTIVITY_TITLE;
-  return partialRefundLabel(order);
-}
-
 /** The order-card state pill for refunded orders. Null when the state is not refund-specific. */
 export function refundStateLabel(order: RefundCopyOrder): string | null {
   const partial = partialRefundLabel(order);
