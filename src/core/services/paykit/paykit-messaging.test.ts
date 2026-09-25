@@ -526,10 +526,11 @@ describe('PaykitMessagingService', () => {
 
     it('persists received messages BEFORE the advanced link snapshot', async () => {
       const order: string[] = [];
-      const upsertSpy = vi.spyOn(LocalMessagingService, 'upsertMessage');
+      const insertSpy = vi.spyOn(LocalMessagingService, 'insertReceivedMessage');
       const snapshotSpy = vi.spyOn(LocalMessagingService, 'updateLinkSnapshot');
-      upsertSpy.mockImplementation(async () => {
+      insertSpy.mockImplementation(async () => {
         order.push('message');
+        return { status: 'inserted' };
       });
       snapshotSpy.mockImplementation(async () => {
         order.push('snapshot');
@@ -610,6 +611,313 @@ describe('PaykitMessagingService', () => {
       await expect(LocalMessagingService.getMessages(OWNER, `dm:${COUNTERPARTY}`)).resolves.toHaveLength(1);
       const conversations = await LocalMessagingService.getConversationsByOwner(OWNER);
       expect(conversations.map((row) => row.kind).sort()).toEqual(['dm', 'listing']);
+    });
+  });
+
+  // The link authenticates exactly two pubkys: OWNER and the counterparty the
+  // handshake was bound to. Here that counterparty is ATTACKER, a contact with
+  // a ready link who tries to file text inside OWNER's thread with VICTIM.
+  describe('inbound thread binding', () => {
+    const ATTACKER = COUNTERPARTY;
+    const VICTIM = 'y'.repeat(52);
+    const VICTIM_LISTING_ID = '0033GVVN22HJ0FYQGZZS8R2VIC';
+
+    function chatRaw(fields: { conversationId: string; listingRef: string; body: string; eventId?: string }) {
+      return JSON.stringify({
+        version: 1,
+        kind: 'marketplace.chat_message.v0',
+        event_id: fields.eventId ?? crypto.randomUUID(),
+        conversation_id: fields.conversationId,
+        listing_ref: fields.listingRef,
+        sent_at: 1_787_306_400_000,
+        body: fields.body,
+      });
+    }
+
+    function pushInbound(rawJson: string) {
+      world.links.at(-1)!.inboundQueue.push({ version: 1, kind: 'marketplace.chat_message.v0', rawJson });
+    }
+
+    async function seedThread(conversationId: string, listingRef: string, counterparty: string, body: string) {
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: conversationId,
+        kind: 'listing',
+        listing_ref: listingRef,
+        counterparty_pubky: counterparty,
+        last_message_at: 1,
+        updated_at: 1,
+      });
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), {
+        owner_id: OWNER,
+        conversation_id: conversationId,
+        listing_ref: listingRef,
+        counterparty_pubky: counterparty,
+        direction: 'received',
+        body,
+        sent_at: 1,
+        recorded_at: 1,
+      });
+    }
+
+    beforeEach(async () => {
+      await enableMessaging(world);
+      world.markers.set(ATTACKER, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
+      world.advanceScript.push('complete');
+      await PaykitMessagingService.ensureLink(OWNER, ATTACKER);
+    });
+
+    it.each([
+      {
+        case: 'OWNER is the seller: forged id names OWNER and another buyer',
+        conversationId: buildMarketplaceConversationAggregateId(OWNER, VICTIM, VICTIM_LISTING_ID),
+        listingRef: buildMarketplaceListingAggregateId(OWNER, VICTIM_LISTING_ID),
+      },
+      {
+        case: 'OWNER is the buyer: forged id impersonates another seller',
+        conversationId: buildMarketplaceConversationAggregateId(VICTIM, OWNER, VICTIM_LISTING_ID),
+        listingRef: buildMarketplaceListingAggregateId(VICTIM, VICTIM_LISTING_ID),
+      },
+    ])('drops an attacker message planted in a thread with someone else ($case)', async (forged) => {
+      await seedThread(forged.conversationId, forged.listingRef, VICTIM, 'the real thread');
+      const eventId = crypto.randomUUID();
+      pushInbound(chatRaw({ ...forged, eventId, body: 'pay the new address instead' }));
+
+      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER);
+
+      expect(received).toEqual([]);
+      const thread = await LocalMessagingService.getMessages(OWNER, forged.conversationId);
+      expect(thread.map((row) => row.body)).toEqual(['the real thread']);
+      // Dropped, not quarantined: nothing from the attacker reached storage.
+      await expect(CommerceMessagingMessageModel.findById(`${OWNER}:${eventId}`)).resolves.toBeNull();
+      const conversations = await LocalMessagingService.getConversationsByOwner(OWNER);
+      expect(conversations).toHaveLength(1);
+      expect(conversations[0]).toMatchObject({ conversation_id: forged.conversationId, counterparty_pubky: VICTIM });
+    });
+
+    it('drops a forged id that opens a brand-new thread under someone else’s name', async () => {
+      const conversationId = buildMarketplaceConversationAggregateId(OWNER, VICTIM, VICTIM_LISTING_ID);
+      pushInbound(
+        chatRaw({
+          conversationId,
+          listingRef: buildMarketplaceListingAggregateId(OWNER, VICTIM_LISTING_ID),
+          body: 'hello from “VICTIM”',
+        }),
+      );
+
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+      await expect(CommerceMessagingConversationModel.findByOwner(OWNER)).resolves.toEqual([]);
+      await expect(CommerceMessagingMessageModel.table.count()).resolves.toBe(0);
+    });
+
+    it.each([
+      {
+        case: 'listing_ref names another seller’s listing',
+        conversationId: buildMarketplaceConversationAggregateId(ATTACKER, OWNER, LISTING_ID),
+        listingRef: buildMarketplaceListingAggregateId(VICTIM, LISTING_ID),
+      },
+      {
+        case: 'listing_ref names a different listing of the same seller',
+        conversationId: buildMarketplaceConversationAggregateId(ATTACKER, OWNER, LISTING_ID),
+        listingRef: buildMarketplaceListingAggregateId(ATTACKER, VICTIM_LISTING_ID),
+      },
+      {
+        case: 'seller and buyer are the same pubky',
+        conversationId: buildMarketplaceConversationAggregateId(ATTACKER, ATTACKER, LISTING_ID),
+        listingRef: buildMarketplaceListingAggregateId(ATTACKER, LISTING_ID),
+      },
+      {
+        case: 'conversation id is not a listing conversation',
+        conversationId: `dm:${OWNER}`,
+        listingRef: buildMarketplaceListingAggregateId(ATTACKER, LISTING_ID),
+      },
+      {
+        case: 'listing id is not a path-safe commerce id',
+        conversationId: buildMarketplaceConversationAggregateId(ATTACKER, OWNER, '../x'),
+        listingRef: buildMarketplaceListingAggregateId(ATTACKER, '../x'),
+      },
+    ])('drops a listing message whose envelope does not bind to the link ($case)', async (envelope) => {
+      pushInbound(chatRaw({ ...envelope, body: 'not bound' }));
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+      await expect(CommerceMessagingMessageModel.table.count()).resolves.toBe(0);
+    });
+
+    it.each([
+      { case: 'the counterparty is the seller', seller: ATTACKER, buyer: OWNER },
+      { case: 'OWNER is the seller', seller: OWNER, buyer: ATTACKER },
+    ])('stores a bound listing message ($case)', async ({ seller, buyer }) => {
+      const conversationId = buildMarketplaceConversationAggregateId(seller, buyer, LISTING_ID);
+      const listingRef = buildMarketplaceListingAggregateId(seller, LISTING_ID);
+      pushInbound(chatRaw({ conversationId, listingRef, body: 'a real question' }));
+
+      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER);
+
+      expect(received).toHaveLength(1);
+      expect(received[0]).toMatchObject({ conversation_id: conversationId, counterpartyPubky: ATTACKER });
+      const thread = await LocalMessagingService.getMessages(OWNER, conversationId);
+      expect(thread.map((row) => row.body)).toEqual(['a real question']);
+    });
+
+    it('keeps the bound messages of a drain that also carries a forged one, and still advances the link', async () => {
+      const ownThread = buildMarketplaceConversationAggregateId(ATTACKER, OWNER, LISTING_ID);
+      const victimThread = buildMarketplaceConversationAggregateId(OWNER, VICTIM, VICTIM_LISTING_ID);
+      pushInbound(
+        chatRaw({
+          conversationId: victimThread,
+          listingRef: buildMarketplaceListingAggregateId(OWNER, VICTIM_LISTING_ID),
+          body: 'forged',
+        }),
+      );
+      pushInbound(
+        chatRaw({
+          conversationId: ownThread,
+          listingRef: buildMarketplaceListingAggregateId(ATTACKER, LISTING_ID),
+          body: 'bound',
+        }),
+      );
+      const snapshotSpy = vi.spyOn(LocalMessagingService, 'updateLinkSnapshot');
+
+      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER);
+
+      expect(received.map((row) => row.body)).toEqual(['bound']);
+      await expect(LocalMessagingService.getMessages(OWNER, victimThread)).resolves.toEqual([]);
+      expect(snapshotSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('never lets an inbound message overwrite a stored row that reuses its event id', async () => {
+      const ownThread = buildMarketplaceConversationAggregateId(ATTACKER, OWNER, LISTING_ID);
+      const listingRef = buildMarketplaceListingAggregateId(ATTACKER, LISTING_ID);
+      const sent = await PaykitMessagingService.sendChatMessage(OWNER, ATTACKER, {
+        conversationId: ownThread,
+        listingRef,
+        body: 'what I actually said',
+      });
+      pushInbound(chatRaw({ conversationId: ownThread, listingRef, eventId: sent.event_id, body: 'rewritten' }));
+
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+
+      const thread = await LocalMessagingService.getMessages(OWNER, ownThread);
+      expect(thread).toHaveLength(1);
+      expect(thread[0]).toMatchObject({ direction: 'sent', body: 'what I actually said' });
+    });
+
+    it.each([
+      {
+        kind: 'listing message',
+        conversationId: buildMarketplaceConversationAggregateId(ATTACKER, OWNER, LISTING_ID),
+        envelope: (eventId: string, body: string, sentAt: number) =>
+          chatRaw({
+            conversationId: buildMarketplaceConversationAggregateId(ATTACKER, OWNER, LISTING_ID),
+            listingRef: buildMarketplaceListingAggregateId(ATTACKER, LISTING_ID),
+            eventId,
+            body,
+          }).replace('1787306400000', String(sentAt)),
+      },
+      {
+        kind: 'direct message',
+        conversationId: `dm:${ATTACKER}`,
+        envelope: (eventId: string, body: string, sentAt: number) =>
+          JSON.stringify({ version: 1, kind: 'pubky_app.dm.v0', event_id: eventId, sent_at: sentAt, body }),
+      },
+    ])('never lets the sender rewrite a received $kind by reusing its event id', async (fixture) => {
+      const eventId = crypto.randomUUID();
+      const link = world.links.at(-1)!;
+      link.inboundQueue.push({
+        version: 1,
+        kind: 'x',
+        rawJson: fixture.envelope(eventId, 'original', 1_787_306_400_000),
+      });
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toHaveLength(1);
+      const original = await CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`);
+      await LocalMessagingService.markConversationRead(OWNER, fixture.conversationId, original!.recorded_at + 1);
+      vi.useFakeTimers({ toFake: ['Date'], now: original!.recorded_at + 60_000 });
+
+      link.inboundQueue.push(
+        { version: 1, kind: 'x', rawJson: fixture.envelope(eventId, 'edited later', 1_787_306_400_000) },
+        { version: 1, kind: 'x', rawJson: fixture.envelope(eventId, 'original', 1_787_399_999_000) },
+        { version: 1, kind: 'x', rawJson: fixture.envelope(eventId, 'original', 1_787_306_400_000) },
+      );
+      try {
+        await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      const thread = await LocalMessagingService.getMessages(OWNER, fixture.conversationId);
+      expect(thread).toHaveLength(1);
+      expect(thread[0]).toMatchObject({
+        body: 'original',
+        sent_at: 1_787_306_400_000,
+        recorded_at: original!.recorded_at,
+      });
+      await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(0);
+      const conversation = await LocalMessagingService.getConversation(OWNER, fixture.conversationId);
+      expect(conversation?.last_message_at).toBe(original!.recorded_at);
+    });
+
+    it('lets exactly one of two links claim an event id when their drains overlap', async () => {
+      const SECOND = 'x'.repeat(52);
+      world.markers.set(SECOND, { receiverPath: 'marketplace/wallet', noisePublicKey: 'q'.repeat(52) });
+      world.advanceScript.push('complete');
+      await PaykitMessagingService.ensureLink(OWNER, SECOND);
+      const linkTo = (counterparty: string) => world.links.find((link) => link.counterparty === counterparty)!;
+      const eventId = crypto.randomUUID();
+      const threadWith = (counterparty: string) =>
+        buildMarketplaceConversationAggregateId(counterparty, OWNER, LISTING_ID);
+      for (const [counterparty, body] of [
+        [ATTACKER, 'from the attacker'],
+        [SECOND, 'from the second contact'],
+      ]) {
+        linkTo(counterparty).inboundQueue.push({
+          version: 1,
+          kind: 'marketplace.chat_message.v0',
+          rawJson: chatRaw({
+            conversationId: threadWith(counterparty),
+            listingRef: buildMarketplaceListingAggregateId(counterparty, LISTING_ID),
+            eventId,
+            body,
+          }),
+        });
+      }
+      // Holds any per-id lookup until both drains have made one, so a
+      // check-then-write collision guard sees an empty slot on both links.
+      const parked: (() => void)[] = [];
+      vi.spyOn(CommerceMessagingMessageModel, 'findById').mockImplementation(
+        asOpaque(async (id: string) => {
+          await new Promise<void>((resolve) => {
+            parked.push(resolve);
+            if (parked.length === 2) parked.forEach((release) => release());
+            else setTimeout(resolve, 200);
+          });
+          return (await CommerceMessagingMessageModel.table.get(id)) ?? null;
+        }),
+      );
+
+      const [fromAttacker, fromSecond] = await Promise.all([
+        PaykitMessagingService.receiveMessages(OWNER, ATTACKER),
+        PaykitMessagingService.receiveMessages(OWNER, SECOND),
+      ]);
+
+      expect(fromAttacker.length + fromSecond.length).toBe(1);
+      const winner = fromAttacker.length === 1 ? ATTACKER : SECOND;
+      const loser = winner === ATTACKER ? SECOND : ATTACKER;
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`)).resolves.toMatchObject({
+        counterparty_pubky: winner,
+        conversation_id: threadWith(winner),
+      });
+      await expect(LocalMessagingService.getMessages(OWNER, threadWith(loser))).resolves.toEqual([]);
+    });
+
+    it('refuses to send into a thread that does not name the link counterparty', async () => {
+      await expect(
+        PaykitMessagingService.sendChatMessage(OWNER, ATTACKER, {
+          conversationId: buildMarketplaceConversationAggregateId(OWNER, VICTIM, VICTIM_LISTING_ID),
+          listingRef: buildMarketplaceListingAggregateId(OWNER, VICTIM_LISTING_ID),
+          body: 'misaddressed',
+        }),
+      ).rejects.toThrow(/not between you and the person you are messaging/);
+      expect(world.links.at(-1)!.sent).toHaveLength(0);
+      await expect(CommerceMessagingMessageModel.table.count()).resolves.toBe(0);
     });
   });
 

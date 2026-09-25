@@ -5,12 +5,13 @@ import type { EncryptedLinkHandle, LinkHandshakeHandle, PubkyClient, SessionHand
 import {
   buildChatMessage,
   decodeChatMessage,
+  isListingConversationBound,
   type MarketplaceChatMessage,
   PAYKIT_MESSAGING_CAPABILITY,
   PAYKIT_MESSAGING_RECEIVER_PATH,
 } from '@/libs/commerce/messaging-contracts';
 import { isAppError } from '@/libs/error/error';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
@@ -104,7 +105,8 @@ export type MessagingProbeState = MessagingLinkState | { status: 'none' };
 /**
  * One inbound message after kind routing, flattened to the persisted row's
  * vocabulary: `kind: 'listing'` came in as `marketplace.chat_message.v0` (its
- * own `conversation_id`/`listing_ref` from the envelope), `kind: 'dm'` came in
+ * own `conversation_id`/`listing_ref` from the envelope, accepted only when
+ * they name both link endpoints), `kind: 'dm'` came in
  * as `pubky_app.dm.v0` (conversation identity derived from the counterparty).
  */
 export type ReceivedMessage = {
@@ -490,6 +492,7 @@ export class PaykitMessagingService {
     input: { conversationId: string; listingRef: string; body: string; eventId?: string },
   ): Promise<MarketplaceChatMessage> {
     return await this.withQueue(counterpartyPubky, async () => {
+      assertListingConversationBound(ownerPubky, counterpartyPubky, input, 'sendChatMessage');
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendChatMessage');
       const { message, json } = buildChatMessage({
         eventId: input.eventId ?? crypto.randomUUID(),
@@ -561,28 +564,40 @@ export class PaykitMessagingService {
       const received: ReceivedMessage[] = [];
       const now = Date.now();
       for (const item of inbound) {
-        const routed = this.routeInboundMessage(item.rawJson, counterpartyPubky);
+        const routed = this.routeInboundMessage(item.rawJson, ownerPubky, counterpartyPubky);
         if (!routed) continue;
-        await LocalMessagingService.upsertMessage(routed.event_id, {
+        // `event_id` is sender-chosen too, so a stored row is never
+        // overwritten: an exact redelivery is a no-op and any other reuse of
+        // the id is dropped.
+        const stored = await LocalMessagingService.insertReceivedMessage(routed.event_id, {
           owner_id: ownerPubky,
           conversation_id: routed.conversation_id,
           listing_ref: routed.listing_ref,
           counterparty_pubky: counterpartyPubky,
-          direction: 'received',
           body: routed.body,
           sent_at: routed.sent_at,
           recorded_at: now,
         });
+        if (stored.status === 'conflict') {
+          Logger.warn('Dropped an inbound message that reuses the id of a different stored message', {
+            reason: 'event_id_collision',
+          });
+          continue;
+        }
+        // A replay still ensures the conversation row exists (the first
+        // delivery may have crashed before this write) but never moves its
+        // timestamps past the original receipt.
+        const touchedAt = stored.status === 'replay' ? stored.recordedAt : now;
         await LocalMessagingService.touchConversation({
           owner_id: ownerPubky,
           conversation_id: routed.conversation_id,
           kind: routed.kind,
           listing_ref: routed.listing_ref,
           counterparty_pubky: counterpartyPubky,
-          last_message_at: now,
-          updated_at: now,
+          last_message_at: touchedAt,
+          updated_at: touchedAt,
         });
-        received.push(routed);
+        if (stored.status === 'inserted') received.push(routed);
       }
       if (inbound.length > 0) {
         await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
@@ -591,10 +606,34 @@ export class PaykitMessagingService {
     });
   }
 
-  /** Decodes one inbound payload into its conversation routing, or `null` for unknown kinds. */
-  private static routeInboundMessage(rawJson: string, counterpartyPubky: string): ReceivedMessage | null {
+  /**
+   * Decodes one inbound payload into its conversation routing, or `null` for
+   * unknown kinds and for listing messages whose envelope names a
+   * conversation this link does not carry. The link authenticates only the
+   * two endpoints, so a listing message is stored only when its
+   * `conversation_id`/`listing_ref` name exactly the owner and this
+   * counterparty; a forged thread reference is dropped, never re-filed.
+   */
+  private static routeInboundMessage(
+    rawJson: string,
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): ReceivedMessage | null {
     const chat = decodeChatMessage(rawJson);
     if (chat) {
+      if (
+        !isListingConversationBound({
+          conversationId: chat.conversation_id,
+          listingRef: chat.listing_ref,
+          ownerPubky,
+          counterpartyPubky,
+        })
+      ) {
+        Logger.warn('Dropped an inbound listing message whose conversation does not match the encrypted link', {
+          reason: 'unbound_conversation',
+        });
+        return null;
+      }
       return {
         kind: 'listing',
         event_id: chat.event_id,
@@ -1150,6 +1189,34 @@ export class PaykitMessagingService {
   private static linkKey(ownerPubky: string, counterpartyPubky: string): string {
     return `${ownerPubky}:${counterpartyPubky}`;
   }
+}
+
+/**
+ * Send-side mirror of the inbound binding check: receivers drop a listing
+ * message whose conversation does not name both link endpoints, so sending
+ * one would be a silent loss. Throws the typed validation error instead.
+ */
+export function assertListingConversationBound(
+  ownerPubky: string,
+  counterpartyPubky: string,
+  input: { conversationId: string; listingRef: string },
+  operation: string,
+): void {
+  if (
+    isListingConversationBound({
+      conversationId: input.conversationId,
+      listingRef: input.listingRef,
+      ownerPubky,
+      counterpartyPubky,
+    })
+  ) {
+    return;
+  }
+  throw Err.validation(
+    ValidationErrorCode.INVALID_INPUT,
+    'This conversation is not between you and the person you are messaging.',
+    { service: ErrorService.Paykit, operation },
+  );
 }
 
 /**

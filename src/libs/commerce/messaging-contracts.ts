@@ -4,6 +4,8 @@ import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { PAM_SENT_AT_UNIX_MS_PLACEHOLDER, pamSentAtEmitSchema, parsePamSentAt } from '@/libs/messaging/pam-sent-at';
+import { buildMarketplaceListingAggregateId } from './transaction-commands';
+import { commerceEntityIdSchema } from './transaction-contracts';
 
 /**
  * The homeserver capability the encrypted-messaging session asks Pubky Ring to
@@ -62,8 +64,10 @@ export const PAYKIT_NOISE_MESSAGE_MAX_BYTES = 1000;
  *   transport uses, so a conversation is a (listing, participants) pair. The
  *   sender is implicit in the link direction and deliberately NOT a field —
  *   the Noise link already authenticates it, and a spoofable sender field
- *   would be worse than none.
- * - `listing_ref`: the listing aggregate id (`listing:{seller}:{listingId}`),
+ *   would be worse than none. For the same reason receivers never trust this
+ *   id as written: it must pass {@link isListingConversationBound} against
+ *   the link endpoints or the message is dropped.
+ * - `listing_ref`: the listing aggregate id (`listing:{seller}_{listingId}`),
  *   so the receiving side can render the listing context without parsing the
  *   conversation id.
  * - `sent_at`: sender's wall clock, Unix-millisecond integer. Display
@@ -182,6 +186,51 @@ export function parseConversationAggregateId(
   if (sellerPubky.length !== 52 || buyerPubky.length !== 52 || !listingId) return null;
   if (value[52] !== '_' || value[105] !== '_') return null;
   return { sellerPubky, buyerPubky, listingId };
+}
+
+/**
+ * Whether a listing conversation names exactly the two ends of the Encrypted
+ * Link it travels on. Only the link endpoints are authenticated (the owner's
+ * session and the counterparty the Noise handshake was bound to); the
+ * envelope's `conversation_id` and `listing_ref` are written by the sender and
+ * prove nothing on their own. A conversation is bound when its seller and
+ * buyer are those two pubkys in either role, the listing id is a path-safe
+ * commerce id, and `listing_ref` is the seller's listing the conversation
+ * names. Anything else could file one contact's text inside a thread with
+ * someone else.
+ */
+export function isListingConversationBound(input: {
+  conversationId: string;
+  listingRef: string | null;
+  ownerPubky: string;
+  counterpartyPubky: string;
+}): boolean {
+  const parsed = listingConversationBetween(input.conversationId, input.ownerPubky, input.counterpartyPubky);
+  if (!parsed) return false;
+  if (!commerceEntityIdSchema.safeParse(parsed.listingId).success) return false;
+  return input.listingRef === buildMarketplaceListingAggregateId(parsed.sellerPubky, parsed.listingId);
+}
+
+/**
+ * The participant half of {@link isListingConversationBound}: the parsed
+ * conversation when its seller and buyer are exactly `ownerPubky` and
+ * `counterpartyPubky` (in either role), otherwise `null`. Stored rows are
+ * checked with this alone, because thread membership is what decides which
+ * history a row appears in.
+ */
+export function listingConversationBetween(
+  conversationId: string,
+  ownerPubky: string,
+  counterpartyPubky: string,
+): { sellerPubky: string; buyerPubky: string; listingId: string } | null {
+  if (ownerPubky === counterpartyPubky) return null;
+  const parsed = parseConversationAggregateId(conversationId);
+  if (!parsed) return null;
+  const { sellerPubky, buyerPubky } = parsed;
+  const endpointsMatch =
+    (sellerPubky === ownerPubky && buyerPubky === counterpartyPubky) ||
+    (sellerPubky === counterpartyPubky && buyerPubky === ownerPubky);
+  return endpointsMatch ? parsed : null;
 }
 
 /**

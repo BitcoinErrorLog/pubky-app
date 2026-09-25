@@ -334,6 +334,16 @@ export class MessagingController {
     const buyer = CommerceRecordNormalizer.pubky(buyerPubky);
     const listing = CommerceRecordNormalizer.entityId(listingId);
     const ownerPubky = this.getCurrentUserPubky();
+    if (seller === buyer || (ownerPubky !== seller && ownerPubky !== buyer)) {
+      throw Err.validation(
+        ValidationErrorCode.INVALID_INPUT,
+        'This conversation does not belong to the signed-in account.',
+        {
+          service: ErrorService.Local,
+          operation: 'resolveConversation',
+        },
+      );
+    }
     const counterpartyPubky = ownerPubky === seller ? buyer : seller;
     return {
       ownerPubky,

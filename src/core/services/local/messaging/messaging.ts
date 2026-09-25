@@ -1,3 +1,4 @@
+import { listingConversationBetween } from '@/libs/commerce/messaging-contracts';
 import { getOrCreateWrappingKey } from '@/libs/crypto/messaging-keyring';
 import {
   buildWrapAad,
@@ -11,6 +12,8 @@ import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
+import { buildDmConversationId, parseDmConversationId } from '@/libs/messaging/dm-contracts';
+import { parsePamSentAt } from '@/libs/messaging/pam-sent-at';
 import {
   CommerceMessagingConversationModel,
   CommerceMessagingLinkModel,
@@ -153,8 +156,15 @@ export class LocalMessagingService {
     });
   }
 
+  /**
+   * Conversation rows whose reference names their own counterparty. Rows
+   * written before inbound listing messages were bound to their link (a
+   * forged `conversation_id` created a row filed under someone else's
+   * thread) stay in storage but are never listed.
+   */
   static async getConversationsByOwner(ownerId: string): Promise<CommerceMessagingConversationModelSchema[]> {
-    return await CommerceMessagingConversationModel.findByOwner(ownerId);
+    const conversations = await CommerceMessagingConversationModel.findByOwner(ownerId);
+    return conversations.filter(isBoundToCounterparty);
   }
 
   static async getConversation(
@@ -208,11 +218,11 @@ export class LocalMessagingService {
    * undelivered mail sitting on a homeserver.
    */
   static async countUnreadConversations(ownerId: string): Promise<number> {
-    const conversations = await CommerceMessagingConversationModel.findByOwner(ownerId);
+    const conversations = await this.getConversationsByOwner(ownerId);
     let unread = 0;
     for (const conversation of conversations) {
       const checkpoint = conversation.last_read_at ?? 0;
-      const messages = await CommerceMessagingMessageModel.findByConversation(ownerId, conversation.conversation_id);
+      const messages = await this.getMessages(ownerId, conversation.conversation_id);
       if (messages.some((message) => message.direction === 'received' && message.recorded_at > checkpoint)) {
         unread += 1;
       }
@@ -220,8 +230,54 @@ export class LocalMessagingService {
     return unread;
   }
 
+  /**
+   * One conversation's history, limited to rows exchanged with a participant
+   * of that conversation. A row whose counterparty is not named by the
+   * conversation reference was planted by a contact before inbound binding
+   * existed (or was sent into such a planted thread); it stays in storage,
+   * quarantined, and is never shown or counted.
+   */
   static async getMessages(ownerId: string, conversationId: string): Promise<CommerceMessagingMessageModelSchema[]> {
-    return await CommerceMessagingMessageModel.findByConversation(ownerId, conversationId);
+    const messages = await CommerceMessagingMessageModel.findByConversation(ownerId, conversationId);
+    return messages.filter(isBoundToCounterparty);
+  }
+
+  /**
+   * First-write-wins persistence for an inbound message. The row id is
+   * `${owner}:${event_id}` and `event_id` is chosen by the sender, so an
+   * existing row is never overwritten:
+   *
+   * - `inserted`: no row held the id; this message is now stored.
+   * - `replay`: the stored row is this same received message (counterparty,
+   *   conversation, listing ref, body, and `sent_at` all equal) — the
+   *   redelivery expected after a snapshot restore. Nothing is written.
+   * - `conflict`: the id is held by anything else (another body or time,
+   *   another counterparty or conversation, or a sent message). Nothing is
+   *   written and the caller drops the message.
+   *
+   * The claim is atomic, so concurrent drains on different links cannot
+   * both insert one id.
+   */
+  static async insertReceivedMessage(
+    eventId: string,
+    message: Omit<CommerceMessagingMessageModelSchema, 'id' | 'direction'>,
+  ): Promise<{ status: 'inserted' } | { status: 'replay'; recordedAt: number } | { status: 'conflict' }> {
+    const row: CommerceMessagingMessageModelSchema = {
+      ...message,
+      id: `${message.owner_id}:${eventId}`,
+      direction: 'received',
+    };
+    const existing = await CommerceMessagingMessageModel.insertIfAbsent(row);
+    if (!existing) return { status: 'inserted' };
+    const sameMessage =
+      existing.owner_id === row.owner_id &&
+      existing.direction === 'received' &&
+      existing.counterparty_pubky === row.counterparty_pubky &&
+      existing.conversation_id === row.conversation_id &&
+      existing.listing_ref === row.listing_ref &&
+      existing.body === row.body &&
+      parsePamSentAt((existing as { sent_at: unknown }).sent_at) === row.sent_at;
+    return sameMessage ? { status: 'replay', recordedAt: existing.recorded_at } : { status: 'conflict' };
   }
 
   /**
@@ -352,6 +408,23 @@ export class LocalMessagingService {
       });
     }
   }
+}
+
+/**
+ * A stored row belongs to its conversation when the conversation reference
+ * names the row's counterparty: the DM key is the counterparty itself, and a
+ * listing conversation's seller and buyer must be the owner and the row's
+ * counterparty.
+ */
+function isBoundToCounterparty(row: {
+  owner_id: string;
+  conversation_id: string;
+  counterparty_pubky: string;
+}): boolean {
+  if (parseDmConversationId(row.conversation_id)) {
+    return row.conversation_id === buildDmConversationId(row.counterparty_pubky);
+  }
+  return listingConversationBetween(row.conversation_id, row.owner_id, row.counterparty_pubky) !== null;
 }
 
 function latest(left: number | null, right: number | null): number | null {

@@ -9,7 +9,10 @@ import {
   CommerceMessagingOutboxModel,
   CommerceMessagingReceiverModel,
 } from '@/models/messaging/messaging.models';
-import type { CommerceMessagingOutboxModelSchema } from '@/models/messaging/messaging.schema';
+import type {
+  CommerceMessagingMessageModelSchema,
+  CommerceMessagingOutboxModelSchema,
+} from '@/models/messaging/messaging.schema';
 import { asInvalid } from '@/test-utils/type-assertions';
 import { LocalMessagingService } from './messaging';
 
@@ -402,6 +405,136 @@ describe('LocalMessagingService', () => {
       await LocalMessagingService.upsertReceiver({ ...receiverRow(), noise_secret: new Uint8Array(32).fill(9) });
       const read = await LocalMessagingService.getReceiver(OWNER);
       expect([...(read?.noise_secret ?? [])]).toEqual([...new Uint8Array(32).fill(9)]);
+    });
+  });
+
+  describe('insertReceivedMessage (first write wins)', () => {
+    const received = (body: string, overrides: Partial<Omit<CommerceMessagingMessageModelSchema, 'id'>> = {}) => {
+      const { direction: _direction, ...row } = { ...messageRow(body, 100), ...overrides };
+      return row;
+    };
+
+    it('inserts once, treats an identical redelivery as a replay, and rejects any change as a conflict', async () => {
+      const eventId = crypto.randomUUID();
+      await expect(LocalMessagingService.insertReceivedMessage(eventId, received('one'))).resolves.toEqual({
+        status: 'inserted',
+      });
+      await expect(
+        LocalMessagingService.insertReceivedMessage(eventId, received('one', { recorded_at: 999 })),
+      ).resolves.toEqual({ status: 'replay', recordedAt: 100 });
+      for (const change of [
+        received('two'),
+        received('one', { sent_at: 1 }),
+        received('one', { counterparty_pubky: 'y'.repeat(52) }),
+        received('one', { listing_ref: null }),
+      ]) {
+        await expect(LocalMessagingService.insertReceivedMessage(eventId, change)).resolves.toEqual({
+          status: 'conflict',
+        });
+      }
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`)).resolves.toMatchObject({
+        body: 'message one',
+        recorded_at: 100,
+      });
+    });
+
+    it('never overwrites a sent message that holds the id', async () => {
+      const eventId = crypto.randomUUID();
+      await LocalMessagingService.upsertMessage(eventId, { ...messageRow('mine', 100), direction: 'sent' });
+      await expect(LocalMessagingService.insertReceivedMessage(eventId, received('mine'))).resolves.toEqual({
+        status: 'conflict',
+      });
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`)).resolves.toMatchObject({
+        direction: 'sent',
+      });
+    });
+
+    it('lets exactly one of two concurrent claims of one id insert', async () => {
+      const eventId = crypto.randomUUID();
+      const outcomes = await Promise.all([
+        LocalMessagingService.insertReceivedMessage(eventId, received('first')),
+        LocalMessagingService.insertReceivedMessage(
+          eventId,
+          received('second', { counterparty_pubky: 'y'.repeat(52) }),
+        ),
+      ]);
+      expect(outcomes.map(({ status }) => status).sort()).toEqual(['conflict', 'inserted']);
+    });
+  });
+
+  // Rows stored before inbound listing messages were bound to their link: a
+  // contact (ATTACKER) could file text under a thread with someone else. The
+  // row's counterparty is the link it arrived on, so it is detectable.
+  describe('quarantine of rows planted before inbound binding', () => {
+    const ATTACKER = 'y'.repeat(52);
+
+    async function seedLegitimateThread() {
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: CONVERSATION_ID,
+        kind: 'listing',
+        listing_ref: `listing:${COUNTERPARTY}_L1`,
+        counterparty_pubky: COUNTERPARTY,
+        last_message_at: 100,
+        updated_at: 100,
+      });
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('from the real seller', 100));
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), {
+        ...messageRow('my reply', 110),
+        direction: 'sent',
+      });
+    }
+
+    it('hides a planted message from the thread it names, keeps it stored, and keeps the real history', async () => {
+      await seedLegitimateThread();
+      const plantedId = crypto.randomUUID();
+      await LocalMessagingService.upsertMessage(plantedId, {
+        ...messageRow('planted by another contact', 120),
+        counterparty_pubky: ATTACKER,
+      });
+
+      const thread = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
+      expect(thread.map(({ body }) => body)).toEqual(['message from the real seller', 'message my reply']);
+      await expect(CommerceMessagingMessageModel.findById(`${OWNER}:${plantedId}`)).resolves.not.toBeNull();
+    });
+
+    it('never counts a planted message as unread', async () => {
+      await seedLegitimateThread();
+      await LocalMessagingService.markConversationRead(OWNER, CONVERSATION_ID, 110);
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), {
+        ...messageRow('planted', 130),
+        counterparty_pubky: ATTACKER,
+      });
+      await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(0);
+    });
+
+    it('does not list a planted conversation row filed under someone else’s thread', async () => {
+      await seedLegitimateThread();
+      const plantedThread = `conversation:${OWNER}_${'b'.repeat(52)}_L2`;
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: plantedThread,
+        kind: 'listing',
+        listing_ref: `listing:${OWNER}_L2`,
+        counterparty_pubky: ATTACKER,
+        last_message_at: 200,
+        updated_at: 200,
+      });
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: `dm:${COUNTERPARTY}`,
+        kind: 'dm',
+        listing_ref: null,
+        counterparty_pubky: COUNTERPARTY,
+        last_message_at: 50,
+        updated_at: 50,
+      });
+
+      const listed = await LocalMessagingService.getConversationsByOwner(OWNER);
+      expect(listed.map(({ conversation_id }) => conversation_id).sort()).toEqual(
+        [CONVERSATION_ID, `dm:${COUNTERPARTY}`].sort(),
+      );
+      await expect(LocalMessagingService.getConversation(OWNER, plantedThread)).resolves.not.toBeNull();
     });
   });
 });

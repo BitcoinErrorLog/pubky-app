@@ -157,6 +157,32 @@ export class CommerceMessagingMessageModel
     this.recorded_at = message.recorded_at;
   }
 
+  /**
+   * Inserts `message` only if no row holds its id, as one read-write
+   * transaction on this table, so two concurrent writers of the same id can
+   * never both insert. Returns `null` when inserted, otherwise the row that
+   * already holds the id (left untouched).
+   */
+  static async insertIfAbsent(
+    message: CommerceMessagingMessageModelSchema,
+  ): Promise<CommerceMessagingMessageModelSchema | null> {
+    try {
+      return await db.transaction('rw', this.table, async () => {
+        const existing = await this.table.get(message.id);
+        if (existing) return existing;
+        await this.table.add(message);
+        return null;
+      });
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to insert into ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'insertIfAbsent',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+
   static async findByConversation(
     ownerId: string,
     conversationId: string,
