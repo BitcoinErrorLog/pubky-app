@@ -281,6 +281,21 @@ describe('MarketplaceListing', () => {
     ).toBeTruthy();
   });
 
+  it('does not offer Make offer on a pickup-only Buy-now listing the service refuses offers on', () => {
+    view.listing = toCommerceListingModel(createCommerceListingFixture({ fulfillmentMethods: ['pickup'] }));
+    renderListing();
+    expect(screen.getByRole('button', { name: /Add to cart/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Make offer on a listing that ships as well as offering pickup', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({ fulfillmentMethods: ['physical', 'shipping', 'pickup'] }),
+    );
+    renderListing();
+    expect(screen.getByRole('button', { name: 'Make offer' })).toBeEnabled();
+  });
+
   it('falls back to the seller pubky when no shop record exists', () => {
     view.shop = null;
     const listing = renderListing();

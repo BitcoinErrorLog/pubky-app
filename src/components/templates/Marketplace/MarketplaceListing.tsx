@@ -48,6 +48,7 @@ import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/fo
 import {
   commerceListingFulfillmentMethods,
   type CommerceListingRecord,
+  commerceListingTakesOffers,
   type CommerceShippingOption,
 } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
@@ -488,7 +489,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       {CHECKOUT_HOLD_COPY.listingReserved}
                     </Typography>
                   )}
-                  {record.sale.acceptsOffers && !viewerOfferHold && (
+                  {commerceListingTakesOffers(record) && !viewerOfferHold && (
                     <MarketplaceOfferDialog
                       aggregateId={aggregateId}
                       expectedRevision={negotiation.projection?.serverRevision ?? null}
