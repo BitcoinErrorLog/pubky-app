@@ -584,15 +584,17 @@ describe('MarketplacePaymentSettings', () => {
     await renderSettings();
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const firstState = new URL((screen.getByTitle('Connect Bitkit') as HTMLIFrameElement).src).searchParams.get(
+      'state',
+    );
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6 * 60 * 1_000);
     });
     expect(screen.getByRole('alert')).toHaveTextContent('No approval received.');
+    expect(screen.queryByTitle('Connect Bitkit')).not.toBeInTheDocument();
+    expect(screen.getByTestId('paykit-setup-qr-expired')).toBeInTheDocument();
 
-    const firstState = new URL((screen.getByTitle('Connect Bitkit') as HTMLIFrameElement).src).searchParams.get(
-      'state',
-    );
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     const secondState = new URL((screen.getByTitle('Connect Bitkit') as HTMLIFrameElement).src).searchParams.get(
       'state',
@@ -727,16 +729,36 @@ describe('MarketplacePaymentSettings', () => {
     act(() => window.dispatchEvent(message));
 
     expect(screen.getByRole('alert')).toHaveTextContent('Bitkit setup failed. Try again.');
-    const expiredQr = screen.getByTitle('Connect Bitkit');
-    expect(screen.getByRole('alert').compareDocumentPosition(expiredQr) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(expiredQr).toHaveAttribute('data-qr-expired', 'true');
-    expect(expiredQr.className).toContain('pointer-events-none');
-    expect(expiredQr.className).toContain('opacity-40');
+    expect(screen.queryByTitle('Connect Bitkit')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     const secondIframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
     expect(new URL(secondIframe.src).searchParams.get('state')).not.toBe(firstState);
+  });
+
+  it('removes the expired Step 2 QR so nothing is left to scan', async () => {
+    await renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const source = setPaykitIframeSource(iframe);
+    const state = new URL(iframe.src).searchParams.get('state');
+
+    act(() =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://paykit.example',
+          source,
+          data: { type: 'paykit-setup-callback', state, error: 'setup-failed' },
+        }),
+      ),
+    );
+
+    const dialog = screen.getByTestId('dialog-content');
+    expect(screen.getByRole('alert')).toHaveTextContent('Bitkit setup failed. Try again.');
+    expect(within(dialog).queryByTitle('Connect Bitkit')).not.toBeInTheDocument();
+    expect(dialog.querySelector('iframe, img, canvas')).toBeNull();
+    const placeholder = screen.getByTestId('paykit-setup-qr-expired');
+    expect(placeholder).toHaveTextContent('This code expired.');
+    expect(placeholder.querySelector('iframe, img, canvas')).toBeNull();
   });
 
   it('removes the callback listener when the settings surface unmounts', async () => {

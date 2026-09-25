@@ -285,6 +285,7 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
   const readyCount = countReadyPaymentMethods([paypalStatus, bitcoinStatus]);
   const step1Connected = locksCreatorMatchesShopPubky(connectedCreator, currentUserPubky);
   const step1NeedsPrimary = !step1Connected && bitcoinStatus === 'needs_attention';
+  const paykitCodeExpired = paykitSetupStatus === 'error' || paykitSetupStatus === 'timeout';
 
   // Stored rails need the marketplace session and the loaded config; the
   // bitcoin connect steps above them do not, so they render unconditionally.
@@ -571,23 +572,26 @@ export function MarketplaceGetPaidSettings({ locksConnect, onSaved }: Marketplac
           <Typography as="p" className="text-sm text-muted-foreground">
             {PAYKIT_RING_IDENTITY_HELPER}
           </Typography>
-          {paykitSetupUrl && (
-            <iframe
-              ref={paykitIframeRef}
-              key={paykitSetupUrl}
-              src={`${paykitSetupUrl}#embed`}
-              title="Connect Bitkit"
-              sandbox="allow-scripts allow-same-origin allow-forms"
-              referrerPolicy="no-referrer"
-              scrolling="no"
-              data-qr-expired={paykitSetupStatus === 'error' || paykitSetupStatus === 'timeout' ? 'true' : undefined}
-              aria-disabled={paykitSetupStatus === 'error' || paykitSetupStatus === 'timeout' ? true : undefined}
-              className={`h-[40rem] w-full rounded-lg border bg-popover${
-                paykitSetupStatus === 'error' || paykitSetupStatus === 'timeout'
-                  ? 'pointer-events-none opacity-40 grayscale'
-                  : ''
-              }`}
-            />
+          {paykitSetupUrl && paykitCodeExpired ? (
+            <div
+              data-testid="paykit-setup-qr-expired"
+              className="flex h-40 w-full items-center justify-center rounded-lg border border-dashed bg-muted/40 p-6 text-center text-sm text-muted-foreground"
+            >
+              This code expired.
+            </div>
+          ) : (
+            paykitSetupUrl && (
+              <iframe
+                ref={paykitIframeRef}
+                key={paykitSetupUrl}
+                src={`${paykitSetupUrl}#embed`}
+                title="Connect Bitkit"
+                sandbox="allow-scripts allow-same-origin allow-forms"
+                referrerPolicy="no-referrer"
+                scrolling="no"
+                className="h-[40rem] w-full rounded-lg border bg-popover"
+              />
+            )
           )}
           <DialogFooter>
             <Button variant="secondary" className="rounded-full" onClick={closePaykitSetup}>
