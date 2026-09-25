@@ -232,13 +232,15 @@ export type CommerceCheckoutLineInput = MarketplaceCheckoutFulfillmentLine & {
 
 /**
  * A checkout submission with per-group fulfillment choices. A seller group
- * with no recorded choice ships (the default); a pickup-only checkout sends
- * NO delivery address (§A2).
+ * with no recorded choice ships (the default); a checkout with no shipped
+ * line sends NO delivery address (§A2), and the delivery email rides only
+ * when an email-kind digital line needs it (digital delivery design §4.3).
  */
 export type CommerceCheckoutFulfillmentInput = {
   lines: CommerceCheckoutLineInput[];
   fulfillmentChoiceBySeller?: Readonly<Record<string, MarketplaceFulfillmentMethod | undefined>>;
   deliveryAddress?: CreateMarketplaceCheckoutCommand['payload']['deliveryAddress'];
+  deliveryEmail?: string;
 };
 
 /** A review-list page, or the honest signal that no review index serves this deployment. */
@@ -866,6 +868,7 @@ export class CommerceApplication {
           fulfillment: plan.lineFulfillments[index],
         })),
         ...(input.deliveryAddress ? { deliveryAddress: input.deliveryAddress } : {}),
+        ...(input.deliveryEmail !== undefined ? { deliveryEmail: input.deliveryEmail } : {}),
         guaranteePolicyVersion: 1 as const,
       },
     });

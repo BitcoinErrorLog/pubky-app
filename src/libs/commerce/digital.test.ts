@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { marketplaceListingProjectionSchema } from '@/core/services/marketplace/marketplace-projections';
 import { serviceListingProjectionWire as serviceListingSample } from '@/test/fixtures/commerce/listing-projection.wire';
 import {
+  classifyDigitalCheckoutRefusal,
   classifyDigitalDeliverySetupRefusal,
   classifyDigitalReadRefusal,
+  DELIVERY_EMAIL_MAX_CHARS,
+  DIGITAL_CHECKOUT_REFUSAL_COPY,
   DIGITAL_DELIVERY_COPY,
   DIGITAL_DELIVERY_SETUP_COPY,
   digitalContentTypeLabel,
@@ -15,6 +18,7 @@ import {
   formatDigitalFileSize,
   isDigitalDeliveryLink,
   isInstantDigitalDeliveryKind,
+  isWellFormedDeliveryEmail,
   marketplaceListingDigitalDeliveryFieldSchema,
   marketplaceSellerDigitalDeliverySchema,
 } from './digital';
@@ -255,5 +259,63 @@ describe('digital delivery seller setup contract (§2, §6 C1–C5)', () => {
     expect(classifyDigitalReadRefusal('not_paid')).toBe('not_paid');
     expect(classifyDigitalReadRefusal('something_else')).toBeNull();
     expect(classifyDigitalReadRefusal(7)).toBeNull();
+  });
+});
+
+describe('digital checkout contract (§3 "Checkout", §6 B4, B5, F1–F3)', () => {
+  it('accepts what DeliveryEmail::is_well_formed accepts', () => {
+    expect(isWellFormedDeliveryEmail('buyer@example.com')).toBe(true);
+    expect(isWellFormedDeliveryEmail('a@b')).toBe(true);
+    expect(isWellFormedDeliveryEmail(`${'a'.repeat(DELIVERY_EMAIL_MAX_CHARS - 2)}@b`)).toBe(true);
+  });
+
+  it('refuses what DeliveryEmail::is_well_formed refuses', () => {
+    for (const value of [
+      '',
+      'buyer',
+      '@example.com',
+      'buyer@',
+      'a@b@c',
+      'buyer @example.com',
+      'buyer@example.com\n',
+      'buyer\u0007@example.com',
+      `${'a'.repeat(DELIVERY_EMAIL_MAX_CHARS - 1)}@b`,
+    ]) {
+      expect(isWellFormedDeliveryEmail(value), value).toBe(false);
+    }
+  });
+
+  it('classifies checkout refusals from the reason only', () => {
+    expect(classifyDigitalCheckoutRefusal({ code: 'INVALID_STATE', reason: 'digital_delivery_not_ready' })).toBe(
+      'not_ready',
+    );
+    expect(classifyDigitalCheckoutRefusal({ code: 'INVALID_STATE', reason: 'digital_delivery_unavailable' })).toBe(
+      'unavailable',
+    );
+    expect(classifyDigitalCheckoutRefusal({ code: 'INVALID_COMMAND', reason: 'delivery_email_required' })).toBe(
+      'email_required',
+    );
+    expect(classifyDigitalCheckoutRefusal({ code: 'INVALID_COMMAND', reason: 'invalid_delivery_email' })).toBe(
+      'invalid_email',
+    );
+    expect(classifyDigitalCheckoutRefusal({ code: 'INVALID_COMMAND', reason: 'delivery_email_not_needed' })).toBe(
+      'email_not_needed',
+    );
+    expect(classifyDigitalCheckoutRefusal({ code: 'INVALID_STATE', reason: 'fulfillment_not_published' })).toBe(
+      'fulfillment_not_published',
+    );
+    expect(classifyDigitalCheckoutRefusal({ code: 'INVALID_STATE', reason: 'pickup_unavailable' })).toBeNull();
+    expect(classifyDigitalCheckoutRefusal({ code: 'INVALID_STATE' })).toBeNull();
+  });
+
+  it('carries the design copy (B4, B5, F1, F3)', () => {
+    expect(DIGITAL_CHECKOUT_REFUSAL_COPY.not_ready).toBe(
+      "The seller hasn't finished setting up delivery for this item.",
+    );
+    expect(DIGITAL_CHECKOUT_REFUSAL_COPY.unavailable).toBe("Digital delivery isn't available on this deployment.");
+    expect(DIGITAL_CHECKOUT_REFUSAL_COPY.email_required).toBe(
+      'Enter the email the seller should send your purchase to.',
+    );
+    expect(DIGITAL_CHECKOUT_REFUSAL_COPY.invalid_email).toBe('Check the email address.');
   });
 });

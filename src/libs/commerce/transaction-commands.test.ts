@@ -471,6 +471,59 @@ describe('checkout.create fulfillment and address rules (§A2)', () => {
     };
     expect(createMarketplaceCheckoutCommandSchema.safeParse(gb).success).toBe(true);
   });
+
+  // Digital delivery design §3 "Checkout", §6 B2, B3, F1–F3 (`digital_only_checkout_rejects_address`,
+  // `mixed_cart_splits_digital_into_own_order`, `delivery_email_validation`).
+  const digitalLine = {
+    listingAggregateId: `listing:${SELLER}_guide_03`,
+    expectedRevision: 3,
+    quantity: 1,
+    fulfillment: 'digital',
+  };
+
+  it('accepts an all-digital checkout with no address and refuses one that presents it', () => {
+    const parsed = createMarketplaceCheckoutCommandSchema.parse(checkoutCommand([digitalLine], false));
+    expect(parsed.payload.deliveryAddress).toBeUndefined();
+    expect(parsed.payload.lines[0].fulfillment).toBe('digital');
+    const withAddress = createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([digitalLine], true));
+    expect(withAddress.error?.issues.map(({ message }) => message)).toEqual([
+      'A checkout with no shipped line must not carry a delivery address.',
+    ]);
+    expect(
+      createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([digitalLine, pickupLine], false)).success,
+    ).toBe(true);
+  });
+
+  it('requires the address when a digital line shares the checkout with a shipped one', () => {
+    expect(
+      createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([digitalLine, shippingLine], false)).success,
+    ).toBe(false);
+    expect(
+      createMarketplaceCheckoutCommandSchema.safeParse(checkoutCommand([digitalLine, shippingLine], true)).success,
+    ).toBe(true);
+  });
+
+  it('carries a well-formed delivery email only beside a digital line', () => {
+    const withEmail = (lines: Record<string, unknown>[], deliveryEmail: string) => {
+      const command = checkoutCommand(lines, false);
+      return { ...command, payload: { ...command.payload, deliveryEmail } };
+    };
+    const parsed = createMarketplaceCheckoutCommandSchema.parse(withEmail([digitalLine], 'buyer@example.com'));
+    expect(parsed.payload.deliveryEmail).toBe('buyer@example.com');
+    for (const malformed of [
+      'buyer',
+      '@example.com',
+      'buyer@',
+      'a@b@c',
+      'buyer @example.com',
+      `${'a'.repeat(250)}@b.co`,
+    ]) {
+      expect(createMarketplaceCheckoutCommandSchema.safeParse(withEmail([digitalLine], malformed)).success).toBe(false);
+    }
+    expect(createMarketplaceCheckoutCommandSchema.safeParse(withEmail([pickupLine], 'buyer@example.com')).success).toBe(
+      false,
+    );
+  });
 });
 
 describe('digital_delivery.set / .clear command contract (digital delivery design §2, §6 C1–C5)', () => {

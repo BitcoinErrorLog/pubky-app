@@ -378,3 +378,67 @@ export function digitalDeliveryCurrentSummary(current: MarketplaceSellerDigitalD
 /** The trust line beside the seller's file (§9 D2). */
 export const DIGITAL_DELIVERY_TRUST_COPY =
   'Shop encrypts your file on this device and stores only the encrypted copy on your homeserver. The marketplace keeps the unlock key sealed and releases it only to a buyer whose payment is confirmed, so the marketplace operator could technically open it, the same trust as delivery addresses and pickup details.';
+
+// -----------------------------------------------------------------------------
+// Checkout (§3 "Checkout", §4.3, §6 B2–B5, F1–F3).
+// -----------------------------------------------------------------------------
+
+/** The service's `DELIVERY_EMAIL_MAX_CHARS` (`crates/domain/src/commands.rs`). */
+export const DELIVERY_EMAIL_MAX_CHARS = 254;
+
+/**
+ * The service's `DeliveryEmail::is_well_formed`: at most 254 characters, one
+ * `@` with text on both sides, and no whitespace or control characters. The
+ * seller sends the purchase there by hand, so nothing stricter is checked.
+ */
+export function isWellFormedDeliveryEmail(value: string): boolean {
+  const at = value.indexOf('@');
+  if (at <= 0) return false;
+  const domain = value.slice(at + 1);
+  return (
+    [...value].length <= DELIVERY_EMAIL_MAX_CHARS &&
+    domain.length > 0 &&
+    !domain.includes('@') &&
+    !/[\s\p{Cc}]/u.test(value)
+  );
+}
+
+export const marketplaceDeliveryEmailSchema = z
+  .string()
+  .refine(isWellFormedDeliveryEmail, { message: 'Expected a delivery email address' });
+
+/** The typed `checkout.create` refusals digital lines add. */
+export type DigitalCheckoutRefusal =
+  | 'not_ready'
+  | 'unavailable'
+  | 'email_required'
+  | 'invalid_email'
+  | 'email_not_needed'
+  | 'fulfillment_not_published';
+
+const CHECKOUT_REASONS: Readonly<Record<string, DigitalCheckoutRefusal>> = {
+  digital_delivery_not_ready: 'not_ready',
+  digital_delivery_unavailable: 'unavailable',
+  delivery_email_required: 'email_required',
+  invalid_delivery_email: 'invalid_email',
+  delivery_email_not_needed: 'email_not_needed',
+  fulfillment_not_published: 'fulfillment_not_published',
+};
+
+/** Classifies a refused `checkout.create` from its reason only; the service message is never read. */
+export function classifyDigitalCheckoutRefusal(error: {
+  code: string;
+  reason?: unknown;
+}): DigitalCheckoutRefusal | null {
+  return typeof error.reason === 'string' ? (CHECKOUT_REASONS[error.reason] ?? null) : null;
+}
+
+export const DIGITAL_CHECKOUT_REFUSAL_COPY: Readonly<Record<DigitalCheckoutRefusal, string>> = {
+  not_ready: "The seller hasn't finished setting up delivery for this item.",
+  unavailable: DIGITAL_DELIVERY_COPY.unavailable,
+  email_required: 'Enter the email the seller should send your purchase to.',
+  invalid_email: 'Check the email address.',
+  // Shop sends an email only for an email-kind line, so the listing changed underneath.
+  email_not_needed: 'A listing changed while you were checking out. Review your cart and try again.',
+  fulfillment_not_published: "A listing in your cart changed how it's delivered. Reload Shop to check out.",
+};

@@ -3,6 +3,7 @@ import {
   type DigitalDeliveryCommandResult,
   digitalDeliveryCommandResultSchema,
   digitalDeliverySetSchema,
+  marketplaceDeliveryEmailSchema,
 } from './digital';
 import {
   classifyMarketplacePickupRefusal,
@@ -297,6 +298,11 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
       // PRESENTS an address is rejected, so a buggy or malicious client
       // cannot smuggle one into storage (§A2).
       deliveryAddress: commerceDeliveryAddressValueSchema.optional(),
+      // Where the seller of an email-kind digital line sends the purchase
+      // (digital delivery design §4.3). The service requires it exactly when
+      // a line is email-kind, which only the listing projection says, so the
+      // checkout hook decides and this schema checks only its form.
+      deliveryEmail: marketplaceDeliveryEmailSchema.optional(),
       guaranteePolicyVersion: z.literal(1),
     })
     .strict()
@@ -305,8 +311,12 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
       if (new Set(ids).size !== ids.length) {
         context.addIssue({ code: 'custom', path: ['lines'], message: 'Checkout listing lines must be unique.' });
       }
-      // The address rule of §A2, mirroring the service's checkout validator.
-      const anyShipping = payload.lines.some((line) => line.fulfillment !== 'pickup');
+      // The address rule of §A2, mirroring the service's checkout validator:
+      // a line without a fulfillment ships, and pickup and digital lines
+      // carry no address.
+      const anyShipping = payload.lines.some(
+        (line) => line.fulfillment === undefined || line.fulfillment === 'shipping',
+      );
       if (anyShipping && payload.deliveryAddress === undefined) {
         context.addIssue({
           code: 'custom',
@@ -318,7 +328,16 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
         context.addIssue({
           code: 'custom',
           path: ['deliveryAddress'],
-          message: 'A pickup-only checkout must not carry a delivery address.',
+          message: payload.lines.every((line) => line.fulfillment === 'pickup')
+            ? 'A pickup-only checkout must not carry a delivery address.'
+            : 'A checkout with no shipped line must not carry a delivery address.',
+        });
+      }
+      if (payload.deliveryEmail !== undefined && !payload.lines.some((line) => line.fulfillment === 'digital')) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryEmail'],
+          message: 'A checkout with no digital line must not carry a delivery email.',
         });
       }
     }),
