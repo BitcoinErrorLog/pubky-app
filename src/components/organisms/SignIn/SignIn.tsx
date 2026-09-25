@@ -121,7 +121,7 @@ const SIGNERS = {
   },
   bitkit: {
     name: 'Bitkit',
-    hint: 'Scan with Bitkit 2.5 or newer.',
+    hint: 'Scan with Bitkit.',
     copyLabel: 'Copy Bitkit authentication link',
     reloadLabel: 'Reload Bitkit sign-in QR code',
     openingLabel: 'Opening Bitkit...',
