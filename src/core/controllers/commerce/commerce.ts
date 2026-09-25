@@ -440,6 +440,14 @@ export class CommerceController {
   }
 
   /**
+   * Deletes the signed-in user's leftover auction reserve files. The service
+   * holds the reserve; the homeserver copy is not read.
+   */
+  static async sweepOwnAuctionReserves(): Promise<number> {
+    return await CommerceApplication.sweepOwnAuctionReserves(this.getCurrentUserPubky());
+  }
+
+  /**
    * Publishes the portable order receipt for every eligible paid order to
    * the current user's own homeserver (credible exit for orders) and mirrors
    * the outcome into the commerce store, so the orders surface shows the
@@ -1509,8 +1517,12 @@ export class CommerceController {
    */
   private static onMarketplaceSessionEnded(event: MarketplaceSessionEndedEvent): void {
     const current = useCommerceStore.getState().marketplaceSession;
-    if (!current) return;
+    if (!current) {
+      CommerceApplication.dropPendingAuctionRegistrations();
+      return;
+    }
     if (Date.parse(current.issuedAt) > Date.parse(event.issuedAt)) return;
+    CommerceApplication.dropPendingAuctionRegistrations();
     this.clearMarketplaceSessionStore();
   }
 
