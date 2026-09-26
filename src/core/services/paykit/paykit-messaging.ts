@@ -452,6 +452,36 @@ export class PaykitMessagingService {
   }
 
   /**
+   * Whether `ownerPubky` publishes a Paykit receiver that takes both private
+   * payments and Payment Requests — the receiver a Bitcoin checkout's payment
+   * request is delivered to (a Paykit wallet such as Bitkit). The Shop's own
+   * messaging receiver never qualifies: it takes private payments only.
+   * Public read — needs no session. Rejects when the listing or a marker
+   * cannot be read, so a read failure is never reported as "no wallet".
+   */
+  static async hasPaymentRequestReceiver(ownerPubky: string): Promise<boolean> {
+    const wasmModule = await loadPaykitWasm();
+    const client = this.getClient(wasmModule);
+    const paths: unknown = await wasmModule.listPaykitReceiverPaths(client, ownerPubky);
+    if (!Array.isArray(paths)) {
+      throw Err.server(ServerErrorCode.UNKNOWN_ERROR, 'The Paykit receiver list could not be read.', {
+        service: ErrorService.Paykit,
+        operation: 'hasPaymentRequestReceiver',
+      });
+    }
+    for (const path of paths) {
+      if (typeof path !== 'string') continue;
+      const marker = (await wasmModule.getReceiverMarker(client, ownerPubky, path)) as
+        | { capabilities?: { privatePayments?: unknown; paymentRequests?: unknown } }
+        | undefined;
+      if (marker?.capabilities?.privatePayments === true && marker.capabilities.paymentRequests === true) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Brings the Encrypted Link toward `counterpartyPubky` as far as one poll
    * step allows and reports the truthful state. Serialized per counterparty.
    */
