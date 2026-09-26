@@ -203,6 +203,10 @@ export function marketplaceFailureMessage(code: MarketplaceFailureCode, fallback
  */
 export const MARKETPLACE_PAYMENT_METHOD_REASON_MESSAGES: ReadonlyMap<string, string> = new Map([
   ['bitcoin_unavailable', 'Bitcoin payments are not available for this seller.'],
+  [
+    'buyer_paykit_wallet_required',
+    'Connect Bitkit to pay with Bitcoin: this account has no Paykit wallet that can receive a payment request.',
+  ],
   ['capability_required', 'This payment needs a marketplace grant. Approve access on your signer and try again.'],
   ['currency_unsupported', 'This payment method does not support the checkout currency.'],
   ['held', CHECKOUT_HOLD_COPY.listingReserved],
