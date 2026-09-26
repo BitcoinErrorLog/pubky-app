@@ -556,6 +556,19 @@ describe('SignInContent - Bitkit grant sign-in', () => {
     expect(screen.queryByTestId('sign-in-use-ring')).not.toBeInTheDocument();
   });
 
+  it('tells new Bitkit users to create a Pubky identity before scanning the QR', async () => {
+    vi.mocked(useGrantSignInAvailable).mockReturnValue(true);
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    const hint = "New Bitkit users must create a Pubky identity in Bitkit's profile before scanning.";
+    const bitkit = screen.getByTestId('sign-in-bitkit-option');
+    expect(within(bitkit).getByText('Scan with Bitkit.')).toBeInTheDocument();
+    expect(within(bitkit).getByText(hint)).toBeInTheDocument();
+    expect(screen.getAllByText(hint)).toHaveLength(2);
+  });
+
   it('offers both authorize buttons on mobile', async () => {
     vi.mocked(useGrantSignInAvailable).mockReturnValue(true);
     await act(async () => {
