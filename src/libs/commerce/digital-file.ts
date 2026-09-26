@@ -50,6 +50,11 @@ export function digitalDeliverablePath(deliverableId: string, version: number): 
   return `${DIGITAL_DELIVERABLES_PATH}${deliverableId}/${version}`;
 }
 
+/** The ciphertext length for a plaintext of `sizeBytes`: AES-GCM appends a 16-byte tag. */
+export function digitalCiphertextBytes(sizeBytes: number): number {
+  return sizeBytes + AES_GCM_TAG_BYTES;
+}
+
 export function digitalDeliverableUrl(sellerPubky: string, deliverableId: string, version: number): string {
   return `pubky://${sellerPubky}${digitalDeliverablePath(deliverableId, version)}`;
 }

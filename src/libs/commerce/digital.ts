@@ -523,6 +523,36 @@ export const marketplaceOrderDeliveryEmailSchema = z
   .strip();
 export type MarketplaceOrderDeliveryEmail = z.infer<typeof marketplaceOrderDeliveryEmailSchema>;
 
+/**
+ * The released line, only if it is the one the buyer opened on this order:
+ * the response names this order, releases exactly the requested line, and
+ * that line's listing, seller and kind match the paid order's snapshot.
+ * Anything else is refused whole, before any fetch, decrypt or reveal.
+ */
+export function bindOrderDigitalLine(
+  order: {
+    id: string;
+    sellerPubky: string;
+    lines: ReadonlyArray<{ listingAggregateId: string; digitalKind?: MarketplaceDigitalDeliveryKind }>;
+  },
+  lineIndex: number,
+  delivery: MarketplaceOrderDigitalDelivery,
+): MarketplaceOrderDigitalLine | null {
+  const paid = order.lines[lineIndex];
+  if (!paid || delivery.orderId !== order.id || delivery.lines.length !== 1) return null;
+  const [line] = delivery.lines;
+  const bound =
+    line.lineIndex === lineIndex &&
+    line.listingAggregateId === paid.listingAggregateId &&
+    line.sellerPubky === order.sellerPubky &&
+    line.kind === paid.digitalKind;
+  return bound ? line : null;
+}
+
+/** A released line that is not the one opened on this order (see `bindOrderDigitalLine`). */
+export const DIGITAL_ORDER_LINE_MISMATCH_COPY =
+  "This download doesn't match your order. Try again, or message the seller.";
+
 /** Why a buyer's file could not be opened after the read succeeded. */
 export type DigitalFileOpenFailure = 'fetch_failed' | 'ciphertext_mismatch' | 'decrypt_failed' | 'plaintext_mismatch';
 

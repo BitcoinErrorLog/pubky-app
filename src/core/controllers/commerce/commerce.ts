@@ -937,11 +937,18 @@ export class CommerceController {
     });
   }
 
-  /** The current buyer's pinned digital payload for one of their orders (§4.2). Call only when the buyer opens a line. */
-  static async fetchOrderDigitalDelivery(orderId: unknown) {
+  /** The current buyer's pinned digital payload for one line of their order (§4.2). Call only when the buyer opens it. */
+  static async fetchOrderDigitalDelivery(orderId: unknown, lineIndex: unknown) {
+    if (typeof lineIndex !== 'number' || !Number.isInteger(lineIndex) || lineIndex < 0 || lineIndex > 10_000) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'An order line index is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'fetchOrderDigitalDelivery',
+      });
+    }
     return await CommerceApplication.fetchOrderDigitalDelivery(
       this.getCurrentUserPubky(),
       CommerceRecordNormalizer.entityId(orderId),
+      lineIndex,
     );
   }
 

@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
+  bindOrderDigitalLine,
   classifyDigitalReadRefusal,
   DIGITAL_FILE_OPEN_FAILURE_COPY,
+  DIGITAL_ORDER_LINE_MISMATCH_COPY,
   DIGITAL_READ_REFUSAL_COPY,
   type MarketplaceDigitalDeliveryKind,
 } from '@/libs/commerce/digital';
@@ -64,8 +66,9 @@ export function saveDigitalFile(bytes: Uint8Array, fileName: string, contentType
 
 /**
  * The buyer's purchase on a digital order (digital delivery design §3 "After
- * payment", §3.4). Every action reads the pinned payload fresh; the service
- * logs each read as an access, so nothing is read until the buyer asks. A
+ * payment", §3.4). Every action reads the pinned payload of that one line
+ * fresh; the service logs each read as an access to that line, so nothing is
+ * read until the buyer asks, and opening one line never releases another. A
  * file is fetched from the seller's homeserver, verified, decrypted and
  * saved; a link or text is shown until hidden. No key, link, text or file is
  * persisted.
@@ -77,17 +80,15 @@ export function useOrderDigitalDelivery(order: MarketplaceOrder) {
   const setLine = (lineIndex: number, next: OrderDigitalLineState) =>
     setStates((current) => ({ ...current, [lineIndex]: next }));
 
-  const readLine = async (lineIndex: number) => {
-    const delivery = await CommerceController.fetchOrderDigitalDelivery(order.id);
-    return delivery.lines.find((line) => line.lineIndex === lineIndex) ?? null;
-  };
+  const readLine = async (lineIndex: number) =>
+    bindOrderDigitalLine(order, lineIndex, await CommerceController.fetchOrderDigitalDelivery(order.id, lineIndex));
 
   const open = async (lineIndex: number) => {
     setLine(lineIndex, { status: 'opening', message: null });
     try {
       const line = await readLine(lineIndex);
       if (!line) {
-        setLine(lineIndex, { status: 'failed', message: DIGITAL_READ_REFUSAL_COPY.not_found });
+        setLine(lineIndex, { status: 'failed', message: DIGITAL_ORDER_LINE_MISMATCH_COPY });
         return;
       }
       if (line.kind === 'file') {

@@ -2034,10 +2034,10 @@ describe('MarketplaceTransactionService buyer digital reads (digital delivery de
       }),
     );
 
-    const read = await MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID);
+    const read = await MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID, 0);
 
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}/digital-delivery`);
+    expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}/digital-delivery/0`);
     expect(init.cache).toBe('no-store');
     expect(new Headers(init.headers).get('authorization')).toMatch(/^Bearer /);
     expect(read.lines[0]).toMatchObject({ kind: 'file', sellerPubky: OTHER_ACTOR, key: KEY_SENTINEL, version: 2 });
@@ -2062,7 +2062,7 @@ describe('MarketplaceTransactionService buyer digital reads (digital delivery de
       jsonResponse(409, { ok: false, error: { code: 'INVALID_STATE', message: 'service words', reason } }),
     );
 
-    await expect(MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID)).rejects.toMatchObject({
+    await expect(MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID, 0)).rejects.toMatchObject({
       category: 'client',
       code: 'CONFLICT',
       message,
@@ -2079,7 +2079,7 @@ describe('MarketplaceTransactionService buyer digital reads (digital delivery de
       }),
     );
 
-    await expect(MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID)).rejects.toMatchObject({
+    await expect(MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID, 0)).rejects.toMatchObject({
       category: 'auth',
       code: 'FORBIDDEN',
     });
@@ -2091,7 +2091,7 @@ describe('MarketplaceTransactionService buyer digital reads (digital delivery de
       jsonResponse(200, { order_id: ORDER_ID, lines: [{ ...fileLine, key: `${KEY_SENTINEL}zz` }] }),
     );
 
-    const error = (await MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID).catch(
+    const error = (await MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID, 0).catch(
       (caught: unknown) => caught,
     )) as AppError;
 
