@@ -24,9 +24,13 @@ import {
 } from '@/libs/commerce/attestation';
 import {
   DIGITAL_DELIVERY_COPY,
+  type DigitalFileOpenFailure,
   type MarketplaceDigitalDeliveryCapability,
   type MarketplaceDigitalDeliveryInput,
   type MarketplaceDigitalDeliverySet,
+  type MarketplaceOrderDeliveryEmail,
+  type MarketplaceOrderDigitalDelivery,
+  type MarketplaceOrderDigitalLine,
   type MarketplaceSellerDigitalDelivery,
 } from '@/libs/commerce/digital';
 import {
@@ -35,6 +39,7 @@ import {
   digitalFileName,
   encryptDigitalDeliverable,
   newDigitalDeliverableId,
+  openDigitalDeliverable,
 } from '@/libs/commerce/digital-file';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import {
@@ -769,6 +774,84 @@ export class CommerceApplication {
       issuedAt: new Date().toISOString(),
       kind: 'digital_delivery.clear',
       payload: { expectedVersion: input.expectedVersion },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
+  /**
+   * The buyer's pinned digital payload for one order (digital delivery design
+   * §4.2). The service writes an access row on every read, and an opened
+   * instant line stays sold if the order is later cancelled (§6 E8), so this
+   * is called only when the buyer asks to open a line.
+   */
+  static async fetchOrderDigitalDelivery(
+    actorPubky: string,
+    orderId: string,
+  ): Promise<MarketplaceOrderDigitalDelivery> {
+    this.assertDigitalDeployment('fetchOrderDigitalDelivery');
+    return await MarketplaceGatewayService.getOrderDigitalDelivery(actorPubky, orderId);
+  }
+
+  /**
+   * Opens a buyer's file line (§3.4): reads the ciphertext from the seller's
+   * homeserver, checks its length and BLAKE3 against the pin, decrypts it
+   * with the pinned key under the seller, deliverable and version, and
+   * checks the plaintext BLAKE3. The bytes are returned only when all hold;
+   * nothing is stored.
+   */
+  static async openOrderDigitalFile(
+    line: Extract<MarketplaceOrderDigitalLine, { kind: 'file' }>,
+  ): Promise<
+    | { ok: true; bytes: Uint8Array; fileName: string; contentType: string }
+    | { ok: false; reason: DigitalFileOpenFailure }
+  > {
+    let ciphertext: Uint8Array<ArrayBuffer>;
+    try {
+      ciphertext = await CommerceHomeserverService.getDeliverable(
+        digitalDeliverableUrl(line.sellerPubky, line.deliverableId, line.version),
+      );
+    } catch {
+      return { ok: false, reason: 'fetch_failed' };
+    }
+    const opened = await openDigitalDeliverable({
+      ciphertext,
+      key: line.key,
+      iv: line.iv,
+      ciphertextBlake3: line.ciphertextBlake3,
+      plaintextBlake3: line.plaintextBlake3,
+      sizeBytes: line.sizeBytes,
+      sellerPubky: line.sellerPubky,
+      deliverableId: line.deliverableId,
+      version: line.version,
+    });
+    if (!opened.ok) return opened;
+    return { ok: true, bytes: opened.plaintext, fileName: line.fileName, contentType: line.contentType };
+  }
+
+  /** An email-kind order's delivery email and emailed time (§4.3, §6 F5–F9). */
+  static async fetchOrderDeliveryEmail(actorPubky: string, orderId: string): Promise<MarketplaceOrderDeliveryEmail> {
+    this.assertDigitalDeployment('fetchOrderDeliveryEmail');
+    return await MarketplaceGatewayService.getOrderDeliveryEmail(actorPubky, orderId);
+  }
+
+  /**
+   * `order.set_delivery_email` (§6 F11, F12): the buyer replaces the address
+   * the seller sends an email-kind line to. `expectedRevision` is the
+   * order's current revision.
+   */
+  static async commitSetDeliveryEmail(
+    actorPubky: string,
+    input: { orderId: string; expectedRevision: number; deliveryEmail: string },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertDigitalDeployment('commitSetDeliveryEmail');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceOrderAggregateId(input.orderId),
+      expectedRevision: input.expectedRevision,
+      issuedAt: new Date().toISOString(),
+      kind: 'order.set_delivery_email',
+      payload: { orderId: input.orderId, deliveryEmail: input.deliveryEmail },
     });
     return await this.executeMarketplaceCommand(actorPubky, command);
   }

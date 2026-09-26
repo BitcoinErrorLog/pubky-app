@@ -9,6 +9,10 @@ import {
 import {
   classifyDigitalReadRefusal,
   DIGITAL_READ_REFUSAL_COPY,
+  type MarketplaceOrderDeliveryEmail,
+  marketplaceOrderDeliveryEmailSchema,
+  type MarketplaceOrderDigitalDelivery,
+  marketplaceOrderDigitalDeliverySchema,
   type MarketplaceSellerDigitalDelivery,
   marketplaceSellerDigitalDeliverySchema,
 } from '@/libs/commerce/digital';
@@ -135,6 +139,7 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   // Digital delivery seller setup (digital delivery design §6 C1–C5).
   'digital_delivery.set',
   'digital_delivery.clear',
+  'order.set_delivery_email',
   'fulfillment.mark_ready',
   'fulfillment.confirm_pickup',
   'order.cancel_request',
@@ -442,6 +447,47 @@ export class MarketplaceTransactionService {
       marketplaceSellerDigitalDeliverySchema,
       raw,
       'Marketplace returned an invalid seller digital-delivery read.',
+    );
+  }
+
+  /**
+   * `GET /v1/orders/{id}/digital-delivery` (digital delivery design §4.2,
+   * §6 D5–D11): the paying buyer's pinned payload per instant line. Each
+   * read writes the service's access row, so it is issued only when the
+   * buyer asks to open a line. Refusals (`not_paid`, `delivery_ended`,
+   * `sandbox_confirmed`, `rate_limited`, unavailable) are typed as in the
+   * owner read; a seller maps to FORBIDDEN and an outsider to NOT_FOUND.
+   */
+  static async getOrderDigitalDelivery(actor: string, orderId: string): Promise<MarketplaceOrderDigitalDelivery> {
+    const raw = await this.readDigitalEntitled(
+      'getOrderDigitalDelivery',
+      actor,
+      `/v1/orders/${encodeURIComponent(orderId)}/digital-delivery`,
+    );
+    return this.parseProjection(
+      'getOrderDigitalDelivery',
+      marketplaceOrderDigitalDeliverySchema,
+      raw,
+      'Marketplace returned an invalid digital-delivery read.',
+    );
+  }
+
+  /**
+   * `GET /v1/orders/{id}/delivery-email` (§4.3, §6 F5–F10): the address an
+   * email-kind order is sent to, and when the seller marked it emailed.
+   * `email_missing` (purged, or never stored) is a typed refusal.
+   */
+  static async getOrderDeliveryEmail(actor: string, orderId: string): Promise<MarketplaceOrderDeliveryEmail> {
+    const raw = await this.readDigitalEntitled(
+      'getOrderDeliveryEmail',
+      actor,
+      `/v1/orders/${encodeURIComponent(orderId)}/delivery-email`,
+    );
+    return this.parseProjection(
+      'getOrderDeliveryEmail',
+      marketplaceOrderDeliveryEmailSchema,
+      raw,
+      'Marketplace returned an invalid delivery-email read.',
     );
   }
 

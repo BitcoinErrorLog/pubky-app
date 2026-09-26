@@ -219,6 +219,22 @@ describe('marketplace order projection — offer-priced orders', () => {
   });
 });
 
+describe('marketplace order projection — digital lines (digital delivery design §2)', () => {
+  it('reads the kind each digital line was bought as, and ignores an unknown kind', () => {
+    const order = createOrderFixture('paid');
+    const parsed = marketplaceOrderSchema.parse({
+      ...order,
+      fulfillment: 'digital',
+      lines: [
+        { ...order.lines[0], fulfillment: 'digital', digitalKind: 'file' },
+        { ...order.lines[0], fulfillment: 'digital', digitalKind: 'hologram' },
+      ],
+    });
+    expect(parsed.fulfillment).toBe('digital');
+    expect(parsed.lines.map((line) => line.digitalKind)).toEqual(['file', undefined]);
+  });
+});
+
 describe('marketplace order projection — partial refund', () => {
   it('keeps refunded_partial off the vendored order enum and readable on the order projection', () => {
     expect(orderStateSchema.safeParse('refunded_partial').success).toBe(false);

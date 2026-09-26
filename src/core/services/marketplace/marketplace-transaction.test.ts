@@ -2000,3 +2000,130 @@ describe('MarketplaceTransactionService.getListingDigitalDelivery (digital deliv
     });
   });
 });
+
+describe('MarketplaceTransactionService buyer digital reads (digital delivery design §4.2, §4.3, §6 D5–D11, F5–F9)', () => {
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  const ORDER_ID = '018f47d2-6a27-7c23-a62f-000000000901';
+  const KEY_SENTINEL = 'c'.repeat(64);
+  const fileLine = {
+    line_index: 0,
+    listing_aggregate_id: `listing:${OTHER_ACTOR}_guide`,
+    kind: 'file',
+    seller_pubky: OTHER_ACTOR,
+    deliverable_id: 'a'.repeat(32),
+    version: 2,
+    key: KEY_SENTINEL,
+    iv: 'd'.repeat(24),
+    ciphertext_blake3: 'e'.repeat(64),
+    plaintext_blake3: 'f'.repeat(64),
+    content_type: 'application/pdf',
+    file_name: 'Field Guide.pdf',
+    size_bytes: 12_582_912,
+  };
+
+  it('reads the pinned payload for the buyer with the bearer and no-store', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        order_id: ORDER_ID,
+        lines: [fileLine, { ...fileLine, line_index: 1, kind: 'text', text: 'Licence ABC-123', key: undefined }],
+      }),
+    );
+
+    const read = await MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID);
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}/digital-delivery`);
+    expect(init.cache).toBe('no-store');
+    expect(new Headers(init.headers).get('authorization')).toMatch(/^Bearer /);
+    expect(read.lines[0]).toMatchObject({ kind: 'file', sellerPubky: OTHER_ACTOR, key: KEY_SENTINEL, version: 2 });
+    expect(read.lines[1]).toEqual({
+      lineIndex: 1,
+      listingAggregateId: `listing:${OTHER_ACTOR}_guide`,
+      kind: 'text',
+      sellerPubky: OTHER_ACTOR,
+      deliverableId: 'a'.repeat(32),
+      version: 2,
+      text: 'Licence ABC-123',
+    });
+  });
+
+  it.each([
+    ['not_paid', 'Available as soon as payment is confirmed.'],
+    ['delivery_ended', 'This order was refunded or cancelled, so the download is no longer available.'],
+    ['sandbox_confirmed', "Sandbox orders don't deliver files."],
+  ])('maps the %s refusal to a typed conflict (D8, D9, D11)', async (reason, message) => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(409, { ok: false, error: { code: 'INVALID_STATE', message: 'service words', reason } }),
+    );
+
+    await expect(MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID)).rejects.toMatchObject({
+      category: 'client',
+      code: 'CONFLICT',
+      message,
+      context: { refusal: reason, statusCode: 409 },
+    });
+  });
+
+  it('maps a seller reading the buyer payload to FORBIDDEN (D6)', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(403, {
+        ok: false,
+        error: { code: 'UNAUTHORIZED', message: 'Only the buyer may open the purchase.' },
+      }),
+    );
+
+    await expect(MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID)).rejects.toMatchObject({
+      category: 'auth',
+      code: 'FORBIDDEN',
+    });
+  });
+
+  it('refuses a payload whose file facts are malformed, with no excerpt', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, { order_id: ORDER_ID, lines: [{ ...fileLine, key: `${KEY_SENTINEL}zz` }] }),
+    );
+
+    const error = (await MarketplaceTransactionService.getOrderDigitalDelivery(ACTOR, ORDER_ID).catch(
+      (caught: unknown) => caught,
+    )) as AppError;
+
+    expect(error).toMatchObject({ category: 'server', code: 'INVALID_RESPONSE' });
+    expect(JSON.stringify({ message: error.message, context: error.context ?? null })).not.toContain(KEY_SENTINEL);
+    expect(error.cause).toBeUndefined();
+  });
+
+  it('reads the delivery email, and types a purged address as email_missing (F5, F9)', async () => {
+    await establishSession();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse(200, { order_id: ORDER_ID, delivery_email: 'buyer@example.com', emailed_at: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(409, {
+          ok: false,
+          error: { code: 'INVALID_STATE', message: 'No delivery email is on file.', reason: 'email_missing' },
+        }),
+      );
+
+    await expect(MarketplaceTransactionService.getOrderDeliveryEmail(ACTOR, ORDER_ID)).resolves.toEqual({
+      orderId: ORDER_ID,
+      deliveryEmail: 'buyer@example.com',
+      emailedAt: null,
+    });
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}/delivery-email`);
+    expect(init.cache).toBe('no-store');
+    await expect(MarketplaceTransactionService.getOrderDeliveryEmail(ACTOR, ORDER_ID)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      context: { refusal: 'email_missing' },
+    });
+  });
+});

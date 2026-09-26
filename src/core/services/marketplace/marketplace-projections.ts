@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { marketplaceListingDigitalDeliveryFieldSchema } from '@/libs/commerce/digital';
+import {
+  marketplaceDigitalDeliveryKindSchema,
+  marketplaceListingDigitalDeliveryFieldSchema,
+} from '@/libs/commerce/digital';
 import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-payment-review';
 import { findForbiddenPublicReserveKey } from '@/libs/commerce/marketplace-records';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
@@ -505,6 +508,10 @@ export const marketplaceOrderProjectionSchema = z
         // The line's fulfillment kind (§A2). Absent on order lines placed
         // before Wave 7 — they read as shipped lines.
         fulfillment: marketplaceFulfillmentMethodSchema.optional(),
+        // The delivery kind a digital line was bought as (digital delivery
+        // design §2). Tolerant: an unknown kind reads as absent, never
+        // failing the order.
+        digitalKind: marketplaceDigitalDeliveryKindSchema.optional().catch(undefined),
         // The pickup-details version pinned at payment (§A3). An absent key
         // reads as "no terms version pinned" (shipped lines and pre-Wave 7 rows).
         versionAtPayment: z.number().int().positive().optional(),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { commercePubkySchema } from './transaction-contracts';
 
 // -----------------------------------------------------------------------------
 // Digital delivery (docs: digital-delivery-design.md rev 3).
@@ -465,3 +466,100 @@ export function digitalCheckoutLineLabel(kind: MarketplaceDigitalDeliveryKind | 
   if (kind === undefined) return DIGITAL_DELIVERY_COPY.badge;
   return `${DIGITAL_DELIVERY_COPY.badge} · ${digitalDeliveryBadgeLabel({ kind })}`;
 }
+
+// -----------------------------------------------------------------------------
+// Buyer order reads (§3 "After payment", §4.2, §4.3, §6 D5–D11, F5–F12).
+// -----------------------------------------------------------------------------
+
+const orderDigitalLineFields = {
+  lineIndex: z.number().int().nonnegative(),
+  listingAggregateId: z.string().min(1),
+  sellerPubky: commercePubkySchema,
+  version: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+};
+
+/**
+ * `GET /v1/orders/{id}/digital-delivery` (`handlers/digital_orders.rs`): the
+ * pinned payload per instant line. A file line carries the facts that open
+ * the ciphertext on the seller's homeserver; they are held in memory for one
+ * open and never stored.
+ */
+export const marketplaceOrderDigitalDeliverySchema = z
+  .object({
+    orderId: z.uuid(),
+    lines: z.array(
+      z.discriminatedUnion('kind', [
+        digitalDeliveryFileSchema.extend(orderDigitalLineFields).strip(),
+        z
+          .object({
+            ...orderDigitalLineFields,
+            kind: z.literal('link'),
+            deliverableId: z.string().min(1),
+            url: z.string().refine(isDigitalDeliveryLink),
+          })
+          .strip(),
+        z
+          .object({
+            ...orderDigitalLineFields,
+            kind: z.literal('text'),
+            deliverableId: z.string().min(1),
+            text: z.string().min(1),
+          })
+          .strip(),
+      ]),
+    ),
+  })
+  .strip();
+export type MarketplaceOrderDigitalDelivery = z.infer<typeof marketplaceOrderDigitalDeliverySchema>;
+export type MarketplaceOrderDigitalLine = MarketplaceOrderDigitalDelivery['lines'][number];
+
+/** `GET /v1/orders/{id}/delivery-email`: the address on file and when the seller marked it emailed. */
+export const marketplaceOrderDeliveryEmailSchema = z
+  .object({
+    orderId: z.uuid(),
+    deliveryEmail: z.string().min(1),
+    emailedAt: z.string().nullable(),
+  })
+  .strip();
+export type MarketplaceOrderDeliveryEmail = z.infer<typeof marketplaceOrderDeliveryEmailSchema>;
+
+/** Why a buyer's file could not be opened after the read succeeded. */
+export type DigitalFileOpenFailure = 'fetch_failed' | 'ciphertext_mismatch' | 'decrypt_failed' | 'plaintext_mismatch';
+
+export const DIGITAL_FILE_OPEN_FAILURE_COPY: Readonly<Record<DigitalFileOpenFailure, string>> = {
+  fetch_failed: "The seller's homeserver didn't return the file. Try again shortly.",
+  ciphertext_mismatch: "The file on the seller's homeserver isn't the one you paid for. Message the seller.",
+  decrypt_failed: "The file couldn't be unlocked. Message the seller.",
+  plaintext_mismatch: "The file couldn't be verified after unlocking. Message the seller.",
+};
+
+/** The typed `order.set_delivery_email` refusals (§6 F11, F12). */
+export type DeliveryEmailChangeRefusal = 'already_emailed' | 'invalid_email' | 'not_buyer' | 'closed' | 'changed';
+
+export function classifyDeliveryEmailChangeRefusal(error: {
+  code: string;
+  reason?: unknown;
+}): DeliveryEmailChangeRefusal | null {
+  if (error.reason === 'already_emailed') return 'already_emailed';
+  if (error.reason === 'invalid_delivery_email') return 'invalid_email';
+  switch (error.code) {
+    case 'UNAUTHORIZED':
+      return 'not_buyer';
+    case 'REVISION_CONFLICT':
+      return 'changed';
+    case 'INVALID_STATE':
+      return 'closed';
+    default:
+      return null;
+  }
+}
+
+export const DELIVERY_EMAIL_CHANGE_COPY: Readonly<Record<DeliveryEmailChangeRefusal | 'saved' | 'failed', string>> = {
+  saved: 'Saved. The seller will use this address.',
+  already_emailed: "The seller already emailed your purchase. Message them if it didn't arrive.",
+  invalid_email: DIGITAL_CHECKOUT_REFUSAL_COPY.invalid_email,
+  not_buyer: 'Only the buyer can change the delivery email.',
+  closed: 'The delivery email can no longer be changed on this order.',
+  changed: 'This order changed. Refresh to see the latest.',
+  failed: "The email couldn't be saved. Try again.",
+};

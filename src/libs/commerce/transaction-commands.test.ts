@@ -13,6 +13,7 @@ import {
   marketplaceCommandSchema,
   markReadyForPickupCommandSchema,
   registerListingCommandSchema,
+  setDeliveryEmailCommandSchema,
   setDigitalDeliveryCommandSchema,
   setPickupDetailsCommandSchema,
   updateReviewCommandSchema,
@@ -610,5 +611,31 @@ describe('digital_delivery.set / .clear command contract (digital delivery desig
     });
     expect(asDigitalDeliveryCommandResult(response)).toMatchObject({ version: 3, deliveryKind: 'file' });
     expect(asPickupDetailsCommandResult(response)).toBeNull();
+  });
+});
+
+describe('order.set_delivery_email command contract (digital delivery design §6 F11)', () => {
+  const command = (payload: Record<string, unknown>) => ({
+    version: 1,
+    commandId: '018f47d2-6a27-7c23-a62f-000000000911',
+    aggregateId: 'order:018f47d2-6a27-7c23-a62f-000000000901',
+    expectedRevision: 3,
+    issuedAt: '2026-09-26T08:00:00.000Z',
+    kind: 'order.set_delivery_email',
+    payload,
+  });
+  const orderId = '018f47d2-6a27-7c23-a62f-000000000901';
+
+  it('carries the order and a well-formed address', () => {
+    expect(
+      setDeliveryEmailCommandSchema.parse(command({ orderId, deliveryEmail: 'buyer@example.com' })).payload,
+    ).toEqual({ orderId, deliveryEmail: 'buyer@example.com' });
+  });
+
+  it('refuses a malformed address and unknown fields', () => {
+    expect(setDeliveryEmailCommandSchema.safeParse(command({ orderId, deliveryEmail: 'buyer' })).success).toBe(false);
+    expect(setDeliveryEmailCommandSchema.safeParse(command({ orderId, deliveryEmail: 'a@b', note: 'x' })).success).toBe(
+      false,
+    );
   });
 });

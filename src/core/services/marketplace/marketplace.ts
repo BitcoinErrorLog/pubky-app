@@ -2,7 +2,12 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
-import type { MarketplaceDigitalDeliveryCapability, MarketplaceSellerDigitalDelivery } from '@/libs/commerce/digital';
+import type {
+  MarketplaceDigitalDeliveryCapability,
+  MarketplaceOrderDeliveryEmail,
+  MarketplaceOrderDigitalDelivery,
+  MarketplaceSellerDigitalDelivery,
+} from '@/libs/commerce/digital';
 import type {
   PaymentMethodKind,
   SellerPaymentConfig,
@@ -467,6 +472,18 @@ export class MarketplaceGatewayService {
   ): Promise<MarketplaceSellerDigitalDelivery> {
     this.assertDurableServiceOnly('getListingDigitalDelivery');
     return await MarketplaceTransactionService.getListingDigitalDelivery(actor, aggregateId);
+  }
+
+  /** The buyer's pinned digital payload for an order (§4.2) — durable service only. */
+  static async getOrderDigitalDelivery(actor: string, orderId: string): Promise<MarketplaceOrderDigitalDelivery> {
+    this.assertDurableServiceOnly('getOrderDigitalDelivery');
+    return await MarketplaceTransactionService.getOrderDigitalDelivery(actor, orderId);
+  }
+
+  /** An email-kind order's delivery email and emailed time (§4.3) — durable service only. */
+  static async getOrderDeliveryEmail(actor: string, orderId: string): Promise<MarketplaceOrderDeliveryEmail> {
+    this.assertDurableServiceOnly('getOrderDeliveryEmail');
+    return await MarketplaceTransactionService.getOrderDeliveryEmail(actor, orderId);
   }
 
   static async getListingPickupDetails(actor: string, aggregateId: string): Promise<MarketplaceSellerPickupDetails> {

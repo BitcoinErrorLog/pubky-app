@@ -2226,11 +2226,15 @@ describe('MarketplaceTransactionService', () => {
 });
 
 describe('MarketplaceTransactionService digital delivery (digital delivery design §6 A1, B5)', () => {
-  it('refuses digital_delivery.set and .clear the way an unkeyed durable service does', async () => {
+  it('refuses digital_delivery.set, .clear and order.set_delivery_email the way an unkeyed durable service does', async () => {
     const { service } = createService();
     for (const [kind, payload] of [
       ['digital_delivery.set', { expectedVersion: 0, delivery: { kind: 'email' } }],
       ['digital_delivery.clear', { expectedVersion: 0 }],
+      [
+        'order.set_delivery_email',
+        { orderId: '00000000-0000-4000-8000-000000000001', deliveryEmail: 'buyer@example.com' },
+      ],
     ] as const) {
       const result = await service.execute(SELLER, {
         version: 1,

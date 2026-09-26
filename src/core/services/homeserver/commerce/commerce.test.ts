@@ -50,6 +50,18 @@ describe('CommerceHomeserverService', () => {
     expect(request).toHaveBeenCalledWith({ method: HttpMethod.DELETE, url: deliverable, logUrl });
   });
 
+  it('reads a digital deliverable with the redacted log path', async () => {
+    const deliverable = `pubky://${'y'.repeat(52)}/pub/pubky.app/marketplace/v1/deliverables/${'a'.repeat(32)}/2`;
+    const bytes = new Uint8Array([4, 5, 6]);
+    const getBlob = vi.spyOn(HomeserverService, 'getBlob').mockResolvedValue(bytes);
+
+    await expect(CommerceHomeserverService.getDeliverable(deliverable)).resolves.toBe(bytes);
+    expect(getBlob).toHaveBeenCalledWith({
+      url: deliverable,
+      logUrl: '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>',
+    });
+  });
+
   it('deletes only through the authenticated homeserver request boundary', async () => {
     const request = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
 

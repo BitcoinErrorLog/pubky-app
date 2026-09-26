@@ -94,6 +94,12 @@ export type TPutBlobParams = {
   logUrl?: string;
 };
 
+export type TGetBlobParams = {
+  url: string;
+  /** The URL recorded in error context and logs; defaults to `url`. Unpublished paths pass a redacted form. */
+  logUrl?: string;
+};
+
 export type THomeserverListParams = {
   baseDirectory: string;
   cursor?: string;

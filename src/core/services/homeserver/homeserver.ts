@@ -45,6 +45,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 import { extractStatusCode, grantKeyRemovalFailed, handleError } from './error.utils';
 import type {
   TGenerateSignupAuthUrlParams,
+  TGetBlobParams,
   THomeserverFetchParams,
   THomeserverListAllParams,
   THomeserverListParams,
@@ -929,6 +930,26 @@ export class HomeserverService {
 
     const response = await this.fetch({ url, logUrl, options: { method: HttpMethod.PUT, body: blob } });
     await assertOk({ response, url: contextUrl, operation: 'putBlob' });
+  }
+
+  /**
+   * Reads binary data from the homeserver: an owned path through the
+   * session, any other `pubky://` path as a public read. Throws if the
+   * response is not OK; error context carries `logUrl` when given.
+   */
+  static async getBlob({ url, logUrl }: TGetBlobParams): Promise<Uint8Array<ArrayBuffer>> {
+    const contextUrl = logUrl ?? url;
+    const owned = this.resolveOwnedSessionPath(url);
+    if (owned) {
+      const response = await getOwnedResponse({ session: owned.session, path: owned.path, url: contextUrl });
+      return new Uint8Array(await response.arrayBuffer());
+    }
+    const pubkySdk = this.getPubkySdk();
+    const response = await (
+      isHttpUrl(url) ? pubkySdk.client.fetch(url) : pubkySdk.publicStorage.get(url as Address)
+    ).catch((error) => handleError({ error, additionalContext: { url: contextUrl, method: HttpMethod.GET } }));
+    await assertOk({ response, url: contextUrl, operation: 'getBlob' });
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   /**

@@ -34,6 +34,11 @@ export class CommerceHomeserverService {
     await HomeserverService.request({ method: HttpMethod.DELETE, url, logUrl: DIGITAL_DELIVERABLE_LOG_PATH });
   }
 
+  /** Reads a seller's encrypted deliverable (a public read), logging the redacted path only. */
+  static async getDeliverable(url: string): Promise<Uint8Array<ArrayBuffer>> {
+    return await HomeserverService.getBlob({ url, logUrl: DIGITAL_DELIVERABLE_LOG_PATH });
+  }
+
   static async list(directoryUrl: string, limit: number): Promise<string[]> {
     return await HomeserverService.list({ baseDirectory: directoryUrl, limit });
   }

@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { marketplaceListingProjectionSchema } from '@/core/services/marketplace/marketplace-projections';
 import { serviceListingProjectionWire as serviceListingSample } from '@/test/fixtures/commerce/listing-projection.wire';
 import {
+  classifyDeliveryEmailChangeRefusal,
   classifyDigitalCheckoutRefusal,
   classifyDigitalDeliverySetupRefusal,
   classifyDigitalReadRefusal,
+  DELIVERY_EMAIL_CHANGE_COPY,
   DELIVERY_EMAIL_MAX_CHARS,
   DIGITAL_CHECKOUT_COPY,
   DIGITAL_CHECKOUT_REFUSAL_COPY,
   DIGITAL_DELIVERY_COPY,
   DIGITAL_DELIVERY_SETUP_COPY,
+  DIGITAL_FILE_OPEN_FAILURE_COPY,
   digitalCheckoutLineLabel,
   digitalContentTypeLabel,
   digitalDeliveryBadgeLabel,
@@ -22,6 +25,8 @@ import {
   isInstantDigitalDeliveryKind,
   isWellFormedDeliveryEmail,
   marketplaceListingDigitalDeliveryFieldSchema,
+  marketplaceOrderDeliveryEmailSchema,
+  marketplaceOrderDigitalDeliverySchema,
   marketplaceSellerDigitalDeliverySchema,
 } from './digital';
 import { marketplaceHealthSchema } from './pickup';
@@ -342,5 +347,84 @@ describe('digital checkout lines (§3 "Checkout")', () => {
       "Delivery starts as soon as payment is confirmed. Digital orders can't be cancelled once delivered; message the seller about a refund.",
     );
     expect(DIGITAL_CHECKOUT_COPY.consentManual).toBe('You can ask to cancel until the seller marks it delivered.');
+  });
+});
+
+describe('buyer order reads (§4.2, §4.3, §6 D5, F5, F11, F12)', () => {
+  const seller = 'y'.repeat(52);
+  const file = {
+    lineIndex: 0,
+    listingAggregateId: `listing:${seller}_guide`,
+    kind: 'file',
+    sellerPubky: seller,
+    deliverableId: 'a'.repeat(32),
+    version: 2,
+    key: 'c'.repeat(64),
+    iv: 'd'.repeat(24),
+    ciphertextBlake3: 'e'.repeat(64),
+    plaintextBlake3: 'f'.repeat(64),
+    contentType: 'application/pdf',
+    fileName: 'Field Guide.pdf',
+    sizeBytes: 12_582_912,
+  };
+  const read = (lines: unknown[]) =>
+    marketplaceOrderDigitalDeliverySchema.safeParse({ orderId: '018f47d2-6a27-7c23-a62f-000000000901', lines });
+
+  it('parses the payload handlers/digital_orders.rs serves for each instant kind', () => {
+    const parsed = read([
+      file,
+      { ...file, lineIndex: 1, kind: 'link', url: 'https://example.com/course' },
+      { ...file, lineIndex: 2, kind: 'text', text: 'Licence ABC-123' },
+    ]);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.lines.map((line) => line.kind)).toEqual(['file', 'link', 'text']);
+    expect(parsed.data?.lines[1]).not.toHaveProperty('key');
+  });
+
+  it('refuses file facts that could not open the pinned file, or reach another path', () => {
+    for (const bad of [
+      { ...file, key: 'c'.repeat(63) },
+      { ...file, iv: 'D'.repeat(24) },
+      { ...file, deliverableId: '../other' },
+      { ...file, sellerPubky: 'not-a-pubky' },
+      { ...file, version: 0 },
+      { ...file, fileName: '../Field Guide.pdf' },
+    ]) {
+      expect(read([bad]).success).toBe(false);
+    }
+    expect(read([{ ...file, kind: 'link', url: 'http://example.com' }]).success).toBe(false);
+  });
+
+  it('parses the delivery email read', () => {
+    expect(
+      marketplaceOrderDeliveryEmailSchema.parse({
+        orderId: '018f47d2-6a27-7c23-a62f-000000000901',
+        deliveryEmail: 'buyer@example.com',
+        emailedAt: '2026-09-26T08:00:00.000Z',
+      }).emailedAt,
+    ).toBe('2026-09-26T08:00:00.000Z');
+  });
+
+  it('classifies delivery email change refusals and carries the design copy (F11, F12)', () => {
+    expect(classifyDeliveryEmailChangeRefusal({ code: 'INVALID_STATE', reason: 'already_emailed' })).toBe(
+      'already_emailed',
+    );
+    expect(classifyDeliveryEmailChangeRefusal({ code: 'INVALID_COMMAND', reason: 'invalid_delivery_email' })).toBe(
+      'invalid_email',
+    );
+    expect(classifyDeliveryEmailChangeRefusal({ code: 'UNAUTHORIZED' })).toBe('not_buyer');
+    expect(classifyDeliveryEmailChangeRefusal({ code: 'REVISION_CONFLICT' })).toBe('changed');
+    expect(classifyDeliveryEmailChangeRefusal({ code: 'INVALID_STATE' })).toBe('closed');
+    expect(classifyDeliveryEmailChangeRefusal({ code: 'INTERNAL' })).toBeNull();
+    expect(DELIVERY_EMAIL_CHANGE_COPY.saved).toBe('Saved. The seller will use this address.');
+    expect(DELIVERY_EMAIL_CHANGE_COPY.already_emailed).toBe(
+      "The seller already emailed your purchase. Message them if it didn't arrive.",
+    );
+    expect(Object.keys(DIGITAL_FILE_OPEN_FAILURE_COPY).sort()).toEqual([
+      'ciphertext_mismatch',
+      'decrypt_failed',
+      'fetch_failed',
+      'plaintext_mismatch',
+    ]);
   });
 });

@@ -492,6 +492,16 @@ export const setDigitalDeliveryCommandSchema = createCommerceCommandSchema(
     }),
 );
 
+/**
+ * `order.set_delivery_email` (buyer, own order only): replaces the address an
+ * email-kind line is sent to, while the order is pending payment or paid and
+ * not yet marked emailed (digital delivery design §4.3, §6 F11, F12).
+ */
+export const setDeliveryEmailCommandSchema = createCommerceCommandSchema(
+  'order.set_delivery_email',
+  orderIdPayload.extend({ deliveryEmail: marketplaceDeliveryEmailSchema }).strict(),
+);
+
 /** `digital_delivery.clear` (seller, own listing only): removes delivery; refused while buyers pay for or download it (C4). */
 export const clearDigitalDeliveryCommandSchema = createCommerceCommandSchema(
   'digital_delivery.clear',
@@ -612,6 +622,7 @@ export const marketplaceCommandSchema = z.union([
   clearPickupDetailsCommandSchema,
   setDigitalDeliveryCommandSchema,
   clearDigitalDeliveryCommandSchema,
+  setDeliveryEmailCommandSchema,
   markReadyForPickupCommandSchema,
   confirmPickupCommandSchema,
   requestReturnCommandSchema,
@@ -702,6 +713,7 @@ export type SetPickupDetailsCommand = z.infer<typeof setPickupDetailsCommandSche
 export type ClearPickupDetailsCommand = z.infer<typeof clearPickupDetailsCommandSchema>;
 export type SetDigitalDeliveryCommand = z.infer<typeof setDigitalDeliveryCommandSchema>;
 export type ClearDigitalDeliveryCommand = z.infer<typeof clearDigitalDeliveryCommandSchema>;
+export type SetDeliveryEmailCommand = z.infer<typeof setDeliveryEmailCommandSchema>;
 export type MarkReadyForPickupCommand = z.infer<typeof markReadyForPickupCommandSchema>;
 export type ConfirmPickupCommand = z.infer<typeof confirmPickupCommandSchema>;
 export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;

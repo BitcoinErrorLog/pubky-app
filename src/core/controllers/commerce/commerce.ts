@@ -924,6 +924,42 @@ export class CommerceController {
     });
   }
 
+  /** The current buyer's pinned digital payload for one of their orders (§4.2). Call only when the buyer opens a line. */
+  static async fetchOrderDigitalDelivery(orderId: unknown) {
+    return await CommerceApplication.fetchOrderDigitalDelivery(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  /** Verifies and decrypts a file line from `fetchOrderDigitalDelivery`; the bytes stay in memory. */
+  static async openOrderDigitalFile(line: Parameters<typeof CommerceApplication.openOrderDigitalFile>[0]) {
+    return await CommerceApplication.openOrderDigitalFile(line);
+  }
+
+  /** The delivery email on one of the current user's email-kind orders (§4.3). */
+  static async fetchOrderDeliveryEmail(orderId: unknown) {
+    return await CommerceApplication.fetchOrderDeliveryEmail(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  /** `order.set_delivery_email` (§6 F11): the buyer replaces the address on their order. */
+  static async commitSetDeliveryEmail(orderId: unknown, expectedRevision: unknown, deliveryEmail: unknown) {
+    if (typeof deliveryEmail !== 'string') {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A delivery email is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'commitSetDeliveryEmail',
+      });
+    }
+    return await CommerceApplication.commitSetDeliveryEmail(this.getCurrentUserPubky(), {
+      orderId: CommerceRecordNormalizer.entityId(orderId),
+      expectedRevision: this.pickupOrderRevision(expectedRevision),
+      deliveryEmail: deliveryEmail.trim(),
+    });
+  }
+
   private static digitalDeliveryVersion(value: unknown): number {
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value >= Number.MAX_SAFE_INTEGER) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A non-negative digital delivery version is required.', {

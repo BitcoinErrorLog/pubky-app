@@ -1147,6 +1147,7 @@ export class MarketplaceTransactionService {
         return this.setPickupDetails(actorPubky, command);
       case 'digital_delivery.set':
       case 'digital_delivery.clear':
+      case 'order.set_delivery_email':
         // The prototype seals and releases nothing: it refuses digital
         // delivery the way an unkeyed durable service does (§6 B5).
         return failure('INVALID_STATE', 'Digital delivery is unavailable on this deployment.', {

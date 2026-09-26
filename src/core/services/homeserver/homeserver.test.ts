@@ -1544,6 +1544,45 @@ describe('HomeserverService', () => {
       });
     });
 
+    describe('getBlob', () => {
+      const realPath = 'pubky://someone/pub/pubky.app/marketplace/v1/deliverables/0123456789abcdef0123456789abcdef/2';
+      const logUrl = '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>';
+
+      it('reads the bytes of a public path', async () => {
+        mockState.publicStorageGet.mockResolvedValue(new Response(new Uint8Array([7, 8, 9]), { status: 200 }));
+
+        const bytes = await HomeserverService.getBlob({ url: realPath, logUrl });
+
+        expect(mockState.publicStorageGet).toHaveBeenCalledWith(realPath);
+        expect([...bytes]).toEqual([7, 8, 9]);
+      });
+
+      // Digital delivery design §2: a buyer's read of a deliverable names the redacted path only.
+      it('records the redacted logUrl, never the real path, when the read fails', async () => {
+        mockState.publicStorageGet.mockResolvedValue(new Response('gone', { status: 404 }));
+        const loggerError = vi.spyOn(Logger, 'error');
+
+        const error = (await HomeserverService.getBlob({ url: realPath, logUrl }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(error.context).toMatchObject({ endpoint: logUrl, statusCode: 404 });
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+        expect(JSON.stringify(loggerError.mock.calls)).not.toContain('0123456789abcdef');
+        loggerError.mockRestore();
+      });
+
+      it('records the redacted logUrl when the transport throws', async () => {
+        mockState.publicStorageGet.mockRejectedValue(new Error('Network error'));
+
+        const error = (await HomeserverService.getBlob({ url: realPath, logUrl }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+      });
+    });
+
     describe('get', () => {
       it('should use publicStorage.get for fetching', async () => {
         const testUrl = 'pubky://user/pub/public.json';

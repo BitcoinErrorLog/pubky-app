@@ -2,7 +2,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
-import { openDigitalDeliverable } from '@/libs/commerce/digital-file';
+import { encryptDigitalDeliverable, openDigitalDeliverable } from '@/libs/commerce/digital-file';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { Logger } from '@/libs/logger/logger';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
@@ -227,5 +227,122 @@ describe('CommerceApplication digital delivery seller setup (digital delivery de
     const read = vi.spyOn(MarketplaceGatewayService, 'getListingDigitalDelivery').mockResolvedValue({} as never);
     await CommerceApplication.fetchSellerDigitalDelivery(SELLER, LISTING_AGGREGATE_ID);
     expect(read).toHaveBeenCalledWith(SELLER, LISTING_AGGREGATE_ID);
+  });
+});
+
+describe('CommerceApplication buyer digital delivery (digital delivery design §3.4, §4.2, §6 F11)', () => {
+  const ORDER_ID = '018f47d2-6a27-7c23-a62f-000000000901';
+  const DELIVERABLE_ID = 'b'.repeat(32);
+
+  async function pinnedFileLine() {
+    const encrypted = await encryptDigitalDeliverable({
+      plaintext: new Uint8Array(PLAINTEXT),
+      sellerPubky: SELLER,
+      deliverableId: DELIVERABLE_ID,
+      version: 3,
+    });
+    const line = {
+      lineIndex: 0,
+      listingAggregateId: LISTING_AGGREGATE_ID,
+      kind: 'file' as const,
+      sellerPubky: SELLER,
+      deliverableId: DELIVERABLE_ID,
+      version: 3,
+      key: encrypted.key,
+      iv: encrypted.iv,
+      ciphertextBlake3: encrypted.ciphertextBlake3,
+      plaintextBlake3: encrypted.plaintextBlake3,
+      sizeBytes: encrypted.sizeBytes,
+      contentType: 'application/pdf',
+      fileName: 'Field Guide.pdf',
+    };
+    return { line, ciphertext: encrypted.ciphertext };
+  }
+
+  beforeEach(() => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reads the ciphertext at the pinned path, verifies it and returns the plaintext', async () => {
+    const { line, ciphertext } = await pinnedFileLine();
+    const get = vi.spyOn(CommerceHomeserverService, 'getDeliverable').mockResolvedValue(ciphertext);
+
+    const opened = await CommerceApplication.openOrderDigitalFile(line);
+
+    expect(get).toHaveBeenCalledWith(`pubky://${SELLER}/pub/pubky.app/marketplace/v1/deliverables/${DELIVERABLE_ID}/3`);
+    expect(opened).toMatchObject({ ok: true, fileName: 'Field Guide.pdf', contentType: 'application/pdf' });
+    expect(opened.ok && new TextDecoder().decode(opened.bytes)).toBe(new TextDecoder().decode(PLAINTEXT));
+  });
+
+  it('refuses a ciphertext that is not the pinned one', async () => {
+    const { line, ciphertext } = await pinnedFileLine();
+    const tampered = new Uint8Array(ciphertext);
+    tampered[0] ^= 0xff;
+    vi.spyOn(CommerceHomeserverService, 'getDeliverable').mockResolvedValue(tampered);
+
+    await expect(CommerceApplication.openOrderDigitalFile(line)).resolves.toEqual({
+      ok: false,
+      reason: 'ciphertext_mismatch',
+    });
+  });
+
+  it('refuses a pinned key that does not open the file', async () => {
+    const { line, ciphertext } = await pinnedFileLine();
+    vi.spyOn(CommerceHomeserverService, 'getDeliverable').mockResolvedValue(ciphertext);
+
+    await expect(CommerceApplication.openOrderDigitalFile({ ...line, key: 'a'.repeat(64) })).resolves.toEqual({
+      ok: false,
+      reason: 'decrypt_failed',
+    });
+  });
+
+  it('reports a homeserver that does not return the file', async () => {
+    const { line } = await pinnedFileLine();
+    vi.spyOn(CommerceHomeserverService, 'getDeliverable').mockRejectedValue(new Error('404'));
+
+    await expect(CommerceApplication.openOrderDigitalFile(line)).resolves.toEqual({
+      ok: false,
+      reason: 'fetch_failed',
+    });
+  });
+
+  it('sets the delivery email on the order aggregate with the order revision', async () => {
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(okResponse as never);
+
+    await CommerceApplication.commitSetDeliveryEmail(SELLER, {
+      orderId: ORDER_ID,
+      expectedRevision: 4,
+      deliveryEmail: 'buyer@example.com',
+    });
+
+    expect(executedCommand(execute)).toMatchObject({
+      kind: 'order.set_delivery_email',
+      aggregateId: `order:${ORDER_ID}`,
+      expectedRevision: 4,
+      payload: { orderId: ORDER_ID, deliveryEmail: 'buyer@example.com' },
+    });
+  });
+
+  it('reads nothing and sends nothing on a non-durable deployment', async () => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    const read = vi.spyOn(MarketplaceGatewayService, 'getOrderDigitalDelivery');
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+    await expect(CommerceApplication.fetchOrderDigitalDelivery(SELLER, ORDER_ID)).rejects.toMatchObject({
+      context: { refusal: 'digital_delivery_unavailable' },
+    });
+    await expect(
+      CommerceApplication.commitSetDeliveryEmail(SELLER, {
+        orderId: ORDER_ID,
+        expectedRevision: 1,
+        deliveryEmail: 'a@b',
+      }),
+    ).rejects.toMatchObject({ context: { refusal: 'digital_delivery_unavailable' } });
+    expect(read).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
 });
