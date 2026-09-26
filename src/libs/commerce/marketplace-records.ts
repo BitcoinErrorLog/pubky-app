@@ -295,19 +295,22 @@ export function commerceListingFulfillmentMethods(
 }
 
 /**
- * Whether the service will take an `offer.create` on this listing: a
- * fixed-price sale that accepts offers and whose registered fulfillment
- * methods include shipping. The service refuses offers on listings that
- * do not ship, pickup-only or digital-only (`INVALID_STATE`), so the Shop
- * must not offer the action there. A Locks listing registers as shipping.
+ * Whether the listing offers **Make offer**: a fixed-price sale that accepts
+ * offers and publishes a physical fulfillment (shipping or pickup). Digital
+ * items take no offers; the service refuses them
+ * (`offers_unavailable_for_digital`). A Locks listing publishes only
+ * `digital`, so it takes none either, although the service registers it as
+ * shipping.
  */
 export function commerceListingTakesOffers(
-  record: Pick<CommerceListingRecord, 'sale' | 'fulfillmentMethods' | 'digitalLock'>,
+  record: Pick<CommerceListingRecord, 'sale' | 'fulfillmentMethods'>,
 ): boolean {
   return (
     record.sale.format === 'fixed_price' &&
     record.sale.acceptsOffers &&
-    commerceListingFulfillmentMethods(record.fulfillmentMethods, record.digitalLock !== undefined).includes('shipping')
+    commerceListingFulfillmentMethods(record.fulfillmentMethods).some(
+      (method) => method === 'shipping' || method === 'pickup',
+    )
   );
 }
 

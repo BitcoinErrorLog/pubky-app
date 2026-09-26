@@ -82,6 +82,7 @@ export const DIGITAL_DELIVERY_COPY = {
   messaged: 'Sent by the seller in messages after payment',
   offersUnavailable: "Offers aren't available on digital items yet.",
   offersBuyShipped: 'Offers buy the shipped version.',
+  offersBuyPickup: 'Offers buy the pickup version.',
   paypalWarning:
     "PayPal can reverse payments after delivery and does not cover 'not as described' claims for digital items.",
   unavailable: "Digital delivery isn't available on this deployment.",

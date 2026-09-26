@@ -32,9 +32,14 @@ export type MarketplaceOfferCheckoutResult =
 export function useMarketplaceOfferCheckout(onCompleted?: () => Promise<void> | void) {
   const submittingRef = useRef(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /**
+   * `deliveryAddress` is null exactly for a pickup award: the command then
+   * carries `fulfillment: 'pickup'` and no address. A shipped award sends the
+   * same payload as before, so older service builds keep accepting it.
+   */
   const submit = async (
     offer: MarketplaceOffer,
-    deliveryAddress: DeliveryAddress,
+    deliveryAddress: DeliveryAddress | null,
     method?: PaymentMethodKind | null,
   ): Promise<MarketplaceOfferCheckoutResult> => {
     if (submittingRef.current) return { ok: false, code: 'SUBMITTING' };
@@ -76,7 +81,7 @@ export function useMarketplaceOfferCheckout(onCompleted?: () => Promise<void> | 
             listingRecordSha256: award.listing.listingRecordSha256,
             variantId: award.variant.id,
             quantity: award.quantity,
-            deliveryAddress,
+            ...(deliveryAddress ? { deliveryAddress } : { fulfillment: 'pickup' as const }),
             guaranteePolicyVersion: 1,
           },
         });

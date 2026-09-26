@@ -209,9 +209,10 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const methods = commerceListingFulfillmentMethods(record.fulfillmentMethods, isLocksListing);
   const offersDigital = methods.includes('digital');
   const shipsItem = !isLocksListing && methods.includes('shipping');
-  // Offers settle as shipped orders (§6 B7, B8): a digital listing that does
-  // not ship takes no offers.
-  const offersDigitalOnly = offersDigital && !shipsItem;
+  // Offers settle through shipping or pickup (§6 B7, B8): a digital listing
+  // with neither takes no offers.
+  const offersPhysical = shipsItem || (!isLocksListing && methods.includes('pickup'));
+  const offersDigitalOnly = offersDigital && !offersPhysical;
   const shippingCopy = formatListingShipping(record, methods);
   const hasFreeShipping = shippingCopy === 'Shipping: free';
   const flatShipping = shipsItem ? record.shippingOptions.find((option) => option.pricing === 'flat') : undefined;
@@ -516,7 +517,7 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       }
                     />
                   )}
-                  {record.sale.acceptsOffers && (offersDigitalOnly || (offersDigital && shipsItem)) && (
+                  {record.sale.acceptsOffers && offersDigital && (
                     <Typography
                       as="p"
                       className="w-full text-sm text-muted-foreground"
@@ -524,7 +525,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     >
                       {offersDigitalOnly
                         ? DIGITAL_DELIVERY_COPY.offersUnavailable
-                        : DIGITAL_DELIVERY_COPY.offersBuyShipped}
+                        : shipsItem
+                          ? DIGITAL_DELIVERY_COPY.offersBuyShipped
+                          : DIGITAL_DELIVERY_COPY.offersBuyPickup}
                     </Typography>
                   )}
                 </>

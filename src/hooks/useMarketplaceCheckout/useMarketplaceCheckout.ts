@@ -103,9 +103,15 @@ export type MarketplacePayResult = {
   boundOrders: MarketplaceOrder[];
 };
 
+/**
+ * `award` is an accepted offer's checkout: its fulfillment choices come from
+ * the accepted snapshot's methods (never the listing as it is now), filtered
+ * by the deployment's pickup capability like a cart line's.
+ */
 export function useMarketplaceCheckout(
   items: MarketplaceCartItem[],
   clearCart: () => Promise<void>,
+  award: { sellerPubky: string; fulfillmentMethods: readonly MarketplaceFulfillmentMethod[] } | null = null,
 ): {
   form: UseFormReturn<MarketplaceCheckoutData>;
   submit: () => Promise<boolean>;
@@ -318,10 +324,28 @@ export function useMarketplaceCheckout(
   // prior art's `?? 'shipping'` defect, PR 22 review item 1).
   const optionsBySeller = new Map<string, MarketplaceFulfillmentMethod[]>();
   const sellersPublishingPickup = new Set<string>();
-  for (const item of physicalItems) {
-    const sellerPubky = item.listing.record.ownerPubky;
-    if (publishedFor(item).includes('pickup')) sellersPublishingPickup.add(sellerPubky);
-    const allowed = physicalOptionsFor(item);
+  // An accepted offer settles through the snapshot's physical methods only
+  // (offers never deliver digitally), filtered by the pickup capability.
+  const fulfillmentSources = [
+    ...physicalItems.map((item) => ({
+      sellerPubky: item.listing.record.ownerPubky,
+      published: publishedFor(item),
+      allowed: physicalOptionsFor(item),
+    })),
+    ...(award
+      ? [
+          {
+            sellerPubky: award.sellerPubky,
+            published: [...award.fulfillmentMethods],
+            allowed: award.fulfillmentMethods.filter(
+              (method) => method === 'shipping' || (method === 'pickup' && pickupAvailable === true),
+            ),
+          },
+        ]
+      : []),
+  ];
+  for (const { sellerPubky, published, allowed } of fulfillmentSources) {
+    if (published.includes('pickup')) sellersPublishingPickup.add(sellerPubky);
     const existing = optionsBySeller.get(sellerPubky);
     optionsBySeller.set(sellerPubky, existing ? existing.filter((method) => allowed.includes(method)) : [...allowed]);
   }
@@ -341,10 +365,13 @@ export function useMarketplaceCheckout(
   };
   const hasFulfillmentConflict = [...optionsBySeller.values()].some((options) => options.length === 0);
   const requiresDeliveryAddress =
-    items.length === 0 || physicalItems.some((item) => fulfillmentForItem(item.id) !== 'pickup');
-  const orderCount = new Set(
-    items.map((item) => `${item.listing.record.ownerPubky}|${fulfillmentForItem(item.id) ?? ''}`),
-  ).size;
+    (items.length === 0 && award === null) ||
+    physicalItems.some((item) => fulfillmentForItem(item.id) !== 'pickup') ||
+    (award !== null && fulfillmentForSeller(award.sellerPubky) !== 'pickup');
+  const orderCount = new Set([
+    ...items.map((item) => `${item.listing.record.ownerPubky}|${fulfillmentForItem(item.id) ?? ''}`),
+    ...(award ? [`${award.sellerPubky}|${fulfillmentForSeller(award.sellerPubky) ?? ''}`] : []),
+  ]).size;
 
   // The seller's delivery kind per digital line, from the listing projection
   // (§6 B4: a line with none cannot check out). Re-read when the digital

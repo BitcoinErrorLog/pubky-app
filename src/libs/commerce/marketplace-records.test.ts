@@ -773,7 +773,7 @@ describe('commerceListingFulfillmentMethods (mirrors the service homeserver deri
   });
 });
 
-describe('commerceListingTakesOffers (the service takes offers only on listings that ship)', () => {
+describe('commerceListingTakesOffers (offers settle through shipping or pickup)', () => {
   const listing = (overrides: Partial<CommerceListingRecord>) => createCommerceListingFixture(overrides);
   const lock = {
     policyUri: 'pubky://seller/pub/locks.app/v1/policies/policy-1',
@@ -783,15 +783,16 @@ describe('commerceListingTakesOffers (the service takes offers only on listings 
     minimumConfirmations: 6,
   };
 
-  it('refuses digital-only and pickup-only listings and takes a listing that also ships', () => {
+  it('refuses digital-only listings and takes one that ships or offers pickup', () => {
     expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['digital'] }))).toBe(false);
-    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['pickup', 'digital'] }))).toBe(false);
-    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['pickup'] }))).toBe(false);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['physical', 'digital'] }))).toBe(false);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['pickup'] }))).toBe(true);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['pickup', 'digital'] }))).toBe(true);
     expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['physical', 'shipping', 'digital'] }))).toBe(true);
   });
 
-  it('takes offers on a Locks listing, which registers as shipping', () => {
-    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['digital'], digitalLock: lock }))).toBe(true);
+  it('takes no offers on a Locks listing, which is digital-only to the buyer', () => {
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['digital'], digitalLock: lock }))).toBe(false);
   });
 });
 

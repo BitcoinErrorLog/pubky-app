@@ -338,6 +338,26 @@ describe('MarketplaceListing', () => {
     );
   });
 
+  it('takes offers on a listing that offers pickup and delivers digitally, for the pickup version', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['pickup', 'digital'],
+        package: undefined,
+        shippingOptions: [],
+      }),
+    );
+    view.projection = createListingProjectionFixture({
+      fulfillmentMethods: ['pickup', 'digital'],
+      digitalDelivery: { kind: 'file', contentType: 'application/pdf', sizeBytes: 12_582_912 },
+    });
+    renderListing();
+
+    expect(screen.getByRole('button', { name: /Make offer/ })).toBeInTheDocument();
+    expect(screen.getByTestId('marketplace-listing-digital-offer-note')).toHaveTextContent(
+      'Offers buy the pickup version.',
+    );
+  });
+
   it('leaves a Locks listing on its own digital notice', () => {
     view.listing = toCommerceListingModel(
       createCommerceListingFixture({
@@ -357,13 +377,45 @@ describe('MarketplaceListing', () => {
 
     expect(screen.queryByTestId('marketplace-listing-digital-badge')).not.toBeInTheDocument();
     expect(screen.queryByTestId('marketplace-listing-digital-offer-note')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Make offer/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Make offer/ })).not.toBeInTheDocument();
   });
 
-  it('does not offer Make offer on a pickup-only Buy-now listing the service refuses offers on', () => {
+  it('offers Make offer on a pickup-only Buy-now listing that accepts offers', () => {
     view.listing = toCommerceListingModel(createCommerceListingFixture({ fulfillmentMethods: ['pickup'] }));
     renderListing();
     expect(screen.getByRole('button', { name: /Add to cart/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Make offer' })).toBeEnabled();
+  });
+
+  it('shows no Make offer on a digital-only listing, which the service refuses offers on', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['digital'],
+        digitalLock: {
+          policyUri: `pubky://${'s'.repeat(52)}/pub/locks.app/policies/boots_01.json`,
+          criterionId: 'criterion-1',
+          contentPath: 'boots_01/archive.zip',
+          resourceHash: 'a'.repeat(64),
+          minimumConfirmations: 3,
+        },
+      }),
+    );
+    renderListing();
+    expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
+  });
+
+  it('shows no Make offer when the listing does not accept offers', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['pickup'],
+        sale: {
+          format: 'fixed_price',
+          unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+          acceptsOffers: false,
+        },
+      }),
+    );
+    renderListing();
     expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
   });
 
