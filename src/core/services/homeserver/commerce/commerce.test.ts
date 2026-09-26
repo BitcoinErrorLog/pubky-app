@@ -55,10 +55,11 @@ describe('CommerceHomeserverService', () => {
     const bytes = new Uint8Array([4, 5, 6]);
     const getBlob = vi.spyOn(HomeserverService, 'getBlob').mockResolvedValue(bytes);
 
-    await expect(CommerceHomeserverService.getDeliverable(deliverable)).resolves.toBe(bytes);
+    await expect(CommerceHomeserverService.getDeliverable(deliverable, 19)).resolves.toBe(bytes);
     expect(getBlob).toHaveBeenCalledWith({
       url: deliverable,
       logUrl: '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>',
+      maxBytes: 19,
     });
   });
 

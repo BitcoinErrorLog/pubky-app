@@ -14,25 +14,39 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   },
 }));
 
-const SELLER = 'y'.repeat(52);
 const base = createOrderFixture('delivered');
+const listing = (name: string) => `listing:${base.sellerPubky}_${name}`;
 const order = createOrderFixture('delivered', {
   fulfillment: 'digital',
   lines: [
-    { ...base.lines[0], title: 'Field guide', fulfillment: 'digital', digitalKind: 'file' },
-    { ...base.lines[0], title: 'Licence key', fulfillment: 'digital', digitalKind: 'text' },
-    { ...base.lines[0], title: 'Course', fulfillment: 'digital', digitalKind: 'link' },
+    {
+      ...base.lines[0],
+      listingAggregateId: listing('guide'),
+      title: 'Field guide',
+      fulfillment: 'digital',
+      digitalKind: 'file',
+    },
+    {
+      ...base.lines[0],
+      listingAggregateId: listing('licence'),
+      title: 'Licence key',
+      fulfillment: 'digital',
+      digitalKind: 'text',
+    },
+    {
+      ...base.lines[0],
+      listingAggregateId: listing('course'),
+      title: 'Course',
+      fulfillment: 'digital',
+      digitalKind: 'link',
+    },
   ],
 });
-const common = {
-  listingAggregateId: `listing:${SELLER}_guide`,
-  sellerPubky: SELLER,
-  deliverableId: 'a'.repeat(32),
-  version: 2,
-};
+const common = { sellerPubky: order.sellerPubky, deliverableId: 'a'.repeat(32), version: 2 };
 const fileLine = {
   ...common,
   lineIndex: 0,
+  listingAggregateId: listing('guide'),
   kind: 'file' as const,
   key: 'c'.repeat(64),
   iv: 'd'.repeat(24),
@@ -42,14 +56,26 @@ const fileLine = {
   fileName: 'Field Guide.pdf',
   sizeBytes: 3,
 };
-const payload = {
-  orderId: order.id,
-  lines: [
-    fileLine,
-    { ...common, lineIndex: 1, kind: 'text' as const, text: 'Licence ABC-123' },
-    { ...common, lineIndex: 2, kind: 'link' as const, url: 'https://example.com/course' },
-  ],
+const textLine = {
+  ...common,
+  lineIndex: 1,
+  listingAggregateId: listing('licence'),
+  kind: 'text' as const,
+  text: 'Licence ABC-123',
 };
+const linkLine = {
+  ...common,
+  lineIndex: 2,
+  listingAggregateId: listing('course'),
+  kind: 'link' as const,
+  url: 'https://example.com/course',
+};
+const pinned = [fileLine, textLine, linkLine];
+/** The service's per-line read: only the requested line. */
+const readOne = async (_orderId: unknown, lineIndex: unknown) => ({
+  orderId: order.id,
+  lines: pinned.filter((line) => line.lineIndex === lineIndex),
+});
 
 describe('useOrderDigitalDelivery (digital delivery design §3 "After payment", §3.4)', () => {
   const createObjectURL = vi.fn((_blob: Blob) => 'blob:purchase');
@@ -64,7 +90,7 @@ describe('useOrderDigitalDelivery (digital delivery design §3 "After payment", 
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       clicked.push(this);
     });
-    vi.mocked(CommerceController.fetchOrderDigitalDelivery).mockResolvedValue(payload);
+    vi.mocked(CommerceController.fetchOrderDigitalDelivery).mockImplementation(readOne);
   });
 
   afterEach(() => {
@@ -137,6 +163,61 @@ describe('useOrderDigitalDelivery (digital delivery design §3 "After payment", 
     expect(CommerceController.fetchOrderDigitalDelivery).toHaveBeenCalledTimes(2);
     act(() => result.current.hide(1));
     expect(result.current.revealFor(1)).toBeNull();
+  });
+
+  // Review P1: opening one line reads that line only.
+  it('reads only the line the buyer opens', async () => {
+    const { result } = renderHook(() => useOrderDigitalDelivery(order));
+
+    await act(async () => {
+      await result.current.open(1);
+    });
+
+    expect(CommerceController.fetchOrderDigitalDelivery).toHaveBeenCalledTimes(1);
+    expect(CommerceController.fetchOrderDigitalDelivery).toHaveBeenCalledWith(order.id, 1);
+    expect(result.current.revealFor(1)).toEqual({ kind: 'text', text: 'Licence ABC-123' });
+    expect(result.current.revealFor(2)).toBeNull();
+  });
+
+  // Review P2: a released line must be the opened line of this paid order.
+  it.each([
+    ['another order', { orderId: '018f47d2-6a27-7c23-a62f-00000000ffff', lines: [textLine] }],
+    ['more than the opened line', { orderId: order.id, lines: [textLine, linkLine] }],
+    ['another line index', { orderId: order.id, lines: [{ ...textLine, lineIndex: 2 }] }],
+    ['another listing', { orderId: order.id, lines: [{ ...textLine, listingAggregateId: listing('other') }] }],
+    ['another seller', { orderId: order.id, lines: [{ ...textLine, sellerPubky: 'y'.repeat(52) }] }],
+    [
+      'another kind',
+      { orderId: order.id, lines: [{ ...linkLine, lineIndex: 1, listingAggregateId: listing('licence') }] },
+    ],
+  ])('refuses a release naming %s, and reveals nothing', async (_label, release) => {
+    vi.mocked(CommerceController.fetchOrderDigitalDelivery).mockResolvedValue(release);
+    const { result } = renderHook(() => useOrderDigitalDelivery(order));
+
+    await act(async () => {
+      await result.current.open(1);
+    });
+
+    expect(result.current.revealFor(1)).toBeNull();
+    expect(result.current.stateFor(1)).toEqual({
+      status: 'failed',
+      message: "This download doesn't match your order. Try again, or message the seller.",
+    });
+  });
+
+  it('opens no file from a release bound to another line', async () => {
+    vi.mocked(CommerceController.fetchOrderDigitalDelivery).mockResolvedValue({
+      orderId: order.id,
+      lines: [{ ...fileLine, listingAggregateId: listing('other') }],
+    });
+    const { result } = renderHook(() => useOrderDigitalDelivery(order));
+
+    await act(async () => {
+      await result.current.open(0);
+    });
+
+    expect(CommerceController.openOrderDigitalFile).not.toHaveBeenCalled();
+    expect(clicked).toHaveLength(0);
   });
 
   it('shows the refusal copy, never the service message (D8)', async () => {

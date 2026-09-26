@@ -1572,6 +1572,60 @@ describe('HomeserverService', () => {
         loggerError.mockRestore();
       });
 
+      // Review P2: an oversized body is refused before it is held in memory.
+      it('refuses a declared body over maxBytes without reading it', async () => {
+        let pulled = 0;
+        const stream = new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              pulled += 1;
+              controller.enqueue(new Uint8Array(64));
+              controller.close();
+            },
+          },
+          { highWaterMark: 0 },
+        );
+        const body = new Response(stream, { status: 200, headers: { 'content-length': '64' } });
+        const arrayBuffer = vi.spyOn(body, 'arrayBuffer');
+        mockState.publicStorageGet.mockResolvedValue(body);
+
+        const error = (await HomeserverService.getBlob({ url: realPath, logUrl, maxBytes: 19 }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(error).toMatchObject({
+          code: ClientErrorCode.PAYLOAD_TOO_LARGE,
+          context: { endpoint: logUrl, maxBytes: 19 },
+        });
+        expect(arrayBuffer).not.toHaveBeenCalled();
+        expect(pulled).toBe(0);
+      });
+
+      it('stops reading a streamed body once it passes maxBytes', async () => {
+        let pulled = 0;
+        const stream = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulled += 1;
+            controller.enqueue(new Uint8Array(10));
+            if (pulled > 100) controller.close();
+          },
+        });
+        mockState.publicStorageGet.mockResolvedValue(new Response(stream, { status: 200 }));
+
+        await expect(HomeserverService.getBlob({ url: realPath, logUrl, maxBytes: 19 })).rejects.toMatchObject({
+          code: ClientErrorCode.PAYLOAD_TOO_LARGE,
+        });
+        expect(pulled).toBeLessThan(10);
+      });
+
+      it('reads a body within maxBytes', async () => {
+        mockState.publicStorageGet.mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
+
+        const bytes = await HomeserverService.getBlob({ url: realPath, logUrl, maxBytes: 3 });
+
+        expect([...bytes]).toEqual([1, 2, 3]);
+      });
+
       it('records the redacted logUrl when the transport throws', async () => {
         mockState.publicStorageGet.mockRejectedValue(new Error('Network error'));
 

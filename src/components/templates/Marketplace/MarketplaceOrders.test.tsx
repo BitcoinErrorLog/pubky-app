@@ -873,6 +873,24 @@ describe('MarketplaceOrders digital cards (digital delivery design §3 "After pa
     expect(within(card).queryByText(/Completes automatically after the return window/)).not.toBeInTheDocument();
   });
 
+  it('shows no shipment or tracking line on a digital order, even when stale shipment data is present (review P2)', () => {
+    const view = digitalView('delivered', 'buyer');
+    view.order.shipment = {
+      carrier: 'USPS',
+      trackingNumber: '9400111899223197428490',
+      state: 'shipped',
+      shippedAt: '2026-08-14T10:00:00.000Z',
+      deliveredAt: null,
+    };
+    ordersState.orders = [view];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getAllByText(/Field guide/)[0].closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).queryByText(/9400111899223197428490/)).not.toBeInTheDocument();
+    expect(within(card).queryByRole('link', { name: /Track package/ })).not.toBeInTheDocument();
+  });
+
   it('shows the seller no purchase panel', () => {
     ordersState.orders = [digitalView('delivered', 'seller')];
 

@@ -657,3 +657,31 @@ describe('MarketplaceOrderActions digital orders (digital delivery design §6 E1
     expect(screen.queryByTestId('digital-no-return-note')).not.toBeInTheDocument();
   });
 });
+
+describe('MarketplaceOrderActions digital orders in an inconsistent shipped state (review P2)', () => {
+  it('offers no Confirm delivery on a digital order projected as shipped', () => {
+    render(
+      <MarketplaceOrderActions
+        order={createOrderFixture('shipped', { fulfillment: 'digital' })}
+        isBuyer
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Confirm delivery' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Confirm delivery on a shipped order', () => {
+    render(
+      <MarketplaceOrderActions
+        order={createOrderFixture('shipped', { fulfillment: 'shipping' })}
+        isBuyer
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Confirm delivery' })).toBeInTheDocument();
+  });
+});

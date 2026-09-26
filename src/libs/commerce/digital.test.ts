@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { marketplaceListingProjectionSchema } from '@/core/services/marketplace/marketplace-projections';
 import { serviceListingProjectionWire as serviceListingSample } from '@/test/fixtures/commerce/listing-projection.wire';
 import {
+  bindOrderDigitalLine,
   classifyDeliveryEmailChangeRefusal,
   classifyDigitalCheckoutRefusal,
   classifyDigitalDeliverySetupRefusal,
@@ -453,5 +454,46 @@ describe('buyer order panel copy (§3 "After payment", §6 D1, E4, F9)', () => {
     expect(DIGITAL_ORDER_COPY.readyToDownload).toBe('Delivered · ready to download');
     expect(DIGITAL_ORDER_COPY.noReturn).toBe("Digital purchases can't be returned. Message the seller about a refund.");
     expect(DIGITAL_ORDER_COPY.emailMissing).toBe('Enter your email so the seller can deliver.');
+  });
+});
+
+describe('bindOrderDigitalLine (review P2: the released line is the opened line of this order)', () => {
+  const seller = 'y'.repeat(52);
+  const orderId = '018f47d2-6a27-7c23-a62f-000000000901';
+  const order = {
+    id: orderId,
+    sellerPubky: seller,
+    lines: [
+      { listingAggregateId: `listing:${seller}_guide`, digitalKind: 'file' as const },
+      { listingAggregateId: `listing:${seller}_licence`, digitalKind: 'text' as const },
+    ],
+  };
+  const text = {
+    lineIndex: 1,
+    listingAggregateId: `listing:${seller}_licence`,
+    kind: 'text' as const,
+    sellerPubky: seller,
+    deliverableId: 'a'.repeat(32),
+    version: 1,
+    text: 'Licence ABC-123',
+  };
+
+  it('returns the line when order, index, listing, seller and kind all match', () => {
+    expect(bindOrderDigitalLine(order, 1, { orderId, lines: [text] })).toBe(text);
+  });
+
+  it.each([
+    ['order id', { orderId: '018f47d2-6a27-7c23-a62f-00000000ffff', lines: [text] }],
+    ['line count', { orderId, lines: [text, { ...text, lineIndex: 0 }] }],
+    ['line index', { orderId, lines: [{ ...text, lineIndex: 0 }] }],
+    ['listing', { orderId, lines: [{ ...text, listingAggregateId: `listing:${seller}_other` }] }],
+    ['seller', { orderId, lines: [{ ...text, sellerPubky: 'b'.repeat(52) }] }],
+    ['kind', { orderId, lines: [{ ...text, kind: 'link' as const, url: 'https://example.com' }] }],
+  ])('refuses a release whose %s does not match', (_field, release) => {
+    expect(bindOrderDigitalLine(order, 1, release)).toBeNull();
+  });
+
+  it('refuses an index the order does not have', () => {
+    expect(bindOrderDigitalLine(order, 5, { orderId, lines: [{ ...text, lineIndex: 5 }] })).toBeNull();
   });
 });

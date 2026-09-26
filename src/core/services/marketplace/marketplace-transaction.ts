@@ -451,18 +451,24 @@ export class MarketplaceTransactionService {
   }
 
   /**
-   * `GET /v1/orders/{id}/digital-delivery` (digital delivery design §4.2,
-   * §6 D5–D11): the paying buyer's pinned payload per instant line. Each
-   * read writes the service's access row, so it is issued only when the
-   * buyer asks to open a line. Refusals (`not_paid`, `delivery_ended`,
+   * `GET /v1/orders/{id}/digital-delivery/{line_index}` (digital delivery
+   * design §4.2, §6 D5–D11): the paying buyer's pinned payload for ONE
+   * instant line. Each read releases and records access for that line only
+   * (an opened line stays sold on cancel, E8), so it is issued only when the
+   * buyer opens it. Refusals (`not_paid`, `delivery_ended`,
    * `sandbox_confirmed`, `rate_limited`, unavailable) are typed as in the
-   * owner read; a seller maps to FORBIDDEN and an outsider to NOT_FOUND.
+   * owner read; a seller maps to FORBIDDEN, and an outsider or a line with no
+   * download to NOT_FOUND.
    */
-  static async getOrderDigitalDelivery(actor: string, orderId: string): Promise<MarketplaceOrderDigitalDelivery> {
+  static async getOrderDigitalDelivery(
+    actor: string,
+    orderId: string,
+    lineIndex: number,
+  ): Promise<MarketplaceOrderDigitalDelivery> {
     const raw = await this.readDigitalEntitled(
       'getOrderDigitalDelivery',
       actor,
-      `/v1/orders/${encodeURIComponent(orderId)}/digital-delivery`,
+      `/v1/orders/${encodeURIComponent(orderId)}/digital-delivery/${lineIndex}`,
     );
     return this.parseProjection(
       'getOrderDigitalDelivery',
