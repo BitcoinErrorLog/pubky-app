@@ -520,19 +520,81 @@ describe('MarketplacePaymentSettings', () => {
     await waitFor(() => expect(mockedController.getMyPaymentConfig).toHaveBeenCalledTimes(2));
   });
 
+  it('unlocks Accept bitcoin as soon as Step 2 reports Connected', async () => {
+    view.locksConnect = {
+      connectedCreator: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      isExchanging: false,
+      error: null,
+      connectOpen: false,
+      connectUrl: null,
+    };
+    let releaseStaleClaim: (claimed: boolean) => void = () => {};
+    mockedController.isOwnPaykitAccountClaimed.mockReset();
+    mockedController.isOwnPaykitAccountClaimed
+      .mockResolvedValueOnce(false)
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            releaseStaleClaim = resolve;
+          }),
+      )
+      .mockResolvedValue(true);
+
+    await renderSettings();
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin' })).toBeDisabled();
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Needs attention');
+
+    await act(async () => {
+      useCommerceStore.setState({
+        marketplaceSession: {
+          pubky: 'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+          capabilities: '/pub/pubky.app/:rw',
+          issuedAt: '2026-08-21T12:00:00.000Z',
+          expiresAt: '2026-09-21T12:00:00.000Z',
+        },
+      });
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const source = setPaykitIframeSource(iframe);
+    const state = new URL(iframe.src).searchParams.get('state');
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://paykit.example',
+          source,
+          data: { type: 'paykit-setup-callback', state },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Accept bitcoin' })).toBeEnabled());
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Connected');
+    expect(mockedToast).toHaveBeenCalledWith({ title: 'Bitkit setup connected' });
+
+    await act(async () => {
+      releaseStaleClaim(false);
+    });
+    expect(screen.getByRole('switch', { name: 'Accept bitcoin' })).toBeEnabled();
+    expect(screen.getByTestId('payment-method-status-bitcoin')).toHaveTextContent('Connected');
+  });
+
   it('shows the timeout state and retries with a fresh setup state', async () => {
     await renderSettings();
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const firstState = new URL((screen.getByTitle('Connect Bitkit') as HTMLIFrameElement).src).searchParams.get(
+      'state',
+    );
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6 * 60 * 1_000);
     });
     expect(screen.getByRole('alert')).toHaveTextContent('No approval received.');
+    expect(screen.queryByTitle('Connect Bitkit')).not.toBeInTheDocument();
+    expect(screen.getByTestId('paykit-setup-qr-expired')).toBeInTheDocument();
 
-    const firstState = new URL((screen.getByTitle('Connect Bitkit') as HTMLIFrameElement).src).searchParams.get(
-      'state',
-    );
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     const secondState = new URL((screen.getByTitle('Connect Bitkit') as HTMLIFrameElement).src).searchParams.get(
       'state',
@@ -667,9 +729,36 @@ describe('MarketplacePaymentSettings', () => {
     act(() => window.dispatchEvent(message));
 
     expect(screen.getByRole('alert')).toHaveTextContent('Bitkit setup failed. Try again.');
+    expect(screen.queryByTitle('Connect Bitkit')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     const secondIframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
     expect(new URL(secondIframe.src).searchParams.get('state')).not.toBe(firstState);
+  });
+
+  it('removes the expired Step 2 QR so nothing is left to scan', async () => {
+    await renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Open Bitkit setup/ }));
+    const iframe = screen.getByTitle('Connect Bitkit') as HTMLIFrameElement;
+    const source = setPaykitIframeSource(iframe);
+    const state = new URL(iframe.src).searchParams.get('state');
+
+    act(() =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'https://paykit.example',
+          source,
+          data: { type: 'paykit-setup-callback', state, error: 'setup-failed' },
+        }),
+      ),
+    );
+
+    const dialog = screen.getByTestId('dialog-content');
+    expect(screen.getByRole('alert')).toHaveTextContent('Bitkit setup failed. Try again.');
+    expect(within(dialog).queryByTitle('Connect Bitkit')).not.toBeInTheDocument();
+    expect(dialog.querySelector('iframe, img, canvas')).toBeNull();
+    const placeholder = screen.getByTestId('paykit-setup-qr-expired');
+    expect(placeholder).toHaveTextContent('This code expired.');
+    expect(placeholder.querySelector('iframe, img, canvas')).toBeNull();
   });
 
   it('removes the callback listener when the settings surface unmounts', async () => {

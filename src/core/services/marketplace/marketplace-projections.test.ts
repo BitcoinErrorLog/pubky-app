@@ -167,6 +167,19 @@ describe('marketplace order projection — Bitcoin quote', () => {
     }
   });
 
+  it.each(['pending', 'delivered', 'failed', 'a_future_state', null])(
+    'carries paykit_delivery_state=%s from the wire without failing the order',
+    (value) => {
+      const parsed = marketplaceOrderSchema.safeParse({
+        ...createOrderFixture('pending_payment'),
+        ...(toCamelCaseWire({ paykit_delivery_state: value }) as Record<string, unknown>),
+      });
+
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data.paykitDeliveryState).toBe(value);
+    },
+  );
+
   it.each([undefined, null])('accepts an order with bitcoin_quote %s', (bitcoinQuote) => {
     const parsed = marketplaceOrderSchema.safeParse({
       ...createOrderFixture('pending_payment'),
