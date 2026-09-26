@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
 import { encryptDigitalDeliverable, openDigitalDeliverable } from '@/libs/commerce/digital-file';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
+import { ClientErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
@@ -273,9 +276,28 @@ describe('CommerceApplication buyer digital delivery (digital delivery design §
 
     const opened = await CommerceApplication.openOrderDigitalFile(line);
 
-    expect(get).toHaveBeenCalledWith(`pubky://${SELLER}/pub/pubky.app/marketplace/v1/deliverables/${DELIVERABLE_ID}/3`);
+    expect(get).toHaveBeenCalledWith(
+      `pubky://${SELLER}/pub/pubky.app/marketplace/v1/deliverables/${DELIVERABLE_ID}/3`,
+      line.sizeBytes + 16,
+    );
     expect(opened).toMatchObject({ ok: true, fileName: 'Field Guide.pdf', contentType: 'application/pdf' });
     expect(opened.ok && new TextDecoder().decode(opened.bytes)).toBe(new TextDecoder().decode(PLAINTEXT));
+  });
+
+  // Review P2: a body larger than the pinned ciphertext is refused while it is read.
+  it('reads at most the pinned ciphertext length, and names an oversized body as not the paid file', async () => {
+    const { line } = await pinnedFileLine();
+    vi.spyOn(CommerceHomeserverService, 'getDeliverable').mockRejectedValue(
+      Err.client(ClientErrorCode.PAYLOAD_TOO_LARGE, 'The homeserver returned more bytes than expected.', {
+        service: ErrorService.Homeserver,
+        operation: 'readResponseBytes',
+      }),
+    );
+
+    await expect(CommerceApplication.openOrderDigitalFile(line)).resolves.toEqual({
+      ok: false,
+      reason: 'ciphertext_mismatch',
+    });
   });
 
   it('refuses a ciphertext that is not the pinned one', async () => {
@@ -332,7 +354,7 @@ describe('CommerceApplication buyer digital delivery (digital delivery design §
     const read = vi.spyOn(MarketplaceGatewayService, 'getOrderDigitalDelivery');
     const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
 
-    await expect(CommerceApplication.fetchOrderDigitalDelivery(SELLER, ORDER_ID)).rejects.toMatchObject({
+    await expect(CommerceApplication.fetchOrderDigitalDelivery(SELLER, ORDER_ID, 0)).rejects.toMatchObject({
       context: { refusal: 'digital_delivery_unavailable' },
     });
     await expect(

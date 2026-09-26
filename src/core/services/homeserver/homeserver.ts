@@ -64,6 +64,7 @@ import {
   isHttpUrl,
   parseResponseOrUndefined,
   PUBKY_PREFIX,
+  readResponseBytes,
   resolveOwnedSessionPath,
   toSdkPath,
 } from './homeserver.utils';
@@ -937,19 +938,19 @@ export class HomeserverService {
    * session, any other `pubky://` path as a public read. Throws if the
    * response is not OK; error context carries `logUrl` when given.
    */
-  static async getBlob({ url, logUrl }: TGetBlobParams): Promise<Uint8Array<ArrayBuffer>> {
+  static async getBlob({ url, logUrl, maxBytes }: TGetBlobParams): Promise<Uint8Array<ArrayBuffer>> {
     const contextUrl = logUrl ?? url;
     const owned = this.resolveOwnedSessionPath(url);
     if (owned) {
       const response = await getOwnedResponse({ session: owned.session, path: owned.path, url: contextUrl });
-      return new Uint8Array(await response.arrayBuffer());
+      return await readResponseBytes(response, maxBytes, contextUrl);
     }
     const pubkySdk = this.getPubkySdk();
     const response = await (
       isHttpUrl(url) ? pubkySdk.client.fetch(url) : pubkySdk.publicStorage.get(url as Address)
     ).catch((error) => handleError({ error, additionalContext: { url: contextUrl, method: HttpMethod.GET } }));
     await assertOk({ response, url: contextUrl, operation: 'getBlob' });
-    return new Uint8Array(await response.arrayBuffer());
+    return await readResponseBytes(response, maxBytes, contextUrl);
   }
 
   /**

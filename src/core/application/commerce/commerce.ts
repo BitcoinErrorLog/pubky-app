@@ -34,6 +34,7 @@ import {
   type MarketplaceSellerDigitalDelivery,
 } from '@/libs/commerce/digital';
 import {
+  digitalCiphertextBytes,
   digitalDeliverableUrl,
   digitalFileContentType,
   digitalFileName,
@@ -800,9 +801,10 @@ export class CommerceApplication {
   static async fetchOrderDigitalDelivery(
     actorPubky: string,
     orderId: string,
+    lineIndex: number,
   ): Promise<MarketplaceOrderDigitalDelivery> {
     this.assertDigitalDeployment('fetchOrderDigitalDelivery');
-    return await MarketplaceGatewayService.getOrderDigitalDelivery(actorPubky, orderId);
+    return await MarketplaceGatewayService.getOrderDigitalDelivery(actorPubky, orderId, lineIndex);
   }
 
   /**
@@ -822,9 +824,12 @@ export class CommerceApplication {
     try {
       ciphertext = await CommerceHomeserverService.getDeliverable(
         digitalDeliverableUrl(line.sellerPubky, line.deliverableId, line.version),
+        digitalCiphertextBytes(line.sizeBytes),
       );
-    } catch {
-      return { ok: false, reason: 'fetch_failed' };
+    } catch (error) {
+      // A body larger than the pinned ciphertext is not the file that was paid for.
+      const oversized = isAppError(error) && error.code === ClientErrorCode.PAYLOAD_TOO_LARGE;
+      return { ok: false, reason: oversized ? 'ciphertext_mismatch' : 'fetch_failed' };
     }
     const opened = await openDigitalDeliverable({
       ciphertext,

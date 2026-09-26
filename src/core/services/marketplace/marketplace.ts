@@ -474,10 +474,14 @@ export class MarketplaceGatewayService {
     return await MarketplaceTransactionService.getListingDigitalDelivery(actor, aggregateId);
   }
 
-  /** The buyer's pinned digital payload for an order (§4.2) — durable service only. */
-  static async getOrderDigitalDelivery(actor: string, orderId: string): Promise<MarketplaceOrderDigitalDelivery> {
+  /** The buyer's pinned digital payload for one order line (§4.2) — durable service only. */
+  static async getOrderDigitalDelivery(
+    actor: string,
+    orderId: string,
+    lineIndex: number,
+  ): Promise<MarketplaceOrderDigitalDelivery> {
     this.assertDurableServiceOnly('getOrderDigitalDelivery');
-    return await MarketplaceTransactionService.getOrderDigitalDelivery(actor, orderId);
+    return await MarketplaceTransactionService.getOrderDigitalDelivery(actor, orderId, lineIndex);
   }
 
   /** An email-kind order's delivery email and emailed time (§4.3) — durable service only. */
