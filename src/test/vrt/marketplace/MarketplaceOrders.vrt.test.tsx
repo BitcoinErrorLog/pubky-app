@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { expectVrtSurface, parkVrtHover, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
+import { CommerceController } from '@/controllers/commerce/commerce';
 
 // Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
 // estimates render from this fixed value, never from the network.
@@ -451,12 +452,43 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.orders = digitalToDeliver;
     ordersState.isLoading = false;
     ordersState.error = null;
+    const evidence = vi.spyOn(CommerceController, 'fetchOrderDigitalEvidence').mockResolvedValue({
+      orderId: digitalToDeliver[0].order.id,
+      deliveredAt: null,
+      firstOpenedAt: null,
+      openCount: 0,
+      emailedAt: null,
+      messageDeliveredAt: null,
+    });
 
-    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-digital-to-deliver-desktop');
-    await expect(expectVrtSurface('order-seller-digital-panel')).toMatchScreenshot(
-      'orders-seller-digital-panel-desktop',
-    );
+    try {
+      await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+      await expect.poll(() => evidence.mock.calls.length).toBeGreaterThan(0);
+      await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-digital-to-deliver-desktop');
+      await expect(expectVrtSurface('order-seller-digital-panel')).toMatchScreenshot(
+        'orders-seller-digital-panel-desktop',
+      );
+    } finally {
+      evidence.mockRestore();
+    }
+  });
+
+  it('renders a seller delivery record that failed to load at desktop viewport', async () => {
+    const { digitalToDeliver } = await fixtures;
+    ordersState.orders = digitalToDeliver;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+    const evidence = vi.spyOn(CommerceController, 'fetchOrderDigitalEvidence').mockRejectedValue(new Error('network'));
+
+    try {
+      const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+      await expect.element(screen.getByTestId('seller-digital-evidence-failed')).toBeVisible();
+      await expect(expectVrtSurface('order-seller-digital-panel')).toMatchScreenshot(
+        'orders-seller-digital-evidence-failed-desktop',
+      );
+    } finally {
+      evidence.mockRestore();
+    }
   });
 
   it('renders every buyer-visible payment state at desktop viewport', async () => {

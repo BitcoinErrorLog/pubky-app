@@ -22,12 +22,12 @@ export function MarketplaceSellerDigitalPanel({
   onChanged?: () => Promise<void> | void;
 }) {
   const delivery = useSellerDigitalDelivery(order, onChanged);
-  const evidence = delivery.evidence ?? [];
-  if (delivery.channels.length === 0 && evidence.length === 0) return null;
+  const { email, evidence } = delivery;
+  const evidenceLines = evidence.status === 'ready' ? evidence.lines : [];
+  if (delivery.channels.length === 0 && evidence.status !== 'failed' && evidenceLines.length === 0) return null;
   const paid = order.state === 'paid';
   const canShowEmail =
     delivery.channels.includes('email') && order.receiptId !== null && !isDigitalOrderEnded(order.state);
-  const { email } = delivery;
 
   return (
     <section
@@ -38,11 +38,21 @@ export function MarketplaceSellerDigitalPanel({
       <Heading level={3} size="sm" className="text-base font-semibold">
         Delivery
       </Heading>
-      {evidence.map((line) => (
+      {evidenceLines.map((line) => (
         <Typography key={line} as="p" className="text-sm text-muted-foreground" data-testid="seller-digital-evidence">
           {line}
         </Typography>
       ))}
+      {evidence.status === 'failed' && (
+        <div className="flex flex-wrap items-center gap-2" data-testid="seller-digital-evidence-failed">
+          <Typography as="p" role="alert" className="text-sm text-muted-foreground">
+            {DIGITAL_SELLER_COPY.evidenceFailed}
+          </Typography>
+          <Button size="sm" variant="secondary" className="rounded-full" onClick={delivery.retryEvidence}>
+            {DIGITAL_SELLER_COPY.evidenceRetry}
+          </Button>
+        </div>
+      )}
       {email.status === 'loading' && <Skeleton className="h-5 w-64" aria-label="Loading the buyer's email" />}
       {email.status === 'shown' && (
         <div className="grid gap-2">

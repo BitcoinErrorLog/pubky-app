@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   classifyDigitalDeliverRefusal,
   DIGITAL_DELIVER_REFUSAL_COPY,
+  DIGITAL_READ_REFUSAL_COPY,
   DIGITAL_SELLER_COPY,
   digitalEvidenceLines,
   digitalOrderManualChannels,
+  isDigitalOrderEnded,
   type MarketplaceDigitalDeliveryChannel,
   type MarketplaceOrderDeliveryEmail,
   sellerDeliveryEmailReadCopy,
@@ -21,32 +23,62 @@ export type SellerDeliveryEmailState =
   | { status: 'shown'; email: MarketplaceOrderDeliveryEmail }
   | { status: 'refused'; message: string };
 
+export type SellerDeliveryEvidenceState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; lines: string[] }
+  | { status: 'failed' };
+
+const HIDDEN: SellerDeliveryEmailState = { status: 'hidden' };
+
+/** The service releases the buyer's email only on a paid digital order that has not ended (§6 F7, F8). */
+function emailEntitled(order: MarketplaceOrder): boolean {
+  return order.fulfillment === 'digital' && order.receiptId !== null && !isDigitalOrderEnded(order.state);
+}
+
 /**
  * The seller's delivery actions on a digital order (digital delivery design
  * §3 "Seller's orders", §4.3, §6 F6–F8, F13–F15): Show email reads the
- * buyer's address on request and holds it in memory until hidden; Mark
- * emailed and Mark delivered send `fulfillment.deliver_digital` with the
- * order revision, so a racing buyer cancel request has one winner.
+ * buyer's address on request and holds it in memory until hidden, marked, or
+ * the order stops entitling the read; Mark emailed and Mark delivered send
+ * `fulfillment.deliver_digital` with the order revision, so a racing buyer
+ * cancel request has one winner. Both reads are accepted only for this order.
  */
 export function useSellerDigitalDelivery(order: MarketplaceOrder, onChanged?: () => Promise<void> | void) {
-  const [email, setEmail] = useState<SellerDeliveryEmailState>({ status: 'hidden' });
+  const [storedEmail, setEmail] = useState<SellerDeliveryEmailState>(HIDDEN);
   const [acting, setActing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [evidence, setEvidence] = useState<string[] | null>(null);
+  const [evidence, setEvidence] = useState<SellerDeliveryEvidenceState>({ status: 'idle' });
   const [evidenceAttempt, setEvidenceAttempt] = useState(0);
   const paid = order.fulfillment === 'digital' && order.receiptId !== null;
+  const entitled = emailEntitled(order);
+  const latest = useRef({ id: order.id, entitled });
+
+  useEffect(() => {
+    latest.current = { id: order.id, entitled };
+    if (!entitled) setEmail(HIDDEN);
+  }, [order.id, entitled]);
 
   // The delivery evidence (§3 "Seller's orders"): timestamps and an open
   // count only, read on view once the order is paid and after each mark.
   useEffect(() => {
-    if (!paid) return;
+    if (!paid) {
+      setEvidence({ status: 'idle' });
+      return;
+    }
     let current = true;
+    setEvidence({ status: 'loading' });
     CommerceController.fetchOrderDigitalEvidence(order.id)
       .then((read) => {
-        if (current) setEvidence(digitalEvidenceLines(read, order.lines));
+        if (!current) return;
+        setEvidence(
+          read.orderId === order.id
+            ? { status: 'ready', lines: digitalEvidenceLines(read, order.lines) }
+            : { status: 'failed' },
+        );
       })
       .catch(() => {
-        if (current) setEvidence(null);
+        if (current) setEvidence({ status: 'failed' });
       });
     return () => {
       current = false;
@@ -56,10 +88,25 @@ export function useSellerDigitalDelivery(order: MarketplaceOrder, onChanged?: ()
   }, [paid, order.id, order.revision, evidenceAttempt]);
 
   const showEmail = async () => {
+    const orderId = order.id;
+    const stillEntitled = () => latest.current.id === orderId && latest.current.entitled;
     setEmail({ status: 'loading' });
     try {
-      setEmail({ status: 'shown', email: await CommerceController.fetchOrderDeliveryEmail(order.id) });
+      const read = await CommerceController.fetchOrderDeliveryEmail(orderId);
+      if (!stillEntitled()) {
+        setEmail(HIDDEN);
+        return;
+      }
+      setEmail(
+        read.orderId === orderId
+          ? { status: 'shown', email: read }
+          : { status: 'refused', message: DIGITAL_READ_REFUSAL_COPY.failed },
+      );
     } catch (error) {
+      if (!stillEntitled()) {
+        setEmail(HIDDEN);
+        return;
+      }
       const refusal = error instanceof AppError ? error.context?.refusal : undefined;
       setEmail({
         status: 'refused',
@@ -80,7 +127,7 @@ export function useSellerDigitalDelivery(order: MarketplaceOrder, onChanged?: ()
         return false;
       }
       setMessage(channel === 'email' ? DIGITAL_SELLER_COPY.markedEmailed : DIGITAL_SELLER_COPY.markedDelivered);
-      setEmail({ status: 'hidden' });
+      setEmail(HIDDEN);
       setEvidenceAttempt((value) => value + 1);
       await onChanged?.();
       return true;
@@ -94,13 +141,15 @@ export function useSellerDigitalDelivery(order: MarketplaceOrder, onChanged?: ()
 
   return {
     channels: digitalOrderManualChannels(order.lines),
-    email,
+    // Hidden in the same render the order stops entitling the read, before the effect clears it.
+    email: entitled ? storedEmail : HIDDEN,
     showEmail,
-    hideEmail: () => setEmail({ status: 'hidden' }),
+    hideEmail: () => setEmail(HIDDEN),
     mark,
     acting,
     message,
-    /** The evidence lines, or null before payment, while loading, or when the read fails. */
+    /** Idle before payment; ready only on a successful read for this order. */
     evidence,
+    retryEvidence: () => setEvidenceAttempt((value) => value + 1),
   };
 }

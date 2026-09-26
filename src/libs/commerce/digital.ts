@@ -692,6 +692,8 @@ export const DIGITAL_SELLER_COPY = {
   openedStaySold: 'Opened files stay counted as sold.',
   refundNote: "Refund recorded. The buyer can no longer download. An email already sent can't be recalled.",
   deliverFailed: "This couldn't be marked. Try again.",
+  evidenceFailed: "The delivery record couldn't be loaded.",
+  evidenceRetry: 'Retry',
 } as const;
 
 export const DIGITAL_DELIVER_REFUSAL_COPY: Readonly<Record<DigitalDeliverRefusal, string>> = {

@@ -18,6 +18,7 @@ const base = createOrderFixture('paid');
 type Kind = 'file' | 'link' | 'text' | 'email' | 'message';
 function sellerOrder(state: MarketplaceOrder['state'], kinds: Kind[]) {
   return createOrderFixture(state, {
+    id: base.id,
     fulfillment: 'digital',
     lines: kinds.map((kind) => ({ ...base.lines[0], fulfillment: 'digital' as const, digitalKind: kind })),
   });
@@ -115,6 +116,51 @@ describe('MarketplaceSellerDigitalPanel (digital delivery design §3 "Seller\u20
 
     render(<MarketplaceSellerDigitalPanel order={sellerOrder('refunded_external', ['email'])} />);
     expect(screen.queryByRole('button', { name: 'Show email' })).not.toBeInTheDocument();
+  });
+
+  it('removes a shown address from the page when the same order is refunded (F8)', async () => {
+    const user = userEvent.setup();
+    const paid = sellerOrder('paid', ['email']);
+    const { rerender } = render(<MarketplaceSellerDigitalPanel order={paid} />);
+    await user.click(screen.getByRole('button', { name: 'Show email' }));
+    expect(await screen.findByTestId('seller-delivery-email')).toHaveTextContent('buyer@example.com');
+
+    rerender(<MarketplaceSellerDigitalPanel order={{ ...paid, state: 'refunded_external' }} />);
+
+    expect(screen.queryByTestId('seller-delivery-email')).not.toBeInTheDocument();
+    expect(screen.queryByText(/buyer@example\.com/)).not.toBeInTheDocument();
+  });
+
+  it('never renders a buyer email read for another order', async () => {
+    const user = userEvent.setup();
+    vi.mocked(CommerceController.fetchOrderDeliveryEmail).mockResolvedValue({
+      orderId: '018f47d2-6a27-7c23-a49d-0000000009ff',
+      deliveryEmail: 'someone-else@example.com',
+      emailedAt: null,
+    });
+    render(<MarketplaceSellerDigitalPanel order={sellerOrder('paid', ['email'])} />);
+
+    await user.click(screen.getByRole('button', { name: 'Show email' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This could not be loaded. Try again.');
+    expect(screen.queryByText(/someone-else@example\.com/)).not.toBeInTheDocument();
+  });
+
+  it('says the delivery record failed to load, offers Retry, and never claims "not opened yet" meanwhile', async () => {
+    const user = userEvent.setup();
+    vi.mocked(CommerceController.fetchOrderDigitalEvidence).mockRejectedValueOnce(new Error('network'));
+    render(<MarketplaceSellerDigitalPanel order={sellerOrder('delivered', ['file'])} />);
+
+    expect(await screen.findByTestId('seller-digital-evidence-failed')).toHaveTextContent(
+      "The delivery record couldn't be loaded.",
+    );
+    expect(screen.queryByText(/not opened yet/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByTestId('seller-digital-evidence')).toHaveTextContent(
+      'Delivered automatically · not opened yet',
+    );
+    expect(screen.queryByTestId('seller-digital-evidence-failed')).not.toBeInTheDocument();
   });
 
   it('keeps Show email on a cancel request, where the seller may still deliver', () => {
