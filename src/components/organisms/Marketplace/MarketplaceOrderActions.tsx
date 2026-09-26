@@ -238,7 +238,7 @@ export function MarketplaceOrderActions({
           ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state) && (
             <MarketplacePackingSlipDialog order={order} />
           )}
-        {isBuyer && order.state === 'shipped' && (
+        {isBuyer && !isDigital && order.state === 'shipped' && (
           <Button
             size="sm"
             className="rounded-full"

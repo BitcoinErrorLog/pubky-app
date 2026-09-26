@@ -421,7 +421,7 @@ export function MarketplaceOrders() {
                                 <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
                               </div>
                             )}
-                            {order.shipment && (
+                            {order.shipment && order.fulfillment !== 'digital' && (
                               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                                 <Typography as="p">
                                   {order.shipment.carrier} · {order.shipment.trackingNumber} · {order.shipment.state}

@@ -18,7 +18,6 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   },
 }));
 
-const SELLER = 'y'.repeat(52);
 const base = createOrderFixture('delivered');
 type Kind = 'file' | 'link' | 'text' | 'email' | 'message';
 
@@ -35,9 +34,10 @@ function digitalOrder(state: MarketplaceOrder['state'], kinds: Kind[], overrides
   });
 }
 
+// The released line matches the paid order line: same listing and seller (bindOrderDigitalLine).
 const common = {
-  listingAggregateId: `listing:${SELLER}_guide`,
-  sellerPubky: SELLER,
+  listingAggregateId: base.lines[0].listingAggregateId,
+  sellerPubky: base.sellerPubky,
   deliverableId: 'a'.repeat(32),
   version: 2,
 };
