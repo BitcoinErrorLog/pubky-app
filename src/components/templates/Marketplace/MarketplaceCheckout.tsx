@@ -147,6 +147,16 @@ function MarketplaceCartCheckout() {
     };
   }, [dropSeller, dropListingId]);
 
+  // An accepted offer settles only through the methods its accepted snapshot
+  // published (the service authorizes award checkout from the same
+  // snapshot), never from the listing as it is now.
+  const awardSeller = offerEligible && award ? award.listing.sellerPubky : null;
+  const awardFulfillmentMethods = award?.fulfillmentMethods;
+  const awardFulfillment =
+    awardSeller && awardFulfillmentMethods
+      ? { sellerPubky: awardSeller, fulfillmentMethods: awardFulfillmentMethods }
+      : null;
+
   const ordinaryItems = cart.ordinaryItems ?? cart.items;
   const checkoutItems = useMemo(() => {
     if (isOfferCheckout) return EMPTY_CHECKOUT_ITEMS;
@@ -156,6 +166,7 @@ function MarketplaceCartCheckout() {
   const checkout = useMarketplaceCheckout(
     checkoutItems,
     isOfferCheckout || isDropCheckout ? async () => undefined : cart.clear,
+    awardFulfillment,
   );
   const orders = useMarketplaceOrders();
   const adapterMode = getCommerceAdapterMode();
@@ -163,21 +174,25 @@ function MarketplaceCartCheckout() {
   const isStaging = getDeployEnv() === 'staging';
   const formValues = useWatch({ control: checkout.form.control });
   const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
-  const displayGroups = useMemo(
-    () => (isOfferCheckout ? [] : groupMarketplaceCartItems(checkoutItems)),
-    [checkoutItems, isOfferCheckout],
-  );
+  const displayGroups = useMemo(() => groupMarketplaceCartItems(checkoutItems), [checkoutItems]);
+  // The award renders as its own fulfillment section (no cart line cards).
+  const fulfillmentGroups = awardSeller ? [{ sellerPubky: awardSeller, items: [], subtotals: [] }] : displayGroups;
   const shipping = marketplaceCartShippingTotals(displayGroups, checkout.fulfillmentForSeller);
+  // A pickup award pays the accepted merchandise only; its shipping is zero.
+  const isPickupAward = Boolean(awardSeller && checkout.fulfillmentForSeller(awardSeller) === 'pickup');
   const itemSubtotals =
     isOfferCheckout && award
       ? [award.subtotal]
       : isDropCheckout
         ? displayGroups.flatMap((group) => group.subtotals)
         : cart.subtotals;
-  const shippingTotals = isOfferCheckout && award ? [award.shipping] : shipping.totals;
+  const shippingTotals =
+    isOfferCheckout && award
+      ? [isPickupAward ? { ...award.shipping, amountMinor: 0 } : award.shipping]
+      : shipping.totals;
   const totalSubtotals =
     isOfferCheckout && award
-      ? [award.merchandiseTotal]
+      ? [isPickupAward ? award.subtotal : award.merchandiseTotal]
       : [...itemSubtotals, ...shipping.totals].reduce<
           Array<{ amountMinor: number; currency: string; exponent: number }>
         >((totals, money) => {
@@ -301,21 +316,23 @@ function MarketplaceCartCheckout() {
     if (!marketplaceCheckoutSchema.safeParse(values).success) return;
     const result = await offerPay.submit(
       offer,
-      {
-        name: values.name,
-        line1: values.line1,
-        line2: values.line2,
-        city: values.city,
-        region: values.region,
-        postalCode: values.postalCode,
-        countryCode: values.countryCode,
-      },
+      isPickupAward
+        ? null
+        : {
+            name: values.name,
+            line1: values.line1,
+            line2: values.line2,
+            city: values.city,
+            region: values.region,
+            postalCode: values.postalCode,
+            countryCode: values.countryCode,
+          },
       method,
     );
     if (result.ok) {
       await removeAwardLine();
       await offers.refresh();
-      await checkout.rememberAddress();
+      if (!isPickupAward) await checkout.rememberAddress();
       if (result.boundOrder?.fiatCheckoutUrl) {
         window.location.assign(result.boundOrder.fiatCheckoutUrl);
         return;
@@ -480,11 +497,15 @@ function MarketplaceCartCheckout() {
           <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
             <div className="flex flex-col gap-6 lg:col-start-1 lg:row-start-1">
               {isOfferCheckout && award ? <MarketplaceAwardTerms award={award} /> : null}
-              {displayGroups.map((group) => {
+              {fulfillmentGroups.map((group) => {
                 const fulfillmentOptions = checkout.fulfillmentOptionsForSeller(group.sellerPubky);
                 const fulfillment = checkout.fulfillmentForSeller(group.sellerPubky);
                 const isPickupGroup = fulfillment === 'pickup';
                 const isPickupCapabilityLoading = checkout.isPickupCapabilityLoadingForSeller(group.sellerPubky);
+                // A shipping-only award has no fulfillment step to show.
+                const hasFulfillmentStep =
+                  isPickupCapabilityLoading || isPickupGroup || fulfillmentOptions.length !== 1;
+                if (group.items.length === 0 && !hasFulfillmentStep) return null;
                 return (
                   <section
                     key={group.sellerPubky}
@@ -492,7 +513,7 @@ function MarketplaceCartCheckout() {
                     aria-label={`Items from ${group.sellerPubky}`}
                     data-surface={isPickupGroup ? 'checkout-pickup-group' : undefined}
                   >
-                    {displayGroups.length > 1 && <MarketplaceCheckoutSellerHeader group={group} />}
+                    {fulfillmentGroups.length > 1 && <MarketplaceCheckoutSellerHeader group={group} />}
                     {isPickupCapabilityLoading ? (
                       <Skeleton
                         className="h-16 w-full"
@@ -544,9 +565,9 @@ function MarketplaceCartCheckout() {
                         role="alert"
                         className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
                       >
-                        These items can&apos;t be checked out together: they don&apos;t share a fulfillment method this
-                        deployment supports (one ships while another is pickup-only). Remove one in the cart to
-                        continue.
+                        {isOfferCheckout
+                          ? 'This listing is local pickup only, and pickup is unavailable on this deployment right now.'
+                          : "These items can't be checked out together: they don't share a fulfillment method this deployment supports (one ships while another is pickup-only). Remove one in the cart to continue."}
                       </Typography>
                     )}
                     {group.items.map((item) => {

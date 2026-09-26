@@ -54,6 +54,7 @@ const offer: MarketplaceOffer = {
     subtotal: { amountMinor: 600, currency: 'USD', exponent: 2 },
     shipping: { amountMinor: 100, currency: 'USD', exponent: 2 },
     merchandiseTotal: { amountMinor: 700, currency: 'USD', exponent: 2 },
+    fulfillmentMethods: ['shipping'],
   },
 };
 
@@ -66,6 +67,13 @@ const address = {
   postalCode: '10001',
   countryCode: 'US',
 };
+
+function committedPayload(): Record<string, unknown> | undefined {
+  const command = vi.mocked(CommerceController.commitOfferCheckout).mock.calls[0]?.[0] as
+    | { payload: Record<string, unknown> }
+    | undefined;
+  return command?.payload;
+}
 
 describe('useMarketplaceOfferCheckout', () => {
   beforeEach(() => {
@@ -104,6 +112,26 @@ describe('useMarketplaceOfferCheckout', () => {
       }),
     );
     expect(completed).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a shipped award exactly as before: the address and no fulfillment field', async () => {
+    const { result } = renderHook(() => useMarketplaceOfferCheckout());
+    await act(async () => {
+      await result.current.submit(offer, address);
+    });
+    const payload = committedPayload();
+    expect(payload).toMatchObject({ deliveryAddress: address });
+    expect(payload).not.toHaveProperty('fulfillment');
+  });
+
+  it('settles a pickup award with fulfillment pickup and no delivery address', async () => {
+    const { result } = renderHook(() => useMarketplaceOfferCheckout());
+    await act(async () => {
+      await expect(result.current.submit(offer, null)).resolves.toMatchObject({ ok: true });
+    });
+    const payload = committedPayload();
+    expect(payload).toMatchObject({ fulfillment: 'pickup' });
+    expect(payload).not.toHaveProperty('deliveryAddress');
   });
 
   it.each([

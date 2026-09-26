@@ -9,6 +9,7 @@ import {
   isSuccessfulListingRegistrationResponse,
   marketplaceCommandSchema,
   markReadyForPickupCommandSchema,
+  offerCheckoutCommandSchema,
   registerListingCommandSchema,
   setPickupDetailsCommandSchema,
   updateReviewCommandSchema,
@@ -465,5 +466,56 @@ describe('checkout.create fulfillment and address rules (§A2)', () => {
       countryCode: 'GB',
     };
     expect(createMarketplaceCheckoutCommandSchema.safeParse(gb).success).toBe(true);
+  });
+});
+
+describe('offer.checkout fulfillment and address rules (mirrors the service validator)', () => {
+  const address = {
+    name: 'Alice Buyer',
+    line1: '1 Market Street',
+    line2: '',
+    city: 'New York',
+    region: 'NY',
+    postalCode: '10001',
+    countryCode: 'US',
+  };
+
+  function offerCheckout(extra: Record<string, unknown>) {
+    return {
+      version: 1,
+      commandId: '018f47d2-6a27-7c23-a62f-000000000740',
+      aggregateId: 'offer:018f47d2-6a27-7c23-a62f-000000000741',
+      expectedRevision: 2,
+      issuedAt: '2026-08-19T22:00:00.000Z',
+      kind: 'offer.checkout',
+      payload: {
+        offerId: '018f47d2-6a27-7c23-a62f-000000000741',
+        awardId: '018f47d2-6a27-7c23-a62f-000000000742',
+        listingAggregateId: LISTING_AGGREGATE_ID,
+        listingRevision: 1,
+        listingRecordSha256: 'a'.repeat(64),
+        variantId: 'variant_01',
+        quantity: 1,
+        guaranteePolicyVersion: 1,
+        ...extra,
+      },
+    };
+  }
+
+  it('accepts a pickup award with no delivery address', () => {
+    const parsed = offerCheckoutCommandSchema.parse(offerCheckout({ fulfillment: 'pickup' }));
+    expect(parsed.payload.fulfillment).toBe('pickup');
+    expect(parsed.payload.deliveryAddress).toBeUndefined();
+  });
+
+  it('keeps a shipped award as before: address required, no fulfillment field', () => {
+    expect(offerCheckoutCommandSchema.safeParse(offerCheckout({ deliveryAddress: address })).success).toBe(true);
+    expect(offerCheckoutCommandSchema.safeParse(offerCheckout({})).success).toBe(false);
+  });
+
+  it('rejects a pickup award that presents an address', () => {
+    expect(
+      offerCheckoutCommandSchema.safeParse(offerCheckout({ fulfillment: 'pickup', deliveryAddress: address })).success,
+    ).toBe(false);
   });
 });

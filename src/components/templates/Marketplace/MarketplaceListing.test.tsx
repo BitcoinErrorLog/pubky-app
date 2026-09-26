@@ -281,10 +281,42 @@ describe('MarketplaceListing', () => {
     ).toBeTruthy();
   });
 
-  it('does not offer Make offer on a pickup-only Buy-now listing the service refuses offers on', () => {
+  it('offers Make offer on a pickup-only Buy-now listing that accepts offers', () => {
     view.listing = toCommerceListingModel(createCommerceListingFixture({ fulfillmentMethods: ['pickup'] }));
     renderListing();
     expect(screen.getByRole('button', { name: /Add to cart/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Make offer' })).toBeEnabled();
+  });
+
+  it('shows no Make offer on a digital-only listing, which the service refuses offers on', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['digital'],
+        digitalLock: {
+          policyUri: `pubky://${'s'.repeat(52)}/pub/locks.app/policies/boots_01.json`,
+          criterionId: 'criterion-1',
+          contentPath: 'boots_01/archive.zip',
+          resourceHash: 'a'.repeat(64),
+          minimumConfirmations: 3,
+        },
+      }),
+    );
+    renderListing();
+    expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
+  });
+
+  it('shows no Make offer when the listing does not accept offers', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['pickup'],
+        sale: {
+          format: 'fixed_price',
+          unitPrice: { amountMinor: 12_500, currency: 'USD', exponent: 2 },
+          acceptsOffers: false,
+        },
+      }),
+    );
+    renderListing();
     expect(screen.queryByRole('button', { name: 'Make offer' })).not.toBeInTheDocument();
   });
 

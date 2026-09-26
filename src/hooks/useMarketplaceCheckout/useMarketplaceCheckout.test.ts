@@ -736,6 +736,42 @@ describe('useMarketplaceCheckout local pickup (§A2)', () => {
     });
   });
 
+  it('resolves an award from its accepted fulfillment methods alone', async () => {
+    const pickupOnly = { sellerPubky: listing.ownerPubky, fulfillmentMethods: ['pickup' as const] };
+    const { result, rerender } = renderHook(
+      ({ award }) =>
+        useMarketplaceCheckout(
+          [],
+          vi.fn(async () => {}),
+          award,
+        ),
+      { initialProps: { award: pickupOnly } },
+    );
+    await waitFor(() => expect(result.current.requiresDeliveryAddress).toBe(false));
+    expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual(['pickup']);
+    expect(result.current.fulfillmentForSeller(listing.ownerPubky)).toBe('pickup');
+
+    rerender({ award: { sellerPubky: listing.ownerPubky, fulfillmentMethods: ['shipping', 'pickup'] } as never });
+    expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual(['shipping', 'pickup']);
+    expect(result.current.fulfillmentForSeller(listing.ownerPubky)).toBe('shipping');
+    expect(result.current.requiresDeliveryAddress).toBe(true);
+  });
+
+  it('keeps a pickup-only award unpayable while the deployment has no pickup', async () => {
+    vi.mocked(CommerceController.fetchPickupAvailable).mockResolvedValue(false);
+    const award = { sellerPubky: listing.ownerPubky, fulfillmentMethods: ['pickup' as const] };
+    const { result } = renderHook(() =>
+      useMarketplaceCheckout(
+        [],
+        vi.fn(async () => {}),
+        award,
+      ),
+    );
+    await waitFor(() => expect(result.current.isPickupCapabilityLoadingForSeller(listing.ownerPubky)).toBe(false));
+    expect(result.current.fulfillmentOptionsForSeller(listing.ownerPubky)).toEqual([]);
+    expect(result.current.hasFulfillmentConflict).toBe(true);
+  });
+
   it('omits the delivery address from the checkout command on a pickup-only cart', async () => {
     const clear = vi.fn(async () => {});
     const { result } = renderHook(() => useMarketplaceCheckout([itemWithFulfillment(['pickup'])], clear));

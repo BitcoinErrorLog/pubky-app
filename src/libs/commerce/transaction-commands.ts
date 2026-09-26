@@ -220,10 +220,29 @@ export const offerCheckoutCommandSchema = createCommerceCommandSchema(
       listingRecordSha256: z.string().min(1),
       variantId: z.string().min(1),
       quantity: z.number().int().positive(),
-      deliveryAddress: commerceDeliveryAddressValueSchema,
+      deliveryAddress: commerceDeliveryAddressValueSchema.optional(),
+      // Absent means shipping; a pickup award sends `pickup` and no address.
+      fulfillment: z.literal('pickup').optional(),
       guaranteePolicyVersion: z.literal(1),
     })
-    .strict(),
+    .strict()
+    .superRefine((payload, context) => {
+      const pickup = payload.fulfillment === 'pickup';
+      if (!pickup && payload.deliveryAddress === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryAddress'],
+          message: 'A delivery address is required when the offer ships',
+        });
+      }
+      if (pickup && payload.deliveryAddress !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryAddress'],
+          message: 'A pickup offer checkout must not carry a delivery address',
+        });
+      }
+    }),
 );
 
 export const placeBidCommandSchema = createCommerceCommandSchema(

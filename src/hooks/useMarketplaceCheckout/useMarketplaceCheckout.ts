@@ -97,9 +97,15 @@ export type MarketplacePayResult = {
   boundOrders: MarketplaceOrder[];
 };
 
+/**
+ * `award` is an accepted offer's checkout: its fulfillment choices come from
+ * the accepted snapshot's methods (never the listing as it is now), filtered
+ * by the deployment's pickup capability like a cart line's.
+ */
 export function useMarketplaceCheckout(
   items: MarketplaceCartItem[],
   clearCart: () => Promise<void>,
+  award: { sellerPubky: string; fulfillmentMethods: readonly MarketplaceFulfillmentMethod[] } | null = null,
 ): {
   form: UseFormReturn<MarketplaceCheckoutData>;
   submit: () => Promise<boolean>;
@@ -234,9 +240,14 @@ export function useMarketplaceCheckout(
   // `?? 'shipping'` defect, PR 22 review item 1).
   const optionsBySeller = new Map<string, MarketplaceFulfillmentMethod[]>();
   const sellersPublishingPickup = new Set<string>();
-  for (const item of items) {
-    const sellerPubky = item.listing.record.ownerPubky;
-    const published = commerceListingFulfillmentMethods(item.listing.record.fulfillmentMethods);
+  const fulfillmentSources = [
+    ...items.map((item) => ({
+      sellerPubky: item.listing.record.ownerPubky,
+      published: commerceListingFulfillmentMethods(item.listing.record.fulfillmentMethods),
+    })),
+    ...(award ? [{ sellerPubky: award.sellerPubky, published: [...award.fulfillmentMethods] }] : []),
+  ];
+  for (const { sellerPubky, published } of fulfillmentSources) {
     if (published.includes('pickup')) sellersPublishingPickup.add(sellerPubky);
     const allowed = pickupAvailable === true ? published : published.filter((method) => method !== 'pickup');
     const existing = optionsBySeller.get(sellerPubky);
@@ -252,7 +263,7 @@ export function useMarketplaceCheckout(
   };
   const hasFulfillmentConflict = [...optionsBySeller.values()].some((options) => options.length === 0);
   const requiresDeliveryAddress =
-    items.length === 0 ||
+    fulfillmentSources.length === 0 ||
     [...optionsBySeller.keys()].some((sellerPubky) => fulfillmentForSeller(sellerPubky) !== 'pickup');
   const orderCount = optionsBySeller.size;
 
