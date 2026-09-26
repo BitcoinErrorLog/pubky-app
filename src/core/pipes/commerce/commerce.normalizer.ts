@@ -539,7 +539,11 @@ export class CommerceRecordNormalizer {
   }
 
   static auctionReserveUri(ownerPubky: unknown, listingId: unknown): string {
-    return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/auction_reserves/${this.entityId(listingId)}.json`;
+    return `${this.auctionReserveDirectoryUri(ownerPubky)}${this.entityId(listingId)}.json`;
+  }
+
+  static auctionReserveDirectoryUri(ownerPubky: unknown): string {
+    return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/auction_reserves/`;
   }
 
   /**

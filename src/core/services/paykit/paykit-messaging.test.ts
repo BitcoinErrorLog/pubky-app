@@ -57,6 +57,9 @@ vi.mock('@/libs/runtime-config/runtime-config', async () => {
 function createFakeWorld() {
   const world = {
     markers: new Map<string, { receiverPath: string; noisePublicKey: string }>(),
+    // Public receiver trees for `listPaykitReceiverPaths`: owner → path → marker.
+    receiverTrees: new Map<string, Map<string, { capabilities: Record<string, boolean> }>>(),
+    receiverListFails: false,
     inboundFrom: new Set<string>(),
     advanceScript: [] as ('pending' | 'complete')[],
     calls: [] as string[],
@@ -198,9 +201,15 @@ function createFakeWorld() {
       }
       world.lastPublishedMarker = { path, noisePublicKey, capabilities };
     },
-    getReceiverMarker: async (_client: unknown, ownerPubky: string) => {
+    getReceiverMarker: async (_client: unknown, ownerPubky: string, path?: string) => {
       world.calls.push(`getReceiverMarker:${ownerPubky.slice(0, 4)}`);
+      const tree = world.receiverTrees.get(ownerPubky);
+      if (tree && path !== undefined) return tree.get(path);
       return world.markers.get(ownerPubky);
+    },
+    listPaykitReceiverPaths: async (_client: unknown, ownerPubky: string) => {
+      if (world.receiverListFails) throw new Error('homeserver unreachable (scripted)');
+      return [...(world.receiverTrees.get(ownerPubky)?.keys() ?? [])].sort();
     },
     removeReceiverMarker: async () => {},
     initiateEncryptedLink: (...args: unknown[]) => {
@@ -261,6 +270,37 @@ describe('PaykitMessagingService', () => {
     PaykitMessagingService.clearSession();
     setPaykitWasmModuleForTests(null);
     vi.restoreAllMocks();
+  });
+
+  describe('buyer payment-request wallet', () => {
+    const BUYER = 'b'.repeat(52);
+    const messagingOnly = { capabilities: { privatePayments: true, paymentRequests: false } };
+    const bitkitWallet = { capabilities: { privatePayments: true, paymentRequests: true } };
+
+    it('does not count the messaging-only receiver as a payable wallet', async () => {
+      world.receiverTrees.set(BUYER, new Map([['marketplace/wallet', messagingOnly]]));
+      await expect(PaykitMessagingService.hasPaymentRequestReceiver(BUYER)).resolves.toBe(false);
+    });
+
+    it('reports no wallet when nothing is published', async () => {
+      await expect(PaykitMessagingService.hasPaymentRequestReceiver(BUYER)).resolves.toBe(false);
+    });
+
+    it('finds a payment-request receiver next to the messaging one', async () => {
+      world.receiverTrees.set(
+        BUYER,
+        new Map([
+          ['bitkit/wallet', bitkitWallet],
+          ['marketplace/wallet', messagingOnly],
+        ]),
+      );
+      await expect(PaykitMessagingService.hasPaymentRequestReceiver(BUYER)).resolves.toBe(true);
+    });
+
+    it('rejects when the receiver list cannot be read, never reporting "no wallet"', async () => {
+      world.receiverListFails = true;
+      await expect(PaykitMessagingService.hasPaymentRequestReceiver(BUYER)).rejects.toThrow();
+    });
   });
 
   describe('session lifecycle and receiver provisioning', () => {

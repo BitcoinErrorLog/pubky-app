@@ -79,6 +79,19 @@ const secondSellerListing = {
 
 const searchParams = vi.hoisted(() => ({ current: new URLSearchParams() }));
 
+const buyerWallet = vi.hoisted(() => ({
+  state: 'payable' as 'idle' | 'checking' | 'payable' | 'not_payable' | 'unknown',
+  recheck: vi.fn(),
+  enabledCalls: [] as boolean[],
+}));
+
+vi.mock('@/hooks/useBuyerPaykitWallet/useBuyerPaykitWallet', () => ({
+  useBuyerPaykitWallet: (_buyerPubky: string | null, enabled: boolean) => {
+    buyerWallet.enabledCalls.push(enabled);
+    return { state: enabled ? buyerWallet.state : 'idle', recheck: buyerWallet.recheck };
+  },
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => '/marketplace/checkout',
@@ -285,6 +298,9 @@ function resetCheckoutView() {
   offerState.submit.mockResolvedValue(offerState.outcome);
   searchParams.current = new URLSearchParams();
   window.history.replaceState(null, '', '/marketplace/checkout');
+  buyerWallet.state = 'payable';
+  buyerWallet.recheck.mockClear();
+  buyerWallet.enabledCalls = [];
 }
 
 function seededCart() {
@@ -411,6 +427,57 @@ describe('MarketplaceCheckout', () => {
 
     await user.click(screen.getByRole('checkbox', { name: /I accept guarantee policy v1/ }));
     await waitFor(() => expect(pay).toBeEnabled());
+  });
+
+  it('asks a buyer without a Paykit wallet to connect Bitkit instead of letting Bitcoin Pay fail', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = true;
+    buyerWallet.state = 'not_payable';
+
+    render(<MarketplaceCheckout />);
+
+    const pay = screen.getByTestId('marketplace-checkout-pay');
+    await fillValidDelivery(user);
+    await user.click(screen.getByRole('checkbox', { name: /I accept guarantee policy v1/ }));
+    const notice = await screen.findByTestId('marketplace-checkout-bitkit-required');
+    expect(notice).toHaveTextContent('Connect Bitkit to pay with Bitcoin');
+    expect(notice).toHaveTextContent('You can also pay with PayPal.');
+    expect(pay).toBeDisabled();
+    expect(
+      screen.getByText('Connect Bitkit to pay with Bitcoin, or choose another payment method.'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('marketplace-checkout-bitkit-recheck'));
+    expect(buyerWallet.recheck).toHaveBeenCalledTimes(1);
+
+    // Another rail stays payable.
+    await user.click(screen.getByTestId('marketplace-checkout-method-paypal'));
+    await waitFor(() => expect(pay).toBeEnabled());
+    expect(screen.queryByTestId('marketplace-checkout-bitkit-required')).not.toBeInTheDocument();
+    expect(checkoutActions.pay).not.toHaveBeenCalled();
+  });
+
+  it('keeps Bitcoin Pay available while the wallet check is inconclusive, and holds it while checking', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = true;
+    buyerWallet.state = 'checking';
+
+    const { rerender } = render(<MarketplaceCheckout />);
+    const pay = screen.getByTestId('marketplace-checkout-pay');
+    await fillValidDelivery(user);
+    await user.click(screen.getByRole('checkbox', { name: /I accept guarantee policy v1/ }));
+    expect(await screen.findByText('Checking your Bitcoin wallet…')).toBeInTheDocument();
+    expect(pay).toBeDisabled();
+
+    buyerWallet.state = 'unknown';
+    rerender(<MarketplaceCheckout />);
+    await waitFor(() => expect(pay).toBeEnabled());
+    expect(screen.queryByTestId('marketplace-checkout-bitkit-required')).not.toBeInTheDocument();
+    expect(buyerWallet.enabledCalls).toContain(true);
   });
 
   it('pays on the checkout screen instead of routing to orders', async () => {

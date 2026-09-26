@@ -19,6 +19,7 @@ import { getCommerceAdapterMode, isDurableCommerceMode, isLocksPaykitCommerceMod
 import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { isMarketplaceAwardCheckoutEligible } from '@/core/services/marketplace/marketplace-projections';
+import { useBuyerPaykitWallet } from '@/hooks/useBuyerPaykitWallet/useBuyerPaykitWallet';
 import {
   groupMarketplaceCartItems,
   type MarketplaceCartGroup,
@@ -286,11 +287,20 @@ function MarketplaceCartCheckout() {
     return () => window.clearInterval(timer);
   }, [showPaying]);
 
+  // A Bitcoin payment request is delivered to the buyer's Paykit wallet;
+  // without one, Pay cannot succeed, so it is gated before the attempt.
+  const bitcoinSelected = !isSandbox && isDurableCommerceMode(adapterMode) && selectedMethod === 'bitcoin';
+  const buyerWallet = useBuyerPaykitWallet(currentUserPubky ?? null, bitcoinSelected);
+  const buyerWalletMissing = bitcoinSelected && buyerWallet.state === 'not_payable';
+  const buyerWalletChecking = bitcoinSelected && buyerWallet.state === 'checking';
+
   const canPay =
     !approvalNeeded &&
     formValid &&
     !checkout.hasFulfillmentConflict &&
     !isPaying &&
+    !buyerWalletMissing &&
+    !buyerWalletChecking &&
     (!isOfferCheckout || offerEligible) &&
     (isSandbox || (sharedMethods !== null && sharedMethods.length > 0 && selectedMethod !== null));
 
@@ -802,6 +812,39 @@ function MarketplaceCartCheckout() {
                         ))}
                       </div>
                     )}
+                    {buyerWalletChecking && (
+                      <Typography as="p" aria-live="polite" className="text-xs text-muted-foreground">
+                        Checking your Bitcoin wallet…
+                      </Typography>
+                    )}
+                    {buyerWalletMissing && (
+                      <div
+                        role="alert"
+                        className="grid gap-2 rounded-xl border bg-card/60 p-4"
+                        data-testid="marketplace-checkout-bitkit-required"
+                      >
+                        <Typography as="p" className="text-sm font-medium">
+                          Connect Bitkit to pay with Bitcoin
+                        </Typography>
+                        <Typography as="p" className="text-xs text-muted-foreground">
+                          Bitcoin payments arrive in your Paykit wallet as a payment request. This account has no Paykit
+                          wallet that can receive one yet. Connect Bitkit to this Pubky account, then check again.
+                          {sharedMethods?.includes('paypal') ? ' You can also pay with PayPal.' : ''}
+                        </Typography>
+                        <div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="rounded-full"
+                            data-testid="marketplace-checkout-bitkit-recheck"
+                            onClick={buyerWallet.recheck}
+                          >
+                            Check again
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <Button
                     className="w-full rounded-full"
@@ -830,13 +873,17 @@ function MarketplaceCartCheckout() {
                     <Typography id="checkout-pay-reason" as="p" className="text-xs text-muted-foreground">
                       {checkout.hasFulfillmentConflict
                         ? "Some items can't be checked out together — see the note above."
-                        : railsFailed
-                          ? 'Pay unlocks once payment options load.'
-                          : sharedMethods && sharedMethods.length === 0 && !isSandbox
-                            ? isMultiSeller
-                              ? 'Choose sellers that share a payment method.'
-                              : 'Pay unlocks once this seller sets up a payment method.'
-                            : 'Fill in delivery details, accept the guarantee, and choose a payment method to pay.'}
+                        : buyerWalletMissing
+                          ? 'Connect Bitkit to pay with Bitcoin, or choose another payment method.'
+                          : buyerWalletChecking
+                            ? 'Pay unlocks once your Bitcoin wallet is checked.'
+                            : railsFailed
+                              ? 'Pay unlocks once payment options load.'
+                              : sharedMethods && sharedMethods.length === 0 && !isSandbox
+                                ? isMultiSeller
+                                  ? 'Choose sellers that share a payment method.'
+                                  : 'Pay unlocks once this seller sets up a payment method.'
+                                : 'Fill in delivery details, accept the guarantee, and choose a payment method to pay.'}
                     </Typography>
                   )}
                 </section>
