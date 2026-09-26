@@ -441,6 +441,14 @@ export class CommerceController {
   }
 
   /**
+   * Deletes the signed-in user's leftover auction reserve files. The service
+   * holds the reserve; the homeserver copy is not read.
+   */
+  static async sweepOwnAuctionReserves(): Promise<number> {
+    return await CommerceApplication.sweepOwnAuctionReserves(this.getCurrentUserPubky());
+  }
+
+  /**
    * Publishes the portable order receipt for every eligible paid order to
    * the current user's own homeserver (credible exit for orders) and mirrors
    * the outcome into the commerce store, so the orders surface shows the
@@ -528,6 +536,11 @@ export class CommerceController {
   /** A seller's publicly visible payment rails (bitcoin/stripe/paypal). */
   static async getSellerPaymentConfig(sellerPubky: unknown) {
     return await CommerceApplication.getSellerPaymentConfig(CommerceRecordNormalizer.pubky(sellerPubky));
+  }
+
+  /** Whether the buyer has a Paykit wallet that can receive a Bitcoin payment request. */
+  static async hasBuyerPaykitWallet(buyerPubky: unknown) {
+    return await CommerceApplication.hasBuyerPaykitWallet(CommerceRecordNormalizer.pubky(buyerPubky));
   }
 
   /** The current user's own stored payment configuration, or null. */
@@ -1620,8 +1633,12 @@ export class CommerceController {
    */
   private static onMarketplaceSessionEnded(event: MarketplaceSessionEndedEvent): void {
     const current = useCommerceStore.getState().marketplaceSession;
-    if (!current) return;
+    if (!current) {
+      CommerceApplication.dropPendingAuctionRegistrations();
+      return;
+    }
     if (Date.parse(current.issuedAt) > Date.parse(event.issuedAt)) return;
+    CommerceApplication.dropPendingAuctionRegistrations();
     this.clearMarketplaceSessionStore();
   }
 
