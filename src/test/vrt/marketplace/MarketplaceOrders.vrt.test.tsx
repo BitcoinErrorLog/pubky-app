@@ -118,6 +118,34 @@ const fixtures = vi.hoisted(async () => {
     receipt: null,
   });
 
+  // Digital delivery design §3 "After payment": a delivered order with a
+  // file, a text and a message-kind line, seen by its buyer.
+  const digitalDeliveredView = () => {
+    const base = createOrderFixture('delivered', { id: '018f47d2-6a27-7c23-a49d-000000000704', nextActor: 'none' });
+    const line = base.lines[0];
+    return {
+      order: {
+        ...base,
+        fulfillment: 'digital' as const,
+        shipment: null,
+        shipping: { ...base.shipping, amountMinor: 0 },
+        total: base.subtotal,
+        lines: [
+          {
+            ...line,
+            title: 'Field guide to film cameras (PDF)',
+            fulfillment: 'digital' as const,
+            digitalKind: 'file' as const,
+          },
+          { ...line, title: 'Darkroom timer licence', fulfillment: 'digital' as const, digitalKind: 'text' as const },
+          { ...line, title: 'Portfolio review', fulfillment: 'digital' as const, digitalKind: 'message' as const },
+        ],
+      },
+      payment: createPaymentFixture('confirmed'),
+      receipt: null,
+    };
+  };
+
   const sellerAwaitingPayment = [
     'awaiting_entitlement',
     'detected',
@@ -243,6 +271,7 @@ const fixtures = vi.hoisted(async () => {
     reviewedOutOfWindow: [reviewedOrderView(25)],
     trackableShipped: [trackableShippedView()],
     deliveryAssumed: [deliveryAssumedView()],
+    digitalDelivered: [digitalDeliveredView()],
     sellerAwaitingPayment: sellerAwaitingPaymentViews,
     buyerPendingPayment,
     sellerPendingPayment,
@@ -371,6 +400,17 @@ describe('Marketplace orders — visual regression', () => {
 
     await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-delivery-assumed-desktop');
+  });
+
+  it('renders a delivered digital order with the buyer purchase panel at desktop viewport', async () => {
+    const { digitalDelivered } = await fixtures;
+    ordersState.orders = digitalDelivered;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-digital-delivered-desktop');
+    await expect(expectVrtSurface('order-digital-panel')).toMatchScreenshot('orders-digital-panel-desktop');
   });
 
   it('renders every buyer-visible payment state at desktop viewport', async () => {

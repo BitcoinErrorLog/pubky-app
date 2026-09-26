@@ -14,7 +14,8 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { orderDigitalReadFailureMessage } from '../useOrderDigitalDelivery/useOrderDigitalDelivery';
 
 export type OrderDeliveryEmailState =
-  | { status: 'idle' | 'loading' }
+  | { status: 'idle' }
+  | { status: 'loading' }
   | { status: 'ready'; email: MarketplaceOrderDeliveryEmail }
   /** No address on file (purged, or never stored): the buyer can enter one (§6 F9). */
   | { status: 'missing' }

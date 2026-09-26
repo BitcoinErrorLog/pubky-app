@@ -563,3 +563,39 @@ export const DELIVERY_EMAIL_CHANGE_COPY: Readonly<Record<DeliveryEmailChangeRefu
   changed: 'This order changed. Refresh to see the latest.',
   failed: "The email couldn't be saved. Try again.",
 };
+
+/** The buyer's order panel copy (§3 "After payment", §6 D8–D11, E4, F5, F9, F13). */
+export const DIGITAL_ORDER_COPY = {
+  heading: 'Your purchase',
+  download: 'Download',
+  downloading: 'Downloading…',
+  revealText: 'Reveal text',
+  showLink: 'Show link',
+  openLink: 'Open link',
+  hide: 'Hide',
+  copy: 'Copy',
+  copied: 'Copied',
+  notPaid: DIGITAL_READ_REFUSAL_COPY.not_paid,
+  ended: DIGITAL_READ_REFUSAL_COPY.delivery_ended,
+  emailMissing: 'Enter your email so the seller can deliver.',
+  emailLabel: 'Email for delivery',
+  change: 'Change',
+  save: 'Save',
+  cancel: 'Cancel',
+  messagePending: 'The seller will send this in your messages.',
+  messageDelivered: 'The seller marked this delivered. Check your messages.',
+  noReturn: "Digital purchases can't be returned. Message the seller about a refund.",
+  readyToDownload: 'Delivered · ready to download',
+} as const;
+
+/** The order states that end a digital purchase (the service's `DIGITAL_ENDED_ORDER_STATES`, plus partial refunds). */
+export function isDigitalOrderEnded(state: string): boolean {
+  return ['cancelled', 'refunded_external', 'refunded_partial', 'closed'].includes(state);
+}
+
+/** "The seller will email this to …", or once marked emailed, when and what to check. */
+export function digitalOrderEmailLine(address: string, emailedAt: string | null): string {
+  if (!emailedAt) return `The seller will email this to ${address}`;
+  const date = new Date(emailedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  return `Emailed to ${address} on ${date}. Check your spam folder, or message the seller.`;
+}

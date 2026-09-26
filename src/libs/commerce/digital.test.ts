@@ -13,6 +13,7 @@ import {
   DIGITAL_DELIVERY_COPY,
   DIGITAL_DELIVERY_SETUP_COPY,
   DIGITAL_FILE_OPEN_FAILURE_COPY,
+  DIGITAL_ORDER_COPY,
   digitalCheckoutLineLabel,
   digitalContentTypeLabel,
   digitalDeliveryBadgeLabel,
@@ -20,8 +21,10 @@ import {
   digitalDeliverySetSchema,
   digitalDeliveryVersionLine,
   digitalFileTooLargeCopy,
+  digitalOrderEmailLine,
   formatDigitalFileSize,
   isDigitalDeliveryLink,
+  isDigitalOrderEnded,
   isInstantDigitalDeliveryKind,
   isWellFormedDeliveryEmail,
   marketplaceListingDigitalDeliveryFieldSchema,
@@ -426,5 +429,29 @@ describe('buyer order reads (§4.2, §4.3, §6 D5, F5, F11, F12)', () => {
       'fetch_failed',
       'plaintext_mismatch',
     ]);
+  });
+});
+
+describe('buyer order panel copy (§3 "After payment", §6 D1, E4, F9)', () => {
+  it('ends access on the states the service ends it on, and not on completed (D10)', () => {
+    for (const state of ['cancelled', 'refunded_external', 'refunded_partial', 'closed']) {
+      expect(isDigitalOrderEnded(state), state).toBe(true);
+    }
+    for (const state of ['paid', 'delivered', 'completed', 'cancel_requested']) {
+      expect(isDigitalOrderEnded(state), state).toBe(false);
+    }
+  });
+
+  it('writes the email line before and after the seller marks it emailed', () => {
+    expect(digitalOrderEmailLine('buyer@example.com', null)).toBe('The seller will email this to buyer@example.com');
+    expect(digitalOrderEmailLine('buyer@example.com', '2026-09-26T12:00:00.000Z')).toBe(
+      'Emailed to buyer@example.com on Sep 26, 2026. Check your spam folder, or message the seller.',
+    );
+  });
+
+  it('carries the design copy', () => {
+    expect(DIGITAL_ORDER_COPY.readyToDownload).toBe('Delivered · ready to download');
+    expect(DIGITAL_ORDER_COPY.noReturn).toBe("Digital purchases can't be returned. Message the seller about a refund.");
+    expect(DIGITAL_ORDER_COPY.emailMissing).toBe('Enter your email so the seller can deliver.');
   });
 });

@@ -617,3 +617,43 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     });
   });
 });
+
+describe('MarketplaceOrderActions digital orders (digital delivery design §6 E1–E4)', () => {
+  function renderDigital(state: 'paid' | 'delivered' | 'completed', isBuyer: boolean) {
+    const order = createOrderFixture(state, { fulfillment: 'digital' });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={isBuyer}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+  }
+
+  it('offers the buyer no return on a delivered digital order, and says why (E4)', () => {
+    renderDigital('delivered', true);
+
+    expect(screen.queryByRole('button', { name: 'Request return' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('digital-no-return-note')).toHaveTextContent(
+      "Digital purchases can't be returned. Message the seller about a refund.",
+    );
+  });
+
+  it('offers the seller no tracking, label or packing slip on a digital order (E1)', () => {
+    renderDigital('paid', false);
+
+    expect(screen.queryByRole('button', { name: 'Add tracking' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Packing slip' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Request return on a delivered shipped order', () => {
+    const order = createOrderFixture('delivered', { fulfillment: 'shipping' });
+    render(
+      <MarketplaceOrderActions order={order} isBuyer canEditReview={false} actOnOrder={vi.fn(async () => true)} />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Request return' })).toBeInTheDocument();
+    expect(screen.queryByTestId('digital-no-return-note')).not.toBeInTheDocument();
+  });
+});
