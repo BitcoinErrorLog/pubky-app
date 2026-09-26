@@ -32,7 +32,12 @@ import {
   sellerReservationCopy,
   unlistedOrderStateLabel,
 } from '@/libs/commerce/checkout-phase';
-import { DIGITAL_ORDER_COPY, isInstantDigitalDeliveryKind } from '@/libs/commerce/digital';
+import {
+  DIGITAL_ORDER_COPY,
+  DIGITAL_SELLER_COPY,
+  digitalOrderManualChannels,
+  isInstantDigitalDeliveryKind,
+} from '@/libs/commerce/digital';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { listingIdFromOrder, marketplaceConversationHref } from '@/libs/commerce/marketplace-conversation-query';
@@ -56,6 +61,7 @@ import { MarketplaceOrderReference } from '@/organisms/Marketplace/MarketplaceOr
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
+import { MarketplaceSellerDigitalPanel } from '@/organisms/Marketplace/MarketplaceSellerDigitalPanel';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -497,6 +503,9 @@ export function MarketplaceOrders() {
                             {isBuyer && order.fulfillment === 'digital' && (
                               <MarketplaceOrderDigitalPanel order={order} onChanged={refresh} />
                             )}
+                            {!isBuyer && order.fulfillment === 'digital' && (
+                              <MarketplaceSellerDigitalPanel order={order} onChanged={refresh} />
+                            )}
                             <MarketplaceOrderMessageCta order={order} adapterMode={adapterMode} />
                             <div className="mt-4 min-w-0">
                               <MarketplacePaymentStatusCard
@@ -740,7 +749,16 @@ function getNextActorHint(
     return isBuyer ? { label: 'Your move', isCurrentUser: true } : { label: 'Waiting on buyer', isCurrentUser: false };
   }
   if (order.nextActor === 'seller') {
-    return isBuyer ? { label: 'Waiting on seller', isCurrentUser: false } : { label: 'Your move', isCurrentUser: true };
+    if (isBuyer) return { label: 'Waiting on seller', isCurrentUser: false };
+    // Digital delivery design §3 "Seller's orders": a paid digital order the seller sends by hand.
+    if (
+      order.fulfillment === 'digital' &&
+      order.state === 'paid' &&
+      digitalOrderManualChannels(order.lines).length > 0
+    ) {
+      return { label: DIGITAL_SELLER_COPY.toDeliver, isCurrentUser: true };
+    }
+    return { label: 'Your move', isCurrentUser: true };
   }
   return { label: 'No action pending', isCurrentUser: false };
 }

@@ -5,24 +5,29 @@ import {
   bindOrderDigitalLine,
   classifyDeliveryEmailChangeRefusal,
   classifyDigitalCheckoutRefusal,
+  classifyDigitalDeliverRefusal,
   classifyDigitalDeliverySetupRefusal,
   classifyDigitalReadRefusal,
   DELIVERY_EMAIL_CHANGE_COPY,
   DELIVERY_EMAIL_MAX_CHARS,
   DIGITAL_CHECKOUT_COPY,
   DIGITAL_CHECKOUT_REFUSAL_COPY,
+  DIGITAL_DELIVER_REFUSAL_COPY,
   DIGITAL_DELIVERY_COPY,
   DIGITAL_DELIVERY_SETUP_COPY,
   DIGITAL_FILE_OPEN_FAILURE_COPY,
   DIGITAL_ORDER_COPY,
+  DIGITAL_SELLER_COPY,
   digitalCheckoutLineLabel,
   digitalContentTypeLabel,
   digitalDeliveryBadgeLabel,
   digitalDeliveryCurrentSummary,
   digitalDeliverySetSchema,
   digitalDeliveryVersionLine,
+  digitalEvidenceLines,
   digitalFileTooLargeCopy,
   digitalOrderEmailLine,
+  digitalOrderManualChannels,
   formatDigitalFileSize,
   isDigitalDeliveryLink,
   isDigitalOrderEnded,
@@ -31,7 +36,9 @@ import {
   marketplaceListingDigitalDeliveryFieldSchema,
   marketplaceOrderDeliveryEmailSchema,
   marketplaceOrderDigitalDeliverySchema,
+  marketplaceOrderDigitalEvidenceSchema,
   marketplaceSellerDigitalDeliverySchema,
+  sellerDeliveryEmailReadCopy,
 } from './digital';
 import { marketplaceHealthSchema } from './pickup';
 import { toCamelCaseWire } from './wire-casing';
@@ -495,5 +502,96 @@ describe('bindOrderDigitalLine (review P2: the released line is the opened line 
 
   it('refuses an index the order does not have', () => {
     expect(bindOrderDigitalLine(order, 5, { orderId, lines: [{ ...text, lineIndex: 5 }] })).toBeNull();
+  });
+});
+
+describe('seller delivery actions (§3 "Seller\u2019s orders", §4.3, §6 E8, E9, F6–F15)', () => {
+  it('classifies deliver_digital refusals from the reason, then the code and order state', () => {
+    const paid = { orderState: 'paid', channel: 'email' } as const;
+    expect(classifyDigitalDeliverRefusal({ code: 'INVALID_STATE', reason: 'wrong_delivery_channel' }, paid)).toBe(
+      'wrong_channel',
+    );
+    expect(classifyDigitalDeliverRefusal({ code: 'INVALID_STATE', reason: 'email_missing' }, paid)).toBe(
+      'email_missing',
+    );
+    expect(classifyDigitalDeliverRefusal({ code: 'INVALID_STATE', reason: 'already_emailed' }, paid)).toBe(
+      'already_marked',
+    );
+    expect(classifyDigitalDeliverRefusal({ code: 'UNAUTHORIZED' }, paid)).toBe('not_seller');
+    expect(classifyDigitalDeliverRefusal({ code: 'REVISION_CONFLICT' }, paid)).toBe('changed');
+    expect(
+      classifyDigitalDeliverRefusal({ code: 'INVALID_STATE' }, { orderState: 'cancel_requested', channel: 'email' }),
+    ).toBe('cancel_requested');
+    expect(classifyDigitalDeliverRefusal({ code: 'INVALID_STATE' }, { orderState: 'paid', channel: 'message' })).toBe(
+      'already_marked',
+    );
+    expect(
+      classifyDigitalDeliverRefusal({ code: 'INVALID_STATE' }, { orderState: 'delivered', channel: 'email' }),
+    ).toBe('not_awaiting');
+    expect(classifyDigitalDeliverRefusal({ code: 'INTERNAL' }, paid)).toBeNull();
+  });
+
+  it('carries the design copy (§4.3, E8, E9, F7, F9, F14, F15)', () => {
+    expect(DIGITAL_SELLER_COPY.emailDisclosure).toBe(
+      'Use this address only to deliver this order. Keep your sent email as your record: Shop deletes this address 30 days after the order ends, and PayPal disputes can come later.',
+    );
+    expect(DIGITAL_SELLER_COPY.openedStaySold).toBe('Opened files stay counted as sold.');
+    expect(DIGITAL_SELLER_COPY.refundNote).toBe(
+      "Refund recorded. The buyer can no longer download. An email already sent can't be recalled.",
+    );
+    expect(DIGITAL_DELIVER_REFUSAL_COPY.not_seller).toBe('Only the seller can mark this delivered.');
+    expect(DIGITAL_DELIVER_REFUSAL_COPY.cancel_requested).toBe(
+      'This order has a cancellation request. Approve or decline it first.',
+    );
+    expect(DIGITAL_DELIVER_REFUSAL_COPY.changed).toBe('This order changed. Refresh to see the latest.');
+    expect(sellerDeliveryEmailReadCopy('not_paid')).toBe("The buyer's email appears once payment is confirmed.");
+    expect(sellerDeliveryEmailReadCopy('email_missing')).toBe("Waiting for the buyer's email.");
+    expect(sellerDeliveryEmailReadCopy('delivery_ended')).toBe('This order was cancelled or refunded.');
+  });
+
+  it('lists the manual channels an order needs', () => {
+    expect(digitalOrderManualChannels([{ digitalKind: 'file' }, { digitalKind: 'message' }])).toEqual(['message']);
+    expect(digitalOrderManualChannels([{ digitalKind: 'email' }, { digitalKind: 'message' }])).toEqual([
+      'email',
+      'message',
+    ]);
+    expect(digitalOrderManualChannels([{}])).toEqual([]);
+  });
+});
+
+describe('seller delivery evidence (§3 "Seller\u2019s orders")', () => {
+  const none = {
+    orderId: '018f47d2-6a27-7c23-a62f-000000000901',
+    deliveredAt: null,
+    firstOpenedAt: null,
+    openCount: 0,
+    emailedAt: null,
+    messageDeliveredAt: null,
+  };
+
+  it('parses the service read', () => {
+    expect(
+      marketplaceOrderDigitalEvidenceSchema.parse({ ...none, firstOpenedAt: '2026-09-26T13:02:00.000Z', openCount: 3 })
+        .openCount,
+    ).toBe(3);
+    expect(marketplaceOrderDigitalEvidenceSchema.safeParse({ ...none, openCount: -1 }).success).toBe(false);
+  });
+
+  it('writes the instant line, then each manual mark', () => {
+    const at = '2026-09-26T13:02:00.000Z';
+    expect(digitalEvidenceLines(none, [{ digitalKind: 'file' }])).toEqual(['Delivered automatically · not opened yet']);
+    expect(digitalEvidenceLines({ ...none, firstOpenedAt: at, openCount: 1 }, [{ digitalKind: 'text' }])).toEqual([
+      expect.stringMatching(/^Delivered automatically · first opened Sep 26, \d\d:\d\d · opened 1 time$/),
+    ]);
+    expect(
+      digitalEvidenceLines({ ...none, emailedAt: at, messageDeliveredAt: at }, [
+        { digitalKind: 'email' },
+        { digitalKind: 'message' },
+      ]),
+    ).toEqual([
+      expect.stringMatching(/^Marked emailed Sep 26, \d\d:\d\d$/),
+      expect.stringMatching(/^Marked delivered Sep 26, \d\d:\d\d$/),
+    ]);
+    expect(digitalEvidenceLines(none, [{ digitalKind: 'email' }])).toEqual([]);
   });
 });

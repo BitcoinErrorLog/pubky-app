@@ -16,7 +16,7 @@ import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderActi
 import { paypalRefundedMinor } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
 import { usePickupOrderActions } from '@/hooks/usePickupOrderActions/usePickupOrderActions';
 import { OTHER_CARRIER_ID, SHIPPING_CARRIERS } from '@/libs/commerce/carriers';
-import { DIGITAL_ORDER_COPY } from '@/libs/commerce/digital';
+import { DIGITAL_ORDER_COPY, DIGITAL_SELLER_COPY, isInstantDigitalDeliveryKind } from '@/libs/commerce/digital';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
@@ -130,7 +130,11 @@ export function MarketplaceOrderActions({
   const [termsBlocked, setTermsBlocked] = useState(false);
   // `refund.record_external` is accepted from these states whether or not
   // PayPal already recorded partial refunds; the record must cover them.
-  const canRecordRefund = !isBuyer && ['return_received', 'cancelled'].includes(order.state);
+  // Digital orders are refunded from delivered or completed too: there is no return to receive (§6 E9).
+  const canRecordRefund =
+    !isBuyer &&
+    (['return_received', 'cancelled'].includes(order.state) ||
+      (order.fulfillment === 'digital' && ['delivered', 'completed'].includes(order.state)));
   const refundedMinor = paypalRefundedMinor(order);
   const refundedMoney = formatCommerceMoney({ ...order.total, amountMinor: refundedMinor });
   const canReveal =
@@ -162,6 +166,9 @@ export function MarketplaceOrderActions({
       return;
     }
     if (await action.submit()) {
+      if (actionType === 'refund' && isDigital) {
+        toast({ variant: 'info', title: DIGITAL_SELLER_COPY.refundNote });
+      }
       if (actionType === 'cancel') {
         toast({
           variant: 'info',
@@ -291,6 +298,16 @@ export function MarketplaceOrderActions({
           </Button>
         )}
       </div>
+      {!isBuyer &&
+        isDigital &&
+        order.state === 'cancel_requested' &&
+        order.lines.some(
+          (line) => line.digitalKind !== undefined && isInstantDigitalDeliveryKind(line.digitalKind),
+        ) && (
+          <p className="mt-2 text-xs text-muted-foreground" data-testid="digital-opened-stay-sold">
+            {DIGITAL_SELLER_COPY.openedStaySold}
+          </p>
+        )}
       {isBuyer && isDigital && ['delivered', 'completed'].includes(order.state) && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="digital-no-return-note">
           {DIGITAL_ORDER_COPY.noReturn}

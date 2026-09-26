@@ -9,7 +9,11 @@ import {
   isTransactionalCommerceMode,
 } from '@/config/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
-import type { MarketplaceDigitalDeliveryCapability, MarketplaceDigitalDeliveryInput } from '@/libs/commerce/digital';
+import {
+  type MarketplaceDigitalDeliveryCapability,
+  marketplaceDigitalDeliveryChannelSchema,
+  type MarketplaceDigitalDeliveryInput,
+} from '@/libs/commerce/digital';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
@@ -957,6 +961,14 @@ export class CommerceController {
     return await CommerceApplication.openOrderDigitalFile(line);
   }
 
+  /** The current seller's delivery evidence on one of their digital orders (§3). */
+  static async fetchOrderDigitalEvidence(orderId: unknown) {
+    return await CommerceApplication.fetchOrderDigitalEvidence(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
   /** The delivery email on one of the current user's email-kind orders (§4.3). */
   static async fetchOrderDeliveryEmail(orderId: unknown) {
     return await CommerceApplication.fetchOrderDeliveryEmail(
@@ -977,6 +989,22 @@ export class CommerceController {
       orderId: CommerceRecordNormalizer.entityId(orderId),
       expectedRevision: this.pickupOrderRevision(expectedRevision),
       deliveryEmail: deliveryEmail.trim(),
+    });
+  }
+
+  /** `fulfillment.deliver_digital` (§6 F13): the seller marks a digital order's email or message lines delivered. */
+  static async commitDeliverDigital(orderId: unknown, expectedRevision: unknown, channel: unknown) {
+    const parsed = marketplaceDigitalDeliveryChannelSchema.safeParse(channel);
+    if (!parsed.success) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A delivery channel is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'commitDeliverDigital',
+      });
+    }
+    return await CommerceApplication.commitDeliverDigital(this.getCurrentUserPubky(), {
+      orderId: CommerceRecordNormalizer.entityId(orderId),
+      expectedRevision: this.pickupOrderRevision(expectedRevision),
+      channel: parsed.data,
     });
   }
 

@@ -26,10 +26,12 @@ import {
   DIGITAL_DELIVERY_COPY,
   type DigitalFileOpenFailure,
   type MarketplaceDigitalDeliveryCapability,
+  type MarketplaceDigitalDeliveryChannel,
   type MarketplaceDigitalDeliveryInput,
   type MarketplaceDigitalDeliverySet,
   type MarketplaceOrderDeliveryEmail,
   type MarketplaceOrderDigitalDelivery,
+  type MarketplaceOrderDigitalEvidence,
   type MarketplaceOrderDigitalLine,
   type MarketplaceSellerDigitalDelivery,
 } from '@/libs/commerce/digital';
@@ -846,6 +848,15 @@ export class CommerceApplication {
     return { ok: true, bytes: opened.plaintext, fileName: line.fileName, contentType: line.contentType };
   }
 
+  /** The seller's delivery evidence on one of their digital orders (§3 "Seller's orders"). */
+  static async fetchOrderDigitalEvidence(
+    actorPubky: string,
+    orderId: string,
+  ): Promise<MarketplaceOrderDigitalEvidence> {
+    this.assertDigitalDeployment('fetchOrderDigitalEvidence');
+    return await MarketplaceGatewayService.getOrderDigitalEvidence(actorPubky, orderId);
+  }
+
   /** An email-kind order's delivery email and emailed time (§4.3, §6 F5–F9). */
   static async fetchOrderDeliveryEmail(actorPubky: string, orderId: string): Promise<MarketplaceOrderDeliveryEmail> {
     this.assertDigitalDeployment('fetchOrderDeliveryEmail');
@@ -870,6 +881,29 @@ export class CommerceApplication {
       issuedAt: new Date().toISOString(),
       kind: 'order.set_delivery_email',
       payload: { orderId: input.orderId, deliveryEmail: input.deliveryEmail },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
+  /**
+   * `fulfillment.deliver_digital` (§4.3, §6 F13): the seller marks an
+   * order's email or message lines delivered after sending them.
+   * `expectedRevision` is the order's current revision, so a racing buyer
+   * cancel request and this mark have exactly one winner (F15).
+   */
+  static async commitDeliverDigital(
+    actorPubky: string,
+    input: { orderId: string; expectedRevision: number; channel: MarketplaceDigitalDeliveryChannel },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertDigitalDeployment('commitDeliverDigital');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceOrderAggregateId(input.orderId),
+      expectedRevision: input.expectedRevision,
+      issuedAt: new Date().toISOString(),
+      kind: 'fulfillment.deliver_digital',
+      payload: { orderId: input.orderId, channel: input.channel },
     });
     return await this.executeMarketplaceCommand(actorPubky, command);
   }

@@ -6,6 +6,7 @@ import type {
   MarketplaceDigitalDeliveryCapability,
   MarketplaceOrderDeliveryEmail,
   MarketplaceOrderDigitalDelivery,
+  MarketplaceOrderDigitalEvidence,
   MarketplaceSellerDigitalDelivery,
 } from '@/libs/commerce/digital';
 import type {
@@ -482,6 +483,12 @@ export class MarketplaceGatewayService {
   ): Promise<MarketplaceOrderDigitalDelivery> {
     this.assertDurableServiceOnly('getOrderDigitalDelivery');
     return await MarketplaceTransactionService.getOrderDigitalDelivery(actor, orderId, lineIndex);
+  }
+
+  /** The seller's delivery evidence on a digital order (§3) — durable service only. */
+  static async getOrderDigitalEvidence(actor: string, orderId: string): Promise<MarketplaceOrderDigitalEvidence> {
+    this.assertDurableServiceOnly('getOrderDigitalEvidence');
+    return await MarketplaceTransactionService.getOrderDigitalEvidence(actor, orderId);
   }
 
   /** An email-kind order's delivery email and emailed time (§4.3) — durable service only. */

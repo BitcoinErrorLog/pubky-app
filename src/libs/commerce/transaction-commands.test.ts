@@ -7,6 +7,7 @@ import {
   confirmPickupCommandSchema,
   createMarketplaceCheckoutCommandSchema,
   createReviewCommandSchema,
+  deliverDigitalCommandSchema,
   isMarketplaceRevisionConflict,
   isSuccessfulListingRegistrationResponse,
   marketplaceCommandResponseSchema,
@@ -635,6 +636,32 @@ describe('order.set_delivery_email command contract (digital delivery design §6
   it('refuses a malformed address and unknown fields', () => {
     expect(setDeliveryEmailCommandSchema.safeParse(command({ orderId, deliveryEmail: 'buyer' })).success).toBe(false);
     expect(setDeliveryEmailCommandSchema.safeParse(command({ orderId, deliveryEmail: 'a@b', note: 'x' })).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('fulfillment.deliver_digital command contract (digital delivery design §6 F13)', () => {
+  const orderId = '018f47d2-6a27-7c23-a62f-000000000901';
+  const command = (payload: Record<string, unknown>) => ({
+    version: 1,
+    commandId: '018f47d2-6a27-7c23-a62f-000000000951',
+    aggregateId: `order:${orderId}`,
+    expectedRevision: 3,
+    issuedAt: '2026-09-26T08:00:00.000Z',
+    kind: 'fulfillment.deliver_digital',
+    payload,
+  });
+
+  it('carries the order and the email or message channel', () => {
+    for (const channel of ['email', 'message']) {
+      expect(deliverDigitalCommandSchema.parse(command({ orderId, channel })).payload).toEqual({ orderId, channel });
+    }
+  });
+
+  it('refuses another channel and unknown fields', () => {
+    expect(deliverDigitalCommandSchema.safeParse(command({ orderId, channel: 'sms' })).success).toBe(false);
+    expect(deliverDigitalCommandSchema.safeParse(command({ orderId, channel: 'email', note: 'x' })).success).toBe(
       false,
     );
   });

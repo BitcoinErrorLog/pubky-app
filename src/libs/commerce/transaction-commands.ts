@@ -4,6 +4,7 @@ import {
   digitalDeliveryCommandResultSchema,
   digitalDeliverySetSchema,
   marketplaceDeliveryEmailSchema,
+  marketplaceDigitalDeliveryChannelSchema,
 } from './digital';
 import {
   classifyMarketplacePickupRefusal,
@@ -502,6 +503,16 @@ export const setDeliveryEmailCommandSchema = createCommerceCommandSchema(
   orderIdPayload.extend({ deliveryEmail: marketplaceDeliveryEmailSchema }).strict(),
 );
 
+/**
+ * `fulfillment.deliver_digital` (seller, own paid digital order): marks the
+ * order's email or message lines delivered; the order moves to `delivered`
+ * once every manual channel is marked (digital delivery design §4.3, §6 F13).
+ */
+export const deliverDigitalCommandSchema = createCommerceCommandSchema(
+  'fulfillment.deliver_digital',
+  orderIdPayload.extend({ channel: marketplaceDigitalDeliveryChannelSchema }).strict(),
+);
+
 /** `digital_delivery.clear` (seller, own listing only): removes delivery; refused while buyers pay for or download it (C4). */
 export const clearDigitalDeliveryCommandSchema = createCommerceCommandSchema(
   'digital_delivery.clear',
@@ -623,6 +634,7 @@ export const marketplaceCommandSchema = z.union([
   setDigitalDeliveryCommandSchema,
   clearDigitalDeliveryCommandSchema,
   setDeliveryEmailCommandSchema,
+  deliverDigitalCommandSchema,
   markReadyForPickupCommandSchema,
   confirmPickupCommandSchema,
   requestReturnCommandSchema,
@@ -714,6 +726,7 @@ export type ClearPickupDetailsCommand = z.infer<typeof clearPickupDetailsCommand
 export type SetDigitalDeliveryCommand = z.infer<typeof setDigitalDeliveryCommandSchema>;
 export type ClearDigitalDeliveryCommand = z.infer<typeof clearDigitalDeliveryCommandSchema>;
 export type SetDeliveryEmailCommand = z.infer<typeof setDeliveryEmailCommandSchema>;
+export type DeliverDigitalCommand = z.infer<typeof deliverDigitalCommandSchema>;
 export type MarkReadyForPickupCommand = z.infer<typeof markReadyForPickupCommandSchema>;
 export type ConfirmPickupCommand = z.infer<typeof confirmPickupCommandSchema>;
 export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;

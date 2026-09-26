@@ -629,3 +629,149 @@ export function digitalOrderEmailLine(address: string, emailedAt: string | null)
   const date = new Date(emailedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   return `Emailed to ${address} on ${date}. Check your spam folder, or message the seller.`;
 }
+
+// -----------------------------------------------------------------------------
+// Seller delivery actions (§3 "Seller's orders", §4.3, §6 E8, E9, F6–F8, F13–F15).
+// -----------------------------------------------------------------------------
+
+export const marketplaceDigitalDeliveryChannelSchema = z.enum(['email', 'message']);
+export type MarketplaceDigitalDeliveryChannel = z.infer<typeof marketplaceDigitalDeliveryChannelSchema>;
+
+/** Why the service refused `fulfillment.deliver_digital`. */
+export type DigitalDeliverRefusal =
+  | 'not_seller'
+  | 'wrong_channel'
+  | 'email_missing'
+  | 'already_marked'
+  | 'cancel_requested'
+  | 'not_awaiting'
+  | 'changed';
+
+/**
+ * Classifies a refused `fulfillment.deliver_digital` from its reason, then
+ * its code and the order's state; the service message is never read.
+ */
+export function classifyDigitalDeliverRefusal(
+  error: { code: string; reason?: unknown },
+  context: { orderState: string; channel: MarketplaceDigitalDeliveryChannel },
+): DigitalDeliverRefusal | null {
+  switch (error.reason) {
+    case 'wrong_delivery_channel':
+      return 'wrong_channel';
+    case 'email_missing':
+      return 'email_missing';
+    case 'already_emailed':
+      return 'already_marked';
+  }
+  switch (error.code) {
+    case 'UNAUTHORIZED':
+      return 'not_seller';
+    case 'REVISION_CONFLICT':
+      return 'changed';
+    case 'INVALID_STATE':
+      if (context.orderState === 'cancel_requested') return 'cancel_requested';
+      return context.orderState === 'paid' && context.channel === 'message' ? 'already_marked' : 'not_awaiting';
+    default:
+      return null;
+  }
+}
+
+export const DIGITAL_SELLER_COPY = {
+  toDeliver: 'To deliver',
+  showEmail: 'Show email',
+  hideEmail: 'Hide email',
+  markEmailed: 'Mark emailed',
+  markDelivered: 'Mark delivered',
+  emailDisclosure:
+    'Use this address only to deliver this order. Keep your sent email as your record: Shop deletes this address 30 days after the order ends, and PayPal disputes can come later.',
+  emailNotPaid: "The buyer's email appears once payment is confirmed.",
+  emailEnded: 'This order was cancelled or refunded.',
+  emailMissing: "Waiting for the buyer's email.",
+  markedEmailed: 'Marked emailed. The buyer has been told to check their inbox.',
+  markedDelivered: 'Marked delivered. The buyer has been told to check their messages.',
+  openedStaySold: 'Opened files stay counted as sold.',
+  refundNote: "Refund recorded. The buyer can no longer download. An email already sent can't be recalled.",
+  deliverFailed: "This couldn't be marked. Try again.",
+} as const;
+
+export const DIGITAL_DELIVER_REFUSAL_COPY: Readonly<Record<DigitalDeliverRefusal, string>> = {
+  not_seller: 'Only the seller can mark this delivered.',
+  wrong_channel: 'Nothing in this order is delivered that way.',
+  email_missing: DIGITAL_SELLER_COPY.emailMissing,
+  already_marked: 'This was already marked.',
+  cancel_requested: 'This order has a cancellation request. Approve or decline it first.',
+  not_awaiting: "This order isn't waiting for delivery.",
+  changed: 'This order changed. Refresh to see the latest.',
+};
+
+/** The seller's Show email refusals (§6 F7–F9), by read refusal. */
+export function sellerDeliveryEmailReadCopy(refusal: string | null | undefined): string {
+  switch (refusal) {
+    case 'not_paid':
+      return DIGITAL_SELLER_COPY.emailNotPaid;
+    case 'delivery_ended':
+      return DIGITAL_SELLER_COPY.emailEnded;
+    case 'email_missing':
+      return DIGITAL_SELLER_COPY.emailMissing;
+    case 'digital_delivery_unavailable':
+      return DIGITAL_DELIVERY_COPY.unavailable;
+    default:
+      return DIGITAL_READ_REFUSAL_COPY.failed;
+  }
+}
+
+/** The manual channels an order's digital lines need: email for email-kind lines, message for message-kind. */
+export function digitalOrderManualChannels(
+  lines: ReadonlyArray<{ digitalKind?: MarketplaceDigitalDeliveryKind }>,
+): MarketplaceDigitalDeliveryChannel[] {
+  const channels: MarketplaceDigitalDeliveryChannel[] = [];
+  if (lines.some((line) => line.digitalKind === 'email')) channels.push('email');
+  if (lines.some((line) => line.digitalKind === 'message')) channels.push('message');
+  return channels;
+}
+
+/** `GET /v1/orders/{id}/digital-evidence`: the seller's delivery evidence (timestamps and an open count only). */
+export const marketplaceOrderDigitalEvidenceSchema = z
+  .object({
+    orderId: z.uuid(),
+    deliveredAt: z.string().nullable(),
+    firstOpenedAt: z.string().nullable(),
+    openCount: z.number().int().nonnegative(),
+    emailedAt: z.string().nullable(),
+    messageDeliveredAt: z.string().nullable(),
+  })
+  .strip();
+export type MarketplaceOrderDigitalEvidence = z.infer<typeof marketplaceOrderDigitalEvidenceSchema>;
+
+function formatEvidenceTime(value: string): string {
+  return new Date(value).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+}
+
+/**
+ * The seller's evidence lines (§3 "Seller's orders"): "Delivered
+ * automatically · first opened Sep 26, 14:02 · opened 3 times" for instant
+ * lines, then "Marked emailed …" and "Marked delivered …". Opens are the
+ * service's logged opens, at most one per line per hour.
+ */
+export function digitalEvidenceLines(
+  evidence: MarketplaceOrderDigitalEvidence,
+  lines: ReadonlyArray<{ digitalKind?: MarketplaceDigitalDeliveryKind }>,
+): string[] {
+  const out: string[] = [];
+  if (lines.some((line) => line.digitalKind !== undefined && isInstantDigitalDeliveryKind(line.digitalKind))) {
+    out.push(
+      evidence.firstOpenedAt
+        ? `Delivered automatically · first opened ${formatEvidenceTime(evidence.firstOpenedAt)} · opened ${evidence.openCount} ${evidence.openCount === 1 ? 'time' : 'times'}`
+        : 'Delivered automatically · not opened yet',
+    );
+  }
+  if (evidence.emailedAt) out.push(`Marked emailed ${formatEvidenceTime(evidence.emailedAt)}`);
+  if (evidence.messageDeliveredAt) out.push(`Marked delivered ${formatEvidenceTime(evidence.messageDeliveredAt)}`);
+  return out;
+}

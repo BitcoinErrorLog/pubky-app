@@ -349,6 +349,43 @@ describe('CommerceApplication buyer digital delivery (digital delivery design §
     });
   });
 
+  it('marks a digital order delivered on the order aggregate with the order revision', async () => {
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(okResponse as never);
+
+    await CommerceApplication.commitDeliverDigital(SELLER, {
+      orderId: ORDER_ID,
+      expectedRevision: 5,
+      channel: 'email',
+    });
+
+    expect(executedCommand(execute)).toMatchObject({
+      kind: 'fulfillment.deliver_digital',
+      aggregateId: `order:${ORDER_ID}`,
+      expectedRevision: 5,
+      payload: { orderId: ORDER_ID, channel: 'email' },
+    });
+  });
+
+  it('reads no evidence on a non-durable deployment', async () => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    const read = vi.spyOn(MarketplaceGatewayService, 'getOrderDigitalEvidence');
+
+    await expect(CommerceApplication.fetchOrderDigitalEvidence(SELLER, ORDER_ID)).rejects.toMatchObject({
+      context: { refusal: 'digital_delivery_unavailable' },
+    });
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('refuses to mark delivered on a non-durable deployment', async () => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+    await expect(
+      CommerceApplication.commitDeliverDigital(SELLER, { orderId: ORDER_ID, expectedRevision: 5, channel: 'message' }),
+    ).rejects.toMatchObject({ context: { refusal: 'digital_delivery_unavailable' } });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('reads nothing and sends nothing on a non-durable deployment', async () => {
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
     const read = vi.spyOn(MarketplaceGatewayService, 'getOrderDigitalDelivery');

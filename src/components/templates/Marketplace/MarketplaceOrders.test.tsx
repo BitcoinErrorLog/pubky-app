@@ -900,6 +900,29 @@ describe('MarketplaceOrders digital cards (digital delivery design §3 "After pa
     expect(within(card).queryByRole('heading', { name: 'Your purchase' })).not.toBeInTheDocument();
   });
 
+  it('marks a paid email order To deliver for its seller, with the delivery panel (§3 "Seller\u2019s orders")', () => {
+    const view = orderView('paid', 'Sewing pattern', 'seller', { fulfillment: 'digital', nextActor: 'seller' });
+    view.order.lines = view.order.lines.map((line) => ({ ...line, fulfillment: 'digital', digitalKind: 'email' }));
+    ordersState.orders = [view];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getAllByText(/Sewing pattern/)[0].closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText('To deliver')).toBeInTheDocument();
+    expect(within(card).getByRole('region', { name: 'Delivery' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Mark emailed' })).toBeInTheDocument();
+  });
+
+  it('keeps Your move on a paid shipped order', () => {
+    ordersState.orders = [orderView('paid', 'Shipped lamp', 'seller', { nextActor: 'seller' })];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getByText(/Shipped lamp/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText('Your move')).toBeInTheDocument();
+    expect(within(card).queryByText('To deliver')).not.toBeInTheDocument();
+  });
+
   it('keeps the return-window note on a delivered shipped order', () => {
     ordersState.orders = [orderView('delivered', 'Shipped boots', 'buyer', { nextActor: 'none' })];
 

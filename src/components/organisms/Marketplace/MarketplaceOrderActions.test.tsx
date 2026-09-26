@@ -685,3 +685,78 @@ describe('MarketplaceOrderActions digital orders in an inconsistent shipped stat
     expect(screen.getByRole('button', { name: 'Confirm delivery' })).toBeInTheDocument();
   });
 });
+
+describe('MarketplaceOrderActions digital refunds and cancels (digital delivery design §6 E8, E9)', () => {
+  const base = createOrderFixture('delivered');
+
+  it.each(['delivered', 'completed'] as const)(
+    'lets the seller record a refund on a %s digital order, and says what it changes (E9)',
+    async (state) => {
+      const { toast } = await import('@/molecules/Toaster/use-toast');
+      const order = createOrderFixture(state, { fulfillment: 'digital', paymentMethod: 'bitcoin' });
+      const actOnOrder = vi.fn(async () => true);
+      render(<MarketplaceOrderActions order={order} isBuyer={false} canEditReview={false} actOnOrder={actOnOrder} />);
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: 'Record refund' }));
+      await user.type(screen.getByLabelText('External Bitcoin transaction reference'), 'txid-digital-refund');
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      await waitFor(() =>
+        expect(actOnOrder).toHaveBeenCalledWith(order, 'refund.record_external', expect.objectContaining({})),
+      );
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
+        variant: 'info',
+        title: "Refund recorded. The buyer can no longer download. An email already sent can't be recalled.",
+      });
+    },
+  );
+
+  it('offers no refund record on a delivered shipped order', () => {
+    render(
+      <MarketplaceOrderActions
+        order={createOrderFixture('delivered', { fulfillment: 'shipping' })}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Record refund' })).not.toBeInTheDocument();
+  });
+
+  it('tells the seller opened files stay sold before approving a cancel (E8)', () => {
+    const order = createOrderFixture('cancel_requested', {
+      fulfillment: 'digital',
+      lines: [{ ...base.lines[0], fulfillment: 'digital', digitalKind: 'file' }],
+    });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Approve cancellation' })).toBeInTheDocument();
+    expect(screen.getByTestId('digital-opened-stay-sold')).toHaveTextContent('Opened files stay counted as sold.');
+  });
+
+  it('says nothing about opened files on a cancel with no instant line', () => {
+    const order = createOrderFixture('cancel_requested', {
+      fulfillment: 'digital',
+      lines: [{ ...base.lines[0], fulfillment: 'digital', digitalKind: 'email' }],
+    });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.queryByTestId('digital-opened-stay-sold')).not.toBeInTheDocument();
+  });
+});

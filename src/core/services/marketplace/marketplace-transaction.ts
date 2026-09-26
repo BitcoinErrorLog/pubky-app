@@ -13,6 +13,8 @@ import {
   marketplaceOrderDeliveryEmailSchema,
   type MarketplaceOrderDigitalDelivery,
   marketplaceOrderDigitalDeliverySchema,
+  type MarketplaceOrderDigitalEvidence,
+  marketplaceOrderDigitalEvidenceSchema,
   type MarketplaceSellerDigitalDelivery,
   marketplaceSellerDigitalDeliverySchema,
 } from '@/libs/commerce/digital';
@@ -140,6 +142,7 @@ const TRANSACTION_SERVICE_COMMAND_KINDS: ReadonlySet<MarketplaceCommand['kind']>
   'digital_delivery.set',
   'digital_delivery.clear',
   'order.set_delivery_email',
+  'fulfillment.deliver_digital',
   'fulfillment.mark_ready',
   'fulfillment.confirm_pickup',
   'order.cancel_request',
@@ -494,6 +497,25 @@ export class MarketplaceTransactionService {
       marketplaceOrderDeliveryEmailSchema,
       raw,
       'Marketplace returned an invalid delivery-email read.',
+    );
+  }
+
+  /**
+   * `GET /v1/orders/{id}/digital-evidence` (§3 "Seller's orders"): the
+   * seller's delivery evidence on their digital order. Seller only; anyone
+   * else is NOT_FOUND.
+   */
+  static async getOrderDigitalEvidence(actor: string, orderId: string): Promise<MarketplaceOrderDigitalEvidence> {
+    const raw = await this.readDigitalEntitled(
+      'getOrderDigitalEvidence',
+      actor,
+      `/v1/orders/${encodeURIComponent(orderId)}/digital-evidence`,
+    );
+    return this.parseProjection(
+      'getOrderDigitalEvidence',
+      marketplaceOrderDigitalEvidenceSchema,
+      raw,
+      'Marketplace returned an invalid digital-evidence read.',
     );
   }
 

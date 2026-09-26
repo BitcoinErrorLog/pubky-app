@@ -2100,6 +2100,37 @@ describe('MarketplaceTransactionService buyer digital reads (digital delivery de
     expect(error.cause).toBeUndefined();
   });
 
+  it('reads the seller delivery evidence with the bearer and no-store, and maps a stranger to NOT_FOUND', async () => {
+    await establishSession();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          order_id: ORDER_ID,
+          delivered_at: '2026-09-26T13:01:00.000Z',
+          first_opened_at: '2026-09-26T13:02:00.000Z',
+          open_count: 3,
+          emailed_at: null,
+          message_delivered_at: null,
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(404, { ok: false, error: { code: 'NOT_FOUND', message: 'nope' } }));
+
+    await expect(MarketplaceTransactionService.getOrderDigitalEvidence(ACTOR, ORDER_ID)).resolves.toEqual({
+      orderId: ORDER_ID,
+      deliveredAt: '2026-09-26T13:01:00.000Z',
+      firstOpenedAt: '2026-09-26T13:02:00.000Z',
+      openCount: 3,
+      emailedAt: null,
+      messageDeliveredAt: null,
+    });
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:8080/v1/orders/${ORDER_ID}/digital-evidence`);
+    expect(init.cache).toBe('no-store');
+    await expect(MarketplaceTransactionService.getOrderDigitalEvidence(ACTOR, ORDER_ID)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
   it('reads the delivery email, and types a purged address as email_missing (F5, F9)', async () => {
     await establishSession();
     vi.mocked(fetch)
