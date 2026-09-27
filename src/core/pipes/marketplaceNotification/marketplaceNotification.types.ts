@@ -1,4 +1,5 @@
 import type { MarketplaceNotification, MarketplaceUnrecognizedNotification } from '@/services/marketplace/marketplace';
+import type { DigitalDeliveryNotice } from '@/services/marketplace/marketplace-activity-copy';
 
 /**
  * A marketplace notification prepared for the app's general notification
@@ -41,6 +42,8 @@ export type MarketplaceFeedNotification =
        * before amounts existed.
        */
       amount?: { amountMinor: number; currency: string; exponent: number };
+      /** Present only on `order_delivered` for a digital order: how it was delivered, so the row reads as a download. */
+      digitalDelivery?: DigitalDeliveryNotice;
     }
   | {
       id: string;
@@ -64,4 +67,5 @@ export const MARKETPLACE_FEED_NOTIFICATION_KEYS = [
   'isUnread',
   'href',
   'amount',
+  'digitalDelivery',
 ] as const;

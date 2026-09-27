@@ -84,6 +84,42 @@ export const MARKETPLACE_ACTIVITY_LABELS = {
   payment_reversal_cancelled: 'Disputed payment restored',
 } as const satisfies Record<MarketplaceNotification['type'], string>;
 
+/**
+ * How an `order_delivered` notification about a digital order came about
+ * (digital delivery design §3 "After payment"): `automatic` when payment
+ * confirmation released an all-instant order (the confirming system,
+ * PayPal, or the buyer's own sandbox advance is the actor), `manual` when
+ * the seller marked it emailed or delivered. Null for every other
+ * notification, including a shipped or picked-up `order_delivered`, which
+ * only ever reaches the seller.
+ */
+export type DigitalDeliveryNotice = 'automatic' | 'manual';
+
+export function digitalDeliveryNotice(notification: {
+  type: string;
+  actorPubky: string;
+  recipientPubky: string;
+  orderFulfillment?: string | null;
+}): DigitalDeliveryNotice | null {
+  if (notification.type !== 'order_delivered' || notification.orderFulfillment !== 'digital') return null;
+  const { actorPubky, recipientPubky } = notification;
+  return actorPubky === 'system' || actorPubky === 'paypal-ipn' || actorPubky === recipientPubky
+    ? 'automatic'
+    : 'manual';
+}
+
+/** The digital wording of `order_delivered`: the activity title and the feed's "<actor> <action>". Never names the delivery email. */
+export const DIGITAL_DELIVERED_COPY = {
+  automatic: {
+    label: 'Purchase ready to download',
+    action: 'confirmed your payment. Your purchase is ready to download',
+  },
+  manual: {
+    label: 'Purchase delivered',
+    action: 'delivered your purchase',
+  },
+} as const satisfies Record<DigitalDeliveryNotice, { label: string; action: string }>;
+
 export function marketplaceActivityLabel(type: string): string | null {
   if (Object.hasOwn(MARKETPLACE_ACTIVITY_LABELS, type)) {
     return MARKETPLACE_ACTIVITY_LABELS[type as MarketplaceNotification['type']];
