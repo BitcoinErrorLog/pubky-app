@@ -1,9 +1,11 @@
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
+import { DIGITAL_DELIVERED_COPY, type DigitalDeliveryNotice } from '@/services/marketplace/marketplace-activity-copy';
 
 type MarketplaceNotificationActionInput = {
   type: MarketplaceNotification['type'];
   amount?: { amountMinor: number; currency: string; exponent: number };
+  digitalDelivery?: DigitalDeliveryNotice;
 };
 
 /**
@@ -17,6 +19,9 @@ type MarketplaceNotificationActionInput = {
  * compilation.
  */
 export function getMarketplaceNotificationActionText(notification: MarketplaceNotificationActionInput): string {
+  if (notification.type === 'order_delivered' && notification.digitalDelivery) {
+    return DIGITAL_DELIVERED_COPY[notification.digitalDelivery].action;
+  }
   const base = getBaseActionText(notification.type);
   if (!notification.amount) return base;
   const money = formatCommerceMoney(notification.amount);
