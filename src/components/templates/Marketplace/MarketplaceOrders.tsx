@@ -32,6 +32,12 @@ import {
   sellerReservationCopy,
   unlistedOrderStateLabel,
 } from '@/libs/commerce/checkout-phase';
+import {
+  DIGITAL_ORDER_COPY,
+  DIGITAL_SELLER_COPY,
+  digitalOrderManualChannels,
+  isInstantDigitalDeliveryKind,
+} from '@/libs/commerce/digital';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { buyerVisiblePaymentStatus } from '@/libs/commerce/locks-payment';
 import { listingIdFromOrder, marketplaceConversationHref } from '@/libs/commerce/marketplace-conversation-query';
@@ -50,10 +56,12 @@ import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
 import { MarketplaceOrderActions } from '@/organisms/Marketplace/MarketplaceOrderActions';
+import { MarketplaceOrderDigitalPanel } from '@/organisms/Marketplace/MarketplaceOrderDigitalPanel';
 import { MarketplaceOrderReference } from '@/organisms/Marketplace/MarketplaceOrderReference';
 import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/MarketplacePaymentStatusCard';
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
+import { MarketplaceSellerDigitalPanel } from '@/organisms/Marketplace/MarketplaceSellerDigitalPanel';
 import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -343,6 +351,7 @@ export function MarketplaceOrders() {
                                   : orderStateLabel(order)}
                               </Badge>
                               {order.fulfillment === 'pickup' && <Badge variant="secondary">Local pickup</Badge>}
+                              {order.fulfillment === 'digital' && <Badge variant="secondary">Digital delivery</Badge>}
                               <DropEditionBadge order={order} />
                               {nextActorHint && (
                                 <Badge variant={nextActorHint.isCurrentUser ? 'default' : 'outline'}>
@@ -418,7 +427,7 @@ export function MarketplaceOrders() {
                                 <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
                               </div>
                             )}
-                            {order.shipment && (
+                            {order.shipment && order.fulfillment !== 'digital' && (
                               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                                 <Typography as="p">
                                   {order.shipment.carrier} · {order.shipment.trackingNumber} · {order.shipment.state}
@@ -463,7 +472,7 @@ export function MarketplaceOrders() {
                                 )}
                               </div>
                             )}
-                            {order.state === 'delivered' && (
+                            {order.state === 'delivered' && order.fulfillment !== 'digital' && (
                               <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                                 Completes automatically after the return window unless a return is requested.
                               </Typography>
@@ -491,6 +500,12 @@ export function MarketplaceOrders() {
                                 {REFUND_ORDER_NOTICES[notice]}
                               </Typography>
                             ))}
+                            {isBuyer && order.fulfillment === 'digital' && (
+                              <MarketplaceOrderDigitalPanel order={order} onChanged={refresh} />
+                            )}
+                            {!isBuyer && order.fulfillment === 'digital' && (
+                              <MarketplaceSellerDigitalPanel order={order} onChanged={refresh} />
+                            )}
                             <MarketplaceOrderMessageCta order={order} adapterMode={adapterMode} />
                             <div className="mt-4 min-w-0">
                               <MarketplacePaymentStatusCard
@@ -699,6 +714,13 @@ function isOrderWaitingOnOtherSide(
 function orderStateLabel(order: MarketplaceOrder): string {
   const refund = refundStateLabel(order);
   if (refund) return refund;
+  if (
+    order.fulfillment === 'digital' &&
+    order.state === 'delivered' &&
+    order.lines.some((line) => line.digitalKind !== undefined && isInstantDigitalDeliveryKind(line.digitalKind))
+  ) {
+    return DIGITAL_ORDER_COPY.readyToDownload;
+  }
   if (order.fulfillment === 'pickup') {
     switch (order.state) {
       case 'paid':
@@ -727,7 +749,16 @@ function getNextActorHint(
     return isBuyer ? { label: 'Your move', isCurrentUser: true } : { label: 'Waiting on buyer', isCurrentUser: false };
   }
   if (order.nextActor === 'seller') {
-    return isBuyer ? { label: 'Waiting on seller', isCurrentUser: false } : { label: 'Your move', isCurrentUser: true };
+    if (isBuyer) return { label: 'Waiting on seller', isCurrentUser: false };
+    // Digital delivery design §3 "Seller's orders": a paid digital order the seller sends by hand.
+    if (
+      order.fulfillment === 'digital' &&
+      order.state === 'paid' &&
+      digitalOrderManualChannels(order.lines).length > 0
+    ) {
+      return { label: DIGITAL_SELLER_COPY.toDeliver, isCurrentUser: true };
+    }
+    return { label: 'Your move', isCurrentUser: true };
   }
   return { label: 'No action pending', isCurrentUser: false };
 }

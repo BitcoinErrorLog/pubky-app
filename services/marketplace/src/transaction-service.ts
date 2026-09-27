@@ -58,6 +58,13 @@ import {
 // ---------------------------------------------------------------------------
 
 export type MarketplaceFulfillmentMethod = 'shipping' | 'pickup';
+/**
+ * What a listing publishes. `digital` is stored as registered, but the
+ * prototype seals and releases nothing, so its checkout lines accept only
+ * shipping and pickup: a digital listing is never sold here, and never as
+ * shipping (digital delivery design §6 A1, B5).
+ */
+export type MarketplaceListingFulfillmentMethod = MarketplaceFulfillmentMethod | 'digital';
 
 const fulfillmentMethodSchema = z.enum(['shipping', 'pickup']);
 
@@ -262,7 +269,7 @@ export interface MarketplaceListingAggregate {
    * Public like the rest of the listing — the seller's pickup DETAILS are
    * never placed here; they live only in the service's sealed store.
    */
-  fulfillmentMethods: MarketplaceFulfillmentMethod[];
+  fulfillmentMethods: MarketplaceListingFulfillmentMethod[];
   auction: {
     status: 'scheduled' | 'active' | 'sold' | 'unsold' | 'cancelled';
     startsAt: string;
@@ -720,6 +727,8 @@ export type MarketplaceCommandFailure = {
     message: string;
     currentRevision?: number;
     issues?: Array<{ path: string; message: string }>;
+    /** A typed refusal reason, as the durable service sends it. */
+    reason?: string;
   };
 };
 
@@ -1136,6 +1145,15 @@ export class MarketplaceTransactionService {
         return failure('INVALID_COMMAND', 'Listing sync is not available on the sandbox service.');
       case 'pickup_details.set':
         return this.setPickupDetails(actorPubky, command);
+      case 'digital_delivery.set':
+      case 'digital_delivery.clear':
+      case 'order.set_delivery_email':
+      case 'fulfillment.deliver_digital':
+        // The prototype seals and releases nothing: it refuses digital
+        // delivery the way an unkeyed durable service does (§6 B5).
+        return failure('INVALID_STATE', 'Digital delivery is unavailable on this deployment.', {
+          reason: 'digital_delivery_unavailable',
+        });
       case 'pickup_details.clear':
         return this.clearPickupDetails(actorPubky, command);
       case 'fulfillment.mark_ready':
@@ -3201,7 +3219,7 @@ function success(
 function failure(
   code: MarketplaceCommandFailure['error']['code'],
   message: string,
-  details: Pick<MarketplaceCommandFailure['error'], 'currentRevision' | 'issues'> = {},
+  details: Pick<MarketplaceCommandFailure['error'], 'currentRevision' | 'issues' | 'reason'> = {},
 ): MarketplaceCommandFailure {
   return { ok: false, error: { code, message, ...details } };
 }

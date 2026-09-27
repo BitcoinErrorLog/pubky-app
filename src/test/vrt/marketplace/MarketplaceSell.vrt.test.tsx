@@ -57,6 +57,7 @@ const view = vi.hoisted(() => ({
   mediaItems: [] as unknown[],
   shippingPresets: [] as unknown[],
   pickupAvailable: false,
+  digitalAvailable: false,
   marketplaceSession: {
     pubky: 'y'.repeat(52),
     capabilities: '/pub/pubky.app/:rw',
@@ -72,7 +73,7 @@ const sellerPaymentConfig = vi.hoisted(() =>
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
       stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalMerchantEmail: null as string | null,
     }),
   ),
 );
@@ -155,6 +156,8 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getShippingPresets: () => Promise.resolve(view.shippingPresets),
     commitUpsertShippingPreset: () => Promise.resolve(),
     fetchPickupAvailable: () => Promise.resolve(view.pickupAvailable),
+    fetchDigitalDeliveryCapability: () =>
+      Promise.resolve({ available: view.digitalAvailable, maxBytes: view.digitalAvailable ? 52_428_800 : null }),
     getSellerPaymentConfig: sellerPaymentConfig,
     hasFullHomeserverGrant: () => true,
   },
@@ -242,6 +245,7 @@ describe('Marketplace sell studio — visual regression', () => {
     // committed baselines were captured with.
     useMarketplaceDisplayStore.setState({ measurementSystem: 'imperial' });
     view.pickupAvailable = false;
+    view.digitalAvailable = false;
     view.adapterMode = 'sandbox';
     view.drafts = [];
     view.mediaItems = [];
@@ -402,6 +406,29 @@ describe('Marketplace sell studio — visual regression', () => {
     });
     await expect(expectVrtSurface('seller-studio')).toMatchScreenshot('sell-shipping-presets-desktop');
     view.shippingPresets = [];
+  });
+
+  // Digital delivery beside shipping (digital delivery design §2): the three
+  // delivery checkboxes, the publish-first note and the PayPal warning.
+  it('renders digital delivery beside shipping with the PayPal warning at desktop viewport', async () => {
+    view.drafts = [
+      { ...draftFixture, data: { form: { ...draftFixture.data.form, fulfillment: 'shipping_and_digital' } } },
+    ];
+    view.mediaItems = [];
+    view.pickupAvailable = true;
+    view.digitalAvailable = true;
+    sellerPaymentConfig.mockImplementation(() =>
+      Promise.resolve({ ...paidSellerPaymentConfig, paypalMerchantEmail: 'seller@example.com' }),
+    );
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
+    await vi.waitFor(() => {
+      if (!screen.container.querySelector('[data-testid="listing-digital-paypal-warning"]')) {
+        throw new Error('The PayPal warning has not rendered yet.');
+      }
+    });
+    await expect(expectVrtSurface('listing-section-shipping')).toMatchScreenshot('sell-digital-delivery-desktop');
   });
 
   it('renders the restore prompt at desktop viewport', async () => {
@@ -639,8 +666,8 @@ describe('Marketplace sell studio — visual regression', () => {
       if (!screen.container.textContent?.includes('Publish first, then add your meeting point')) {
         throw new Error('The pickup-enabled studio copy has not rendered yet.');
       }
-      const fulfillment = screen.container.querySelector('#fulfillment');
-      if (!fulfillment?.textContent?.includes('Local pickup')) {
+      const pickup = screen.container.querySelector('#listing-delivery-pickup');
+      if (pickup?.getAttribute('data-state') !== 'checked') {
         throw new Error('The pickup fulfillment value has not restored yet.');
       }
       if (screen.container.querySelector('[data-testid="pickup-capability-skeleton"]')) {

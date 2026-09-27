@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  marketplaceDigitalDeliveryKindSchema,
+  marketplaceListingDigitalDeliveryFieldSchema,
+} from '@/libs/commerce/digital';
 import { sellerPaymentObservationSchema } from '@/libs/commerce/marketplace-payment-review';
 import { findForbiddenPublicReserveKey } from '@/libs/commerce/marketplace-records';
 import { marketplaceFulfillmentMethodSchema, marketplaceFulfillmentMethodsSchema } from '@/libs/commerce/pickup';
@@ -50,6 +54,9 @@ const marketplaceListingProjectionBaseSchema = z
     // §A1), served by both backends. Defaults to shipping-only for rows
     // registered before the field existed — the service's own default.
     fulfillmentMethods: marketplaceFulfillmentMethodsSchema,
+    // Digital delivery facts (kind, file type and size) — null until the
+    // seller sets delivery, and absent from services predating it.
+    digitalDelivery: marketplaceListingDigitalDeliveryFieldSchema.optional(),
     auction: z
       .object({
         startsAt: z.string(),
@@ -508,6 +515,10 @@ export const marketplaceOrderProjectionSchema = z
         // The line's fulfillment kind (§A2). Absent on order lines placed
         // before Wave 7 — they read as shipped lines.
         fulfillment: marketplaceFulfillmentMethodSchema.optional(),
+        // The delivery kind a digital line was bought as (digital delivery
+        // design §2). Tolerant: an unknown kind reads as absent, never
+        // failing the order.
+        digitalKind: marketplaceDigitalDeliveryKindSchema.optional().catch(undefined),
         // The pickup-details version pinned at payment (§A3). An absent key
         // reads as "no terms version pinned" (shipped lines and pre-Wave 7 rows).
         versionAtPayment: z.number().int().positive().optional(),

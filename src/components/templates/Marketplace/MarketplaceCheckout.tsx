@@ -42,6 +42,7 @@ import {
   readCheckoutHashOrderId,
   reservedWhileYouPayCopy,
 } from '@/libs/commerce/checkout-phase';
+import { DELIVERY_EMAIL_MAX_CHARS, DIGITAL_CHECKOUT_COPY, digitalCheckoutLineLabel } from '@/libs/commerce/digital';
 import { marketplaceOfferCheckoutFailureMessage } from '@/libs/commerce/failure-messages';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { availablePaymentMethods, type PaymentMethodKind } from '@/libs/commerce/payment-methods';
@@ -177,9 +178,15 @@ function MarketplaceCartCheckout() {
   const displayGroups = useMemo(() => groupMarketplaceCartItems(checkoutItems), [checkoutItems]);
   // The award renders as its own fulfillment section (no cart line cards).
   const fulfillmentGroups = awardSeller ? [{ sellerPubky: awardSeller, items: [], subtotals: [] }] : displayGroups;
-  const shipping = marketplaceCartShippingTotals(displayGroups, checkout.fulfillmentForSeller);
+  const shipping = marketplaceCartShippingTotals(displayGroups, (item) => checkout.fulfillmentForItem(item.id));
   // A pickup award pays the accepted merchandise only; its shipping is zero.
   const isPickupAward = Boolean(awardSeller && checkout.fulfillmentForSeller(awardSeller) === 'pickup');
+  const lineMethods = [
+    ...checkoutItems.map((item) => checkout.fulfillmentForItem(item.id)),
+    ...(awardSeller ? [checkout.fulfillmentForSeller(awardSeller)] : []),
+  ];
+  const allPickup = lineMethods.length > 0 && lineMethods.every((method) => method === 'pickup');
+  const allDigital = lineMethods.length > 0 && lineMethods.every((method) => method === 'digital');
   const itemSubtotals =
     isOfferCheckout && award
       ? [award.subtotal]
@@ -298,6 +305,7 @@ function MarketplaceCartCheckout() {
     !approvalNeeded &&
     formValid &&
     !checkout.hasFulfillmentConflict &&
+    checkout.isDigitalReady &&
     !isPaying &&
     !buyerWalletMissing &&
     !buyerWalletChecking &&
@@ -506,6 +514,10 @@ function MarketplaceCartCheckout() {
                 const hasFulfillmentStep =
                   isPickupCapabilityLoading || isPickupGroup || fulfillmentOptions.length !== 1;
                 if (group.items.length === 0 && !hasFulfillmentStep) return null;
+                // The award group has no cart lines and always ships or is picked up.
+                const shipsOrPicksUp =
+                  group.items.length === 0 ||
+                  group.items.some((item) => checkout.fulfillmentForItem(item.id) !== 'digital');
                 return (
                   <section
                     key={group.sellerPubky}
@@ -559,17 +571,20 @@ function MarketplaceCartCheckout() {
                         after payment confirms.
                       </Typography>
                     )}
-                    {!isPickupCapabilityLoading && fulfillmentOptions.length === 0 && (
-                      <Typography
-                        as="p"
-                        role="alert"
-                        className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
-                      >
-                        {isOfferCheckout
-                          ? 'This listing is local pickup only, and pickup is unavailable on this deployment right now.'
-                          : "These items can't be checked out together: they don't share a fulfillment method this deployment supports (one ships while another is pickup-only). Remove one in the cart to continue."}
-                      </Typography>
-                    )}
+                    {!isPickupCapabilityLoading &&
+                      !checkout.isDigitalCapabilityLoading &&
+                      shipsOrPicksUp &&
+                      fulfillmentOptions.length === 0 && (
+                        <Typography
+                          as="p"
+                          role="alert"
+                          className="rounded-xl border border-destructive/40 px-4 py-3 text-sm"
+                        >
+                          {isOfferCheckout
+                            ? 'This listing is local pickup only, and pickup is unavailable on this deployment right now.'
+                            : "These items can't be checked out together: they don't share a fulfillment method this deployment supports (one ships while another is pickup-only). Remove one in the cart to continue."}
+                        </Typography>
+                      )}
                     {group.items.map((item) => {
                       const variant = item.listing.record.variants.find(({ id }) => id === item.variantId);
                       const price =
@@ -598,7 +613,34 @@ function MarketplaceCartCheckout() {
                                   <MarketplaceIndicativePrice money={price} className="font-normal" />
                                 </Typography>
                               )}
+                              {checkout.fulfillmentForItem(item.id) === 'digital' && (
+                                <Typography
+                                  as="p"
+                                  role={checkout.digitalKindForItem(item.id) === null ? 'alert' : undefined}
+                                  className="mt-1 text-sm text-muted-foreground"
+                                  data-testid="checkout-digital-line"
+                                >
+                                  {digitalCheckoutLineLabel(checkout.digitalKindForItem(item.id))}
+                                </Typography>
+                              )}
                             </div>
+                            {checkout.canChooseDigitalForItem(item.id) && (
+                              <Select
+                                value={checkout.fulfillmentForItem(item.id) === 'digital' ? 'digital' : 'physical'}
+                                onValueChange={(value) => checkout.setDigitalChoice(item.id, value === 'digital')}
+                              >
+                                <SelectTrigger
+                                  className="h-10 w-44 shrink-0 rounded-md border px-3"
+                                  aria-label={`Delivery for ${item.listing.record.title}`}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="physical">{DIGITAL_CHECKOUT_COPY.physicalOption}</SelectItem>
+                                  <SelectItem value="digital">{DIGITAL_CHECKOUT_COPY.digitalOption}</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
                           </CardContent>
                         </Card>
                       );
@@ -694,6 +736,28 @@ function MarketplaceCartCheckout() {
                   )}
                 </section>
               )}
+
+              {checkout.requiresDeliveryEmail && (
+                <section
+                  className="grid gap-4"
+                  aria-label={DIGITAL_CHECKOUT_COPY.emailHeading}
+                  data-surface="checkout-delivery-email"
+                >
+                  <Heading level={2} size="sm" className="text-xl font-semibold">
+                    {DIGITAL_CHECKOUT_COPY.emailHeading}
+                  </Heading>
+                  <Typography as="p" className="rounded-xl border bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+                    {DIGITAL_CHECKOUT_COPY.emailDisclosure}
+                  </Typography>
+                  <ControlledInputField
+                    name="deliveryEmail"
+                    control={checkout.form.control}
+                    label="Email"
+                    placeholder="you@example.com"
+                    maxLength={DELIVERY_EMAIL_MAX_CHARS}
+                  />
+                </section>
+              )}
             </div>
 
             <Card
@@ -749,7 +813,11 @@ function MarketplaceCartCheckout() {
                         ? 'Shipping is shown from each seller’s configured flat or free option.'
                         : checkout.requiresDeliveryAddress
                           ? 'Shipping is calculated authoritatively at checkout for the items that ship.'
-                          : 'No shipping — pickup is arranged with the seller after payment.'}
+                          : allPickup
+                            ? 'No shipping — pickup is arranged with the seller after payment.'
+                            : allDigital
+                              ? DIGITAL_CHECKOUT_COPY.noShippingDigital
+                              : DIGITAL_CHECKOUT_COPY.noShippingMixed}
                   </Typography>
                   {checkout.orderCount > 1 && (
                     <Typography as="p" className="text-xs text-muted-foreground">
@@ -846,6 +914,16 @@ function MarketplaceCartCheckout() {
                       </div>
                     )}
                   </div>
+                  {checkout.hasInstantDigitalLine && (
+                    <Typography as="p" className="text-xs text-muted-foreground" data-testid="checkout-consent-instant">
+                      {DIGITAL_CHECKOUT_COPY.consentInstant}
+                    </Typography>
+                  )}
+                  {checkout.hasManualDigitalLine && (
+                    <Typography as="p" className="text-xs text-muted-foreground" data-testid="checkout-consent-manual">
+                      {DIGITAL_CHECKOUT_COPY.consentManual}
+                    </Typography>
+                  )}
                   <Button
                     className="w-full rounded-full"
                     onClick={() => void pay()}
@@ -873,17 +951,21 @@ function MarketplaceCartCheckout() {
                     <Typography id="checkout-pay-reason" as="p" className="text-xs text-muted-foreground">
                       {checkout.hasFulfillmentConflict
                         ? "Some items can't be checked out together — see the note above."
-                        : buyerWalletMissing
-                          ? 'Connect Bitkit to pay with Bitcoin, or choose another payment method.'
-                          : buyerWalletChecking
-                            ? 'Pay unlocks once your Bitcoin wallet is checked.'
-                            : railsFailed
-                              ? 'Pay unlocks once payment options load.'
-                              : sharedMethods && sharedMethods.length === 0 && !isSandbox
-                                ? isMultiSeller
-                                  ? 'Choose sellers that share a payment method.'
-                                  : 'Pay unlocks once this seller sets up a payment method.'
-                                : 'Fill in delivery details, accept the guarantee, and choose a payment method to pay.'}
+                        : !checkout.isDigitalReady
+                          ? checkout.digitalNotReadyItemIds.length > 0
+                            ? DIGITAL_CHECKOUT_COPY.payReasonNotReady
+                            : DIGITAL_CHECKOUT_COPY.payReasonLoading
+                          : buyerWalletMissing
+                            ? 'Connect Bitkit to pay with Bitcoin, or choose another payment method.'
+                            : buyerWalletChecking
+                              ? 'Pay unlocks once your Bitcoin wallet is checked.'
+                              : railsFailed
+                                ? 'Pay unlocks once payment options load.'
+                                : sharedMethods && sharedMethods.length === 0 && !isSandbox
+                                  ? isMultiSeller
+                                    ? 'Choose sellers that share a payment method.'
+                                    : 'Pay unlocks once this seller sets up a payment method.'
+                                  : 'Fill in delivery details, accept the guarantee, and choose a payment method to pay.'}
                     </Typography>
                   )}
                 </section>
@@ -891,7 +973,7 @@ function MarketplaceCartCheckout() {
                   <Heading level={2} size="sm" className="text-xl font-semibold">
                     Guarantee
                   </Heading>
-                  {!checkout.requiresDeliveryAddress && (
+                  {allPickup && (
                     <div className="rounded-xl border bg-card/60 p-4">
                       <Typography as="p" className="text-sm font-medium">
                         Local pickup

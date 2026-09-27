@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { expectVrtSurface, parkVrtHover, renderForVRT, VRT_DENSE_CHROME_SCREENSHOT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceOrders } from '@/templates/Marketplace/MarketplaceOrders';
+import { CommerceController } from '@/controllers/commerce/commerce';
 
 // Deterministic BTC/USD rate for the capture (1 BTC = $100,000): the "≈"
 // estimates render from this fixed value, never from the network.
@@ -117,6 +118,66 @@ const fixtures = vi.hoisted(async () => {
     payment: createPaymentFixture('confirmed'),
     receipt: null,
   });
+
+  // Digital delivery design §3 "After payment": a delivered order with a
+  // file, a text and a message-kind line, seen by its buyer.
+  const digitalDeliveredView = () => {
+    const base = createOrderFixture('delivered', { id: '018f47d2-6a27-7c23-a49d-000000000704', nextActor: 'none' });
+    const line = base.lines[0];
+    return {
+      order: {
+        ...base,
+        fulfillment: 'digital' as const,
+        shipment: null,
+        shipping: { ...base.shipping, amountMinor: 0 },
+        total: base.subtotal,
+        lines: [
+          {
+            ...line,
+            title: 'Field guide to film cameras (PDF)',
+            fulfillment: 'digital' as const,
+            digitalKind: 'file' as const,
+          },
+          { ...line, title: 'Darkroom timer licence', fulfillment: 'digital' as const, digitalKind: 'text' as const },
+          { ...line, title: 'Portfolio review', fulfillment: 'digital' as const, digitalKind: 'message' as const },
+        ],
+      },
+      payment: createPaymentFixture('confirmed'),
+      receipt: null,
+    };
+  };
+
+  // The viewer's own digital sale with an emailed and a message-kind line to
+  // send by hand (§3 "Seller's orders").
+  const digitalToDeliverView = () => {
+    const base = createOrderFixture('paid', {
+      id: '018f47d2-6a27-7c23-a49d-000000000705',
+      buyerPubky: 's'.repeat(52),
+      sellerPubky: ORDER_FIXTURE_BUYER,
+      nextActor: 'seller',
+    });
+    const line = base.lines[0];
+    return {
+      order: {
+        ...base,
+        fulfillment: 'digital' as const,
+        shipment: null,
+        shipping: { ...base.shipping, amountMinor: 0 },
+        total: base.subtotal,
+        lines: [
+          {
+            ...line,
+            title: 'Selvedge jacket sewing pattern',
+            fulfillment: 'digital' as const,
+            digitalKind: 'email' as const,
+          },
+          { ...line, title: 'Fitting call notes', fulfillment: 'digital' as const, digitalKind: 'message' as const },
+        ],
+      },
+      payment: createPaymentFixture('confirmed'),
+      receipt: null,
+    };
+  };
 
   const sellerAwaitingPayment = [
     'awaiting_entitlement',
@@ -243,6 +304,8 @@ const fixtures = vi.hoisted(async () => {
     reviewedOutOfWindow: [reviewedOrderView(25)],
     trackableShipped: [trackableShippedView()],
     deliveryAssumed: [deliveryAssumedView()],
+    digitalDelivered: [digitalDeliveredView()],
+    digitalToDeliver: [digitalToDeliverView()],
     sellerAwaitingPayment: sellerAwaitingPaymentViews,
     buyerPendingPayment,
     sellerPendingPayment,
@@ -371,6 +434,61 @@ describe('Marketplace orders — visual regression', () => {
 
     await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-delivery-assumed-desktop');
+  });
+
+  it('renders a delivered digital order with the buyer purchase panel at desktop viewport', async () => {
+    const { digitalDelivered } = await fixtures;
+    ordersState.orders = digitalDelivered;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-digital-delivered-desktop');
+    await expect(expectVrtSurface('order-digital-panel')).toMatchScreenshot('orders-digital-panel-desktop');
+  });
+
+  it('renders a paid digital sale the seller delivers by hand at desktop viewport', async () => {
+    const { digitalToDeliver } = await fixtures;
+    ordersState.orders = digitalToDeliver;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+    const evidence = vi.spyOn(CommerceController, 'fetchOrderDigitalEvidence').mockResolvedValue({
+      orderId: digitalToDeliver[0].order.id,
+      deliveredAt: null,
+      firstOpenedAt: null,
+      openCount: 0,
+      emailedAt: null,
+      messageDeliveredAt: null,
+    });
+
+    try {
+      await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+      await expect.poll(() => evidence.mock.calls.length).toBeGreaterThan(0);
+      await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-digital-to-deliver-desktop');
+      await expect(expectVrtSurface('order-seller-digital-panel')).toMatchScreenshot(
+        'orders-seller-digital-panel-desktop',
+      );
+    } finally {
+      evidence.mockRestore();
+    }
+  });
+
+  it('renders a seller delivery record that failed to load at desktop viewport', async () => {
+    const { digitalToDeliver } = await fixtures;
+    ordersState.orders = digitalToDeliver;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+    const evidence = vi.spyOn(CommerceController, 'fetchOrderDigitalEvidence').mockRejectedValue(new Error('network'));
+
+    try {
+      const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+      await expect.element(screen.getByTestId('seller-digital-evidence-failed')).toBeVisible();
+      await expect(expectVrtSurface('order-seller-digital-panel')).toMatchScreenshot(
+        'orders-seller-digital-evidence-failed-desktop',
+      );
+    } finally {
+      evidence.mockRestore();
+    }
   });
 
   it('renders every buyer-visible payment state at desktop viewport', async () => {

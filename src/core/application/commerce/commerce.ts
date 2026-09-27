@@ -22,6 +22,28 @@ import {
   verifyOwnOrderReceipt,
   verifyOwnReviewAttestation,
 } from '@/libs/commerce/attestation';
+import {
+  DIGITAL_DELIVERY_COPY,
+  type DigitalFileOpenFailure,
+  type MarketplaceDigitalDeliveryCapability,
+  type MarketplaceDigitalDeliveryChannel,
+  type MarketplaceDigitalDeliveryInput,
+  type MarketplaceDigitalDeliverySet,
+  type MarketplaceOrderDeliveryEmail,
+  type MarketplaceOrderDigitalDelivery,
+  type MarketplaceOrderDigitalEvidence,
+  type MarketplaceOrderDigitalLine,
+  type MarketplaceSellerDigitalDelivery,
+} from '@/libs/commerce/digital';
+import {
+  digitalCiphertextBytes,
+  digitalDeliverableUrl,
+  digitalFileContentType,
+  digitalFileName,
+  encryptDigitalDeliverable,
+  newDigitalDeliverableId,
+  openDigitalDeliverable,
+} from '@/libs/commerce/digital-file';
 import { lockPolicyCreator, toBareLockResource } from '@/libs/commerce/locks-payment';
 import {
   assertReserveFreePublicRecord,
@@ -231,13 +253,15 @@ export type CommerceCheckoutLineInput = MarketplaceCheckoutFulfillmentLine & {
 
 /**
  * A checkout submission with per-group fulfillment choices. A seller group
- * with no recorded choice ships (the default); a pickup-only checkout sends
- * NO delivery address (§A2).
+ * with no recorded choice ships (the default); a checkout with no shipped
+ * line sends NO delivery address (§A2), and the delivery email rides only
+ * when an email-kind digital line needs it (digital delivery design §4.3).
  */
 export type CommerceCheckoutFulfillmentInput = {
   lines: CommerceCheckoutLineInput[];
   fulfillmentChoiceBySeller?: Readonly<Record<string, MarketplaceFulfillmentMethod | undefined>>;
   deliveryAddress?: CreateMarketplaceCheckoutCommand['payload']['deliveryAddress'];
+  deliveryEmail?: string;
 };
 
 /** A review-list page, or the honest signal that no review index serves this deployment. */
@@ -572,6 +596,11 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getPickupAvailability();
   }
 
+  /** The deployment's digital delivery capability (digital delivery design §6 B5), read from /health. */
+  static async fetchDigitalDeliveryCapability(): Promise<MarketplaceDigitalDeliveryCapability> {
+    return await MarketplaceGatewayService.getDigitalDeliveryCapability();
+  }
+
   /**
    * The paying buyer's per-line pickup-details reveal (§A3): the pinned
    * snapshot recorded at payment, straight from the service's entitled read.
@@ -651,6 +680,232 @@ export class CommerceApplication {
     const response = await this.executeMarketplaceCommand(actorPubky, command);
     this.throwIfPickupCommandRefusal('commitClearPickupDetails', response);
     return response;
+  }
+
+  // ---------------------------------------------------------------------
+  // Digital delivery seller setup (digital delivery design §2, §6 C1–C5)
+  //
+  // A file is encrypted here with a fresh AES-256-GCM key; only the
+  // ciphertext goes to the seller's homeserver, and the key goes once, to the
+  // service, inside `digital_delivery.set`, which seals it. Neither the key
+  // nor the plaintext is persisted, stored or logged; the seller's own link
+  // or text from the owner read is returned to the caller only.
+  // ---------------------------------------------------------------------
+
+  /** The durable-service boundary for digital delivery: the sandbox seals and releases nothing. */
+  private static assertDigitalDeployment(operation: string): void {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) {
+      throw Err.client(ClientErrorCode.CONFLICT, DIGITAL_DELIVERY_COPY.unavailable, {
+        service: ErrorService.Marketplace,
+        operation,
+        context: { refusal: 'digital_delivery_unavailable' },
+      });
+    }
+  }
+
+  /** The seller's owner read of one listing's digital delivery (§6 C5). */
+  static async fetchSellerDigitalDelivery(
+    actorPubky: string,
+    listingAggregateId: string,
+  ): Promise<MarketplaceSellerDigitalDelivery> {
+    return await MarketplaceGatewayService.getListingDigitalDelivery(actorPubky, listingAggregateId);
+  }
+
+  /**
+   * `digital_delivery.set`: sets how buyers receive the listing as version
+   * `expectedVersion + 1`. A file is encrypted, bound to the seller,
+   * deliverable id and version, and written to the seller's homeserver
+   * before the command. When the service refuses, the new ciphertext is
+   * referenced by no version, so it is deleted (best effort). The response
+   * is returned as-is; refusals stay in the envelope.
+   */
+  static async commitSetDigitalDelivery(
+    actorPubky: string,
+    input: {
+      sellerPubky: string;
+      listingId: string;
+      expectedVersion: number;
+      delivery: MarketplaceDigitalDeliveryInput;
+    },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertDigitalDeployment('commitSetDigitalDelivery');
+    let uploadedUrl: string | null = null;
+    let delivery: MarketplaceDigitalDeliverySet;
+    if (input.delivery.kind === 'file') {
+      const version = input.expectedVersion + 1;
+      const deliverableId = newDigitalDeliverableId();
+      const encrypted = await encryptDigitalDeliverable({
+        plaintext: input.delivery.bytes,
+        sellerPubky: input.sellerPubky,
+        deliverableId,
+        version,
+      });
+      const url = digitalDeliverableUrl(input.sellerPubky, deliverableId, version);
+      await CommerceHomeserverService.putDeliverable(url, encrypted.ciphertext);
+      uploadedUrl = url;
+      delivery = {
+        kind: 'file',
+        deliverableId,
+        version,
+        key: encrypted.key,
+        iv: encrypted.iv,
+        ciphertextBlake3: encrypted.ciphertextBlake3,
+        plaintextBlake3: encrypted.plaintextBlake3,
+        sizeBytes: encrypted.sizeBytes,
+        contentType: digitalFileContentType(input.delivery.contentType),
+        fileName: digitalFileName(input.delivery.fileName),
+      };
+    } else {
+      delivery = input.delivery;
+    }
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(input.sellerPubky, input.listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'digital_delivery.set',
+      payload: { expectedVersion: input.expectedVersion, delivery },
+    });
+    const response = await this.executeMarketplaceCommand(actorPubky, command);
+    if (!response.ok && uploadedUrl) {
+      await CommerceHomeserverService.deleteDeliverable(uploadedUrl).catch(() => {
+        Logger.warn('An unreferenced digital deliverable could not be deleted');
+      });
+    }
+    return response;
+  }
+
+  /** `digital_delivery.clear`: removes delivery; the service refuses while buyers pay for or download it (C4). */
+  static async commitClearDigitalDelivery(
+    actorPubky: string,
+    input: { sellerPubky: string; listingId: string; expectedVersion: number },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertDigitalDeployment('commitClearDigitalDelivery');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceListingAggregateId(input.sellerPubky, input.listingId),
+      expectedRevision: 0,
+      issuedAt: new Date().toISOString(),
+      kind: 'digital_delivery.clear',
+      payload: { expectedVersion: input.expectedVersion },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
+  /**
+   * The buyer's pinned digital payload for one order (digital delivery design
+   * §4.2). The service writes an access row on every read, and an opened
+   * instant line stays sold if the order is later cancelled (§6 E8), so this
+   * is called only when the buyer asks to open a line.
+   */
+  static async fetchOrderDigitalDelivery(
+    actorPubky: string,
+    orderId: string,
+    lineIndex: number,
+  ): Promise<MarketplaceOrderDigitalDelivery> {
+    this.assertDigitalDeployment('fetchOrderDigitalDelivery');
+    return await MarketplaceGatewayService.getOrderDigitalDelivery(actorPubky, orderId, lineIndex);
+  }
+
+  /**
+   * Opens a buyer's file line (§3.4): reads the ciphertext from the seller's
+   * homeserver, checks its length and BLAKE3 against the pin, decrypts it
+   * with the pinned key under the seller, deliverable and version, and
+   * checks the plaintext BLAKE3. The bytes are returned only when all hold;
+   * nothing is stored.
+   */
+  static async openOrderDigitalFile(
+    line: Extract<MarketplaceOrderDigitalLine, { kind: 'file' }>,
+  ): Promise<
+    | { ok: true; bytes: Uint8Array; fileName: string; contentType: string }
+    | { ok: false; reason: DigitalFileOpenFailure }
+  > {
+    let ciphertext: Uint8Array<ArrayBuffer>;
+    try {
+      ciphertext = await CommerceHomeserverService.getDeliverable(
+        digitalDeliverableUrl(line.sellerPubky, line.deliverableId, line.version),
+        digitalCiphertextBytes(line.sizeBytes),
+      );
+    } catch (error) {
+      // A body larger than the pinned ciphertext is not the file that was paid for.
+      const oversized = isAppError(error) && error.code === ClientErrorCode.PAYLOAD_TOO_LARGE;
+      return { ok: false, reason: oversized ? 'ciphertext_mismatch' : 'fetch_failed' };
+    }
+    const opened = await openDigitalDeliverable({
+      ciphertext,
+      key: line.key,
+      iv: line.iv,
+      ciphertextBlake3: line.ciphertextBlake3,
+      plaintextBlake3: line.plaintextBlake3,
+      sizeBytes: line.sizeBytes,
+      sellerPubky: line.sellerPubky,
+      deliverableId: line.deliverableId,
+      version: line.version,
+    });
+    if (!opened.ok) return opened;
+    return { ok: true, bytes: opened.plaintext, fileName: line.fileName, contentType: line.contentType };
+  }
+
+  /** The seller's delivery evidence on one of their digital orders (§3 "Seller's orders"). */
+  static async fetchOrderDigitalEvidence(
+    actorPubky: string,
+    orderId: string,
+  ): Promise<MarketplaceOrderDigitalEvidence> {
+    this.assertDigitalDeployment('fetchOrderDigitalEvidence');
+    return await MarketplaceGatewayService.getOrderDigitalEvidence(actorPubky, orderId);
+  }
+
+  /** An email-kind order's delivery email and emailed time (§4.3, §6 F5–F9). */
+  static async fetchOrderDeliveryEmail(actorPubky: string, orderId: string): Promise<MarketplaceOrderDeliveryEmail> {
+    this.assertDigitalDeployment('fetchOrderDeliveryEmail');
+    return await MarketplaceGatewayService.getOrderDeliveryEmail(actorPubky, orderId);
+  }
+
+  /**
+   * `order.set_delivery_email` (§6 F11, F12): the buyer replaces the address
+   * the seller sends an email-kind line to. `expectedRevision` is the
+   * order's current revision.
+   */
+  static async commitSetDeliveryEmail(
+    actorPubky: string,
+    input: { orderId: string; expectedRevision: number; deliveryEmail: string },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertDigitalDeployment('commitSetDeliveryEmail');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceOrderAggregateId(input.orderId),
+      expectedRevision: input.expectedRevision,
+      issuedAt: new Date().toISOString(),
+      kind: 'order.set_delivery_email',
+      payload: { orderId: input.orderId, deliveryEmail: input.deliveryEmail },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
+  }
+
+  /**
+   * `fulfillment.deliver_digital` (§4.3, §6 F13): the seller marks an
+   * order's email or message lines delivered after sending them.
+   * `expectedRevision` is the order's current revision, so a racing buyer
+   * cancel request and this mark have exactly one winner (F15).
+   */
+  static async commitDeliverDigital(
+    actorPubky: string,
+    input: { orderId: string; expectedRevision: number; channel: MarketplaceDigitalDeliveryChannel },
+  ): Promise<MarketplaceCommandResponse> {
+    this.assertDigitalDeployment('commitDeliverDigital');
+    const command = CommerceRecordNormalizer.marketplaceCommand({
+      version: 1,
+      commandId: crypto.randomUUID(),
+      aggregateId: buildMarketplaceOrderAggregateId(input.orderId),
+      expectedRevision: input.expectedRevision,
+      issuedAt: new Date().toISOString(),
+      kind: 'fulfillment.deliver_digital',
+      payload: { orderId: input.orderId, channel: input.channel },
+    });
+    return await this.executeMarketplaceCommand(actorPubky, command);
   }
 
   /**
@@ -748,6 +1003,7 @@ export class CommerceApplication {
           fulfillment: plan.lineFulfillments[index],
         })),
         ...(input.deliveryAddress ? { deliveryAddress: input.deliveryAddress } : {}),
+        ...(input.deliveryEmail !== undefined ? { deliveryEmail: input.deliveryEmail } : {}),
         guaranteePolicyVersion: 1 as const,
       },
     });
@@ -3272,7 +3528,10 @@ export class CommerceApplication {
         unitPrice,
         shippingMinor: commerceListingShippingMinor(listing.shippingOptions),
         saleFormat: 'auction',
-        fulfillmentMethods: commerceListingFulfillmentMethods(listing.fulfillmentMethods),
+        fulfillmentMethods: commerceListingFulfillmentMethods(
+          listing.fulfillmentMethods,
+          listing.digitalLock !== undefined,
+        ),
         auctionTerms:
           listing.sale.format === 'auction'
             ? {
@@ -3350,7 +3609,10 @@ export class CommerceApplication {
         saleFormat: listing.sale.format,
         // The service-facing fulfillment methods (§A1), derived from the
         // record exactly as the service's own homeserver derivation would.
-        fulfillmentMethods: commerceListingFulfillmentMethods(listing.fulfillmentMethods),
+        fulfillmentMethods: commerceListingFulfillmentMethods(
+          listing.fulfillmentMethods,
+          listing.digitalLock !== undefined,
+        ),
         auctionTerms:
           listing.sale.format === 'auction'
             ? {

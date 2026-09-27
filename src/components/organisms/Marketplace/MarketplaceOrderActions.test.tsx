@@ -617,3 +617,146 @@ describe('MarketplaceOrderActions local pickup (Wave 7, §A6)', () => {
     });
   });
 });
+
+describe('MarketplaceOrderActions digital orders (digital delivery design §6 E1–E4)', () => {
+  function renderDigital(state: 'paid' | 'delivered' | 'completed', isBuyer: boolean) {
+    const order = createOrderFixture(state, { fulfillment: 'digital' });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={isBuyer}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+  }
+
+  it('offers the buyer no return on a delivered digital order, and says why (E4)', () => {
+    renderDigital('delivered', true);
+
+    expect(screen.queryByRole('button', { name: 'Request return' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('digital-no-return-note')).toHaveTextContent(
+      "Digital purchases can't be returned. Message the seller about a refund.",
+    );
+  });
+
+  it('offers the seller no tracking, label or packing slip on a digital order (E1)', () => {
+    renderDigital('paid', false);
+
+    expect(screen.queryByRole('button', { name: 'Add tracking' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Packing slip' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Request return on a delivered shipped order', () => {
+    const order = createOrderFixture('delivered', { fulfillment: 'shipping' });
+    render(
+      <MarketplaceOrderActions order={order} isBuyer canEditReview={false} actOnOrder={vi.fn(async () => true)} />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Request return' })).toBeInTheDocument();
+    expect(screen.queryByTestId('digital-no-return-note')).not.toBeInTheDocument();
+  });
+});
+
+describe('MarketplaceOrderActions digital orders in an inconsistent shipped state (review P2)', () => {
+  it('offers no Confirm delivery on a digital order projected as shipped', () => {
+    render(
+      <MarketplaceOrderActions
+        order={createOrderFixture('shipped', { fulfillment: 'digital' })}
+        isBuyer
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Confirm delivery' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Confirm delivery on a shipped order', () => {
+    render(
+      <MarketplaceOrderActions
+        order={createOrderFixture('shipped', { fulfillment: 'shipping' })}
+        isBuyer
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Confirm delivery' })).toBeInTheDocument();
+  });
+});
+
+describe('MarketplaceOrderActions digital refunds and cancels (digital delivery design §6 E8, E9)', () => {
+  const base = createOrderFixture('delivered');
+
+  it.each(['delivered', 'completed'] as const)(
+    'lets the seller record a refund on a %s digital order, and says what it changes (E9)',
+    async (state) => {
+      const { toast } = await import('@/molecules/Toaster/use-toast');
+      const order = createOrderFixture(state, { fulfillment: 'digital', paymentMethod: 'bitcoin' });
+      const actOnOrder = vi.fn(async () => true);
+      render(<MarketplaceOrderActions order={order} isBuyer={false} canEditReview={false} actOnOrder={actOnOrder} />);
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('button', { name: 'Record refund' }));
+      await user.type(screen.getByLabelText('External Bitcoin transaction reference'), 'txid-digital-refund');
+      await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+      await waitFor(() =>
+        expect(actOnOrder).toHaveBeenCalledWith(order, 'refund.record_external', expect.objectContaining({})),
+      );
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
+        variant: 'info',
+        title: "Refund recorded. The buyer can no longer download. An email already sent can't be recalled.",
+      });
+    },
+  );
+
+  it('offers no refund record on a delivered shipped order', () => {
+    render(
+      <MarketplaceOrderActions
+        order={createOrderFixture('delivered', { fulfillment: 'shipping' })}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Record refund' })).not.toBeInTheDocument();
+  });
+
+  it('tells the seller opened files stay sold before approving a cancel (E8)', () => {
+    const order = createOrderFixture('cancel_requested', {
+      fulfillment: 'digital',
+      lines: [{ ...base.lines[0], fulfillment: 'digital', digitalKind: 'file' }],
+    });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Approve cancellation' })).toBeInTheDocument();
+    expect(screen.getByTestId('digital-opened-stay-sold')).toHaveTextContent('Opened files stay counted as sold.');
+  });
+
+  it('says nothing about opened files on a cancel with no instant line', () => {
+    const order = createOrderFixture('cancel_requested', {
+      fulfillment: 'digital',
+      lines: [{ ...base.lines[0], fulfillment: 'digital', digitalKind: 'email' }],
+    });
+    render(
+      <MarketplaceOrderActions
+        order={order}
+        isBuyer={false}
+        canEditReview={false}
+        actOnOrder={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.queryByTestId('digital-opened-stay-sold')).not.toBeInTheDocument();
+  });
+});

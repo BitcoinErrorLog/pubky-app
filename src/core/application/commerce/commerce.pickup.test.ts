@@ -300,5 +300,58 @@ describe('CommerceApplication local pickup (Wave 7)', () => {
       ).rejects.toMatchObject({ category: 'validation' });
       expect(execute).not.toHaveBeenCalled();
     });
+
+    // Digital delivery design §3 "Checkout", §6 B3, F1.
+    const digitalLine = {
+      listingAggregateId: `listing:${SELLER}_guide`,
+      sellerPubky: SELLER,
+      publishedFulfillmentMethods: ['shipping', 'digital'],
+      fulfillmentChoice: 'digital',
+      expectedRevision: 4,
+      quantity: 1,
+    } as const;
+
+    it('sends a digital line as digital beside its seller’s shipped line, with the address and the delivery email', async () => {
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(okResponse as never);
+
+      await CommerceApplication.commitCreateMarketplaceCheckout(SELLER, {
+        lines: [lineA, digitalLine],
+        fulfillmentChoiceBySeller: { [SELLER]: 'shipping' },
+        deliveryAddress: address,
+        deliveryEmail: 'buyer@example.com',
+      });
+
+      const payload = execute.mock.calls[0][1].payload as {
+        lines: { fulfillment: string }[];
+        deliveryAddress?: unknown;
+        deliveryEmail?: unknown;
+      };
+      expect(payload.lines.map((line) => line.fulfillment)).toEqual(['shipping', 'digital']);
+      expect(payload.deliveryAddress).toEqual(address);
+      expect(payload.deliveryEmail).toBe('buyer@example.com');
+    });
+
+    it('sends an all-digital checkout with no address and no email unless one is given', async () => {
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute').mockResolvedValue(okResponse as never);
+
+      await CommerceApplication.commitCreateMarketplaceCheckout(SELLER, { lines: [digitalLine] });
+
+      const payload = execute.mock.calls[0][1].payload as Record<string, unknown>;
+      expect(payload).not.toHaveProperty('deliveryAddress');
+      expect(payload).not.toHaveProperty('deliveryEmail');
+    });
+
+    it('refuses a malformed delivery email before sending, without echoing it', async () => {
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+      const refusal = await CommerceApplication.commitCreateMarketplaceCheckout(SELLER, {
+        lines: [digitalLine],
+        deliveryEmail: 'not an email',
+      }).catch((error: unknown) => error);
+
+      expect(refusal).toMatchObject({ category: 'validation' });
+      expect(JSON.stringify(refusal)).not.toContain('not an email');
+      expect(execute).not.toHaveBeenCalled();
+    });
   });
 });

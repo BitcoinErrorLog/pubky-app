@@ -9,6 +9,11 @@ import {
   isTransactionalCommerceMode,
 } from '@/config/commerce';
 import { IMAGE_MAX_UPLOAD_SIZE } from '@/config/images';
+import {
+  type MarketplaceDigitalDeliveryCapability,
+  marketplaceDigitalDeliveryChannelSchema,
+  type MarketplaceDigitalDeliveryInput,
+} from '@/libs/commerce/digital';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
@@ -858,6 +863,11 @@ export class CommerceController {
     return await CommerceApplication.fetchPickupAvailable();
   }
 
+  /** The deployment's digital delivery capability (§6 B5) — unavailable unless the durable service reports it on. */
+  static async fetchDigitalDeliveryCapability(): Promise<MarketplaceDigitalDeliveryCapability> {
+    return await CommerceApplication.fetchDigitalDeliveryCapability();
+  }
+
   /**
    * The current buyer's per-line pickup-details reveal for one of their
    * paid orders (§A3). Memory only: re-fetch on each view, never persist.
@@ -898,6 +908,147 @@ export class CommerceController {
       sellerPubky: pubky,
       listingId: CommerceRecordNormalizer.entityId(listingId),
       expectedVersion: this.pickupDetailsVersion(expectedVersion),
+    });
+  }
+
+  // --- Digital delivery seller setup (digital delivery design §2, §6 C1–C5) ---
+
+  /** The current seller's owner read of one listing's digital delivery. Held in memory only. */
+  static async fetchSellerDigitalDelivery(listingId: unknown) {
+    const pubky = this.getCurrentUserPubky();
+    const aggregateId = buildMarketplaceListingAggregateId(pubky, CommerceRecordNormalizer.entityId(listingId));
+    return await CommerceApplication.fetchSellerDigitalDelivery(pubky, aggregateId);
+  }
+
+  /** `digital_delivery.set` on one of the current seller's listings, as version `expectedVersion + 1`. */
+  static async commitSetDigitalDelivery(listingId: unknown, input: { expectedVersion: unknown; delivery: unknown }) {
+    const pubky = this.getCurrentUserPubky();
+    return await CommerceApplication.commitSetDigitalDelivery(pubky, {
+      sellerPubky: pubky,
+      listingId: CommerceRecordNormalizer.entityId(listingId),
+      expectedVersion: this.digitalDeliveryVersion(input?.expectedVersion),
+      delivery: this.digitalDeliveryInput(input?.delivery),
+    });
+  }
+
+  /** `digital_delivery.clear` on one of the current seller's listings. */
+  static async commitClearDigitalDelivery(listingId: unknown, expectedVersion: unknown) {
+    const pubky = this.getCurrentUserPubky();
+    return await CommerceApplication.commitClearDigitalDelivery(pubky, {
+      sellerPubky: pubky,
+      listingId: CommerceRecordNormalizer.entityId(listingId),
+      expectedVersion: this.digitalDeliveryVersion(expectedVersion),
+    });
+  }
+
+  /** The current buyer's pinned digital payload for one line of their order (§4.2). Call only when the buyer opens it. */
+  static async fetchOrderDigitalDelivery(orderId: unknown, lineIndex: unknown) {
+    if (typeof lineIndex !== 'number' || !Number.isInteger(lineIndex) || lineIndex < 0 || lineIndex > 10_000) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'An order line index is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'fetchOrderDigitalDelivery',
+      });
+    }
+    return await CommerceApplication.fetchOrderDigitalDelivery(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+      lineIndex,
+    );
+  }
+
+  /** Verifies and decrypts a file line from `fetchOrderDigitalDelivery`; the bytes stay in memory. */
+  static async openOrderDigitalFile(line: Parameters<typeof CommerceApplication.openOrderDigitalFile>[0]) {
+    return await CommerceApplication.openOrderDigitalFile(line);
+  }
+
+  /** The current seller's delivery evidence on one of their digital orders (§3). */
+  static async fetchOrderDigitalEvidence(orderId: unknown) {
+    return await CommerceApplication.fetchOrderDigitalEvidence(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  /** The delivery email on one of the current user's email-kind orders (§4.3). */
+  static async fetchOrderDeliveryEmail(orderId: unknown) {
+    return await CommerceApplication.fetchOrderDeliveryEmail(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.entityId(orderId),
+    );
+  }
+
+  /** `order.set_delivery_email` (§6 F11): the buyer replaces the address on their order. */
+  static async commitSetDeliveryEmail(orderId: unknown, expectedRevision: unknown, deliveryEmail: unknown) {
+    if (typeof deliveryEmail !== 'string') {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A delivery email is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'commitSetDeliveryEmail',
+      });
+    }
+    return await CommerceApplication.commitSetDeliveryEmail(this.getCurrentUserPubky(), {
+      orderId: CommerceRecordNormalizer.entityId(orderId),
+      expectedRevision: this.pickupOrderRevision(expectedRevision),
+      deliveryEmail: deliveryEmail.trim(),
+    });
+  }
+
+  /** `fulfillment.deliver_digital` (§6 F13): the seller marks a digital order's email or message lines delivered. */
+  static async commitDeliverDigital(orderId: unknown, expectedRevision: unknown, channel: unknown) {
+    const parsed = marketplaceDigitalDeliveryChannelSchema.safeParse(channel);
+    if (!parsed.success) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A delivery channel is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'commitDeliverDigital',
+      });
+    }
+    return await CommerceApplication.commitDeliverDigital(this.getCurrentUserPubky(), {
+      orderId: CommerceRecordNormalizer.entityId(orderId),
+      expectedRevision: this.pickupOrderRevision(expectedRevision),
+      channel: parsed.data,
+    });
+  }
+
+  private static digitalDeliveryVersion(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value >= Number.MAX_SAFE_INTEGER) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A non-negative digital delivery version is required.', {
+        service: ErrorService.Marketplace,
+        operation: 'digitalDeliveryVersion',
+      });
+    }
+    return value;
+  }
+
+  private static digitalDeliveryInput(value: unknown): MarketplaceDigitalDeliveryInput {
+    const input = (value ?? {}) as Record<string, unknown>;
+    switch (input.kind) {
+      case 'file':
+        if (
+          input.bytes instanceof Uint8Array &&
+          typeof input.fileName === 'string' &&
+          typeof input.contentType === 'string'
+        ) {
+          return {
+            kind: 'file',
+            bytes: new Uint8Array(input.bytes),
+            fileName: input.fileName,
+            contentType: input.contentType,
+          };
+        }
+        break;
+      case 'link':
+        if (typeof input.url === 'string') return { kind: 'link', url: input.url };
+        break;
+      case 'text':
+        if (typeof input.text === 'string') return { kind: 'text', text: input.text };
+        break;
+      case 'email':
+        return { kind: 'email' };
+      case 'message':
+        return { kind: 'message' };
+    }
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'A digital delivery is required.', {
+      service: ErrorService.Marketplace,
+      operation: 'digitalDeliveryInput',
     });
   }
 

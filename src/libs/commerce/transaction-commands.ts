@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import {
+  type DigitalDeliveryCommandResult,
+  digitalDeliveryCommandResultSchema,
+  digitalDeliverySetSchema,
+  marketplaceDeliveryEmailSchema,
+  marketplaceDigitalDeliveryChannelSchema,
+} from './digital';
+import {
   classifyMarketplacePickupRefusal,
   marketplaceFulfillmentMethodSchema,
   marketplaceFulfillmentMethodsSchema,
@@ -311,6 +318,11 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
       // PRESENTS an address is rejected, so a buggy or malicious client
       // cannot smuggle one into storage (§A2).
       deliveryAddress: commerceDeliveryAddressValueSchema.optional(),
+      // Where the seller of an email-kind digital line sends the purchase
+      // (digital delivery design §4.3). The service requires it exactly when
+      // a line is email-kind, which only the listing projection says, so the
+      // checkout hook decides and this schema checks only its form.
+      deliveryEmail: marketplaceDeliveryEmailSchema.optional(),
       guaranteePolicyVersion: z.literal(1),
     })
     .strict()
@@ -319,8 +331,12 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
       if (new Set(ids).size !== ids.length) {
         context.addIssue({ code: 'custom', path: ['lines'], message: 'Checkout listing lines must be unique.' });
       }
-      // The address rule of §A2, mirroring the service's checkout validator.
-      const anyShipping = payload.lines.some((line) => line.fulfillment !== 'pickup');
+      // The address rule of §A2, mirroring the service's checkout validator:
+      // a line without a fulfillment ships, and pickup and digital lines
+      // carry no address.
+      const anyShipping = payload.lines.some(
+        (line) => line.fulfillment === undefined || line.fulfillment === 'shipping',
+      );
       if (anyShipping && payload.deliveryAddress === undefined) {
         context.addIssue({
           code: 'custom',
@@ -332,7 +348,16 @@ export const createMarketplaceCheckoutCommandSchema = createCommerceCommandSchem
         context.addIssue({
           code: 'custom',
           path: ['deliveryAddress'],
-          message: 'A pickup-only checkout must not carry a delivery address.',
+          message: payload.lines.every((line) => line.fulfillment === 'pickup')
+            ? 'A pickup-only checkout must not carry a delivery address.'
+            : 'A checkout with no shipped line must not carry a delivery address.',
+        });
+      }
+      if (payload.deliveryEmail !== undefined && !payload.lines.some((line) => line.fulfillment === 'digital')) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryEmail'],
+          message: 'A checkout with no digital line must not carry a delivery email.',
         });
       }
     }),
@@ -459,6 +484,64 @@ export const clearPickupDetailsCommandSchema = createCommerceCommandSchema(
     .strict(),
 );
 
+/**
+ * `digital_delivery.set` (seller, own digital listing only; digital delivery
+ * design §2, §6 C1–C5): sets how buyers receive the listing. A file names
+ * the encrypted deliverable already written to the seller's homeserver, as
+ * version `expectedVersion + 1`; the service reads it back, checks its
+ * length and BLAKE3, and seals the key. `expectedVersion` is the owner
+ * read's `lastVersion`, the compare-and-swap against lost updates. The
+ * envelope's `expectedRevision` is always 0.
+ */
+export const setDigitalDeliveryCommandSchema = createCommerceCommandSchema(
+  'digital_delivery.set',
+  z
+    .object({
+      expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      delivery: digitalDeliverySetSchema,
+    })
+    .strict()
+    .superRefine((payload, context) => {
+      if (payload.delivery.kind === 'file' && payload.delivery.version !== payload.expectedVersion + 1) {
+        context.addIssue({
+          code: 'custom',
+          path: ['delivery', 'version'],
+          message: 'Expected the next delivery version',
+        });
+      }
+    }),
+);
+
+/**
+ * `order.set_delivery_email` (buyer, own order only): replaces the address an
+ * email-kind line is sent to, while the order is pending payment or paid and
+ * not yet marked emailed (digital delivery design §4.3, §6 F11, F12).
+ */
+export const setDeliveryEmailCommandSchema = createCommerceCommandSchema(
+  'order.set_delivery_email',
+  orderIdPayload.extend({ deliveryEmail: marketplaceDeliveryEmailSchema }).strict(),
+);
+
+/**
+ * `fulfillment.deliver_digital` (seller, own paid digital order): marks the
+ * order's email or message lines delivered; the order moves to `delivered`
+ * once every manual channel is marked (digital delivery design §4.3, §6 F13).
+ */
+export const deliverDigitalCommandSchema = createCommerceCommandSchema(
+  'fulfillment.deliver_digital',
+  orderIdPayload.extend({ channel: marketplaceDigitalDeliveryChannelSchema }).strict(),
+);
+
+/** `digital_delivery.clear` (seller, own listing only): removes delivery; refused while buyers pay for or download it (C4). */
+export const clearDigitalDeliveryCommandSchema = createCommerceCommandSchema(
+  'digital_delivery.clear',
+  z
+    .object({
+      expectedVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    })
+    .strict(),
+);
+
 /** `fulfillment.mark_ready` (seller, own pickup order in `paid`): order → `ready_for_pickup`; notifies the buyer. */
 export const markReadyForPickupCommandSchema = createCommerceCommandSchema('fulfillment.mark_ready', orderIdPayload);
 
@@ -567,6 +650,10 @@ export const marketplaceCommandSchema = z.union([
   confirmOrderDeliveryCommandSchema,
   setPickupDetailsCommandSchema,
   clearPickupDetailsCommandSchema,
+  setDigitalDeliveryCommandSchema,
+  clearDigitalDeliveryCommandSchema,
+  setDeliveryEmailCommandSchema,
+  deliverDigitalCommandSchema,
   markReadyForPickupCommandSchema,
   confirmPickupCommandSchema,
   requestReturnCommandSchema,
@@ -607,6 +694,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
             'review',
             'drop',
             'pickup_details',
+            'digital_delivery',
           ]),
         })
         .passthrough(),
@@ -654,6 +742,10 @@ export type ShipOrderCommand = z.infer<typeof shipOrderCommandSchema>;
 export type ConfirmOrderDeliveryCommand = z.infer<typeof confirmOrderDeliveryCommandSchema>;
 export type SetPickupDetailsCommand = z.infer<typeof setPickupDetailsCommandSchema>;
 export type ClearPickupDetailsCommand = z.infer<typeof clearPickupDetailsCommandSchema>;
+export type SetDigitalDeliveryCommand = z.infer<typeof setDigitalDeliveryCommandSchema>;
+export type ClearDigitalDeliveryCommand = z.infer<typeof clearDigitalDeliveryCommandSchema>;
+export type SetDeliveryEmailCommand = z.infer<typeof setDeliveryEmailCommandSchema>;
+export type DeliverDigitalCommand = z.infer<typeof deliverDigitalCommandSchema>;
 export type MarkReadyForPickupCommand = z.infer<typeof markReadyForPickupCommandSchema>;
 export type ConfirmPickupCommand = z.infer<typeof confirmPickupCommandSchema>;
 export type RequestReturnCommand = z.infer<typeof requestReturnCommandSchema>;
@@ -737,6 +829,15 @@ export type PickupDetailsCommandResult = z.infer<typeof pickupDetailsCommandResu
 export function asPickupDetailsCommandResult(response: MarketplaceCommandResponse): PickupDetailsCommandResult | null {
   if (!response.ok) return null;
   const parsed = pickupDetailsCommandResultSchema.safeParse(response.result);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Narrows a command response to the digital-delivery result, or null for a refusal or another result. */
+export function asDigitalDeliveryCommandResult(
+  response: MarketplaceCommandResponse,
+): DigitalDeliveryCommandResult | null {
+  if (!response.ok) return null;
+  const parsed = digitalDeliveryCommandResultSchema.safeParse(response.result);
   return parsed.success ? parsed.data : null;
 }
 

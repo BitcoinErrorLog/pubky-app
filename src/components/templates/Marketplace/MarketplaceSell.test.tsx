@@ -71,6 +71,14 @@ vi.mock('@/hooks/useMarketplaceCartCount/useMarketplaceCartCount', () => ({
 vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     fetchPickupAvailable: () => Promise.resolve(true),
+    fetchDigitalDeliveryCapability: () => Promise.resolve({ available: true, maxBytes: 52_428_800 }),
+    getSellerPaymentConfig: () =>
+      Promise.resolve({
+        bitcoinAvailable: true,
+        bitcoinOfferAvailable: true,
+        stripePaymentLink: null,
+        paypalMerchantEmail: null,
+      }),
     restorePersistedMarketplaceSession,
     getCartItems: () => Promise.resolve([]),
     getManyListings: () => Promise.resolve(new Map()),

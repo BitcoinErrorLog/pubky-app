@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DIGITAL_CHECKOUT_REFUSAL_COPY, isWellFormedDeliveryEmail } from '@/libs/commerce/digital';
 import { refinePostalAddressFields } from '@/libs/commerce/postal-address';
 
 /**
@@ -8,6 +9,10 @@ import { refinePostalAddressFields } from '@/libs/commerce/postal-address';
  * policy). `requiresDeliveryAddress` is a hidden form value the cart keeps
  * in sync with the fulfillment choices, so the schema — and the cart's
  * `safeParse(formValues)` validity check — follows the groups.
+ *
+ * `requiresDeliveryEmail` does the same for the email an email-kind digital
+ * line needs (digital delivery design §4.3): required then, and never sent
+ * otherwise.
  */
 export const marketplaceCheckoutSchema = z
   .object({
@@ -22,6 +27,8 @@ export const marketplaceCheckoutSchema = z
       .trim()
       .refine((value) => value === '' || /^[A-Za-z]{2}$/.test(value), 'Use a two-letter country code.'),
     requiresDeliveryAddress: z.boolean(),
+    deliveryEmail: z.string().trim(),
+    requiresDeliveryEmail: z.boolean(),
     acceptsGuarantee: z.boolean().refine((value) => value === true, {
       error: 'Accept the guarantee terms.',
     }),
@@ -45,6 +52,21 @@ export const marketplaceCheckoutSchema = z
         context.addIssue({ code: 'custom', path: ['countryCode'], message: 'Use a two-letter country code.' });
       }
     }
+    if (data.requiresDeliveryEmail) {
+      if (!data.deliveryEmail) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryEmail'],
+          message: DIGITAL_CHECKOUT_REFUSAL_COPY.email_required,
+        });
+      } else if (!isWellFormedDeliveryEmail(data.deliveryEmail)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['deliveryEmail'],
+          message: DIGITAL_CHECKOUT_REFUSAL_COPY.invalid_email,
+        });
+      }
+    }
     if (data.saveAddress && !data.saveLabel) {
       context.addIssue({ code: 'custom', path: ['saveLabel'], message: 'Give the saved address a label.' });
     }
@@ -61,6 +83,8 @@ export const marketplaceCheckoutDefaults: MarketplaceCheckoutData = {
   postalCode: '',
   countryCode: 'US',
   requiresDeliveryAddress: true,
+  deliveryEmail: '',
+  requiresDeliveryEmail: false,
   acceptsGuarantee: false,
   saveAddress: false,
   saveLabel: '',

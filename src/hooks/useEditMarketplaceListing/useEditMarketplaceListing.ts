@@ -67,8 +67,8 @@ export interface UseEditMarketplaceListingResult {
  * photos are reused as-is — only newly added photos upload bytes.
  *
  * Honest scope limits, enforced as `unsupported` instead of destructive
- * saves: listings with digital delivery (a `digitalLock` this studio cannot
- * author) cannot be edited here; listings priced in an asset the studio
+ * saves: Locks listings (a `digitalLock` this studio cannot author) cannot
+ * be edited here; listings priced in an asset the studio
  * cannot author (anything that is neither USD cents nor BTC base units) cannot
  * be edited here, because "editing" one would silently rewrite its price
  * into a different asset; and auction sale terms are locked because
@@ -107,7 +107,7 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
             ? await CommerceController.getMarketplaceSellerListingProjection(sellerPubky, listingId)
             : null;
         if (!active) return;
-        if (loaded.fulfillmentMethods.includes('digital')) {
+        if (loaded.digitalLock !== undefined) {
           setStatus('unsupported');
           return;
         }

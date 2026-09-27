@@ -3,6 +3,13 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import type {
+  MarketplaceDigitalDeliveryCapability,
+  MarketplaceOrderDeliveryEmail,
+  MarketplaceOrderDigitalDelivery,
+  MarketplaceOrderDigitalEvidence,
+  MarketplaceSellerDigitalDelivery,
+} from '@/libs/commerce/digital';
+import type {
   PaymentMethodKind,
   SellerPaymentConfig,
   SellerPaymentConfigOwnView,
@@ -455,6 +462,41 @@ export class MarketplaceGatewayService {
    * version counter (§A4) — durable service only, same boundary as the
    * buyer reveal.
    */
+  /**
+   * The seller's owner read of their listing's digital delivery (digital
+   * delivery design §6 C5) — durable service only: the sandbox seals and
+   * releases nothing.
+   */
+  static async getListingDigitalDelivery(
+    actor: string,
+    aggregateId: string,
+  ): Promise<MarketplaceSellerDigitalDelivery> {
+    this.assertDurableServiceOnly('getListingDigitalDelivery');
+    return await MarketplaceTransactionService.getListingDigitalDelivery(actor, aggregateId);
+  }
+
+  /** The buyer's pinned digital payload for one order line (§4.2) — durable service only. */
+  static async getOrderDigitalDelivery(
+    actor: string,
+    orderId: string,
+    lineIndex: number,
+  ): Promise<MarketplaceOrderDigitalDelivery> {
+    this.assertDurableServiceOnly('getOrderDigitalDelivery');
+    return await MarketplaceTransactionService.getOrderDigitalDelivery(actor, orderId, lineIndex);
+  }
+
+  /** The seller's delivery evidence on a digital order (§3) — durable service only. */
+  static async getOrderDigitalEvidence(actor: string, orderId: string): Promise<MarketplaceOrderDigitalEvidence> {
+    this.assertDurableServiceOnly('getOrderDigitalEvidence');
+    return await MarketplaceTransactionService.getOrderDigitalEvidence(actor, orderId);
+  }
+
+  /** An email-kind order's delivery email and emailed time (§4.3) — durable service only. */
+  static async getOrderDeliveryEmail(actor: string, orderId: string): Promise<MarketplaceOrderDeliveryEmail> {
+    this.assertDurableServiceOnly('getOrderDeliveryEmail');
+    return await MarketplaceTransactionService.getOrderDeliveryEmail(actor, orderId);
+  }
+
   static async getListingPickupDetails(actor: string, aggregateId: string): Promise<MarketplaceSellerPickupDetails> {
     this.assertDurableServiceOnly('getListingPickupDetails');
     return await MarketplaceTransactionService.getListingPickupDetails(actor, aggregateId);
@@ -471,6 +513,22 @@ export class MarketplaceGatewayService {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return false;
     const health = await MarketplaceTransactionService.getHealth();
     return health.pickupAvailable;
+  }
+
+  /**
+   * The deployment's digital delivery capability (digital delivery design
+   * §6 B5): available iff the durable service reports its digital sealing
+   * key configured, with the file cap it enforces. Off in every non-durable
+   * mode — the sandbox seals and releases nothing — so UI gates the Digital
+   * delivery option off everywhere else.
+   */
+  static async getDigitalDeliveryCapability(): Promise<MarketplaceDigitalDeliveryCapability> {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return { available: false, maxBytes: null };
+    const health = await MarketplaceTransactionService.getHealth();
+    return {
+      available: health.digitalDeliveryAvailable,
+      maxBytes: health.digitalDeliveryMaxBytes ?? null,
+    };
   }
 
   /**

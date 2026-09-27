@@ -2224,3 +2224,45 @@ describe('MarketplaceTransactionService', () => {
     });
   });
 });
+
+describe('MarketplaceTransactionService digital delivery (digital delivery design §6 A1, B5)', () => {
+  it('refuses digital_delivery.set, .clear, order.set_delivery_email and fulfillment.deliver_digital the way an unkeyed durable service does', async () => {
+    const { service } = createService();
+    for (const [kind, payload] of [
+      ['digital_delivery.set', { expectedVersion: 0, delivery: { kind: 'email' } }],
+      ['digital_delivery.clear', { expectedVersion: 0 }],
+      [
+        'order.set_delivery_email',
+        { orderId: '00000000-0000-4000-8000-000000000001', deliveryEmail: 'buyer@example.com' },
+      ],
+      ['fulfillment.deliver_digital', { orderId: '00000000-0000-4000-8000-000000000001', channel: 'email' }],
+    ] as const) {
+      const result = await service.execute(SELLER, {
+        version: 1,
+        commandId: crypto.randomUUID(),
+        aggregateId: AGGREGATE_ID,
+        expectedRevision: 0,
+        issuedAt: NOW.toISOString(),
+        kind,
+        payload,
+      });
+      expect(result, kind).toMatchObject({
+        ok: false,
+        error: { code: 'INVALID_STATE', reason: 'digital_delivery_unavailable' },
+      });
+    }
+  });
+
+  it('stores a digital listing as registered but never sells it as shipping', async () => {
+    const { service } = createService();
+    const registered = await service.execute(
+      SELLER,
+      registerCommand(1, { payload: { ...registerCommand().payload, fulfillmentMethods: ['digital'] } }),
+    );
+    expect(registered.ok).toBe(true);
+
+    const checkout = await service.execute(BUYER, checkoutCommand());
+
+    expect(checkout).toMatchObject({ ok: false, error: { code: 'INVALID_COMMAND' } });
+  });
+});

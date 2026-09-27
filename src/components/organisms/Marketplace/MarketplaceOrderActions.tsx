@@ -16,6 +16,7 @@ import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderActi
 import { paypalRefundedMinor } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
 import { usePickupOrderActions } from '@/hooks/usePickupOrderActions/usePickupOrderActions';
 import { OTHER_CARRIER_ID, SHIPPING_CARRIERS } from '@/libs/commerce/carriers';
+import { DIGITAL_ORDER_COPY, DIGITAL_SELLER_COPY, isInstantDigitalDeliveryKind } from '@/libs/commerce/digital';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
@@ -122,12 +123,18 @@ export function MarketplaceOrderActions({
   // Local pickup (Wave 7, §A6): the pickup path has its own commands and its
   // own exits; shipped orders behave exactly as before.
   const isPickup = order.fulfillment === 'pickup';
+  // Digital orders are never shipped or returned (digital delivery design §6 E1–E4).
+  const isDigital = order.fulfillment === 'digital';
   const pickup = usePickupOrderActions(order, reloadOrders);
   const [handoverOpen, setHandoverOpen] = useState(false);
   const [termsBlocked, setTermsBlocked] = useState(false);
   // `refund.record_external` is accepted from these states whether or not
   // PayPal already recorded partial refunds; the record must cover them.
-  const canRecordRefund = !isBuyer && ['return_received', 'cancelled'].includes(order.state);
+  // Digital orders are refunded from delivered or completed too: there is no return to receive (§6 E9).
+  const canRecordRefund =
+    !isBuyer &&
+    (['return_received', 'cancelled'].includes(order.state) ||
+      (order.fulfillment === 'digital' && ['delivered', 'completed'].includes(order.state)));
   const refundedMinor = paypalRefundedMinor(order);
   const refundedMoney = formatCommerceMoney({ ...order.total, amountMinor: refundedMinor });
   const canReveal =
@@ -159,6 +166,9 @@ export function MarketplaceOrderActions({
       return;
     }
     if (await action.submit()) {
+      if (actionType === 'refund' && isDigital) {
+        toast({ variant: 'info', title: DIGITAL_SELLER_COPY.refundNote });
+      }
       if (actionType === 'cancel') {
         toast({
           variant: 'info',
@@ -217,7 +227,7 @@ export function MarketplaceOrderActions({
           </Button>
         )}
         {/* Pickup orders never ship: no tracking, no label (§A6). */}
-        {!isBuyer && !isPickup && ['paid', 'processing'].includes(order.state) && (
+        {!isBuyer && !isPickup && !isDigital && ['paid', 'processing'].includes(order.state) && (
           <>
             <Button size="sm" className="rounded-full" onClick={() => begin('ship')}>
               Add tracking
@@ -229,10 +239,13 @@ export function MarketplaceOrderActions({
             shown-with-note (§A5) — nothing about a pickup order needs paper.
             The dialog's note-only branch stays as the fallback for any mixed
             case that could still reach it. */}
-        {!isBuyer && !isPickup && ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state) && (
-          <MarketplacePackingSlipDialog order={order} />
-        )}
-        {isBuyer && order.state === 'shipped' && (
+        {!isBuyer &&
+          !isPickup &&
+          !isDigital &&
+          ['paid', 'processing', 'shipped', 'delivered', 'completed'].includes(order.state) && (
+            <MarketplacePackingSlipDialog order={order} />
+          )}
+        {isBuyer && !isDigital && order.state === 'shipped' && (
           <Button
             size="sm"
             className="rounded-full"
@@ -241,7 +254,7 @@ export function MarketplaceOrderActions({
             Confirm delivery
           </Button>
         )}
-        {isBuyer && ['delivered', 'completed'].includes(order.state) && !order.returnRequest && (
+        {isBuyer && !isDigital && ['delivered', 'completed'].includes(order.state) && !order.returnRequest && (
           <Button size="sm" variant="secondary" className="rounded-full" onClick={() => begin('return')}>
             Request return
           </Button>
@@ -285,6 +298,21 @@ export function MarketplaceOrderActions({
           </Button>
         )}
       </div>
+      {!isBuyer &&
+        isDigital &&
+        order.state === 'cancel_requested' &&
+        order.lines.some(
+          (line) => line.digitalKind !== undefined && isInstantDigitalDeliveryKind(line.digitalKind),
+        ) && (
+          <p className="mt-2 text-xs text-muted-foreground" data-testid="digital-opened-stay-sold">
+            {DIGITAL_SELLER_COPY.openedStaySold}
+          </p>
+        )}
+      {isBuyer && isDigital && ['delivered', 'completed'].includes(order.state) && (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="digital-no-return-note">
+          {DIGITAL_ORDER_COPY.noReturn}
+        </p>
+      )}
       {!isBuyer && order.state === 'return_approved' && order.fulfillment === 'pickup' && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="mark-return-received-hint">
           Press when the buyer has brought it back

@@ -29,5 +29,13 @@ export function createMarketplaceVrtCommerceController() {
     getMarketplaceOrders: async () => [],
     getMarketplaceOffers: async () => [],
     syncAttentionSeen: async () => {},
+    // The deployment reports no digital delivery unless a scene opts in.
+    fetchDigitalDeliveryCapability: async () => ({ available: false, maxBytes: null }),
+    getSellerPaymentConfig: async () => ({
+      bitcoinAvailable: false,
+      bitcoinOfferAvailable: true,
+      stripePaymentLink: null,
+      paypalMerchantEmail: null,
+    }),
   };
 }

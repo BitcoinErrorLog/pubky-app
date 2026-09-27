@@ -1,6 +1,6 @@
 import { type AuthFlow } from '@synonymdev/pubky';
 import { AppError } from '@/libs/error/error';
-import { AuthErrorCode, ServerErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError } from '@/libs/error/error.http';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
@@ -360,4 +360,54 @@ export const getOwnedResponse = async ({ session, path, url }: TGetOwnedResponse
 
   await assertOk({ response, url, operation: 'getOwnedResponse' });
   return response;
+};
+
+/**
+ * Reads a response body, refusing more than `maxBytes`: a declared
+ * `Content-Length` over the limit is refused before reading, and a stream is
+ * cancelled as soon as it passes the limit, so an oversized body is never
+ * held in memory. Without `maxBytes` the whole body is read.
+ */
+export const readResponseBytes = async (
+  response: Response,
+  maxBytes: number | undefined,
+  url: string,
+): Promise<Uint8Array<ArrayBuffer>> => {
+  if (maxBytes === undefined) return new Uint8Array(await response.arrayBuffer());
+  const tooLarge = () =>
+    Err.client(ClientErrorCode.PAYLOAD_TOO_LARGE, 'The homeserver returned more bytes than expected.', {
+      service: ErrorService.Homeserver,
+      operation: 'readResponseBytes',
+      context: { endpoint: url, maxBytes },
+    });
+  const declared = Number(response.headers.get('content-length') ?? Number.NaN);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw tooLarge();
+  }
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw tooLarge();
+    return bytes;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 };

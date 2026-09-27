@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
+import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import receiptAttestationV1 from '@/test/fixtures/commerce/receipt-attestation-v1.json';
 import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attestation-v2-bitcoin.json';
 import receiptAttestationV2SameCurrency from '@/test/fixtures/commerce/receipt-attestation-v2-same-currency.json';
@@ -13,6 +14,7 @@ import {
   type CommerceListingRecord,
   commerceListingRecordSchema,
   commerceListingShippingMinor,
+  commerceListingTakesOffers,
   commerceOrderReceiptRecordSchema,
   commercePublicRecordSchema,
   commerceReviewRecordSchema,
@@ -338,12 +340,18 @@ describe('commerceListingRecordSchema', () => {
     }
   });
 
-  it('requires digital fulfillment and a Locks policy together', () => {
-    const missingLock = makeFixedListing();
-    missingLock.fulfillmentMethods = ['digital'];
-    missingLock.package = undefined;
-    missingLock.shippingOptions = [];
+  // Digital delivery design §6 A6, A8, A13: the Shop predicate matches the
+  // specs — only a lock without `digital` is refused.
+  it('digital_without_lock_is_valid', () => {
+    const listing = makeFixedListing();
+    listing.fulfillmentMethods = ['digital'];
+    listing.package = undefined;
+    listing.shippingOptions = [];
 
+    expect(commerceListingRecordSchema.safeParse(listing).success).toBe(true);
+  });
+
+  it('lock_without_digital_rejected', () => {
     const unexpectedLock = makeFixedListing();
     unexpectedLock.digitalLock = {
       policyUri: LOCK_URL,
@@ -353,8 +361,29 @@ describe('commerceListingRecordSchema', () => {
       minimumConfirmations: 1,
     };
 
-    expect(commerceListingRecordSchema.safeParse(missingLock).success).toBe(false);
-    expect(commerceListingRecordSchema.safeParse(unexpectedLock).success).toBe(false);
+    const result = commerceListingRecordSchema.safeParse(unexpectedLock);
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map(({ message }) => message)).toContain('digitalLock requires digital fulfillment');
+  });
+
+  it('shop_record_digital_predicate_matches_specs: every digital encoding the studio writes parses', () => {
+    const shipped = makeFixedListing();
+    const encodings: Array<CommerceListingRecord['fulfillmentMethods']> = [
+      ['digital'],
+      ['physical', 'shipping', 'digital'],
+      ['pickup', 'digital'],
+      ['physical', 'shipping', 'pickup', 'digital'],
+    ];
+    for (const fulfillmentMethods of encodings) {
+      const physical = fulfillmentMethods.includes('physical');
+      const listing = {
+        ...shipped,
+        fulfillmentMethods,
+        package: physical ? shipped.package : undefined,
+        shippingOptions: physical ? shipped.shippingOptions : [],
+      };
+      expect(commerceListingRecordSchema.safeParse(listing).success, fulfillmentMethods.join(',')).toBe(true);
+    }
   });
 
   it('accepts digital fulfillment with a current Locks confirmation policy', () => {
@@ -709,15 +738,61 @@ describe('commerceListingFulfillmentMethods (mirrors the service homeserver deri
     expect(commerceListingFulfillmentMethods(['physical', 'shipping', 'pickup'])).toEqual(['shipping', 'pickup']);
   });
 
-  it('defaults records predating pickup (and digital listings) to shipping-only', () => {
-    expect(commerceListingFulfillmentMethods(['digital'])).toEqual(['shipping']);
+  it('defaults records predating pickup to shipping-only', () => {
+    expect(commerceListingFulfillmentMethods(['physical'])).toEqual(['shipping']);
     expect(commerceListingFulfillmentMethods([])).toEqual(['shipping']);
+  });
+
+  // Digital delivery design §6 A1–A3, mirroring the service's
+  // `digital_without_lock_derives_digital_never_shipping`,
+  // `locks_listing_derivation_unchanged` and `mixed_method_derivations`.
+  it('digital_without_lock_derives_digital_never_shipping', () => {
+    expect(commerceListingFulfillmentMethods(['digital'])).toEqual(['digital']);
+    expect(commerceListingFulfillmentMethods(['physical', 'digital'])).toEqual(['digital']);
+  });
+
+  it('locks_listing_derivation_unchanged', () => {
+    expect(commerceListingFulfillmentMethods(['digital'], true)).toEqual(['shipping']);
+    expect(commerceListingFulfillmentMethods(['physical', 'shipping', 'digital'], true)).toEqual(['shipping']);
+  });
+
+  it('mixed_method_derivations', () => {
+    expect(commerceListingFulfillmentMethods(['physical', 'shipping', 'digital'])).toEqual(['shipping', 'digital']);
+    expect(commerceListingFulfillmentMethods(['pickup', 'digital'])).toEqual(['pickup', 'digital']);
+    expect(commerceListingFulfillmentMethods(['physical', 'shipping', 'pickup', 'digital'])).toEqual([
+      'shipping',
+      'pickup',
+      'digital',
+    ]);
   });
 
   it('dedupes non-adjacent repeats preserving first-seen order, like the service', () => {
     // The service deliberately dedupes set-wise (not Vec::dedup's adjacent-only
     // collapse) so a non-adjacent repeat cannot fail registration validation.
     expect(commerceListingFulfillmentMethods(['shipping', 'pickup', 'shipping'])).toEqual(['shipping', 'pickup']);
+  });
+});
+
+describe('commerceListingTakesOffers (offers settle through shipping or pickup)', () => {
+  const listing = (overrides: Partial<CommerceListingRecord>) => createCommerceListingFixture(overrides);
+  const lock = {
+    policyUri: 'pubky://seller/pub/locks.app/v1/policies/policy-1',
+    criterionId: 'criterion-1',
+    contentPath: 'premium.txt',
+    resourceHash: 'b'.repeat(64),
+    minimumConfirmations: 6,
+  };
+
+  it('refuses digital-only listings and takes one that ships or offers pickup', () => {
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['digital'] }))).toBe(false);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['physical', 'digital'] }))).toBe(false);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['pickup'] }))).toBe(true);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['pickup', 'digital'] }))).toBe(true);
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['physical', 'shipping', 'digital'] }))).toBe(true);
+  });
+
+  it('takes no offers on a Locks listing, which is digital-only to the buyer', () => {
+    expect(commerceListingTakesOffers(listing({ fulfillmentMethods: ['digital'], digitalLock: lock }))).toBe(false);
   });
 });
 

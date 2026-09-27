@@ -1326,6 +1326,54 @@ describe('HomeserverService', () => {
         });
       });
 
+      // Digital deliverables live at unpublished paths (digital delivery
+      // design §2): errors and logs name the redacted path only.
+      it('records the redacted logUrl, never the real path, when an upload fails', async () => {
+        mockState.currentSession = createMockSession();
+        const realPath = 'pubky://user/pub/pubky.app/marketplace/v1/deliverables/0123456789abcdef0123456789abcdef/1';
+        const logUrl = '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>';
+        mockState.sessionStoragePutBytes.mockRejectedValue({
+          name: 'RequestError',
+          message: 'Insufficient Storage',
+          data: { statusCode: 507 },
+        });
+        const loggerError = vi.spyOn(Logger, 'error');
+
+        const error = (await HomeserverService.putBlob({ url: realPath, blob: new Uint8Array([1]), logUrl }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(error.context).toMatchObject({ endpoint: logUrl, statusCode: 507 });
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+        expect(JSON.stringify(loggerError.mock.calls)).not.toContain('0123456789abcdef');
+        loggerError.mockRestore();
+      });
+
+      it('records the redacted logUrl when an upload has no session', async () => {
+        mockState.currentSession = null;
+        const error = (await HomeserverService.putBlob({
+          url: 'pubky://someone/pub/pubky.app/marketplace/v1/deliverables/0123456789abcdef0123456789abcdef/1',
+          blob: new Uint8Array([1]),
+          logUrl: '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>',
+        }).catch((caught: unknown) => caught)) as AppError;
+
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+      });
+
+      it('records the redacted logUrl when a delete fails', async () => {
+        mockState.currentSession = createMockSession();
+        mockState.sessionStorageDelete.mockRejectedValue(new Error('Network error'));
+
+        const error = (await HomeserverService.request({
+          method: HttpMethod.DELETE,
+          url: 'pubky://user/pub/pubky.app/marketplace/v1/deliverables/0123456789abcdef0123456789abcdef/1',
+          logUrl: '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>',
+        }).catch((caught: unknown) => caught)) as AppError;
+
+        expect(error.context).toMatchObject({ endpoint: '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>' });
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+      });
+
       it('should throw INVALID_INPUT when uploading blob without a session to a pubky:// address', async () => {
         mockState.currentSession = null;
         const blobData = new Uint8Array([1, 2, 3]);
@@ -1493,6 +1541,99 @@ describe('HomeserverService', () => {
           category: ErrorCategory.Auth,
           code: AuthErrorCode.FORBIDDEN,
         });
+      });
+    });
+
+    describe('getBlob', () => {
+      const realPath = 'pubky://someone/pub/pubky.app/marketplace/v1/deliverables/0123456789abcdef0123456789abcdef/2';
+      const logUrl = '/pub/pubky.app/marketplace/v1/deliverables/<deliverable>';
+
+      it('reads the bytes of a public path', async () => {
+        mockState.publicStorageGet.mockResolvedValue(new Response(new Uint8Array([7, 8, 9]), { status: 200 }));
+
+        const bytes = await HomeserverService.getBlob({ url: realPath, logUrl });
+
+        expect(mockState.publicStorageGet).toHaveBeenCalledWith(realPath);
+        expect([...bytes]).toEqual([7, 8, 9]);
+      });
+
+      // Digital delivery design §2: a buyer's read of a deliverable names the redacted path only.
+      it('records the redacted logUrl, never the real path, when the read fails', async () => {
+        mockState.publicStorageGet.mockResolvedValue(new Response('gone', { status: 404 }));
+        const loggerError = vi.spyOn(Logger, 'error');
+
+        const error = (await HomeserverService.getBlob({ url: realPath, logUrl }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(error.context).toMatchObject({ endpoint: logUrl, statusCode: 404 });
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
+        expect(JSON.stringify(loggerError.mock.calls)).not.toContain('0123456789abcdef');
+        loggerError.mockRestore();
+      });
+
+      // Review P2: an oversized body is refused before it is held in memory.
+      it('refuses a declared body over maxBytes without reading it', async () => {
+        let pulled = 0;
+        const stream = new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              pulled += 1;
+              controller.enqueue(new Uint8Array(64));
+              controller.close();
+            },
+          },
+          { highWaterMark: 0 },
+        );
+        const body = new Response(stream, { status: 200, headers: { 'content-length': '64' } });
+        const arrayBuffer = vi.spyOn(body, 'arrayBuffer');
+        mockState.publicStorageGet.mockResolvedValue(body);
+
+        const error = (await HomeserverService.getBlob({ url: realPath, logUrl, maxBytes: 19 }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(error).toMatchObject({
+          code: ClientErrorCode.PAYLOAD_TOO_LARGE,
+          context: { endpoint: logUrl, maxBytes: 19 },
+        });
+        expect(arrayBuffer).not.toHaveBeenCalled();
+        expect(pulled).toBe(0);
+      });
+
+      it('stops reading a streamed body once it passes maxBytes', async () => {
+        let pulled = 0;
+        const stream = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulled += 1;
+            controller.enqueue(new Uint8Array(10));
+            if (pulled > 100) controller.close();
+          },
+        });
+        mockState.publicStorageGet.mockResolvedValue(new Response(stream, { status: 200 }));
+
+        await expect(HomeserverService.getBlob({ url: realPath, logUrl, maxBytes: 19 })).rejects.toMatchObject({
+          code: ClientErrorCode.PAYLOAD_TOO_LARGE,
+        });
+        expect(pulled).toBeLessThan(10);
+      });
+
+      it('reads a body within maxBytes', async () => {
+        mockState.publicStorageGet.mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
+
+        const bytes = await HomeserverService.getBlob({ url: realPath, logUrl, maxBytes: 3 });
+
+        expect([...bytes]).toEqual([1, 2, 3]);
+      });
+
+      it('records the redacted logUrl when the transport throws', async () => {
+        mockState.publicStorageGet.mockRejectedValue(new Error('Network error'));
+
+        const error = (await HomeserverService.getBlob({ url: realPath, logUrl }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(JSON.stringify(error.context)).not.toContain('0123456789abcdef');
       });
     });
 

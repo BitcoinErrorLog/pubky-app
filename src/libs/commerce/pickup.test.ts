@@ -412,4 +412,33 @@ describe('resolveCheckoutFulfillment (§A2 per-(seller, fulfillment) choices)', 
     const plan = resolveCheckoutFulfillment([lineB1], { [sellerB]: undefined });
     expect(plan).toEqual({ ok: true, lineFulfillments: ['shipping'], requiresDeliveryAddress: true });
   });
+
+  // Digital delivery design §3 "Mixed carts", §6 B2, B3.
+  const digitalA = {
+    listingAggregateId: `listing:${sellerA}_guide`,
+    sellerPubky: sellerA,
+    publishedFulfillmentMethods: ['digital'],
+    fulfillmentChoice: 'digital',
+  } as const;
+
+  it('lets a digital line keep its own method beside its seller group’s shipped lines', () => {
+    const plan = resolveCheckoutFulfillment([lineA2, digitalA], { [sellerA]: 'shipping' });
+    expect(plan).toEqual({ ok: true, lineFulfillments: ['shipping', 'digital'], requiresDeliveryAddress: true });
+  });
+
+  it('marks an all-digital checkout as address-free', () => {
+    const plan = resolveCheckoutFulfillment([digitalA], {});
+    expect(plan).toEqual({ ok: true, lineFulfillments: ['digital'], requiresDeliveryAddress: false });
+  });
+
+  it('refuses a line’s own choice its listing does not publish', () => {
+    const plan = resolveCheckoutFulfillment([{ ...lineA2, fulfillmentChoice: 'digital' }], {});
+    expect(plan).toEqual({
+      ok: false,
+      reason: 'fulfillment_not_published',
+      sellerPubky: sellerA,
+      fulfillment: 'digital',
+      listingAggregateId: lineA2.listingAggregateId,
+    });
+  });
 });

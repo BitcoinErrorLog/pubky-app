@@ -43,6 +43,7 @@ import {
   findViewerPendingHoldOrder,
 } from '@/libs/commerce/checkout-hold';
 import { getMarketplaceCheckoutRoute, getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
+import { DIGITAL_DELIVERY_COPY, digitalDeliveryBadgeLabel } from '@/libs/commerce/digital';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { formatCommerceCondition, formatCommerceMoney } from '@/libs/commerce/format';
 import {
@@ -51,6 +52,7 @@ import {
   commerceListingTakesOffers,
   type CommerceShippingOption,
 } from '@/libs/commerce/marketplace-records';
+import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { formatPackageDimensions, formatWeight } from '@/libs/commerce/units';
 import { MarketplaceFulfillmentBadge } from '@/molecules/MarketplaceFulfillmentBadge/MarketplaceFulfillmentBadge';
@@ -200,13 +202,20 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   const selectedVariant = record.variants.find(({ id }) => id === selectedVariantId) ?? record.variants[0];
   const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
   const displayPrice = negotiation.projection?.auction?.currentPrice ?? price;
-  const shippingCopy = formatListingShipping(record);
+  // The methods the service sells this listing by (digital delivery design
+  // §6 A1–A3). A Locks listing keeps its own digital notice and derives to
+  // shipping, so it is kept apart here exactly as before.
+  const isLocksListing = record.digitalLock !== undefined;
+  const methods = commerceListingFulfillmentMethods(record.fulfillmentMethods, isLocksListing);
+  const offersDigital = methods.includes('digital');
+  const shipsItem = !isLocksListing && methods.includes('shipping');
+  // Offers settle through shipping or pickup (§6 B7, B8): a digital listing
+  // with neither takes no offers.
+  const offersPhysical = shipsItem || (!isLocksListing && methods.includes('pickup'));
+  const offersDigitalOnly = offersDigital && !offersPhysical;
+  const shippingCopy = formatListingShipping(record, methods);
   const hasFreeShipping = shippingCopy === 'Shipping: free';
-  const flatShipping =
-    !record.fulfillmentMethods.includes('digital') &&
-    commerceListingFulfillmentMethods(record.fulfillmentMethods).includes('shipping')
-      ? record.shippingOptions.find((option) => option.pricing === 'flat')
-      : undefined;
+  const flatShipping = shipsItem ? record.shippingOptions.find((option) => option.pricing === 'flat') : undefined;
   const shippingBadge =
     hasFreeShipping || flatShipping?.price.amountMinor === 0
       ? 'Shipping: Free'
@@ -342,12 +351,15 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                 {shippingBadge ? (
                   <>
                     <Badge variant="secondary">{shippingBadge}</Badge>
-                    {commerceListingFulfillmentMethods(record.fulfillmentMethods).includes('pickup') && (
-                      <MarketplaceFulfillmentBadge methods={['pickup']} />
-                    )}
+                    {methods.includes('pickup') && <MarketplaceFulfillmentBadge methods={['pickup']} />}
                   </>
                 ) : (
-                  <MarketplaceFulfillmentBadge methods={commerceListingFulfillmentMethods(record.fulfillmentMethods)} />
+                  !offersDigital && <MarketplaceFulfillmentBadge methods={methods} />
+                )}
+                {offersDigital && (
+                  <Badge variant="secondary" data-testid="marketplace-listing-digital-badge">
+                    {digitalDeliveryBadgeLabel(negotiation.projection?.digitalDelivery ?? null)}
+                  </Badge>
                 )}
                 {isSoldOut && record.sale.format === 'fixed_price' && <Badge variant="outline">Sold out</Badge>}
                 {shop?.record.vacationMode && (
@@ -505,6 +517,19 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                       }
                     />
                   )}
+                  {record.sale.acceptsOffers && offersDigital && (
+                    <Typography
+                      as="p"
+                      className="w-full text-sm text-muted-foreground"
+                      data-testid="marketplace-listing-digital-offer-note"
+                    >
+                      {offersDigitalOnly
+                        ? DIGITAL_DELIVERY_COPY.offersUnavailable
+                        : shipsItem
+                          ? DIGITAL_DELIVERY_COPY.offersBuyShipped
+                          : DIGITAL_DELIVERY_COPY.offersBuyPickup}
+                    </Typography>
+                  )}
                 </>
               )}
               <Button
@@ -580,14 +605,12 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             <section aria-label="Fulfillment and listing information" className="flex min-w-0 flex-col gap-5">
               <div className="grid gap-3 sm:grid-cols-2">
                 <MarketplaceListingSpecifics record={record} />
-                {!record.fulfillmentMethods.includes('digital') && (
+                {!isLocksListing && (shipsItem || methods.includes('pickup')) && (
                   <div className="flex items-start gap-3 rounded-xl bg-card p-5 text-card-foreground shadow-sm">
                     <MapPin className="size-5 shrink-0 text-brand" aria-hidden="true" />
                     <div className="flex min-w-0 flex-col gap-1">
                       <Typography as="p" className="text-sm leading-5 font-semibold">
-                        {commerceListingFulfillmentMethods(record.fulfillmentMethods).includes('shipping')
-                          ? 'Ships from'
-                          : 'Pickup location'}
+                        {shipsItem ? 'Ships from' : 'Pickup location'}
                       </Typography>
                       <Typography as="p" className="text-sm leading-5 font-medium text-muted-foreground">
                         {record.location.region ? `${record.location.region}, ` : ''}
@@ -664,10 +687,12 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
   );
 }
 
-function formatListingShipping(record: CommerceListingRecord): string {
-  const methods = commerceListingFulfillmentMethods(record.fulfillmentMethods);
-  if (record.fulfillmentMethods.includes('digital')) return 'Digital delivery';
-  if (!methods.includes('shipping')) return 'Local pickup only';
+function formatListingShipping(
+  record: CommerceListingRecord,
+  methods: readonly MarketplaceFulfillmentMethod[],
+): string {
+  if (record.digitalLock !== undefined) return 'Digital delivery';
+  if (!methods.includes('shipping')) return methods.includes('pickup') ? 'Local pickup only' : 'Digital delivery';
   const flat = record.shippingOptions.find((option) => option.pricing === 'flat');
   if (flat) return `Shipping: ${formatShippingOption(flat)} ${formatCommerceMoney(flat.price)}`;
 

@@ -681,4 +681,33 @@ describe('seedDraftFormFromListing', () => {
     expect(draft.seededAuctionAsFixedPrice).toBe(true);
     expect(draft.price).toBe('100.00');
   });
+
+  it('duplicates a digital listing with its delivery options', () => {
+    const source = createCommerceListingFixture({
+      fulfillmentMethods: ['pickup', 'digital'],
+      package: undefined,
+      shippingOptions: [],
+    });
+    expect(seedDraftFormFromListing(source, 'metric').fulfillment).toBe('pickup_and_digital');
+  });
+
+  it('refuses to duplicate a Locks listing', () => {
+    const source = createCommerceListingFixture({
+      fulfillmentMethods: ['digital'],
+      package: undefined,
+      shippingOptions: [],
+      digitalLock: {
+        policyUri: `pubky://${fixtureSellerPubky()}/pub/locks.app/policy.json`,
+        criterionId: 'criterion-1',
+        contentPath: 'content/file.bin',
+        resourceHash: 'b'.repeat(64),
+        minimumConfirmations: 1,
+      },
+    });
+    expect(() => seedDraftFormFromListing(source, 'metric')).toThrow('unsupported-fulfillment');
+  });
 });
+
+function fixtureSellerPubky(): string {
+  return createCommerceListingFixture().ownerPubky;
+}

@@ -848,6 +848,92 @@ describe('MarketplaceOrders local pickup cards (Wave 7, §A3/§A6)', () => {
   });
 });
 
+describe('MarketplaceOrders digital cards (digital delivery design §3 "After payment", §6 D1, E4)', () => {
+  beforeEach(() => {
+    ordersState.currentUserPubky = CURRENT_USER;
+    ordersState.orders = [];
+  });
+
+  function digitalView(state: 'paid' | 'delivered', role: 'buyer' | 'seller') {
+    const view = orderView(state, 'Field guide', role, { fulfillment: 'digital', nextActor: 'none' });
+    view.order.lines = view.order.lines.map((line) => ({ ...line, fulfillment: 'digital', digitalKind: 'file' }));
+    return view;
+  }
+
+  it('shows the buyer a delivered file order as ready to download, with the purchase panel', () => {
+    ordersState.orders = [digitalView('delivered', 'buyer')];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getAllByText(/Field guide/)[0].closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText('Delivered · ready to download')).toBeInTheDocument();
+    expect(within(card).getByText('Digital delivery')).toBeInTheDocument();
+    expect(within(card).getByRole('heading', { name: 'Your purchase' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(within(card).queryByText(/Completes automatically after the return window/)).not.toBeInTheDocument();
+  });
+
+  it('shows no shipment or tracking line on a digital order, even when stale shipment data is present (review P2)', () => {
+    const view = digitalView('delivered', 'buyer');
+    view.order.shipment = {
+      carrier: 'USPS',
+      trackingNumber: '9400111899223197428490',
+      state: 'shipped',
+      shippedAt: '2026-08-14T10:00:00.000Z',
+      deliveredAt: null,
+    };
+    ordersState.orders = [view];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getAllByText(/Field guide/)[0].closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).queryByText(/9400111899223197428490/)).not.toBeInTheDocument();
+    expect(within(card).queryByRole('link', { name: /Track package/ })).not.toBeInTheDocument();
+  });
+
+  it('shows the seller no purchase panel', () => {
+    ordersState.orders = [digitalView('delivered', 'seller')];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getAllByText(/Field guide/)[0].closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).queryByRole('heading', { name: 'Your purchase' })).not.toBeInTheDocument();
+  });
+
+  it('marks a paid email order To deliver for its seller, with the delivery panel (§3 "Seller\u2019s orders")', () => {
+    const view = orderView('paid', 'Sewing pattern', 'seller', { fulfillment: 'digital', nextActor: 'seller' });
+    view.order.lines = view.order.lines.map((line) => ({ ...line, fulfillment: 'digital', digitalKind: 'email' }));
+    ordersState.orders = [view];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getAllByText(/Sewing pattern/)[0].closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText('To deliver')).toBeInTheDocument();
+    expect(within(card).getByRole('region', { name: 'Delivery' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Mark emailed' })).toBeInTheDocument();
+  });
+
+  it('keeps Your move on a paid shipped order', () => {
+    ordersState.orders = [orderView('paid', 'Shipped lamp', 'seller', { nextActor: 'seller' })];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getByText(/Shipped lamp/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText('Your move')).toBeInTheDocument();
+    expect(within(card).queryByText('To deliver')).not.toBeInTheDocument();
+  });
+
+  it('keeps the return-window note on a delivered shipped order', () => {
+    ordersState.orders = [orderView('delivered', 'Shipped boots', 'buyer', { nextActor: 'none' })];
+
+    render(<MarketplaceOrders />);
+
+    const card = screen.getByText(/Shipped boots/).closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText(/Completes automatically after the return window/)).toBeInTheDocument();
+    expect(within(card).queryByText('Delivered · ready to download')).not.toBeInTheDocument();
+  });
+});
+
 describe('MarketplaceOrders seen checkpoint', () => {
   beforeEach(() => {
     ordersState.currentUserPubky = CURRENT_USER;

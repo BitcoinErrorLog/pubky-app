@@ -13,8 +13,11 @@ import { commerceDeliveryAddressValueSchema } from './postal-address';
 // at the transport boundary, as with every marketplace contract.
 // -----------------------------------------------------------------------------
 
-/** How a physical order reaches the buyer (§A2). Distinct from the listing's item type. */
-export const marketplaceFulfillmentMethodSchema = z.enum(['shipping', 'pickup']);
+/**
+ * How an order reaches the buyer (§A2; digital delivery design §6 A1–A4).
+ * Distinct from the listing's item type.
+ */
+export const marketplaceFulfillmentMethodSchema = z.enum(['shipping', 'pickup', 'digital']);
 export type MarketplaceFulfillmentMethod = z.infer<typeof marketplaceFulfillmentMethodSchema>;
 
 /**
@@ -28,7 +31,7 @@ export type MarketplaceFulfillmentMethod = z.infer<typeof marketplaceFulfillment
 export const marketplaceFulfillmentMethodsSchema = z
   .array(marketplaceFulfillmentMethodSchema)
   .min(1, 'Expected at least one fulfillment method')
-  .max(2)
+  .max(3)
   .refine((methods) => new Set(methods).size === methods.length, {
     message: 'Fulfillment methods must be unique',
   })
@@ -245,13 +248,17 @@ export const marketplaceSellerPickupDetailsSchema = z
  * The public health/capability surface (`GET /health`): `pickupAvailable` is
  * on iff the deployment has the pickup sealing key configured AND sandbox
  * payments are disabled (§A7). The client hides the pickup option everywhere
- * when it is off.
+ * when it is off. `digitalDeliveryAvailable` is on iff the digital sealing
+ * key is configured (digital delivery design §6 B5); absent reads as off,
+ * and `digitalDeliveryMaxBytes` is the file cap the service enforces.
  */
 export const marketplaceHealthSchema = z
   .object({
     status: z.string(),
     // The health endpoint may add capability telemetry without changing this client contract.
     pickupAvailable: z.boolean().default(false),
+    digitalDeliveryAvailable: z.boolean().catch(false).default(false),
+    digitalDeliveryMaxBytes: z.number().int().positive().optional().catch(undefined),
   })
   .passthrough();
 
@@ -385,7 +392,8 @@ export function pickupCommandToastDescription(refusal: MarketplacePickupRefusal 
 
 // -----------------------------------------------------------------------------
 // Checkout fulfillment plumbing (§A2): one `fulfillmentChoice` per seller
-// group, applied to every line of the group. The service splits one order
+// group, applied to every line of the group that does not carry its own
+// (a digital line does: digital delivery design §3). The service splits one order
 // per (seller, fulfillment) and re-validates the choice against what each
 // line's listing publishes — the client mirrors that validation up front so
 // a disallowed choice is refused locally, never silently rewritten to
@@ -397,6 +405,8 @@ export type MarketplaceCheckoutFulfillmentLine = {
   sellerPubky: string;
   /** The methods the line's listing actually publishes (its `fulfillmentMethods`). */
   publishedFulfillmentMethods: readonly MarketplaceFulfillmentMethod[];
+  /** The line's own method, overriding its seller group's choice. */
+  fulfillmentChoice?: MarketplaceFulfillmentMethod;
 };
 
 export type MarketplaceCheckoutFulfillmentPlan =
@@ -404,7 +414,7 @@ export type MarketplaceCheckoutFulfillmentPlan =
       ok: true;
       /** Per input line, in order: the group's choice, ready to ride `checkout.create` as the line's `fulfillment`. */
       lineFulfillments: MarketplaceFulfillmentMethod[];
-      /** False for a pickup-only checkout, which must send NO delivery address (§A2). */
+      /** True only when a line ships: pickup and digital lines carry no address (§A2). */
       requiresDeliveryAddress: boolean;
     }
   | {
@@ -417,8 +427,8 @@ export type MarketplaceCheckoutFulfillmentPlan =
 
 /**
  * Resolves the buyer's per-seller-group fulfillment choices onto the checkout
- * lines. A group with no recorded choice defaults to `shipping`; every line
- * of the group must publish the chosen method.
+ * lines. A line's own choice wins; otherwise a group with no recorded choice
+ * defaults to `shipping`. Every line must publish the method it resolves to.
  */
 export function resolveCheckoutFulfillment(
   lines: readonly MarketplaceCheckoutFulfillmentLine[],
@@ -426,7 +436,7 @@ export function resolveCheckoutFulfillment(
 ): MarketplaceCheckoutFulfillmentPlan {
   const lineFulfillments: MarketplaceFulfillmentMethod[] = [];
   for (const line of lines) {
-    const choice = choiceBySeller[line.sellerPubky] ?? 'shipping';
+    const choice = line.fulfillmentChoice ?? choiceBySeller[line.sellerPubky] ?? 'shipping';
     if (!line.publishedFulfillmentMethods.includes(choice)) {
       return {
         ok: false,

@@ -388,7 +388,31 @@ describe('useEditMarketplaceListing', () => {
     expect(CommerceController.getOrFetchListing).not.toHaveBeenCalled();
   });
 
-  it('refuses digital-delivery listings the studio cannot author', async () => {
+  it('hydrates a digital-only listing (digital delivery design §2)', async () => {
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue({
+      ...structuredClone(publishedRecord),
+      fulfillmentMethods: ['digital' as const],
+      package: undefined,
+      shippingOptions: [],
+    });
+
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.form.getValues('fulfillment')).toBe('digital');
+  });
+
+  it('hydrates a listing that ships and delivers digitally', async () => {
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue({
+      ...structuredClone(publishedRecord),
+      fulfillmentMethods: ['physical' as const, 'shipping' as const, 'digital' as const],
+    });
+
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.form.getValues('fulfillment')).toBe('shipping_and_digital');
+  });
+
+  it('refuses Locks listings the studio cannot author', async () => {
     vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue({
       ...structuredClone(publishedRecord),
       fulfillmentMethods: ['digital' as const],
