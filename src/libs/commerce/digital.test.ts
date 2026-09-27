@@ -406,6 +406,21 @@ describe('buyer order reads (§4.2, §4.3, §6 D5, F5, F11, F12)', () => {
     expect(read([{ ...file, kind: 'link', url: 'http://example.com' }]).success).toBe(false);
   });
 
+  it('takes the file type only in the form the service accepts at set time', () => {
+    expect(read([{ ...file, contentType: 'Application/PDF' }]).success).toBe(true);
+    expect(read([{ ...file, contentType: 'application/vnd.ms-excel' }]).success).toBe(true);
+    for (const contentType of [
+      'text/html; charset=utf-8',
+      'text/html\u0000',
+      'application/pdf/x',
+      'pdf',
+      'text/ html',
+      `application/${'x'.repeat(116)}`,
+    ]) {
+      expect(read([{ ...file, contentType }]).success, contentType).toBe(false);
+    }
+  });
+
   it('parses the delivery email read', () => {
     expect(
       marketplaceOrderDeliveryEmailSchema.parse({
