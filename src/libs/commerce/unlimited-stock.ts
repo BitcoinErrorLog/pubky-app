@@ -1,0 +1,41 @@
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
+import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-records';
+
+export const UNLIMITED_STOCK_LABEL = 'Unlimited';
+
+type UnlimitedStockRecord = {
+  fulfillmentMethods: Parameters<typeof commerceListingFulfillmentMethods>[0];
+  digitalLock?: unknown;
+};
+
+type StockVariant = { quantity: number; enabled?: boolean };
+
+/**
+ * Unlimited stock is the domain quantity cap on a listing the service sells
+ * as digital-only. A Locks listing carries `digitalLock`, so the service
+ * registers it as shipping and it is never unlimited. Holds still reserve
+ * units of the cap; this only decides how that cap is shown and counted.
+ */
+export function isUnlimitedStock(record: UnlimitedStockRecord, quantity: number): boolean {
+  const methods = commerceListingFulfillmentMethods(record.fulfillmentMethods, record.digitalLock !== undefined);
+  return methods.length === 1 && methods[0] === 'digital' && quantity === COMMERCE_LISTING_MAX_QUANTITY;
+}
+
+export function formatStockQuantity(record: UnlimitedStockRecord, quantity: number): string {
+  return isUnlimitedStock(record, quantity) ? UNLIMITED_STOCK_LABEL : String(quantity);
+}
+
+export function formatListingStock(
+  record: UnlimitedStockRecord & { variants: readonly { quantity: number }[] },
+): string {
+  if (record.variants.some((variant) => isUnlimitedStock(record, variant.quantity))) return UNLIMITED_STOCK_LABEL;
+  return String(record.variants.reduce((total, variant) => total + variant.quantity, 0));
+}
+
+/** Enabled copies that are a real number. The cap is not one of them. */
+export function countableStockQuantity(record: UnlimitedStockRecord & { variants: readonly StockVariant[] }): number {
+  return record.variants.reduce((total, variant) => {
+    if (!variant.enabled || isUnlimitedStock(record, variant.quantity)) return total;
+    return total + variant.quantity;
+  }, 0);
+}

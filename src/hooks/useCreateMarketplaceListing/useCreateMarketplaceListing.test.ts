@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import {
   LISTING_DRAFT_AUTOSAVE_MS,
@@ -10,7 +11,12 @@ import { commerceListingRecordSchema } from '@/libs/commerce/marketplace-records
 import type { CommerceListingDraftModelSchema } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
-import { seedDraftFormFromListing, useCreateMarketplaceListing } from './useCreateMarketplaceListing';
+import {
+  buildListingVariants,
+  normalizeDraftForm,
+  seedDraftFormFromListing,
+  useCreateMarketplaceListing,
+} from './useCreateMarketplaceListing';
 
 const OWNER = 'y'.repeat(52);
 
@@ -705,6 +711,67 @@ describe('seedDraftFormFromListing', () => {
       },
     });
     expect(() => seedDraftFormFromListing(source, 'metric')).toThrow('unsupported-fulfillment');
+  });
+
+  it('copies unlimited stock only for a digital-only listing at the quantity cap', () => {
+    const variant = {
+      id: 'variant_01',
+      options: { size: 'pdf' },
+      quantity: COMMERCE_LISTING_MAX_QUANTITY,
+      mediaIds: ['image_01'],
+      enabled: true,
+    };
+    const digital = seedDraftFormFromListing(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['digital'],
+        package: undefined,
+        shippingOptions: [],
+        variants: [variant],
+      }),
+      'metric',
+    );
+    expect(digital.variants[0]).toMatchObject({ unlimited: true, quantity: String(COMMERCE_LISTING_MAX_QUANTITY) });
+    const physical = seedDraftFormFromListing(
+      createCommerceListingFixture({ variants: [{ ...variant, options: { size: '42' } }] }),
+      'metric',
+    );
+    expect(physical.variants[0]).toMatchObject({ unlimited: false, quantity: String(COMMERCE_LISTING_MAX_QUANTITY) });
+    const mixed = seedDraftFormFromListing(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['physical', 'shipping', 'digital'],
+        variants: [variant],
+      }),
+      'metric',
+    );
+    expect(mixed.variants[0].unlimited).toBe(false);
+  });
+});
+
+describe('buildListingVariants', () => {
+  it('writes the quantity cap for an unlimited variant and the entered number otherwise', () => {
+    const media = [] as Parameters<typeof buildListingVariants>[1];
+    const base = { sku: '', size: '', color: '', style: '', priceOverride: '' };
+    expect(
+      buildListingVariants({ currency: 'USD', variants: [{ ...base, quantity: '3', unlimited: true }] }, media)[0]
+        .quantity,
+    ).toBe(COMMERCE_LISTING_MAX_QUANTITY);
+    expect(
+      buildListingVariants({ currency: 'USD', variants: [{ ...base, quantity: '4', unlimited: false }] }, media)[0]
+        .quantity,
+    ).toBe(4);
+  });
+});
+
+describe('normalizeDraftForm', () => {
+  it('loads an older draft variant without unlimited as a numbered quantity', () => {
+    const older = normalizeDraftForm({
+      variants: [{ sku: '', size: '', color: '', style: '', quantity: '2', priceOverride: '' }],
+    });
+    expect(older.variants?.[0].unlimited).toBe(false);
+    const flagged = normalizeDraftForm({
+      variants: [{ sku: '', size: '', color: '', style: '', quantity: '2', priceOverride: '', unlimited: true }],
+    });
+    expect(flagged.variants?.[0].unlimited).toBe(true);
   });
 });
 

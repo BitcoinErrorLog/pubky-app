@@ -397,6 +397,7 @@ function listingDraftHasCustomVariants(value: unknown): boolean {
     isNonEmptyString(variant.size) ||
     isNonEmptyString(variant.color) ||
     isNonEmptyString(variant.style) ||
+    variant.unlimited === true ||
     (typeof variant.quantity === 'string' && variant.quantity.trim() !== '' && variant.quantity !== '1') ||
     isNonEmptyString(variant.priceOverride)
   );

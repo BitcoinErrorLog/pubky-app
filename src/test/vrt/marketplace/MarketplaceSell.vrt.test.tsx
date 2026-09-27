@@ -431,6 +431,43 @@ describe('Marketplace sell studio — visual regression', () => {
     await expect(expectVrtSurface('listing-section-shipping')).toMatchScreenshot('sell-digital-delivery-desktop');
   });
 
+  it('renders unlimited stock on a digital-only variant at desktop viewport', async () => {
+    view.drafts = [
+      {
+        ...draftFixture,
+        data: {
+          form: {
+            ...draftFixture.data.form,
+            fulfillment: 'digital',
+            variants: [
+              {
+                sku: 'GUIDE',
+                size: '',
+                color: '',
+                style: '',
+                quantity: '1',
+                unlimited: true,
+                priceOverride: '',
+              },
+            ],
+          },
+        },
+      },
+    ];
+    view.mediaItems = [];
+    view.digitalAvailable = true;
+
+    const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await resumeAutosavedDraft(screen);
+    await vi.waitFor(() => {
+      const quantity = screen.container.querySelector<HTMLInputElement>('#variants\\.0\\.quantity');
+      if (quantity?.value !== 'Unlimited' || !quantity.disabled) {
+        throw new Error('Unlimited quantity has not rendered yet.');
+      }
+    });
+    await expect(expectVrtSurface('listing-section-price')).toMatchScreenshot('sell-unlimited-stock-desktop');
+  });
+
   it('renders the restore prompt at desktop viewport', async () => {
     view.drafts = [draftFixture];
     view.mediaItems = [];

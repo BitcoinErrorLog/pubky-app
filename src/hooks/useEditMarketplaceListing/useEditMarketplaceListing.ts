@@ -43,6 +43,7 @@ import {
 } from '@/libs/commerce/pricing';
 import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import { dimensionInputFromMillimeters, type MeasurementSystem, weightInputFromGrams } from '@/libs/commerce/units';
+import { isUnlimitedStock } from '@/libs/commerce/unlimited-stock';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -313,6 +314,7 @@ function formDataFromRecord(
       color: variant.options.color ?? '',
       style: variant.options.style ?? '',
       quantity: String(variant.quantity),
+      unlimited: isUnlimitedStock(record, variant.quantity),
       priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
     fulfillment,

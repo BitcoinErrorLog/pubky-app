@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, type UseFormReturn, useWatch } from 'react-hook-form';
-import { COMMERCE_CONTRACT_VERSION, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
+import { COMMERCE_CONTRACT_VERSION, COMMERCE_LISTING_MAX_QUANTITY, COMMERCE_TAXONOMY_VERSION } from '@/config/commerce';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { commerceAttributeFieldsFor } from '@/config/taxonomy/taxonomy';
 import { CommerceController } from '@/controllers/commerce/commerce';
@@ -48,6 +48,7 @@ import {
   millimetersFromDimensionInput,
   weightInputFromGrams,
 } from '@/libs/commerce/units';
+import { isUnlimitedStock } from '@/libs/commerce/unlimited-stock';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -436,7 +437,8 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
     activeSectionId: _activeSectionId,
     ...draftForm
   } = draft;
-  const normalized: Partial<CreateMarketplaceListingData> = { ...draftForm };
+  const { variants: draftVariants, ...draftWithoutVariants } = draftForm;
+  const normalized: Partial<CreateMarketplaceListingData> = { ...draftWithoutVariants };
   if (draftCurrency !== undefined) {
     normalized.currency = draftCurrency === 'SATS' ? 'BTC' : draftCurrency;
   }
@@ -462,6 +464,17 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
   if (legacyHeight && normalized.packageHeight === undefined) normalized.packageHeight = legacyHeight;
   if ((legacyWeight || legacyLength || legacyWidth || legacyHeight) && normalized.measurementSystem === undefined) {
     normalized.measurementSystem = 'metric';
+  }
+  if (draftVariants) {
+    normalized.variants = draftVariants.map((variant) => ({
+      sku: variant.sku,
+      size: variant.size,
+      color: variant.color,
+      style: variant.style,
+      quantity: variant.quantity,
+      priceOverride: variant.priceOverride,
+      unlimited: variant.unlimited === true,
+    }));
   }
 
   return normalized;
@@ -520,6 +533,7 @@ export function seedDraftFormFromListing(
       color: variant.options.color ?? '',
       style: variant.options.style ?? '',
       quantity: String(variant.quantity),
+      unlimited: isUnlimitedStock(record, variant.quantity),
       priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
     fulfillment,
@@ -737,7 +751,7 @@ export function buildListingVariants(
       ].filter((entry) => entry[1]),
     ),
     priceOverride: variant.priceOverride ? amountInputToMoney(variant.priceOverride, asset) : undefined,
-    quantity: Number(variant.quantity),
+    quantity: variant.unlimited ? COMMERCE_LISTING_MAX_QUANTITY : Number(variant.quantity),
     mediaIds: media.map(({ id }) => id),
     enabled: true,
   }));

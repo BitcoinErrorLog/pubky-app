@@ -55,6 +55,7 @@ import {
 import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { formatPackageDimensions, formatWeight } from '@/libs/commerce/units';
+import { formatStockQuantity, UNLIMITED_STOCK_LABEL } from '@/libs/commerce/unlimited-stock';
 import { MarketplaceFulfillmentBadge } from '@/molecules/MarketplaceFulfillmentBadge/MarketplaceFulfillmentBadge';
 import { MarketplaceSellerIdentity } from '@/molecules/MarketplaceSellerIdentity/MarketplaceSellerIdentity';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -410,16 +411,19 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {record.variants.map((variant) => (
-                      <SelectItem
-                        key={variant.id}
-                        value={variant.id}
-                        disabled={!variant.enabled || variant.quantity === 0}
-                      >
-                        {Object.values(variant.options).join(' · ') || variant.sku || 'Default'} · {variant.quantity}{' '}
-                        left
-                      </SelectItem>
-                    ))}
+                    {record.variants.map((variant) => {
+                      const stock = formatStockQuantity(record, variant.quantity);
+                      return (
+                        <SelectItem
+                          key={variant.id}
+                          value={variant.id}
+                          disabled={!variant.enabled || variant.quantity === 0}
+                        >
+                          {Object.values(variant.options).join(' · ') || variant.sku || 'Default'} ·{' '}
+                          {stock === UNLIMITED_STOCK_LABEL ? stock : `${stock} left`}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>

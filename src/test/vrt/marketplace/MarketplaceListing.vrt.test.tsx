@@ -163,6 +163,39 @@ const fixtures = vi.hoisted(async () => {
       fulfillmentMethods: ['digital'],
       digitalDelivery: { kind: 'file', contentType: 'application/pdf', sizeBytes: 12_582_912 },
     }),
+    unlimitedListing: toCommerceListingModel(
+      createCommerceListingFixture({
+        listingId: 'field_guide_unlimited',
+        title: 'Printable field guide',
+        description: 'A 40-page printable guide to coastal birds.',
+        condition: 'new',
+        fulfillmentMethods: ['digital'],
+        package: undefined,
+        shippingOptions: [],
+        variants: [
+          {
+            id: 'variant_pdf',
+            options: { size: 'PDF' },
+            quantity: 1_000_000,
+            mediaIds: ['image_01'],
+            enabled: true,
+          },
+          {
+            id: 'variant_epub',
+            options: { size: 'EPUB' },
+            quantity: 1_000_000,
+            mediaIds: ['image_01'],
+            enabled: true,
+          },
+        ],
+      }),
+    ),
+    unlimitedProjection: createListingProjectionFixture({
+      listingId: 'field_guide_unlimited',
+      fulfillmentMethods: ['digital'],
+      availableQuantity: 1_000_000,
+      digitalDelivery: { kind: 'file', contentType: 'application/pdf', sizeBytes: 12_582_912 },
+    }),
     shipOrEmailListing: toCommerceListingModel(
       createCommerceListingFixture({ fulfillmentMethods: ['physical', 'shipping', 'digital'] }),
     ),
@@ -530,6 +563,22 @@ describe('Marketplace listing detail — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-digital-locks-paykit-desktop');
+  });
+
+  it('renders unlimited stock on a digital variant picker at desktop viewport', async () => {
+    const { seller, unlimitedListing, unlimitedProjection } = await fixtures;
+    await setView({ listing: unlimitedListing, projection: unlimitedProjection });
+
+    const screen = await renderForVRT(<MarketplaceListing sellerPubky={seller} listingId="field_guide_unlimited" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await vi.waitFor(() => {
+      const trigger = screen.container.querySelector('[aria-label="Choose listing variant"]');
+      if (!trigger?.textContent?.includes('Unlimited')) {
+        throw new Error('Unlimited stock has not rendered yet.');
+      }
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('listing-unlimited-stock-desktop');
   });
 
   it('renders a digital-only file listing at desktop viewport', async () => {

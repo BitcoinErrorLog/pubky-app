@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import { useMarketplaceSellerDashboard } from './useMarketplaceSellerDashboard';
@@ -442,6 +443,112 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
     const { result } = renderHook(() => useMarketplaceSellerDashboard());
     expect(result.current.unfinishedDrafts.map((draft) => draft.listingId)).toEqual(['existingdraft', 'jacketdraft']);
     expect(result.current.unfinishedDrafts[0]?.title).toBe('Boots');
+  });
+
+  it('keeps the quantity cap out of the inventory total', () => {
+    localListings = [
+      {
+        state: 'active',
+        record: createCommerceListingFixture({
+          listingId: 'guide',
+          fulfillmentMethods: ['digital'],
+          package: undefined,
+          shippingOptions: [],
+          variants: [
+            {
+              id: 'file',
+              options: { size: 'pdf' },
+              quantity: COMMERCE_LISTING_MAX_QUANTITY,
+              mediaIds: ['image_01'],
+              enabled: true,
+            },
+          ],
+        }),
+      },
+      {
+        state: 'active',
+        record: createCommerceListingFixture({
+          listingId: 'boots',
+          variants: [
+            {
+              id: 'size',
+              options: { size: '42' },
+              quantity: 4,
+              mediaIds: ['image_01'],
+              enabled: true,
+            },
+          ],
+        }),
+      },
+    ];
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    expect(result.current.metrics.totalInventory).toBe(4);
+  });
+
+  it('labels an inventory of only unlimited listings as Unlimited', () => {
+    localListings = [
+      {
+        state: 'active',
+        record: createCommerceListingFixture({
+          listingId: 'guide',
+          fulfillmentMethods: ['digital'],
+          package: undefined,
+          shippingOptions: [],
+          variants: [
+            {
+              id: 'file',
+              options: { size: 'pdf' },
+              quantity: COMMERCE_LISTING_MAX_QUANTITY,
+              mediaIds: ['image_01'],
+              enabled: true,
+            },
+          ],
+        }),
+      },
+    ];
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    expect(result.current.metrics.totalInventory).toBe('Unlimited');
+    expect(result.current.metrics.lowStock).toBe(0);
+  });
+
+  it('still flags a numbered copy of 1 and keeps the cap numeric in the CSV', () => {
+    const record = createCommerceListingFixture({
+      listingId: 'guide',
+      fulfillmentMethods: ['digital'],
+      package: undefined,
+      shippingOptions: [],
+      variants: [
+        {
+          id: 'sample',
+          options: { size: 'sample' },
+          quantity: 1,
+          mediaIds: ['image_01'],
+          enabled: true,
+        },
+        {
+          id: 'file',
+          options: { size: 'pdf' },
+          quantity: COMMERCE_LISTING_MAX_QUANTITY,
+          mediaIds: ['image_01'],
+          enabled: true,
+        },
+      ],
+    });
+    localListings = [
+      {
+        state: 'active',
+        listing_id: 'guide',
+        format: 'fixed_price',
+        price_minor: 1_000,
+        currency: 'USD',
+        record,
+      },
+    ] as unknown as typeof localListings;
+    const { result } = renderHook(() => useMarketplaceSellerDashboard());
+    expect(result.current.metrics.lowStock).toBe(1);
+    const csv = result.current.exportCsv();
+    expect(csv).toContain(String(COMMERCE_LISTING_MAX_QUANTITY + 1));
+    expect(csv).not.toContain('Unlimited');
   });
 
   it('marks a one-shot resume id without deleting the row', () => {

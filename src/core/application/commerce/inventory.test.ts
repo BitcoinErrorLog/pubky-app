@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
 import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
@@ -302,6 +303,66 @@ describe('CommerceInventoryApplication', () => {
       idempotencyKey: '11111111-1111-4111-8111-111111111111',
     });
     expect(result.status).not.toBe('grant-needed');
+  });
+
+  it('marks unlimited stock from a digital-only record even when a hold has lowered available', async () => {
+    const stock = {
+      authority: 'listing_total',
+      available: BigInt(4),
+      reserved: BigInt(1),
+      sold: BigInt(0),
+      total: BigInt(5),
+    };
+    vi.mocked(MarketplaceShopClientService.listSellerListings).mockResolvedValue({
+      ok: true,
+      value: {
+        kind: 'seller_listing_export',
+        listings: [
+          {
+            projection: { listing_id: 'guide', title: 'Guide', state: 'active', sale_format: 'fixed_price' },
+            record: {
+              fulfillmentMethods: ['digital'],
+              variants: [{ quantity: COMMERCE_LISTING_MAX_QUANTITY }],
+            },
+          },
+          {
+            projection: { listing_id: 'boots', title: 'Boots', state: 'active', sale_format: 'fixed_price' },
+            record: {
+              fulfillmentMethods: ['physical'],
+              variants: [{ quantity: COMMERCE_LISTING_MAX_QUANTITY }],
+            },
+          },
+          {
+            projection: { listing_id: 'locks', title: 'Locks', state: 'active', sale_format: 'fixed_price' },
+            record: {
+              fulfillmentMethods: ['digital'],
+              digitalLock: { policyUri: 'pubky://locks' },
+              variants: [{ quantity: COMMERCE_LISTING_MAX_QUANTITY }],
+            },
+          },
+        ],
+      },
+    });
+    vi.mocked(MarketplaceShopClientService.getInventoryProjection).mockResolvedValue({
+      ok: true,
+      value: {
+        schema_version: BigInt(1),
+        kind: 'inventory_projection',
+        aggregate_id: `listing:${PUBKY}_guide`,
+        seller_pubky: PUBKY,
+        listing_id: 'guide',
+        server_revision: BigInt(3),
+        stock,
+      },
+    } as Awaited<ReturnType<typeof MarketplaceShopClientService.getInventoryProjection>>);
+
+    const board = await CommerceInventoryApplication.loadBoard(PUBKY);
+    expect(board.status).toBe('ready');
+    if (board.status !== 'ready') return;
+    const byId = Object.fromEntries(board.rows.map((entry) => [entry.listingId, entry]));
+    expect(byId.guide).toMatchObject({ unlimited: true, available: 4 });
+    expect(byId.boots.unlimited).toBeUndefined();
+    expect(byId.locks.unlimited).toBeUndefined();
   });
 });
 

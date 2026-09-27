@@ -734,7 +734,9 @@ describe('MarketplaceListingForm scoped status watch', () => {
         <button
           type="button"
           onClick={() =>
-            form.setValue('variants', [{ sku: '', size: '', color: '', style: '', quantity: '0', priceOverride: '' }])
+            form.setValue('variants', [
+              { sku: '', size: '', color: '', style: '', quantity: '0', unlimited: false, priceOverride: '' },
+            ])
           }
         >
           invalidate-variants
@@ -1228,5 +1230,40 @@ describe('MarketplaceListingForm digital delivery (digital delivery design §2)'
       await digitalCapability.getSellerPaymentConfig.mock.results[0]?.value;
     });
     expect(screen.queryByTestId('listing-digital-paypal-warning')).not.toBeInTheDocument();
+  });
+
+  it('offers Unlimited only while the listing is digital-only and shows Unlimited in place of the quantity', async () => {
+    const user = userEvent.setup();
+    const shipping = render(<FormHarness fulfillment="shipping" />);
+    expect(screen.queryByRole('checkbox', { name: 'Unlimited' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('1');
+    shipping.unmount();
+
+    const mixed = render(<FormHarness fulfillment="shipping_and_digital" />);
+    expect(screen.queryByRole('checkbox', { name: 'Unlimited' })).not.toBeInTheDocument();
+    mixed.unmount();
+
+    render(<FormHarness fulfillment="digital" />);
+    expect(screen.getByRole('checkbox', { name: 'Unlimited' })).not.toBeChecked();
+    await user.click(screen.getByRole('checkbox', { name: 'Unlimited' }));
+    expect(screen.getByRole('checkbox', { name: 'Unlimited' })).toBeChecked();
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('Unlimited');
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toBeDisabled();
+  });
+
+  it('drops Unlimited when the listing is no longer digital-only', async () => {
+    const user = userEvent.setup();
+    render(<FormHarness fulfillment="digital" />);
+    await user.click(screen.getByRole('checkbox', { name: 'Unlimited' }));
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('Unlimited');
+
+    await user.click(deliveryBox('Ship'));
+    expect(screen.queryByRole('checkbox', { name: 'Unlimited' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('1');
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toBeEnabled();
+
+    await user.click(deliveryBox('Ship'));
+    expect(screen.getByRole('checkbox', { name: 'Unlimited' })).not.toBeChecked();
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('1');
   });
 });

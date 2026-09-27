@@ -71,6 +71,7 @@ import {
   weightInputFromGrams,
   weightUnitLabel,
 } from '@/libs/commerce/units';
+import { UNLIMITED_STOCK_LABEL } from '@/libs/commerce/unlimited-stock';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { ListingPublishGuardNotice } from '@/molecules/Marketplace/ListingPublishGuardNotice';
@@ -266,6 +267,16 @@ export function MarketplaceListingForm({
     const next = fulfillmentFromFlags({ ...current, digital: false }) ?? 'shipping';
     form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, next, { shouldValidate: true });
   }, [digitalAvailable, mode, form]);
+  // Unlimited is only offered on a digital-only listing. Leaving that choice
+  // clears the flag so a physical or mixed listing cannot publish the cap.
+  useEffect(() => {
+    if (fulfillment === 'digital') return;
+    const current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS);
+    current.forEach((variant, index) => {
+      if (!variant.unlimited) return;
+      form.setValue(`variants.${index}.unlimited`, false, { shouldValidate: true });
+    });
+  }, [fulfillment, form]);
   const delivery = fulfillmentFlags(fulfillment);
   const priceUnit = amountInputUnitLabel(assetForListingCurrency(currency));
   const pricePlaceholder = currency === 'BTC' ? '150000' : '125.00';
@@ -612,7 +623,15 @@ export function MarketplaceListingForm({
               className="shrink-0 rounded-full"
               disabled={isPublishing || saleFormat === 'auction' || variants.fields.length >= 100}
               onClick={() =>
-                variants.append({ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' })
+                variants.append({
+                  sku: '',
+                  size: '',
+                  color: '',
+                  style: '',
+                  quantity: '1',
+                  unlimited: false,
+                  priceOverride: '',
+                })
               }
             >
               <Plus className="mr-2 size-4" />
@@ -651,13 +670,46 @@ export function MarketplaceListingForm({
                   placeholder="Classic"
                   disabled={isPublishing}
                 />
-                <ControlledInputField
-                  name={`variants.${index}.quantity`}
-                  control={form.control}
-                  label="Quantity"
-                  placeholder="1"
-                  disabled={isPublishing}
-                />
+                {fulfillment === 'digital' ? (
+                  <div className="flex flex-col gap-3">
+                    <Checkbox
+                      id={`listing-variant-${index}-unlimited`}
+                      label="Unlimited"
+                      checked={formValues.variants[index]?.unlimited === true}
+                      disabled={isPublishing}
+                      onCheckedChange={(checked) => {
+                        form.setValue(`variants.${index}.unlimited`, checked === true, {
+                          shouldValidate: true,
+                          shouldDirty: true,
+                        });
+                      }}
+                    />
+                    {formValues.variants[index]?.unlimited ? (
+                      <Container className="gap-2">
+                        <Label htmlFor={`variants.${index}.quantity`} className={FORM_LABEL_CLASSES}>
+                          Quantity
+                        </Label>
+                        <Input id={`variants.${index}.quantity`} value={UNLIMITED_STOCK_LABEL} disabled readOnly />
+                      </Container>
+                    ) : (
+                      <ControlledInputField
+                        name={`variants.${index}.quantity`}
+                        control={form.control}
+                        label="Quantity"
+                        placeholder="1"
+                        disabled={isPublishing}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <ControlledInputField
+                    name={`variants.${index}.quantity`}
+                    control={form.control}
+                    label="Quantity"
+                    placeholder="1"
+                    disabled={isPublishing}
+                  />
+                )}
                 <ControlledInputField
                   name={`variants.${index}.priceOverride`}
                   control={form.control}
@@ -1183,7 +1235,10 @@ function getListingSectionStatuses(
     values.price,
   ).success;
   const variantsValid =
-    values.variants.length > 0 && values.variants.every((variant) => /^[1-9]\d*$/.test(variant.quantity));
+    values.variants.length > 0 &&
+    values.variants.every(
+      (variant) => (values.fulfillment === 'digital' && variant.unlimited) || /^[1-9]\d*$/.test(variant.quantity),
+    );
   const itemComplete =
     values.title.trim().length >= 3 &&
     values.description.trim().length > 0 &&
