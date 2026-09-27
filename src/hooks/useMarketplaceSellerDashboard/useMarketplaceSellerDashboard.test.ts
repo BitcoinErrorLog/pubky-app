@@ -8,7 +8,14 @@ import { useMarketplaceSellerDashboard } from './useMarketplaceSellerDashboard';
 const OWNER = 'y'.repeat(52);
 const OTHER_OWNER = 'z'.repeat(52);
 let currentUserPubky = OWNER;
-let localListings: Array<{ state: 'active'; record: ReturnType<typeof createCommerceListingFixture> }> = [];
+let localListings: Array<{
+  state: 'active';
+  record: ReturnType<typeof createCommerceListingFixture>;
+  listing_id?: string;
+  format?: string;
+  price_minor?: number;
+  currency?: string;
+}> = [];
 const ordersState = vi.hoisted(() => ({
   orders: [] as Array<{
     order: {
@@ -543,7 +550,7 @@ describe('useMarketplaceSellerDashboard duplicateListing', () => {
         currency: 'USD',
         record,
       },
-    ] as unknown as typeof localListings;
+    ];
     const { result } = renderHook(() => useMarketplaceSellerDashboard());
     expect(result.current.metrics.lowStock).toBe(1);
     const csv = result.current.exportCsv();
