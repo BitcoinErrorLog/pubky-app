@@ -399,10 +399,8 @@ describe('useEditMarketplaceListing', () => {
     });
     const digital = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
     await waitFor(() => expect(digital.result.current.status).toBe('ready'));
-    expect(digital.result.current.form.getValues('variants')[0]).toMatchObject({
-      unlimited: true,
-      quantity: String(COMMERCE_LISTING_MAX_QUANTITY),
-    });
+    // No number is carried: leaving digital-only must not inherit the cap as physical stock.
+    expect(digital.result.current.form.getValues('variants')[0]).toMatchObject({ unlimited: true, quantity: '' });
     digital.unmount();
 
     vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue({

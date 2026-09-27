@@ -730,7 +730,7 @@ describe('seedDraftFormFromListing', () => {
       }),
       'metric',
     );
-    expect(digital.variants[0]).toMatchObject({ unlimited: true, quantity: String(COMMERCE_LISTING_MAX_QUANTITY) });
+    expect(digital.variants[0]).toMatchObject({ unlimited: true, quantity: '' });
     const physical = seedDraftFormFromListing(
       createCommerceListingFixture({ variants: [{ ...variant, options: { size: '42' } }] }),
       'metric',

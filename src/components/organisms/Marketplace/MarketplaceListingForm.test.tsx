@@ -1,11 +1,12 @@
 import { createRef } from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useForm } from 'react-hook-form';
+import { useForm, type UseFormReturn } from 'react-hook-form';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
+  createMarketplaceListingPublishChecklist,
   createMarketplaceListingSchema,
   isCreateMarketplaceListingPublishReady,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
@@ -13,10 +14,14 @@ import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
+import { seedDraftFormFromListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
+import { formDataFromRecord } from '@/hooks/useEditMarketplaceListing/useEditMarketplaceListing';
 import { DIGITAL_DELIVERY_COPY } from '@/libs/commerce/digital';
 import { PICKUP_NOTHING_PUBLISHED_TOAST } from '@/libs/commerce/pickup';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import { MarketplaceListingForm } from './MarketplaceListingForm';
 
 // The form reads the deployment's `pickup_available` capability through the
@@ -170,6 +175,7 @@ function FormHarness({
   submittedFulfillment,
   publishBlocked = null,
   publishGuardReady = true,
+  formRef,
 }: {
   fulfillment?: CreateMarketplaceListingData['fulfillment'];
   defaultValues?: Partial<CreateMarketplaceListingData>;
@@ -182,10 +188,12 @@ function FormHarness({
   listingId?: string;
   publishBlocked?: import('@/libs/commerce/listing-publish-guards').ListingPublishBlockReason | null;
   publishGuardReady?: boolean;
+  formRef?: { current: UseFormReturn<CreateMarketplaceListingData> | null };
 }) {
   const form = useForm<CreateMarketplaceListingData>({
     defaultValues: { ...createMarketplaceListingDefaults, fulfillment, ...defaultValues },
   });
+  if (formRef) formRef.current = form;
   return (
     <MarketplaceListingForm
       form={form}
@@ -1259,11 +1267,75 @@ describe('MarketplaceListingForm digital delivery (digital delivery design §2)'
 
     await user.click(deliveryBox('Ship'));
     expect(screen.queryByRole('checkbox', { name: 'Unlimited' })).not.toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('1');
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('');
     expect(screen.getByRole('textbox', { name: 'Quantity' })).toBeEnabled();
 
     await user.click(deliveryBox('Ship'));
     expect(screen.getByRole('checkbox', { name: 'Unlimited' })).not.toBeChecked();
-    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('1');
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('');
   });
+});
+
+// Polish review P1: an unlimited variant hydrated from a published listing
+// must not carry the quantity cap into a listing that ships or offers pickup.
+describe('MarketplaceListingForm unlimited stock leaving digital-only', () => {
+  const unlimitedRecord = () =>
+    createCommerceListingFixture({
+      fulfillmentMethods: ['digital'],
+      package: undefined,
+      shippingOptions: [],
+      variants: [
+        {
+          id: 'variant_01',
+          options: { size: 'pdf' },
+          quantity: COMMERCE_LISTING_MAX_QUANTITY,
+          mediaIds: ['image_01'],
+          enabled: true,
+        },
+      ],
+    });
+  const hydrate = {
+    edit: () => formDataFromRecord(unlimitedRecord(), 'USD', 'metric', null),
+    duplicate: () => seedDraftFormFromListing(unlimitedRecord(), 'metric'),
+  } as const;
+  const inventoryBlocked = (values: CreateMarketplaceListingData) =>
+    createMarketplaceListingPublishChecklist(values, 1).includes('Inventory');
+
+  it.each([
+    ['edit', 'Ship', 'shipping_and_digital'],
+    ['edit', 'Local pickup', 'pickup_and_digital'],
+    ['duplicate', 'Ship', 'shipping_and_digital'],
+    ['duplicate', 'Local pickup', 'pickup_and_digital'],
+  ] as const)(
+    'needs a real count on the %s journey once %s is added',
+    { timeout: 20_000 },
+    async (journey, method, fulfillment) => {
+      const user = userEvent.setup();
+      const formRef: { current: UseFormReturn<CreateMarketplaceListingData> | null } = { current: null };
+      render(
+        <FormHarness
+          mode={journey === 'edit' ? 'edit' : 'create'}
+          listingId={journey === 'edit' ? 'guide_01' : undefined}
+          defaultValues={hydrate[journey]()}
+          formRef={formRef}
+        />,
+      );
+      const form = () => formRef.current as UseFormReturn<CreateMarketplaceListingData>;
+      expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('Unlimited');
+      expect(inventoryBlocked(form().getValues())).toBe(false);
+
+      if (method === 'Local pickup') await waitForPickupEnabled();
+      await user.click(deliveryBox(method));
+
+      expect(form().getValues('fulfillment')).toBe(fulfillment);
+      expect(form().getValues('variants.0')).toMatchObject({ unlimited: false, quantity: '' });
+      expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('');
+      expect(inventoryBlocked(form().getValues())).toBe(true);
+      expect(createMarketplaceListingSchema.safeParse(form().getValues()).success).toBe(false);
+
+      await user.type(screen.getByRole('textbox', { name: 'Quantity' }), '3');
+      expect(form().getValues('variants.0.quantity')).toBe('3');
+      expect(inventoryBlocked(form().getValues())).toBe(false);
+    },
+  );
 });

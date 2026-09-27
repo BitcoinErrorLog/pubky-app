@@ -268,13 +268,16 @@ export function MarketplaceListingForm({
     form.setValue(CREATE_MARKETPLACE_LISTING_FIELDS.FULFILLMENT, next, { shouldValidate: true });
   }, [digitalAvailable, mode, form]);
   // Unlimited is only offered on a digital-only listing. Leaving that choice
-  // clears the flag so a physical or mixed listing cannot publish the cap.
+  // clears the flag and the quantity, so a physical or mixed listing cannot
+  // publish the cap (or any number typed before Unlimited was checked) as
+  // physical stock: the seller enters a count before it can publish.
   useEffect(() => {
     if (fulfillment === 'digital') return;
     const current = form.getValues(CREATE_MARKETPLACE_LISTING_FIELDS.VARIANTS);
     current.forEach((variant, index) => {
       if (!variant.unlimited) return;
       form.setValue(`variants.${index}.unlimited`, false, { shouldValidate: true });
+      form.setValue(`variants.${index}.quantity`, '', { shouldValidate: true });
     });
   }, [fulfillment, form]);
   const delivery = fulfillmentFlags(fulfillment);

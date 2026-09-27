@@ -21,6 +21,21 @@ export function isUnlimitedStock(record: UnlimitedStockRecord, quantity: number)
   return methods.length === 1 && methods[0] === 'digital' && quantity === COMMERCE_LISTING_MAX_QUANTITY;
 }
 
+/**
+ * A variant's stock as the listing form holds it. An unlimited variant keeps
+ * no number: the cap is written again on save, and if the listing stops
+ * being digital-only the seller must enter a real count rather than inherit
+ * the cap as physical stock.
+ */
+export function stockFormFields(
+  record: UnlimitedStockRecord,
+  quantity: number,
+): { quantity: string; unlimited: boolean } {
+  return isUnlimitedStock(record, quantity)
+    ? { quantity: '', unlimited: true }
+    : { quantity: String(quantity), unlimited: false };
+}
+
 export function formatStockQuantity(record: UnlimitedStockRecord, quantity: number): string {
   return isUnlimitedStock(record, quantity) ? UNLIMITED_STOCK_LABEL : String(quantity);
 }

@@ -48,7 +48,7 @@ import {
   millimetersFromDimensionInput,
   weightInputFromGrams,
 } from '@/libs/commerce/units';
-import { isUnlimitedStock } from '@/libs/commerce/unlimited-stock';
+import { stockFormFields } from '@/libs/commerce/unlimited-stock';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -532,8 +532,7 @@ export function seedDraftFormFromListing(
       size: variant.options.size ?? '',
       color: variant.options.color ?? '',
       style: variant.options.style ?? '',
-      quantity: String(variant.quantity),
-      unlimited: isUnlimitedStock(record, variant.quantity),
+      ...stockFormFields(record, variant.quantity),
       priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
     fulfillment,
