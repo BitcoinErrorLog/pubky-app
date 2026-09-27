@@ -1,8 +1,10 @@
-import { createRef } from 'react';
+import { createRef, useEffect } from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
+import { seedDraftFormFromListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
 import {
   type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
@@ -10,13 +12,11 @@ import {
   createMarketplaceListingSchema,
   isCreateMarketplaceListingPublishReady,
 } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing.types';
+import { formDataFromRecord } from '@/hooks/useEditMarketplaceListing/useEditMarketplaceListing';
 import type {
   ListingMediaItem,
   UseListingMediaManagerResult,
 } from '@/hooks/useListingMediaManager/useListingMediaManager';
-import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
-import { seedDraftFormFromListing } from '@/hooks/useCreateMarketplaceListing/useCreateMarketplaceListing';
-import { formDataFromRecord } from '@/hooks/useEditMarketplaceListing/useEditMarketplaceListing';
 import { DIGITAL_DELIVERY_COPY } from '@/libs/commerce/digital';
 import { PICKUP_NOTHING_PUBLISHED_TOAST } from '@/libs/commerce/pickup';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -193,7 +193,9 @@ function FormHarness({
   const form = useForm<CreateMarketplaceListingData>({
     defaultValues: { ...createMarketplaceListingDefaults, fulfillment, ...defaultValues },
   });
-  if (formRef) formRef.current = form;
+  useEffect(() => {
+    if (formRef) formRef.current = form;
+  }, [form, formRef]);
   return (
     <MarketplaceListingForm
       form={form}
