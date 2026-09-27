@@ -6,13 +6,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 start=$(date +%s)
-LOCK="/Volumes/t7/vibes-dev/.locks/heavy.lock"
-
-run_heavy() {
-  mkdir -p "$(dirname "$LOCK")"
-  # lockf waits. Do not pass -t 0.
-  lockf "$LOCK" "$@"
-}
+# shellcheck source=heavy-lock.sh
+source "$ROOT/scripts/heavy-lock.sh"
 
 # Hook stdin lists the refs being pushed. A push whose every commit message
 # contains [skip ci] does not run the gate. A manual tty run always does.
@@ -86,13 +81,13 @@ if [ "${#eslint_files[@]}" -gt 0 ]; then
 fi
 
 echo "prepush: typecheck"
-run_heavy npm run typecheck
+run_heavy node npm run typecheck
 
 if [ "${#unit_files[@]}" -gt 0 ]; then
   echo "prepush: vitest related (${#unit_files[@]} files)"
   related_log="$(mktemp)"
   set +e
-  run_heavy npx vitest related --run --project unit "${unit_files[@]}" >"$related_log" 2>&1
+  run_heavy node npx vitest related --run --project unit "${unit_files[@]}" >"$related_log" 2>&1
   related_status=$?
   set -e
   cat "$related_log"
@@ -119,7 +114,7 @@ fi
 if [ "${#vrt_specs[@]}" -gt 0 ]; then
   echo "prepush: linux vrt (${#vrt_specs[@]} specs)"
   printf '  %s\n' "${vrt_specs[@]}"
-  run_heavy bash scripts/vrt-linux.sh "${vrt_specs[@]}"
+  bash scripts/vrt-linux.sh "${vrt_specs[@]}"
 else
   echo "prepush: linux vrt (no specs render a changed file)"
 fi
