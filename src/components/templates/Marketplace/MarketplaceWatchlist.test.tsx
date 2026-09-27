@@ -10,6 +10,7 @@ const sellerSummary = vi.hoisted(() => ({ displayName: 'Proof of Film' }));
 const view = vi.hoisted(() => ({
   entries: [] as MarketplaceWatchlistEntry[],
   isSignedIn: true,
+  watchlistSyncStatus: 'synced' as string,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -26,7 +27,7 @@ vi.mock('@/hooks/useMarketplaceWatchlist/useMarketplaceWatchlist', () => ({
     entries: view.entries,
     isLoading: false,
     isSignedIn: view.isSignedIn,
-    watchlistSyncStatus: 'synced',
+    watchlistSyncStatus: view.watchlistSyncStatus,
     syncWatchlist: vi.fn(),
   }),
 }));
@@ -118,6 +119,7 @@ describe('MarketplaceWatchlist', () => {
     sellerSummary.displayName = 'Proof of Film';
     view.entries = [watchlistEntry()];
     view.isSignedIn = true;
+    view.watchlistSyncStatus = 'synced';
   });
 
   it('renders the seller name and expanded checked copy', () => {
@@ -135,5 +137,20 @@ describe('MarketplaceWatchlist', () => {
     render(<MarketplaceWatchlist />);
 
     expect(screen.getByText('Checked just now')).toBeInTheDocument();
+  });
+
+  it('says private sync is unavailable when the data key cannot be released', () => {
+    view.watchlistSyncStatus = 'unavailable';
+
+    render(<MarketplaceWatchlist />);
+
+    expect(screen.getByText('Private sync is unavailable right now')).toBeInTheDocument();
+    expect(screen.getByText('Proof of Film')).toBeInTheDocument();
+  });
+
+  it('shows no unavailable notice once sync succeeds', () => {
+    render(<MarketplaceWatchlist />);
+
+    expect(screen.queryByText('Private sync is unavailable right now')).not.toBeInTheDocument();
   });
 });

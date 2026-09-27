@@ -150,6 +150,7 @@ const view = vi.hoisted(() => ({
   isSignedIn: true,
   watchAlerts: [] as unknown[],
   serviceItems: [] as unknown[],
+  watchlistSyncStatus: undefined as string | undefined,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -163,6 +164,7 @@ vi.mock('@/hooks/useMarketplaceWatchlist/useMarketplaceWatchlist', () => ({
     isLoading: view.isLoading,
     isSignedIn: view.isSignedIn,
     adapterMode: 'transaction-service',
+    watchlistSyncStatus: view.watchlistSyncStatus,
   }),
 }));
 
@@ -233,6 +235,7 @@ async function setView(overrides: Partial<typeof view>) {
   view.isSignedIn = true;
   view.watchAlerts = [];
   view.serviceItems = [];
+  view.watchlistSyncStatus = undefined;
   Object.assign(view, overrides);
 }
 
@@ -251,6 +254,14 @@ describe('Marketplace watchlist — visual regression', () => {
 
     const screen = await renderForVRT(<MarketplaceWatchlist />, { viewport: VRT_VIEWPORT_MOBILE });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('watchlist-populated-mobile');
+  });
+
+  it('renders the private sync unavailable notice at desktop viewport', async () => {
+    const { entries } = await fixtures;
+    await setView({ entries, watchlistSyncStatus: 'unavailable' });
+
+    const screen = await renderForVRT(<MarketplaceWatchlist />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('watchlist-sync-unavailable-desktop');
   });
 
   it('renders the empty state at desktop viewport', async () => {

@@ -19,9 +19,11 @@ export interface CommerceMarketplaceSession {
  * controller after each sync round. `idle` = no sync attempted yet (or not
  * applicable: sandbox mode, signed out); `needs_reauth` = the session's grant
  * cannot write `/priv/pubky.app/` (legacy approval) OR an actual write was
- * refused with 401/403 — the honest "re-approve to enable sync" state.
+ * refused with 401/403 — the honest "re-approve to enable sync" state;
+ * `unavailable` = the marketplace cannot release the data key that encrypts
+ * the synced copy right now, so nothing was written.
  */
-export type CommerceWatchlistSyncUiStatus = 'idle' | 'synced' | 'needs_reauth' | 'error';
+export type CommerceWatchlistSyncUiStatus = 'idle' | 'synced' | 'needs_reauth' | 'unavailable' | 'error';
 
 /**
  * Portable order-receipt publication state for UI surfaces, written by the

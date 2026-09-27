@@ -124,6 +124,20 @@ export function MarketplaceWatchlist() {
           </Card>
         )}
 
+        {isSignedIn && watchlistSyncStatus === 'unavailable' && (
+          <Card className="border border-muted-foreground/30" data-cy="watchlist-sync-unavailable-notice">
+            <CardContent className="flex flex-col gap-1 py-4">
+              <Typography as="p" className="font-medium">
+                Private sync is unavailable right now
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Your watchlist keeps working on this device. It syncs encrypted through your homeserver once the
+                marketplace can provide your private data key again.
+              </Typography>
+            </CardContent>
+          </Card>
+        )}
+
         {!isSignedIn ? (
           <Card className="border py-10">
             <CardContent className="flex flex-col items-center gap-3 text-center">

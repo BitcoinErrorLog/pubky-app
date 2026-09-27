@@ -128,6 +128,7 @@ import {
 import { MarketplaceMediaService } from '@/services/commerce/marketplace-media';
 import { ExchangerateService } from '@/services/exchangerate/exchangerate';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService, PRIVATE_APP_DATA_PATH } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import {
@@ -218,9 +219,14 @@ export type CommerceWatchlistSyncCapability = 'capable' | 'needs_reauth' | 'no_s
 /**
  * Outcome of one watchlist sync round. `skipped` covers sandbox mode and
  * signed-out/restoring states; `needs_reauth` is the honest "this session's
- * grant cannot touch /priv" state (from capability facts OR an actual 401/403).
+ * grant cannot touch /priv" state (from capability facts, an actual 401/403,
+ * or the marketplace refusing to release the data key); `unavailable` means
+ * the marketplace cannot release the key right now, so nothing is written.
  */
-export type CommerceWatchlistSyncStatus = 'synced' | 'needs_reauth' | 'skipped' | 'error';
+export type CommerceWatchlistSyncStatus = 'synced' | 'needs_reauth' | 'unavailable' | 'skipped' | 'error';
+
+/** The logical id of the one encrypted watchlist entry. */
+const WATCHLIST_PRIV_ENTRY_ID = 'watchlist';
 
 /**
  * Outcome of one portable order-receipt publication pass, mirrored by the
@@ -1689,13 +1695,31 @@ export class CommerceApplication {
     return await run;
   }
 
+  /**
+   * The watchlist lives encrypted at an opaque v2 path. A plaintext v1
+   * document (`watchlist.json`, written before encryption or by a cached
+   * older build) is merged in, the merged state is written to v2 and read
+   * back, and only then is v1 deleted. Without a key nothing is written:
+   * no plaintext fallback and no empty overwrite.
+   */
   private static async runWatchlistSync(ownerPubky: string): Promise<CommerceWatchlistSyncStatus> {
-    const url = CommerceRecordNormalizer.watchlistUri(ownerPubky);
+    const legacyUrl = CommerceRecordNormalizer.watchlistUri(ownerPubky);
     try {
-      let remote: CommerceWatchlistRecord | null = null;
+      const keys = await CommercePrivKeyringApplication.get(ownerPubky);
+      if (keys.kind !== 'keys') return keys.kind;
+      const { keyring } = keys;
+
+      let encrypted: CommerceWatchlistRecord | null = null;
       try {
-        const payload = await CommerceHomeserverService.fetchJson(url);
-        remote = CommerceRecordNormalizer.watchlistRecord(payload);
+        const payload = await CommercePrivStoreService.read(keyring, 'watchlist', WATCHLIST_PRIV_ENTRY_ID);
+        if (payload !== null) encrypted = CommerceRecordNormalizer.watchlistRecord(payload);
+      } catch (error) {
+        if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+        throw error;
+      }
+      let legacy: CommerceWatchlistRecord | null = null;
+      try {
+        legacy = CommerceRecordNormalizer.watchlistRecord(await CommerceHomeserverService.fetchJson(legacyUrl));
       } catch (error) {
         if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
         if (!(isAppError(error) && isNotFound(error))) throw error;
@@ -1706,16 +1730,20 @@ export class CommerceApplication {
         LocalCommerceService.getWatchTombstones(ownerPubky),
       ]);
       const localState = localRowsToWatchlistState(favorites, tombstoneRows);
-      const remoteState = remote ? watchlistRecordToState(remote) : emptyWatchlistState();
+      const encryptedState = encrypted ? watchlistRecordToState(encrypted) : emptyWatchlistState();
+      const remoteState = legacy
+        ? mergeWatchlistStates(encryptedState, watchlistRecordToState(legacy))
+        : encryptedState;
       const merged = mergeWatchlistStates(localState, remoteState);
 
       if (!watchlistStatesEqual(merged, localState)) {
         await LocalCommerceService.applyWatchlistState(ownerPubky, merged.items, merged.tombstones);
       }
 
-      const isEmptyAndUnpublished = !remote && merged.items.size === 0 && merged.tombstones.size === 0;
-      const remoteNeedsWrite = !isEmptyAndUnpublished && (!remote || !watchlistStatesEqual(merged, remoteState));
+      const isEmptyAndUnpublished = !encrypted && !legacy && merged.items.size === 0 && merged.tombstones.size === 0;
+      const remoteNeedsWrite = !isEmptyAndUnpublished && (!encrypted || !watchlistStatesEqual(merged, encryptedState));
       if (remoteNeedsWrite) {
+        const remote = encrypted ?? legacy;
         const nowIso = new Date().toISOString();
         const createdAt = remote?.createdAt ?? nowIso;
         // Guard against clock skew between devices: updatedAt must not
@@ -1724,27 +1752,29 @@ export class CommerceApplication {
         const body = watchlistStateToRecordBody({
           ownerPubky,
           state: merged,
-          revision: (remote?.revision ?? 0) + 1,
+          revision: Math.max(encrypted?.revision ?? 0, legacy?.revision ?? 0) + 1,
           createdAt,
           updatedAt,
         });
-        // Validate through the vendored specs builder before the PUT, the
-        // same guarantee every other published marketplace record gets.
+        // Validate through the vendored specs builder before sealing, the
+        // same guarantee every other marketplace record gets.
         const { PubkySpecsBuilder } = await import('pubky-app-specs');
         const built = new PubkySpecsBuilder(ownerPubky).createWatchlist(body);
         const record = CommerceRecordNormalizer.watchlistRecord(built.watchlist.toJson());
         try {
-          await CommerceHomeserverService.putJson(url, { ...record });
+          await CommercePrivStoreService.write(keyring, 'watchlist', WATCHLIST_PRIV_ENTRY_ID, { ...record });
         } catch (error) {
           if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
           throw error;
         }
       }
+      // v2 now holds a state that includes every v1 entry and tombstone.
+      if (legacy) await CommerceHomeserverService.delete(legacyUrl);
 
       await LocalCommerceService.completeSyncJob(this.watchlistSyncJobId(ownerPubky));
       return 'synced';
     } catch (error) {
-      Logger.warn('Watchlist sync failed; the outbox job stays pending', { url, error });
+      Logger.warn('Watchlist sync failed; the outbox job stays pending', { error });
       return 'error';
     }
   }
