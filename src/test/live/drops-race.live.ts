@@ -77,6 +77,7 @@ type AppModules = {
   MarketplaceGatewayService: typeof import('@/services/marketplace/marketplace').MarketplaceGatewayService;
   HomeserverService: typeof import('@/services/homeserver/homeserver').HomeserverService;
   CommerceHomeserverService: typeof import('@/services/homeserver/commerce/commerce').CommerceHomeserverService;
+  CommercePrivStoreService: typeof import('@/services/homeserver/commerce/priv-store').CommercePrivStoreService;
   CommerceApplication: typeof import('@/application/commerce/commerce').CommerceApplication;
   CommerceController: typeof import('@/controllers/commerce/commerce').CommerceController;
   CommerceRecordNormalizer: typeof import('@/pipes/commerce/commerce.normalizer').CommerceRecordNormalizer;
@@ -84,6 +85,8 @@ type AppModules = {
   commerceConfig: typeof import('@/config/commerce');
   sdk: typeof import('@synonymdev/pubky');
   specs: typeof import('pubky-app-specs');
+  CAPABILITIES: typeof import('@/config/app').CAPABILITIES;
+  privEntryUrl: typeof import('@/libs/commerce/priv-envelope').privEntryUrl;
 };
 
 let modules: AppModules;
@@ -94,6 +97,7 @@ async function loadModules(): Promise<AppModules> {
     { MarketplaceGatewayService },
     { HomeserverService },
     { CommerceHomeserverService },
+    { CommercePrivStoreService },
     { CommerceApplication },
     { CommerceController },
     { CommerceRecordNormalizer },
@@ -101,11 +105,14 @@ async function loadModules(): Promise<AppModules> {
     commerceConfig,
     sdk,
     specs,
+    { CAPABILITIES },
+    { privEntryUrl },
   ] = await Promise.all([
     import('@/services/marketplace/marketplace-session'),
     import('@/services/marketplace/marketplace'),
     import('@/services/homeserver/homeserver'),
     import('@/services/homeserver/commerce/commerce'),
+    import('@/services/homeserver/commerce/priv-store'),
     import('@/application/commerce/commerce'),
     import('@/controllers/commerce/commerce'),
     import('@/pipes/commerce/commerce.normalizer'),
@@ -113,12 +120,15 @@ async function loadModules(): Promise<AppModules> {
     import('@/config/commerce'),
     import('@synonymdev/pubky'),
     import('pubky-app-specs'),
+    import('@/config/app'),
+    import('@/libs/commerce/priv-envelope'),
   ]);
   return {
     MarketplaceSessionService,
     MarketplaceGatewayService,
     HomeserverService,
     CommerceHomeserverService,
+    CommercePrivStoreService,
     CommerceApplication,
     CommerceController,
     CommerceRecordNormalizer,
@@ -126,6 +136,8 @@ async function loadModules(): Promise<AppModules> {
     commerceConfig,
     sdk,
     specs,
+    CAPABILITIES,
+    privEntryUrl,
   };
 }
 
@@ -234,10 +246,14 @@ type ServiceSession = NonNullable<
  * multiple identities can hold sessions side by side.
  */
 async function connectServiceSession(identity: StagingIdentity): Promise<ServiceSession> {
-  const { MarketplaceSessionService, sdk } = modules;
-  const flow = MarketplaceSessionService.beginSessionFlow();
+  const { MarketplaceSessionService, HomeserverService, sdk, CAPABILITIES } = modules;
+  // The Shop grant, as a Ring sign-in mints it: the service releases the
+  // `/priv` data key that seals receipts only to a session covering
+  // `/priv/pubky.app/` with read and write.
+  const flow = HomeserverService.generateAuthTokenFlow(CAPABILITIES);
   await new sdk.Pubky().signer(identity.keypair).approveAuthRequest(flow.authorizationUrl);
-  const info = await flow.awaitSession();
+  const token = await flow.awaitToken();
+  const info = await MarketplaceSessionService.establishWithAuthToken(token.toBytes(), token.publicKey.z32());
   expect(info.pubky).toBe(identity.pubky);
   const session = MarketplaceSessionService.getActiveSession();
   if (session === null) throw new Error(`No active marketplace session after ${identity.label}'s auth flow.`);
@@ -746,11 +762,22 @@ describe('marketplace drops — LIVE two-buyer race on the deployed staging stac
     actAs(winner.buyer);
     await CommerceApplication.publishOrderReceipts(winner.buyer.pubky, [paidOrder]);
 
-    // Re-read the private record from the winner's homeserver and re-run the
-    // whole offline verification recipe through the vendored specs — the
-    // "credible exit" claim, checked against the wire, not the local copy.
-    const receiptUrl = CommerceRecordNormalizer.orderReceiptUri(winner.buyer.pubky, receiptId);
-    const rawReceipt = await modules.CommerceHomeserverService.fetchJson(receiptUrl);
+    // Re-read the sealed record from the winner's homeserver, decrypt it with
+    // the released data key, and re-run the whole offline verification recipe
+    // through the vendored specs — the "credible exit" claim, checked against
+    // the wire, not the local copy. The plaintext v1 path stays empty.
+    const keys = await MarketplaceGatewayService.getPrivKeys(winner.buyer.pubky);
+    if (keys.kind !== 'keys') throw new Error(`The service did not release the winner's data key: ${keys.kind}`);
+    const receiptUrl = modules.privEntryUrl(keys.keyring, 'order_receipt', receiptId);
+    const rawEnvelope = JSON.stringify(await modules.CommerceHomeserverService.fetchJson(receiptUrl));
+    expect(rawEnvelope).not.toContain(receiptId);
+    expect(rawEnvelope).not.toContain(orderId);
+    await expect(
+      modules.CommerceHomeserverService.fetchJson(
+        CommerceRecordNormalizer.orderReceiptUri(winner.buyer.pubky, receiptId),
+      ),
+    ).rejects.toMatchObject({ context: { statusCode: 404 } });
+    const rawReceipt = await modules.CommercePrivStoreService.read(keys.keyring, 'order_receipt', receiptId);
     const receiptRecord = CommerceRecordNormalizer.orderReceiptRecord(rawReceipt);
     expect(receiptRecord.drop).toEqual({ dropId, edition: 1, of: 1 });
     expect(receiptRecord.orderId).toBe(orderId);

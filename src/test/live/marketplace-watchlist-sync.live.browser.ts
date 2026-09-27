@@ -7,7 +7,10 @@
 // app's own service layer). Nothing is mocked: real `@synonymdev/pubky` WASM
 // client, real public pkarr relays, real staging reads/writes, real
 // IndexedDB, and the real production sync path
-// (`CommerceController.syncWatchlist` → merge → `/priv` PUT).
+// (`CommerceController.syncWatchlist` → merge → sealed `/priv` PUT). Each
+// device also mints a marketplace session from a signer-approved AuthToken
+// carrying the Shop grant, so the deployed service releases the data key
+// that encrypts the document.
 //
 // Signup-helper identities hold root `/:rw` capabilities, so `/priv` access
 // is granted; the legacy-session (`needs_reauth`) half of the behavior is
@@ -18,15 +21,20 @@
 // vitest.watchlist.staging.config.ts for how to pass them and how to re-run
 // with saved identity secrets if tokens were already consumed.
 
-import { Keypair } from '@synonymdev/pubky';
+import { Keypair, Pubky } from '@synonymdev/pubky';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
+import { CAPABILITIES } from '@/config/app';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { db } from '@/database/franky/franky';
+import { privEntryUrl, type PrivKeyring } from '@/libs/commerce/priv-envelope';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
@@ -97,8 +105,29 @@ async function signInAs(label: string, savedSecretHex: string, signupToken: stri
   return { pubky, secret };
 }
 
+/**
+ * Mints the marketplace session a Ring sign-in would: the test signs the
+ * Shop-grant AuthToken as the signer, and the deployed service exchanges it
+ * for a bearer whose grant covers `/priv/pubky.app/`.
+ */
+async function connectMarketplace(label: string, identity: StagingIdentity): Promise<void> {
+  const flow = HomeserverService.generateAuthTokenFlow(CAPABILITIES);
+  await new Pubky().signer(Keypair.fromSecret(identity.secret)).approveAuthRequest(flow.authorizationUrl);
+  const token = await flow.awaitToken();
+  const info = await MarketplaceSessionService.establishWithAuthToken(token.toBytes(), token.publicKey.z32());
+  expect(info.pubky).toBe(identity.pubky);
+  console.info(`[watchlist-live] ${label}: marketplace session established (${info.capabilities})`);
+}
+
+async function ownerKeyring(identity: StagingIdentity): Promise<PrivKeyring> {
+  const keys = await MarketplaceGatewayService.getPrivKeys(identity.pubky);
+  if (keys.kind !== 'keys') throw new Error(`The service did not release the data key: ${keys.kind}`);
+  return keys.keyring;
+}
+
 /** Wipes the shared IndexedDB and detaches the session — a fresh device. */
 async function becomeFreshDevice(): Promise<void> {
+  CommerceController.clearMarketplaceSession();
   await db.delete();
   await db.open();
   useAuthStore.getState().setSession(null);
@@ -114,6 +143,7 @@ async function signBackInAndSync(label: string, identity: StagingIdentity): Prom
   if (!result) throw new Error(`${label}: sign-in requested a retry after republish; re-run the suite.`);
   useAuthStore.getState().setCurrentUserPubky(identity.pubky);
   useAuthStore.getState().setSession(result.session);
+  await connectMarketplace(label, identity);
   await CommerceController.syncWatchlist();
   expect(useCommerceStore.getState().watchlistSyncStatus).toBe('synced');
 }
@@ -157,7 +187,12 @@ describe('marketplace cross-device PRIVATE watchlist sync — live proof on STAG
   it('syncs watches and unwatches across devices of one identity, and refuses another identity at the wire', async () => {
     // ── Device 1 of identity A ─────────────────────────────────────────────
     const owner = await signInAs('A', __STAGING_SECRET_A__, __STAGING_SIGNUP_TOKEN_A__);
-    const watchlistUrl = CommerceRecordNormalizer.watchlistUri(owner.pubky);
+    await connectMarketplace('A device 1', owner);
+    const legacyWatchlistUrl = CommerceRecordNormalizer.watchlistUri(owner.pubky);
+    const keyring = await ownerKeyring(owner);
+    const watchlistUrl = privEntryUrl(keyring, 'watchlist', 'watchlist');
+    const readSealed = async () =>
+      await CommercePrivStoreService.read(await ownerKeyring(owner), 'watchlist', 'watchlist');
 
     // Signup sessions carry root capabilities, so the session-fact gate must
     // report `capable` — the same detection the UI banner keys off.
@@ -174,8 +209,16 @@ describe('marketplace cross-device PRIVATE watchlist sync — live proof on STAG
     await CommerceController.syncWatchlist();
     expect(useCommerceStore.getState().watchlistSyncStatus).toBe('synced');
 
-    // The private document is REALLY on the staging homeserver: raw owned read.
-    const rawAfterWatch = (await CommerceHomeserverService.fetchJson(watchlistUrl)) as {
+    // The private document is REALLY on the staging homeserver, sealed: the
+    // raw owned read is ciphertext, the plaintext v1 path is empty, and the
+    // released key opens it.
+    const rawEnvelope = JSON.stringify(await CommerceHomeserverService.fetchJson(watchlistUrl));
+    expect(rawEnvelope).not.toContain('watch_proof_boots_01');
+    expect(rawEnvelope).not.toContain(seller);
+    await expect(CommerceHomeserverService.fetchJson(legacyWatchlistUrl)).rejects.toMatchObject({
+      context: { statusCode: 404 },
+    });
+    const rawAfterWatch = (await readSealed()) as {
       recordType: string;
       revision: number;
       items: Array<{ listingOwnerPubky: string; listingId: string }>;
@@ -202,7 +245,7 @@ describe('marketplace cross-device PRIVATE watchlist sync — live proof on STAG
     await CommerceController.syncWatchlist();
     expect(useCommerceStore.getState().watchlistSyncStatus).toBe('synced');
 
-    const rawAfterUnwatch = (await CommerceHomeserverService.fetchJson(watchlistUrl)) as {
+    const rawAfterUnwatch = (await readSealed()) as {
       revision: number;
       items: Array<{ listingOwnerPubky: string; listingId: string }>;
       tombstones: Array<{ listingOwnerPubky: string; listingId: string }>;
@@ -238,11 +281,11 @@ describe('marketplace cross-device PRIVATE watchlist sync — live proof on STAG
       (leaked) => ({ refused: false as const, leaked }),
       (error) => ({ refused: true as const, error }),
     );
-    const readRefusal = expectRefusal("read of A's watchlist document", readOutcome);
+    const readRefusal = expectRefusal("read of A's sealed watchlist entry", readOutcome);
     console.info(`[watchlist-live] B: READ refused — ${readRefusal}`);
 
     const listOutcome: ProbeOutcome = await HomeserverService.list({
-      baseDirectory: `pubky://${owner.pubky}/priv/pubky.app/marketplace/v1/`,
+      baseDirectory: `pubky://${owner.pubky}/priv/pubky.app/marketplace/`,
     }).then(
       (leaked) => ({ refused: false as const, leaked }),
       (error) => ({ refused: true as const, error }),
