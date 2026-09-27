@@ -3,6 +3,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { CommerceAttentionSeenApplication } from '@/application/commerce/attention-seen';
 import { CommerceInventoryApplication } from '@/application/commerce/inventory';
+import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { TagKind } from '@/application/tag/tag.types';
 import {
   COMMERCE_SAVED_SEARCH_MAX_PER_OWNER,
@@ -1111,6 +1112,7 @@ export class CommerceApplication {
     LocksFrontendSessionStore.clear();
     this.publishedReceiptUrls.clear();
     this.ownReviewHomeserverMisses.clear();
+    CommercePrivKeyringApplication.clear();
   }
 
   static clearInventorySession(): void {

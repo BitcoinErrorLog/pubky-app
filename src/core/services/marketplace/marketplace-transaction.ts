@@ -44,6 +44,11 @@ import {
   pickupRefusalFailureMessage,
 } from '@/libs/commerce/pickup';
 import {
+  type MarketplacePrivKeysResult,
+  marketplacePrivKeysSchema,
+  privKeyringFromResponse,
+} from '@/libs/commerce/priv-keys';
+import {
   type SellerShippingConfig,
   sellerShippingConfigSchema,
   type ShipFromAddress,
@@ -789,6 +794,52 @@ export class MarketplaceTransactionService {
       raw,
       'Marketplace returned an invalid receipt attestation.',
     ).receiptAttestation;
+  }
+
+  /**
+   * `GET /v1/me/priv-keys`: the session owner's `/priv` data keys. The
+   * service releases them only to a session whose grant covers
+   * `/priv/pubky.app/` with read and write; it answers 403 `needs_reauth`
+   * otherwise and 503 `priv_keys_unavailable` when the deployment holds no
+   * sealing key. Never cached: the request asks for `no-store`.
+   */
+  static async getPrivKeys(actor: string): Promise<MarketplacePrivKeysResult> {
+    const operation = 'getPrivKeys';
+    this.assertTransactionServiceMode(operation);
+    const session = this.requireSession(operation, actor);
+    const url = `${getMarketplaceUrl()}/v1/me/priv-keys`;
+    const response = await safeFetch(
+      url,
+      { method: 'GET', headers: { authorization: `Bearer ${session.token}` }, cache: 'no-store' },
+      ErrorService.Marketplace,
+      operation,
+    );
+    this.throwIfSessionRejected(response.status, operation);
+    if (response.status === HttpStatusCode.FORBIDDEN || response.status === HttpStatusCode.SERVICE_UNAVAILABLE) {
+      const code = await response
+        .json()
+        .then((body: unknown) => z.object({ error: z.object({ code: z.string() }) }).parse(body).error.code)
+        .catch(() => null);
+      if (response.status === HttpStatusCode.FORBIDDEN && code === 'needs_reauth') return { kind: 'needs_reauth' };
+      if (response.status === HttpStatusCode.SERVICE_UNAVAILABLE && code === 'priv_keys_unavailable') {
+        return { kind: 'unavailable' };
+      }
+    }
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
+    const parsed = this.parseProjection(
+      operation,
+      marketplacePrivKeysSchema,
+      toCamelCaseWire(raw),
+      'Marketplace returned invalid private data keys.',
+    );
+    const keyring = privKeyringFromResponse(parsed, actor);
+    if (!keyring) {
+      throw Err.server(ServerErrorCode.INVALID_RESPONSE, 'Marketplace returned invalid private data keys.', {
+        service: ErrorService.Marketplace,
+        operation,
+      });
+    }
+    return { kind: 'keys', keyring };
   }
 
   /**

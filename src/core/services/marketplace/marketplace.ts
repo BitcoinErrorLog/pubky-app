@@ -15,6 +15,7 @@ import type {
   SellerPaymentConfigOwnView,
 } from '@/libs/commerce/payment-methods';
 import type { MarketplacePickupReveal, MarketplaceSellerPickupDetails } from '@/libs/commerce/pickup';
+import type { MarketplacePrivKeysResult } from '@/libs/commerce/priv-keys';
 import type {
   SellerShippingConfig,
   ShipFromAddress,
@@ -239,6 +240,14 @@ export class MarketplaceGatewayService {
    * portable order-receipt document. Null in sandbox mode — the sandbox has
    * no attestor and no receipts worth exporting.
    */
+  /** The owner's `/priv` data keys; none outside the durable service. */
+  static async getPrivKeys(actor: string): Promise<MarketplacePrivKeysResult> {
+    if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      return await MarketplaceTransactionService.getPrivKeys(actor);
+    }
+    return { kind: 'unavailable' };
+  }
+
   static async getReceiptAttestation(actor: string, receiptId: string) {
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
       return await MarketplaceTransactionService.getReceiptAttestation(actor, receiptId);
