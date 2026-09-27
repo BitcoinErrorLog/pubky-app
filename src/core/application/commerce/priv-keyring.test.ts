@@ -142,6 +142,22 @@ describe('CommercePrivKeyringApplication', () => {
     expect(Array.from(held.keys[0].key).every((byte) => byte === 0)).toBe(true);
   });
 
+  it('exports the released keys as the recovery file, or passes the refusal through', async () => {
+    vi.spyOn(MarketplaceGatewayService, 'getPrivKeys')
+      .mockResolvedValueOnce({ kind: 'needs_reauth' })
+      .mockResolvedValueOnce({ kind: 'keys', keyring: keyring() });
+
+    expect(await CommercePrivKeyringApplication.exportRecoveryKey(OWNER)).toEqual({ kind: 'needs_reauth' });
+    const exported = await CommercePrivKeyringApplication.exportRecoveryKey(OWNER);
+    expect(exported.kind).toBe('file');
+    if (exported.kind !== 'file') return;
+    expect(JSON.parse(exported.file.contents)).toMatchObject({
+      owner: OWNER,
+      currentKeyId: 'a'.repeat(32),
+      keys: [{ keyId: 'a'.repeat(32), key: 'BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU' }],
+    });
+  });
+
   it('is unavailable outside the durable service', async () => {
     config.mode = 'sandbox';
     const read = vi.spyOn(MarketplaceGatewayService, 'getPrivKeys');

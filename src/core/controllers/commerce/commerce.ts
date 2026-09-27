@@ -2,6 +2,7 @@ import { CommerceApplication, type CommerceCheckoutFulfillmentInput } from '@/ap
 import { CommerceInventoryApplication, type InventoryBoardRow } from '@/application/commerce/inventory';
 import { CommerceInventoryAutomationsApplication } from '@/application/commerce/inventory-automations';
 import { CommerceInventoryImportApplication } from '@/application/commerce/inventory-import';
+import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { TagKind } from '@/application/tag/tag.types';
 import {
   COMMERCE_SAVED_SEARCH_NAME_MAX_CHARS,
@@ -16,6 +17,7 @@ import {
 } from '@/libs/commerce/digital';
 import type { CommerceDigitalLock } from '@/libs/commerce/marketplace-records';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
+import type { PrivRecoveryKeyExport } from '@/libs/commerce/priv-recovery-key';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
 import { commercePositiveMoneySchema, commercePubkySchema } from '@/libs/commerce/transaction-contracts';
@@ -1446,6 +1448,16 @@ export class CommerceController {
     }
     const status = await CommerceApplication.syncWatchlist(currentUserPubky);
     useCommerceStore.getState().setWatchlistSyncStatus(status === 'skipped' ? 'idle' : status);
+  }
+
+  /**
+   * The signed-in user's recovery key file for "Export recovery key", or why
+   * the marketplace will not release the key.
+   */
+  static async exportPrivRecoveryKey(): Promise<PrivRecoveryKeyExport> {
+    const currentUserPubky = useAuthStore.getState().currentUserPubky;
+    if (!currentUserPubky) return { kind: 'needs_reauth' };
+    return await CommercePrivKeyringApplication.exportRecoveryKey(currentUserPubky);
   }
 
   /**
