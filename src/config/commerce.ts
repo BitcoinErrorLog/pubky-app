@@ -3,6 +3,7 @@ import {
   getCommercePollIntervalMs,
   getLocksUrl,
   getMarketplaceUrl,
+  getPaykitSetupCreatorParam,
   getPaykitSetupUrl,
 } from '@/libs/runtime-config/runtime-config';
 import type { CommerceAdapterMode } from '@/libs/runtime-config/runtime-config.schema';
@@ -13,6 +14,7 @@ export {
   getCommercePollIntervalMs,
   getLocksUrl,
   getMarketplaceUrl,
+  getPaykitSetupCreatorParam,
   getPaykitSetupUrl,
 };
 

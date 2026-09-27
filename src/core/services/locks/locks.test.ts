@@ -17,12 +17,15 @@ vi.mock('locks-sdk-wasm', () => ({
   BundleId: { generate: sdkMocks.generateBundleId },
 }));
 
+const paykitSetupConfig = vi.hoisted(() => ({ creatorParam: true }));
+
 vi.mock('@/config/commerce', async () => {
   const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
   return {
     ...actual,
     getLocksUrl: () => 'https://locks.example.com',
     getPaykitSetupUrl: () => 'https://paykit.example.com/setup',
+    getPaykitSetupCreatorParam: () => paykitSetupConfig.creatorParam,
   };
 });
 
@@ -301,7 +304,8 @@ describe('LocksGatewayService', () => {
     );
   });
 
-  it('builds exact-origin Paykit setup callbacks', () => {
+  it('builds exact-origin Paykit setup callbacks with the creator the paykit-server fork requires', () => {
+    paykitSetupConfig.creatorParam = true;
     expect(
       LocksGatewayService.buildPaykitSetupUrl(
         'https://app.example.com/marketplace/settings',
@@ -311,5 +315,25 @@ describe('LocksGatewayService', () => {
     ).toBe(
       'https://paykit.example.com/setup?return_to=https%3A%2F%2Fapp.example.com%2Fmarketplace%2Fsettings&state=opaque-state&creator=gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
     );
+  });
+
+  // Upstream pubky/paykit-server `http/setup.rs::parse_setup_query` (master
+  // 722ef26, feat/lock-payment-draining 7f1fec9) accepts exactly one
+  // `return_to` and one `state` and answers 400 invalid_request otherwise.
+  it('builds the upstream Paykit setup URL with only return_to and state', () => {
+    paykitSetupConfig.creatorParam = false;
+    try {
+      const built = LocksGatewayService.buildPaykitSetupUrl(
+        'https://app.example.com/marketplace/settings',
+        'opaque-state',
+        'gy1wnkhfwezwdnawnur1bc3kw1x3jf5ggjj3cm37e31i5ntq3pco',
+      );
+      expect(built).toBe(
+        'https://paykit.example.com/setup?return_to=https%3A%2F%2Fapp.example.com%2Fmarketplace%2Fsettings&state=opaque-state',
+      );
+      expect([...new URL(built).searchParams.keys()]).toEqual(['return_to', 'state']);
+    } finally {
+      paykitSetupConfig.creatorParam = true;
+    }
   });
 });
