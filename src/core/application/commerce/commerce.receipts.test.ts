@@ -1,10 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as commerceConfig from '@/config/commerce';
 import { marketplaceReceiptAttestationSchema } from '@/libs/commerce/attestation';
+import {
+  base64UrlToBytes,
+  bytesToBase64Url,
+  decryptPrivRecord,
+  encryptPrivRecord,
+  privEntryUrl,
+  type PrivKeyring,
+} from '@/libs/commerce/priv-envelope';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
-import { AppError } from '@/libs/error/error';
-import { ClientErrorCode } from '@/libs/error/error.codes';
-import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService } from '@/services/homeserver/homeserver';
@@ -13,7 +19,9 @@ import { MarketplaceSessionService } from '@/services/marketplace/marketplace-se
 import receiptAttestationV1 from '@/test/fixtures/commerce/receipt-attestation-v1.json';
 import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attestation-v2-bitcoin.json';
 import receiptAttestationV2SameCurrency from '@/test/fixtures/commerce/receipt-attestation-v2-same-currency.json';
+import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';
 import { CommerceApplication } from './commerce';
+import { CommercePrivKeyringApplication } from './priv-keyring';
 
 // A REAL receipt attestation issued by the transaction service's Rust
 // attestor (test keypair) and cross-verified against the specs fork's
@@ -23,7 +31,6 @@ const BUYER = 'operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo';
 const SELLER = 'pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy';
 const ORDER_ID = '018f47d2-6a27-7c23-a49d-6b21bb770200';
 const RECEIPT_ID = '018f47d2-6a27-7c23-a49d-6b21bb770201';
-const RECEIPT_URL = `pubky://${BUYER}/priv/pubky.app/marketplace/v1/receipts/${RECEIPT_ID}`;
 const JWS =
   'eyJhbGciOiJFZERTQSIsInR5cCI6InB1Ymt5LW9yZGVyLXJlY2VpcHQrdjEifQ.eyJ2IjoxLCJpc3MiOiI3amZnYWE5bnV0anlpeHppa2I3dGdtc2Y5Z2t3cTdpcXo0OTh6cjFuZDVpZzFmbmc0ZXN5IiwiYnV5ZXIiOiJvcGVycnI4d3NicHIzdWU5ZDRxajQxZ2Uxa2NjNnI3ZmRpeTZvM3VnanJyaGk0eTc3cmRvIiwic2VsbGVyIjoicHhudTMzeDdqdHB4OWFyMXl0c2k0eXhicDZhNW8zNmd3aGZmczh6b3htYnVwdGljaTFqeSIsIm9yZGVyIjoiMDE4ZjQ3ZDItNmEyNy03YzIzLWE0OWQtNmIyMWJiNzcwMjAwIiwicmVjZWlwdCI6IjAxOGY0N2QyLTZhMjctN2MyMy1hNDlkLTZiMjFiYjc3MDIwMSIsInRvdGFsX21pbm9yIjoxNDc5NiwiY3VycmVuY3kiOiJVU0QiLCJleHBvbmVudCI6MiwicGFpZF9hdCI6IjIwMjYtMDgtMTlUMjI6MDA6MDAuMDAwWiIsImlhdCI6MTc4NzE3NjgwMH0.2zDQZwDYjVsxfppJMZanH9WR04bW8IkqbwHvVY49a72SFqpLDnZN_YYeYHYex5mujtXMp6fLwqhzG8vMZRMFAA';
 
@@ -86,31 +93,55 @@ const paidDropOrder = (receiptId: string = RECEIPT_ID) =>
     edition: 7,
   }) as never;
 
-const notFoundError = () =>
-  new AppError({
-    category: ErrorCategory.Client,
-    code: ClientErrorCode.NOT_FOUND,
-    message: 'HTTP 404',
-    service: ErrorService.Homeserver,
-    operation: 'test',
-    context: { statusCode: 404 },
-  });
-
-const forbiddenError = () =>
-  new AppError({
-    category: ErrorCategory.Client,
-    code: ClientErrorCode.BAD_REQUEST,
-    message: 'HTTP 403',
-    service: ErrorService.Homeserver,
-    operation: 'test',
-    context: { statusCode: 403 },
-  });
-
 const grantCapableSession = () => {
   vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
   vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
   vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(true);
 };
+
+const keyringFor = (owner: string): PrivKeyring => ({
+  ownerPubky: owner,
+  currentKeyId: 'c'.repeat(32),
+  keys: [{ keyId: 'c'.repeat(32), key: new Uint8Array(32).fill(owner.charCodeAt(0)) }],
+});
+const sealedUrl = (owner: string, receiptId: string) => privEntryUrl(keyringFor(owner), 'order_receipt', receiptId);
+const legacyUrl = (owner: string, receiptId: string) =>
+  `pubky://${owner}/priv/pubky.app/marketplace/v1/receipts/${receiptId}`;
+
+let homeserver: FakeHomeserver;
+
+function storedReceipt(owner: string, receiptId: string): Record<string, unknown> {
+  return decryptPrivRecord({
+    keyring: keyringFor(owner),
+    family: 'order_receipt',
+    id: receiptId,
+    envelope: homeserver.files.get(sealedUrl(owner, receiptId)),
+  }) as Record<string, unknown>;
+}
+
+function sealReceipt(owner: string, receiptId: string, record: Record<string, unknown>) {
+  homeserver.files.set(
+    sealedUrl(owner, receiptId),
+    encryptPrivRecord({ keyring: keyringFor(owner), family: 'order_receipt', id: receiptId, record }),
+  );
+}
+
+const writes = () => homeserver.log.filter((entry) => entry.startsWith('PUT ') || entry.startsWith('DELETE '));
+
+async function publishedRecord(): Promise<Record<string, unknown>> {
+  grantCapableSession();
+  vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
+  await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()]);
+  return storedReceipt(BUYER, RECEIPT_ID);
+}
+
+beforeEach(() => {
+  homeserver = installFakeHomeserver();
+  vi.spyOn(CommercePrivKeyringApplication, 'get').mockImplementation(async (owner: string) => ({
+    kind: 'keys',
+    keyring: keyringFor(owner),
+  }));
+});
 
 describe('CommerceApplication.publishOrderReceipts', () => {
   afterEach(() => {
@@ -118,17 +149,9 @@ describe('CommerceApplication.publishOrderReceipts', () => {
     CommerceApplication.resetReceiptPublicationMemo();
   });
 
-  it('publishes a verified portable receipt built from the attestation claims', async () => {
-    grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
-    vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+  it('publishes a verified portable receipt built from the attestation claims, sealed at its opaque entry', async () => {
+    const record = await publishedRecord();
 
-    await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()]);
-
-    expect(put).toHaveBeenCalledOnce();
-    const [url, record] = put.mock.calls[0] as [string, Record<string, unknown>];
-    expect(url).toBe(RECEIPT_URL);
     expect(record.recordType).toBe('order_receipt');
     expect(record.role).toBe('buyer');
     expect(record.ownerPubky).toBe(BUYER);
@@ -137,22 +160,25 @@ describe('CommerceApplication.publishOrderReceipts', () => {
     expect(record.total).toEqual({ amountMinor: 14796, currency: 'USD', exponent: 2 });
     expect(record.paidAt).toBe('2026-08-19T22:00:00.000Z');
     expect(record.receiptAttestation).toBe(JWS);
+    const stored = JSON.stringify(homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID)));
+    for (const plaintext of [RECEIPT_ID, ORDER_ID, SELLER, 'order_receipt', JWS.slice(0, 40)]) {
+      expect(stored).not.toContain(plaintext);
+    }
+    expect(sealedUrl(BUYER, RECEIPT_ID)).not.toContain(RECEIPT_ID);
+    expect(homeserver.files.has(legacyUrl(BUYER, RECEIPT_ID))).toBe(false);
   });
 
   it('publishes a drop order receipt carrying the verified edition attestation', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
     const editions = vi
       .spyOn(MarketplaceGatewayService, 'getEditionAttestation')
       .mockResolvedValue(editionAttestation());
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
 
     await CommerceApplication.publishOrderReceipts(BUYER, [paidDropOrder()]);
 
     expect(editions).toHaveBeenCalledWith(BUYER, RECEIPT_ID);
-    expect(put).toHaveBeenCalledOnce();
-    const [, record] = put.mock.calls[0] as [string, Record<string, unknown>];
+    const record = storedReceipt(BUYER, RECEIPT_ID);
     expect(record.editionAttestation).toBe(EDITION_JWS);
     expect(record.drop).toEqual({ dropId: 'drop_summer_01', edition: 7, of: 100 });
   });
@@ -183,9 +209,7 @@ describe('CommerceApplication.publishOrderReceipts', () => {
   it('publishes a v2 receipt with merchandise value as the portable record total', async () => {
     grantCapableSession();
     const fixture = parseLiveReceiptFixture(receiptAttestationV2Bitcoin as LiveReceiptFixture);
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(fixture);
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
 
     await CommerceApplication.publishOrderReceipts(fixture.claims.buyer, [
       {
@@ -195,7 +219,7 @@ describe('CommerceApplication.publishOrderReceipts', () => {
       } as never,
     ]);
 
-    const [, record] = put.mock.calls[0] as [string, Record<string, unknown>];
+    const record = storedReceipt(fixture.claims.buyer, fixture.claims.receipt);
     expect(record.total).toEqual({ amountMinor: 13700, currency: 'USD', exponent: 2 });
     expect(record.settlementTotal).toEqual({ amountMinor: 51637, currency: 'SAT', exponent: 0 });
     expect(record.receiptAttestation).toBe(fixture.jws);
@@ -208,9 +232,7 @@ describe('CommerceApplication.publishOrderReceipts', () => {
       tamperedWire.receipt_attestation.claims as { settlement_total: { amount_minor: number } }
     ).settlement_total.amount_minor += 1;
     const fixture = parseLiveReceiptFixture(tamperedWire);
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(fixture);
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
 
     await CommerceApplication.publishOrderReceipts(fixture.claims.buyer, [
       {
@@ -220,29 +242,25 @@ describe('CommerceApplication.publishOrderReceipts', () => {
       } as never,
     ]);
 
-    expect(put).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
   });
 
   it('refuses to publish a drop receipt whose edition attestation does not verify', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
     const tampered = editionAttestation();
     tampered.jws = `${EDITION_JWS.slice(0, -8)}AAAAAAAA`;
     vi.spyOn(MarketplaceGatewayService, 'getEditionAttestation').mockResolvedValue(tampered);
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
 
     await CommerceApplication.publishOrderReceipts(BUYER, [paidDropOrder()]);
 
-    expect(put).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
   });
 
   it('does not fetch edition attestations for non-drop orders', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
     const editions = vi.spyOn(MarketplaceGatewayService, 'getEditionAttestation');
-    vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
 
     await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770206')]);
 
@@ -251,35 +269,29 @@ describe('CommerceApplication.publishOrderReceipts', () => {
 
   it('refuses to publish when the attestation does not verify against the record', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     // Tamper: signature bytes flipped — structural shape survives, crypto fails.
     const tampered = attestation();
     tampered.jws = `${JWS.slice(0, -8)}AAAAAAAA`;
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(tampered);
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
 
     await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()]);
 
-    expect(put).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
   });
 
-  it('skips publication when the receipt document already exists on the homeserver', async () => {
+  it('skips publication when the sealed receipt already exists on the homeserver', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ recordType: 'order_receipt' });
+    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770202';
+    sealReceipt(BUYER, receiptId, { recordType: 'order_receipt' });
     const fetchAttestation = vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation');
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
 
-    // A distinct receipt id keeps this test independent of the module-level
-    // published-URL memo the other tests populate.
-    await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770202')]);
+    await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)]);
 
     expect(fetchAttestation).not.toHaveBeenCalled();
-    expect(put).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
   });
 
   it('does nothing without a durable mode, a session, or the /priv write grant', async () => {
-    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson');
-
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
     await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770203')]);
 
@@ -291,23 +303,22 @@ describe('CommerceApplication.publishOrderReceipts', () => {
     vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(false);
     await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770203')]);
 
-    expect(fetch).not.toHaveBeenCalled();
+    expect(homeserver.log).toEqual([]);
+    expect(CommercePrivKeyringApplication.get).not.toHaveBeenCalled();
   });
 
   it('stops honestly when the deployment issues no attestations', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(null);
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson');
 
     await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770204')]);
 
-    expect(put).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
   });
 
   it('ignores orders the current user is not a party to and orders without receipts', async () => {
     grantCapableSession();
-    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson');
+    const fetchAttestation = vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation');
 
     const stranger = 'y'.repeat(52);
     await CommerceApplication.publishOrderReceipts(stranger, [
@@ -315,7 +326,144 @@ describe('CommerceApplication.publishOrderReceipts', () => {
       { receiptId: null, buyerPubky: stranger, sellerPubky: SELLER } as never,
     ]);
 
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetchAttestation).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
+  });
+});
+
+describe('CommerceApplication.publishOrderReceipts without a released key', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    CommerceApplication.resetReceiptPublicationMemo();
+  });
+
+  it('writes nothing and reports needs_reauth or unavailable, leaving plaintext receipts in place', async () => {
+    grantCapableSession();
+    const fetchAttestation = vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation');
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), { recordType: 'order_receipt' });
+
+    vi.mocked(CommercePrivKeyringApplication.get).mockResolvedValueOnce({ kind: 'needs_reauth' });
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('needs_reauth');
+    vi.mocked(CommercePrivKeyringApplication.get).mockResolvedValueOnce({ kind: 'unavailable' });
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('unavailable');
+    vi.mocked(CommercePrivKeyringApplication.get).mockRejectedValueOnce(new TypeError('network unavailable'));
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('unavailable');
+
+    expect(homeserver.log).toEqual([]);
+    expect(fetchAttestation).not.toHaveBeenCalled();
+    expect(homeserver.files.has(legacyUrl(BUYER, RECEIPT_ID))).toBe(true);
+  });
+});
+
+describe('CommerceApplication.publishOrderReceipts moving plaintext receipts', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    CommerceApplication.resetReceiptPublicationMemo();
+  });
+
+  it('seals every plaintext receipt, reads it back, then deletes the plaintext', async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    homeserver.files.clear();
+    const otherReceipt = '018f47d2-6a27-7c23-a49d-6b21bb770230';
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+    homeserver.files.set(legacyUrl(BUYER, otherReceipt), { ...record, receiptId: otherReceipt });
+    homeserver.log.length = 0;
+    const fetchAttestation = vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation');
+    fetchAttestation.mockClear();
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('published');
+
+    expect(storedReceipt(BUYER, RECEIPT_ID)).toEqual(record);
+    expect(storedReceipt(BUYER, otherReceipt)).toEqual({ ...record, receiptId: otherReceipt });
+    expect(homeserver.files.has(legacyUrl(BUYER, RECEIPT_ID))).toBe(false);
+    expect(homeserver.files.has(legacyUrl(BUYER, otherReceipt))).toBe(false);
+    const put = homeserver.log.indexOf(`PUT ${sealedUrl(BUYER, RECEIPT_ID)}`);
+    const verify = homeserver.log.lastIndexOf(`GET ${sealedUrl(BUYER, RECEIPT_ID)}`);
+    const remove = homeserver.log.indexOf(`DELETE ${legacyUrl(BUYER, RECEIPT_ID)}`);
+    expect(put).toBeGreaterThanOrEqual(0);
+    expect(verify).toBeGreaterThan(put);
+    expect(remove).toBeGreaterThan(verify);
+    // The moved receipt is published: no attestation fetch, no second write.
+    expect(fetchAttestation).not.toHaveBeenCalled();
+    expect(homeserver.log.filter((entry) => entry === `PUT ${sealedUrl(BUYER, RECEIPT_ID)}`)).toHaveLength(1);
+  });
+
+  it('deletes a plaintext receipt whose sealed entry already exists without rewriting it', async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+    const sealedBefore = homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID));
+    homeserver.log.length = 0;
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('published');
+
+    expect(homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID))).toEqual(sealedBefore);
+    expect(writes()).toEqual([`DELETE ${legacyUrl(BUYER, RECEIPT_ID)}`]);
+  });
+
+  it('keeps a plaintext file that does not parse or names another receipt, and reports unavailable', async () => {
+    grantCapableSession();
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    const misnamed = '018f47d2-6a27-7c23-a49d-6b21bb770231';
+    homeserver.files.set(legacyUrl(BUYER, misnamed), record);
+    homeserver.files.set(legacyUrl(BUYER, '018f47d2-6a27-7c23-a49d-6b21bb770232'), { garbage: true });
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('unavailable');
+
+    expect(homeserver.files.has(legacyUrl(BUYER, misnamed))).toBe(true);
+    expect(homeserver.files.has(legacyUrl(BUYER, '018f47d2-6a27-7c23-a49d-6b21bb770232'))).toBe(true);
+  });
+
+  it('keeps the plaintext when the sealed write does not read back', async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    homeserver.files.clear();
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+    homeserver.corruptNextPut(sealedUrl(BUYER, RECEIPT_ID), () => ({ enc: 'pubky-priv-aead/v1' }));
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [])).resolves.toBe('unavailable');
+
+    expect(homeserver.files.has(legacyUrl(BUYER, RECEIPT_ID))).toBe(true);
+  });
+
+  it('reports needs_reauth when listing plaintext receipts is refused', async () => {
+    grantCapableSession();
+    homeserver.failNext(HttpMethod.GET, /\/v1\/receipts\/$/, 403);
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('needs_reauth');
+    expect(writes()).toEqual([]);
+  });
+
+  it('never overwrites a sealed receipt it cannot open', async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    const envelope = homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID)) as { ct: string };
+    const ct = base64UrlToBytes(envelope.ct);
+    ct[0] ^= 1;
+    const tampered = { ...envelope, ct: bytesToBase64Url(ct) };
+    homeserver.files.set(sealedUrl(BUYER, RECEIPT_ID), tampered);
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+    homeserver.log.length = 0;
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('unavailable');
+
+    expect(homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID))).toEqual(tampered);
+    expect(homeserver.files.has(legacyUrl(BUYER, RECEIPT_ID))).toBe(true);
+    expect(homeserver.log.filter((entry) => entry.startsWith('PUT '))).toEqual([]);
+  });
+
+  it('never writes the plaintext v1 receipt path', async () => {
+    const putJson = vi.spyOn(CommerceHomeserverService, 'putJson');
+    await publishedRecord();
+
+    expect(putJson).not.toHaveBeenCalled();
+    expect(homeserver.log.some((entry) => entry.startsWith('PUT ') && entry.includes('/v1/receipts/'))).toBe(false);
   });
 });
 
@@ -329,12 +477,11 @@ describe('CommerceApplication.publishOrderReceipts publication status (step-up O
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
     vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
     vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(false);
-    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson');
 
     await expect(
       CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770210')]),
     ).resolves.toBe('needs_reauth');
-    expect(fetch).not.toHaveBeenCalled();
+    expect(homeserver.log).toEqual([]);
   });
 
   it('reports skipped for non-durable modes and signed-out sessions', async () => {
@@ -354,74 +501,67 @@ describe('CommerceApplication.publishOrderReceipts publication status (step-up O
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
     vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
     const canWrite = vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(false);
+    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770212';
 
-    await expect(
-      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770212')]),
-    ).resolves.toBe('needs_reauth');
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('needs_reauth');
 
     // The step-up re-approval replaced the cookie with the superset grant.
     canWrite.mockReturnValue(true);
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
-    const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
 
-    await expect(
-      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770212')]),
-    ).resolves.toBe('published');
-    expect(put).toHaveBeenCalledOnce();
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
+    expect(homeserver.files.has(sealedUrl(BUYER, receiptId))).toBe(true);
   });
 
-  it('reports published when every eligible receipt already exists on the homeserver', async () => {
+  it('reports published when every eligible receipt is already sealed on the homeserver', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ recordType: 'order_receipt' });
+    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770213';
+    sealReceipt(BUYER, receiptId, { recordType: 'order_receipt' });
 
-    await expect(
-      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770213')]),
-    ).resolves.toBe('published');
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
   });
 
   it('re-reads a published receipt after clearMarketplaceSession instead of trusting the memo', async () => {
     grantCapableSession();
-    const fetch = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockResolvedValue({ recordType: 'order_receipt' });
     vi.spyOn(MarketplaceSessionService, 'clearSession').mockImplementation(() => {});
     const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770217';
+    sealReceipt(BUYER, receiptId, { recordType: 'order_receipt' });
+    const reads = () => homeserver.log.filter((entry) => entry === `GET ${sealedUrl(BUYER, receiptId)}`).length;
 
     await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(reads()).toBe(1);
 
     // Memo hit: a second pass in the same session does not re-read.
     await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(reads()).toBe(1);
 
     // Sign-out / account-switch teardown drops the memo alongside the bearer,
     // so the next session confirms publication from the homeserver itself.
     CommerceApplication.clearMarketplaceSession();
     await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(reads()).toBe(2);
   });
 
   it('a grant session refused with 403 reports unavailable, not a step-up', async () => {
     grantCapableSession();
     vi.spyOn(HomeserverService, 'isCurrentSessionGrant').mockReturnValue(true);
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(forbiddenError());
+    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770219';
+    homeserver.failNext(HttpMethod.GET, sealedUrl(BUYER, receiptId), 403);
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
 
-    await expect(
-      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770219')]),
-    ).resolves.toBe('unavailable');
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('unavailable');
   });
 
   it('reports needs_reauth when the private read is refused with 403 mid-pass', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(forbiddenError());
+    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770214';
+    homeserver.failNext(HttpMethod.GET, sealedUrl(BUYER, receiptId), 403);
 
-    await expect(
-      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770214')]),
-    ).resolves.toBe('needs_reauth');
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('needs_reauth');
   });
 
   it('reports unavailable when the deployment issues no attestations', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(null);
 
     await expect(
@@ -431,13 +571,11 @@ describe('CommerceApplication.publishOrderReceipts publication status (step-up O
 
   it('reports unavailable when a receipt write fails transiently (it retries on the next load)', async () => {
     grantCapableSession();
-    vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(notFoundError());
+    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770216';
     vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation').mockResolvedValue(attestation());
-    vi.spyOn(CommerceHomeserverService, 'putJson').mockRejectedValue(new TypeError('network unavailable'));
+    homeserver.failNext(HttpMethod.PUT, sealedUrl(BUYER, receiptId), 500);
     vi.spyOn(Logger, 'warn').mockImplementation(() => {});
 
-    await expect(
-      CommerceApplication.publishOrderReceipts(BUYER, [paidOrder('018f47d2-6a27-7c23-a49d-6b21bb770216')]),
-    ).resolves.toBe('unavailable');
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('unavailable');
   });
 });

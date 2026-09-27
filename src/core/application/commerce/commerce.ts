@@ -69,6 +69,8 @@ import {
   pickupRefusalFailureMessage,
   resolveCheckoutFulfillment,
 } from '@/libs/commerce/pickup';
+import { privEntryUrl, type PrivKeyring } from '@/libs/commerce/priv-envelope';
+import type { MarketplacePrivKeysResult } from '@/libs/commerce/priv-keys';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
 import {
@@ -228,14 +230,19 @@ export type CommerceWatchlistSyncStatus = 'synced' | 'needs_reauth' | 'unavailab
 /** The logical id of the one encrypted watchlist entry. */
 const WATCHLIST_PRIV_ENTRY_ID = 'watchlist';
 
+/** Plaintext receipts moved per orders load; the rest move on later loads. */
+const RECEIPT_MIGRATION_BATCH = 100;
+
 /**
  * Outcome of one portable order-receipt publication pass, mirrored by the
  * controller into the commerce store for UI surfaces. Same honesty contract
  * as the watchlist sync status: capability is decided from session facts,
  * and a refused private read/write reports `needs_reauth` — nothing
  * silently no-ops. `unavailable` covers the cases re-approval cannot fix:
- * this deployment issued no attestation, or a transient failure left a
- * receipt unpublished (it retries on the next orders-surface load).
+ * this deployment issued no attestation, the marketplace cannot release the
+ * data key that seals receipts, or a transient failure left a receipt
+ * unpublished or a plaintext receipt unmoved (it retries on the next
+ * orders-surface load).
  * `skipped` covers non-durable modes and signed-out/restoring states.
  */
 export type CommerceReceiptPublicationStatus = 'published' | 'needs_reauth' | 'unavailable' | 'skipped';
@@ -1796,8 +1803,8 @@ export class CommerceApplication {
   // ---------------------------------------------------------------------
 
   /**
-   * Session-scoped memo of receipt URLs confirmed present on the owner's
-   * homeserver, so one browsing session re-reads each private receipt path
+   * Session-scoped memo of encrypted receipt URLs confirmed present on the
+   * owner's homeserver, so one browsing session re-reads each receipt entry
    * at most once. Keyed by the full owner-scoped URL, so an account switch
    * cannot bleed publication state across identities.
    */
@@ -1809,10 +1816,54 @@ export class CommerceApplication {
   }
 
   /**
-   * Publishes the portable order receipt for every eligible paid order to
-   * the CURRENT user's own homeserver
-   * (`/priv/pubky.app/marketplace/v1/receipts/{receiptId}`, specs
-   * `0.6.2-marketplace.7`) — the "credible exit for orders" record: killing
+   * Moves plaintext v1 receipts (`/priv/pubky.app/marketplace/v1/receipts/`)
+   * into encrypted entries: each one is parsed, written sealed and read back
+   * (or found already sealed), and only then deleted. One bounded batch per
+   * call; a file that does not parse, or names another receipt than its
+   * path, stays in place and leaves the pass incomplete.
+   */
+  private static async migratePlaintextReceipts(
+    ownerPubky: string,
+    keyring: PrivKeyring,
+  ): Promise<'done' | 'incomplete' | 'needs_reauth'> {
+    let urls: string[];
+    try {
+      urls = await CommerceHomeserverService.list(
+        CommerceRecordNormalizer.orderReceiptDirectoryUri(ownerPubky),
+        RECEIPT_MIGRATION_BATCH,
+      );
+    } catch (error) {
+      if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+      Logger.warn('Listing plaintext order receipts failed; the move retries on the next orders load', { error });
+      return 'incomplete';
+    }
+    let incomplete = urls.length >= RECEIPT_MIGRATION_BATCH;
+    for (const url of urls) {
+      const receiptId = url.slice(url.lastIndexOf('/') + 1);
+      try {
+        const legacy = CommerceRecordNormalizer.orderReceiptRecord(await CommerceHomeserverService.fetchJson(url));
+        if (legacy.receiptId !== receiptId) {
+          incomplete = true;
+          continue;
+        }
+        const sealed = await CommercePrivStoreService.read(keyring, 'order_receipt', receiptId);
+        if (sealed === null) await CommercePrivStoreService.write(keyring, 'order_receipt', receiptId, { ...legacy });
+        await CommerceHomeserverService.delete(url);
+        this.publishedReceiptUrls.add(privEntryUrl(keyring, 'order_receipt', receiptId));
+      } catch (error) {
+        if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+        Logger.warn('Moving a plaintext order receipt failed; it retries on the next orders load', { error });
+        incomplete = true;
+      }
+    }
+    return incomplete ? 'incomplete' : 'done';
+  }
+
+  /**
+   * Publishes the portable order receipt (specs `0.6.2-marketplace.7`) for
+   * every eligible paid order to the CURRENT user's own homeserver, sealed
+   * at the opaque v2 entry for its receipt id, and first moves any
+   * plaintext v1 receipts there — the "credible exit for orders" record: killing
    * the marketplace operator must still leave a signed, verifiable purchase
    * history on the participants' homeservers.
    *
@@ -1828,8 +1879,11 @@ export class CommerceApplication {
    * and a failed PUT simply retries on the next orders-surface load (the
    * homeserver read is the durable "already published" check — no local
    * marker table to drift). The returned status is what the controller
-   * mirrors into the store: a narrow (bridged or legacy) grant reports
-   * `needs_reauth` instead of returning without a trace.
+   * mirrors into the store: a narrow (bridged or legacy) grant, or a
+   * session the marketplace will not release the data key to, reports
+   * `needs_reauth` instead of returning without a trace. Without a key
+   * nothing is written; a sealed entry that does not decrypt is never
+   * overwritten.
    */
   static async publishOrderReceipts(
     ownerPubky: string,
@@ -1839,6 +1893,18 @@ export class CommerceApplication {
     if (!HomeserverService.hasActiveSession()) return 'skipped';
     if (!HomeserverService.canCurrentSessionWrite(PRIVATE_APP_DATA_PATH)) return 'needs_reauth';
 
+    let keys: MarketplacePrivKeysResult;
+    try {
+      keys = await CommercePrivKeyringApplication.get(ownerPubky);
+    } catch (error) {
+      Logger.warn('The private data key could not be read; receipts retry on the next orders load', { error });
+      return 'unavailable';
+    }
+    if (keys.kind !== 'keys') return keys.kind;
+    const { keyring } = keys;
+    const migration = await this.migratePlaintextReceipts(ownerPubky, keyring);
+    if (migration === 'needs_reauth') return 'needs_reauth';
+
     const eligible = orders.filter(
       (order) =>
         typeof order.receiptId === 'string' && (order.buyerPubky === ownerPubky || order.sellerPubky === ownerPubky),
@@ -1846,16 +1912,17 @@ export class CommerceApplication {
 
     for (const order of eligible) {
       const receiptId = order.receiptId as string;
-      const url = CommerceRecordNormalizer.orderReceiptUri(ownerPubky, receiptId);
+      const url = privEntryUrl(keyring, 'order_receipt', receiptId);
       if (this.publishedReceiptUrls.has(url)) continue;
       try {
         try {
-          await CommerceHomeserverService.fetchJson(url);
-          this.publishedReceiptUrls.add(url);
-          continue;
+          if ((await CommercePrivStoreService.read(keyring, 'order_receipt', receiptId)) !== null) {
+            this.publishedReceiptUrls.add(url);
+            continue;
+          }
         } catch (error) {
           if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
-          if (!(isAppError(error) && isNotFound(error))) throw error;
+          throw error;
         }
 
         const attestation = await MarketplaceGatewayService.getReceiptAttestation(ownerPubky, receiptId);
@@ -1959,32 +2026,32 @@ export class CommerceApplication {
         const record = CommerceRecordNormalizer.orderReceiptRecord(built.order_receipt.toJson());
         if (verifiedClaims.v === 2) record.settlementTotal = verifiedClaims.settlementTotal;
         if (verifyOwnOrderReceipt({ ...record }) === null) {
-          Logger.warn('Refusing to publish an order receipt whose attestation does not verify', { url });
+          Logger.warn('Refusing to publish an order receipt whose attestation does not verify');
           continue;
         }
         if (record.editionAttestation !== undefined && verifyOwnDropEdition({ ...record }) === null) {
-          Logger.warn('Refusing to publish an order receipt whose edition attestation does not verify', { url });
+          Logger.warn('Refusing to publish an order receipt whose edition attestation does not verify');
           continue;
         }
         try {
-          await CommerceHomeserverService.putJson(url, { ...record });
+          await CommercePrivStoreService.write(keyring, 'order_receipt', receiptId, { ...record });
         } catch (error) {
           if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
           throw error;
         }
         this.publishedReceiptUrls.add(url);
       } catch (error) {
-        Logger.warn('Order receipt publication failed; it will retry on the next orders load', { url, error });
+        Logger.warn('Order receipt publication failed; it will retry on the next orders load', { error });
       }
     }
 
-    // A receipt that failed mid-flight (logged above) retries on the next
-    // orders-surface load; report that honestly instead of claiming done.
+    // A receipt that failed mid-flight (logged above), or a plaintext receipt
+    // still waiting to move, retries on the next orders-surface load; report
+    // that honestly instead of claiming done.
     const hasUnpublished = eligible.some(
-      (order) =>
-        !this.publishedReceiptUrls.has(CommerceRecordNormalizer.orderReceiptUri(ownerPubky, order.receiptId as string)),
+      (order) => !this.publishedReceiptUrls.has(privEntryUrl(keyring, 'order_receipt', order.receiptId as string)),
     );
-    return hasUnpublished ? 'unavailable' : 'published';
+    return hasUnpublished || migration === 'incomplete' ? 'unavailable' : 'published';
   }
 
   static async getWatchAlerts(ownerPubky: string): Promise<CommerceWatchAlertModelSchema[]> {
