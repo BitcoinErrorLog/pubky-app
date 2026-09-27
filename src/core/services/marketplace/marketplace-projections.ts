@@ -311,6 +311,11 @@ export const marketplaceNotificationSchema = z
     amount: marketplaceMoneySchema.nullish(),
     createdAt: z.iso.datetime({ offset: true }),
     readAt: z.string().nullable(),
+    // The fulfillment of the order a notification is about (`shipping`,
+    // `pickup`, `digital`), sent only to a party to that order. Absent from
+    // the sandbox and from services that predate it; kept as a string so a
+    // new method never makes a row unreadable.
+    orderFulfillment: z.string().nullish(),
   })
   .passthrough();
 
