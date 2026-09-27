@@ -17,6 +17,7 @@ import {
   seedDraftFormFromListing,
   useCreateMarketplaceListing,
 } from './useCreateMarketplaceListing';
+import { createMarketplaceListingSchema } from './useCreateMarketplaceListing.types';
 
 const OWNER = 'y'.repeat(52);
 
@@ -527,6 +528,52 @@ describe('useCreateMarketplaceListing', () => {
     expect(result.current.form.getValues('price')).toBe('15000');
   });
 
+  // Sol re-review P1: a duplicate drafted on the pre-fix head could be saved
+  // after adding Ship or Local pickup with the cap still in its quantity.
+  it.each(['shipping_and_digital', 'pickup_and_digital'] as const)(
+    'resumes a pre-fix %s duplicate draft holding the unlimited cap without letting it publish',
+    async (fulfillment) => {
+      markListingDraftResumeId('draftlisting09');
+      vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
+        listingDraftRow('draftlisting09', {
+          title: 'Field guide',
+          description: 'A printable guide.',
+          price: '10.00',
+          fulfillment,
+          seededFromTitle: 'Field guide',
+          seededAuctionAsFixedPrice: false,
+          variants: [
+            {
+              sku: '',
+              size: 'pdf',
+              color: '',
+              style: '',
+              quantity: String(COMMERCE_LISTING_MAX_QUANTITY),
+              unlimited: false,
+              priceOverride: '',
+            },
+          ],
+        }),
+      ]);
+      const { result } = renderHook(() => useCreateMarketplaceListing());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const quantityBlocked = () => {
+        const parsed = createMarketplaceListingSchema.safeParse(result.current.form.getValues());
+        return !parsed.success && parsed.error.issues.some((issue) => issue.path.join('.') === 'variants.0.quantity');
+      };
+
+      expect(result.current.restoredDraft).toBe(true);
+      expect(result.current.form.getValues('fulfillment')).toBe(fulfillment);
+      expect(result.current.form.getValues('variants.0')).toMatchObject({ quantity: '', unlimited: false });
+      expect(quantityBlocked()).toBe(true);
+
+      act(() => result.current.form.setValue('variants.0.quantity', '3'));
+      expect(quantityBlocked()).toBe(false);
+    },
+  );
+
   it('restores a duplicated listing draft with source title metadata', async () => {
     markListingDraftResumeId('draftlisting03');
     vi.mocked(CommerceController.getListingDrafts).mockResolvedValue([
@@ -752,13 +799,49 @@ describe('buildListingVariants', () => {
     const media = [] as Parameters<typeof buildListingVariants>[1];
     const base = { sku: '', size: '', color: '', style: '', priceOverride: '' };
     expect(
-      buildListingVariants({ currency: 'USD', variants: [{ ...base, quantity: '3', unlimited: true }] }, media)[0]
-        .quantity,
+      buildListingVariants(
+        { currency: 'USD', fulfillment: 'digital', variants: [{ ...base, quantity: '3', unlimited: true }] },
+        media,
+      )[0].quantity,
     ).toBe(COMMERCE_LISTING_MAX_QUANTITY);
     expect(
-      buildListingVariants({ currency: 'USD', variants: [{ ...base, quantity: '4', unlimited: false }] }, media)[0]
-        .quantity,
+      buildListingVariants(
+        { currency: 'USD', fulfillment: 'digital', variants: [{ ...base, quantity: '4', unlimited: false }] },
+        media,
+      )[0].quantity,
     ).toBe(4);
+  });
+
+  it('refuses to write the unlimited cap on a listing that ships or offers pickup, however it was entered', () => {
+    const media = [] as Parameters<typeof buildListingVariants>[1];
+    const base = { sku: '', size: '', color: '', style: '', priceOverride: '' };
+    const cap = String(COMMERCE_LISTING_MAX_QUANTITY);
+    for (const fulfillment of ['shipping', 'pickup_and_digital', 'shipping_and_digital'] as const) {
+      expect(() =>
+        buildListingVariants(
+          { currency: 'USD', fulfillment, variants: [{ ...base, quantity: cap, unlimited: false }] },
+          media,
+        ),
+      ).toThrow('unlimited-stock-on-physical-listing');
+      expect(() =>
+        buildListingVariants(
+          { currency: 'USD', fulfillment, variants: [{ ...base, quantity: '', unlimited: true }] },
+          media,
+        ),
+      ).toThrow('unlimited-stock-on-physical-listing');
+      expect(
+        buildListingVariants(
+          { currency: 'USD', fulfillment, variants: [{ ...base, quantity: '3', unlimited: false }] },
+          media,
+        )[0].quantity,
+      ).toBe(3);
+    }
+    expect(
+      buildListingVariants(
+        { currency: 'USD', fulfillment: 'digital', variants: [{ ...base, quantity: cap, unlimited: false }] },
+        media,
+      )[0].quantity,
+    ).toBe(COMMERCE_LISTING_MAX_QUANTITY);
   });
 });
 

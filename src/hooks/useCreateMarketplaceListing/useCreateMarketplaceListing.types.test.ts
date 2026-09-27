@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
+import { UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/libs/commerce/unlimited-stock';
 import {
   CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS,
+  type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
   createMarketplaceListingDraftSchema,
   createMarketplaceListingPublishChecklist,
@@ -459,6 +462,41 @@ describe('delivery options record encoding (digital delivery design §2)', () =>
         expect(parsed.error.issues.some((issue) => issue.message === UNLIMITED_STOCK_FORM_MESSAGE)).toBe(true);
       }
     }
+  });
+
+  it('refuses the unlimited cap as a typed quantity on any line that ships or offers pickup', () => {
+    const listing = (fulfillment: CreateMarketplaceListingData['fulfillment'], quantity: string) =>
+      createMarketplaceListingSchema.safeParse({
+        ...formDefaults,
+        title: 'Field guide',
+        description: 'A printable guide.',
+        price: '10.00',
+        fulfillment,
+        shippingPrice: '12.00',
+        packageWeight: '1200',
+        packageLength: '35.0',
+        packageWidth: '25.0',
+        packageHeight: '15.0',
+        variants: [{ sku: '', size: '', color: '', style: '', quantity, unlimited: false, priceOverride: '' }],
+      });
+    const reserved = (parsed: ReturnType<typeof listing>) =>
+      !parsed.success &&
+      parsed.error.issues.some(
+        (issue) => issue.path.join('.') === 'variants.0.quantity' && issue.message === UNLIMITED_STOCK_RESERVED_MESSAGE,
+      );
+    for (const fulfillment of [
+      'shipping',
+      'pickup',
+      'shipping_and_pickup',
+      'shipping_and_digital',
+      'pickup_and_digital',
+      'shipping_pickup_and_digital',
+    ] as const) {
+      expect(reserved(listing(fulfillment, String(COMMERCE_LISTING_MAX_QUANTITY))), fulfillment).toBe(true);
+      expect(reserved(listing(fulfillment, ` ${COMMERCE_LISTING_MAX_QUANTITY} `)), fulfillment).toBe(true);
+      expect(reserved(listing(fulfillment, String(COMMERCE_LISTING_MAX_QUANTITY - 1))), fulfillment).toBe(false);
+    }
+    expect(listing('digital', String(COMMERCE_LISTING_MAX_QUANTITY)).success).toBe(true);
   });
 
   it('accepts an optional unlimited flag so an older draft still loads', () => {

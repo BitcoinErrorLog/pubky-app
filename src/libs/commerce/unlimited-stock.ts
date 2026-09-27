@@ -3,6 +3,20 @@ import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-r
 
 export const UNLIMITED_STOCK_LABEL = 'Unlimited';
 
+export const UNLIMITED_STOCK_RESERVED_MESSAGE =
+  '1,000,000 is reserved for unlimited digital stock. Enter the number of copies you have.';
+
+/**
+ * A typed quantity equal to the cap, the value Unlimited is stored as. On a
+ * listing that ships or offers pickup it would publish the cap as physical
+ * stock, so it is refused there whatever path put it in the form (a draft
+ * saved before a fix, a hydrated edit, or typing).
+ */
+export function isUnlimitedStockSentinel(quantity: string): boolean {
+  const value = quantity.trim();
+  return /^[1-9]\d*$/.test(value) && Number(value) === COMMERCE_LISTING_MAX_QUANTITY;
+}
+
 type UnlimitedStockRecord = {
   fulfillmentMethods: Parameters<typeof commerceListingFulfillmentMethods>[0];
   digitalLock?: unknown;

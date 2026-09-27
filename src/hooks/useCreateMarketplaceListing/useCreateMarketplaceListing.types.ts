@@ -19,6 +19,7 @@ import {
   type ListingCurrencyChoice,
 } from '@/libs/commerce/pricing';
 import { gramsFromWeightInput, type MeasurementSystem, millimetersFromDimensionInput } from '@/libs/commerce/units';
+import { isUnlimitedStockSentinel, UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/libs/commerce/unlimited-stock';
 
 export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   TITLE: 'title',
@@ -436,12 +437,21 @@ export const createMarketplaceListingSchema = z
     }
     if (data.fulfillment !== 'digital') {
       data.variants.forEach((variant, index) => {
-        if (!variant.unlimited) return;
-        context.addIssue({
-          code: 'custom',
-          path: ['variants', index, 'unlimited'],
-          message: UNLIMITED_STOCK_FORM_MESSAGE,
-        });
+        if (variant.unlimited) {
+          context.addIssue({
+            code: 'custom',
+            path: ['variants', index, 'unlimited'],
+            message: UNLIMITED_STOCK_FORM_MESSAGE,
+          });
+          return;
+        }
+        if (isUnlimitedStockSentinel(variant.quantity)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['variants', index, 'quantity'],
+            message: UNLIMITED_STOCK_RESERVED_MESSAGE,
+          });
+        }
       });
     }
   });

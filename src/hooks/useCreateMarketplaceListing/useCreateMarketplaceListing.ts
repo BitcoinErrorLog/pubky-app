@@ -48,7 +48,7 @@ import {
   millimetersFromDimensionInput,
   weightInputFromGrams,
 } from '@/libs/commerce/units';
-import { stockFormFields } from '@/libs/commerce/unlimited-stock';
+import { isUnlimitedStockSentinel, stockFormFields } from '@/libs/commerce/unlimited-stock';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -466,15 +466,22 @@ export function normalizeDraftForm(draft: CreateMarketplaceListingDraftData): Pa
     normalized.measurementSystem = 'metric';
   }
   if (draftVariants) {
-    normalized.variants = draftVariants.map((variant) => ({
-      sku: variant.sku,
-      size: variant.size,
-      color: variant.color,
-      style: variant.style,
-      quantity: variant.quantity,
-      priceOverride: variant.priceOverride,
-      unlimited: variant.unlimited === true,
-    }));
+    // A draft saved on a listing that ships or offers pickup may hold the
+    // unlimited cap as a plain quantity (a duplicate drafted before leaving
+    // digital-only cleared it). It restores empty, so the seller enters a count.
+    const digitalOnly = normalized.fulfillment === 'digital';
+    normalized.variants = draftVariants.map((variant) => {
+      const unlimited = variant.unlimited === true;
+      return {
+        sku: variant.sku,
+        size: variant.size,
+        color: variant.color,
+        style: variant.style,
+        quantity: !digitalOnly && !unlimited && isUnlimitedStockSentinel(variant.quantity) ? '' : variant.quantity,
+        priceOverride: variant.priceOverride,
+        unlimited,
+      };
+    });
   }
 
   return normalized;
@@ -735,9 +742,17 @@ export function buildPackageRecord(
 }
 
 export function buildListingVariants(
-  data: Pick<CreateMarketplaceListingData, 'variants' | 'currency'>,
+  data: Pick<CreateMarketplaceListingData, 'variants' | 'currency' | 'fulfillment'>,
   media: ListingMediaRecord[],
 ): Array<Record<string, unknown>> {
+  // The schema refuses these first; this keeps any other route to the record
+  // from publishing the unlimited cap as physical stock.
+  if (
+    data.fulfillment !== 'digital' &&
+    data.variants.some((variant) => variant.unlimited || isUnlimitedStockSentinel(variant.quantity))
+  ) {
+    throw new Error('unlimited-stock-on-physical-listing');
+  }
   const asset: CommerceAsset = assetForListingCurrency(data.currency);
   return data.variants.map((variant, index) => ({
     id: `variant_${index + 1}`,
