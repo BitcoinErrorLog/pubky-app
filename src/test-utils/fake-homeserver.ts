@@ -26,6 +26,9 @@ export type FakeHomeserver = {
   failNext: (method: HttpMethod, url: string | RegExp, statusCode: number) => void;
   /** Stores `transform(body)` instead of the body for the next PUT to a matching URL. */
   corruptNextPut: (url: string | RegExp, transform: (body: unknown) => unknown) => void;
+  /** Parks every list call (after it has read the directory) until {@link releaseLists}. */
+  holdLists: () => void;
+  releaseLists: () => void;
 };
 
 /**
@@ -38,6 +41,7 @@ export function installFakeHomeserver(): FakeHomeserver {
   const log: string[] = [];
   const failures: { method: HttpMethod; url: string | RegExp; statusCode: number }[] = [];
   const corruptions: { url: string | RegExp; transform: (body: unknown) => unknown }[] = [];
+  let held: (() => void)[] | null = null;
   const matches = (pattern: string | RegExp, url: string) =>
     typeof pattern === 'string' ? pattern === url : pattern.test(url);
 
@@ -73,7 +77,9 @@ export function installFakeHomeserver(): FakeHomeserver {
       const [{ statusCode }] = failures.splice(failure, 1);
       throw homeserverHttpError(statusCode);
     }
-    return [...files.keys()].filter((url) => url.startsWith(baseDirectory)).slice(0, limit);
+    const result = [...files.keys()].filter((url) => url.startsWith(baseDirectory)).slice(0, limit);
+    if (held) await new Promise<void>((release) => held?.push(release));
+    return result;
   });
 
   return {
@@ -81,5 +87,13 @@ export function installFakeHomeserver(): FakeHomeserver {
     log,
     failNext: (method, url, statusCode) => failures.push({ method, url, statusCode }),
     corruptNextPut: (url, transform) => corruptions.push({ url, transform }),
+    holdLists: () => {
+      held = [];
+    },
+    releaseLists: () => {
+      const waiting = held ?? [];
+      held = null;
+      for (const release of waiting) release();
+    },
   };
 }

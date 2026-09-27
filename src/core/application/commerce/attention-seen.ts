@@ -1,10 +1,13 @@
+import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { raiseLocalOrdersSeenAt, readLocalOrdersSeenAt } from '@/libs/commerce/marketplace-attention';
+import { newPrivEntryName, type PrivFamily, type PrivKeyring } from '@/libs/commerce/priv-envelope';
 import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService, PRIVATE_APP_DATA_PATH } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -14,14 +17,19 @@ export type MarketplaceAttentionSide = 'activity' | 'orders';
 /** Quiet period before a burst of "seen" moments becomes one homeserver write. */
 export const ATTENTION_SEEN_WRITE_DEBOUNCE_MS = 2_000;
 
-/** Entry names are ms epochs zero-padded to this width, so names sort by value. */
-const ENTRY_NAME_DIGITS = 13;
-const ENTRY_NAME = /^\d{13}$/;
+/** Plaintext v1 entry names are ms epochs zero-padded to this width. */
+const LEGACY_ENTRY_NAME = /^\d{13}$/;
 /** Pruning keeps each directory to a handful of entries; this bounds one read. */
 const ENTRY_LIST_LIMIT = 100;
 
-type Entry = { url: string; at: number };
-type Listing = { kind: 'entries'; entries: Entry[] } | { kind: 'unavailable' };
+const FAMILY: Record<MarketplaceAttentionSide, PrivFamily> = {
+  activity: 'attention_seen/activity',
+  orders: 'attention_seen/orders',
+};
+
+type SealedEntry = { name: string; at: number };
+type LegacyEntry = { url: string; at: number };
+type Listing = { kind: 'entries'; sealed: SealedEntry[]; legacy: LegacyEntry[] } | { kind: 'unavailable' };
 type PendingWrite = { timer: ReturnType<typeof setTimeout>; done: Promise<void>; resolve: () => void };
 
 /**
@@ -29,16 +37,23 @@ type PendingWrite = { timer: ReturnType<typeof setTimeout>; done: Promise<void>;
  * and Orders, on any browser.
  *
  * The durable marketplace service stores no read state, so the checkpoints
- * live on the owner's homeserver under
- * `/priv/pubky.app/marketplace/v1/attention_seen/{activity|orders}/`. Each
- * write adds a new entry named by the checkpoint it records and never
- * rewrites an existing one; the checkpoint is the largest entry name. The
- * homeserver has no conditional write, and a read-modify-write of one
- * document lets a slower writer put back an older value. A set of
- * immutable entries whose maximum is the value cannot move backward under
- * any interleaving of tabs or browsers. After a write, entries below the one
- * just written are deleted; an entry is only deleted when a larger one
- * exists, so the maximum survives concurrent pruning too.
+ * live on the owner's homeserver, encrypted, in one hidden family directory
+ * per side under `/priv/pubky.app/marketplace/v2/s/`. Each entry has a
+ * random name and seals `{ version: 1, seenAt }`, so the homeserver sees
+ * neither which side an entry belongs to nor when it was seen. Each write
+ * adds a new entry and never rewrites an existing one; the checkpoint is
+ * the largest `seenAt`. The homeserver has no conditional write, and a
+ * read-modify-write of one document lets a slower writer put back an older
+ * value. A set of immutable entries whose maximum is the value cannot move
+ * backward under any interleaving of tabs or browsers. After a write,
+ * entries below the one just written are deleted; an entry is only deleted
+ * when a larger one exists, so the maximum survives concurrent pruning too.
+ * An entry that does not decrypt is ignored and never deleted.
+ *
+ * Plaintext v1 entries (`/priv/pubky.app/marketplace/v1/attention_seen/
+ * {side}/{ms}`, named by the timestamp) are read, carried into an encrypted
+ * entry when they hold the newest value, and deleted once an encrypted
+ * entry at least as new exists.
  *
  * Each browser keeps a local copy (Dexie for Activity, local storage for
  * Orders) that the badge hooks read live. `markSeen` raises the local copy
@@ -46,8 +61,8 @@ type PendingWrite = { timer: ReturnType<typeof setTimeout>; done: Promise<void>;
  * homeserver already holds a checkpoint at least as new. `pull` raises the
  * local copies to the homeserver's, capped at this device's now so a clock
  * running ahead cannot hide future activity. Without a session that can
- * write `/priv/pubky.app/` (or in the sandbox) the local copy is all there
- * is, and the badge behaves per browser.
+ * write `/priv/pubky.app/`, without a released data key, or in the sandbox,
+ * the local copy is all there is, and the badge behaves per browser.
  */
 export class CommerceAttentionSeenApplication {
   private constructor() {}
@@ -108,56 +123,117 @@ export class CommerceAttentionSeenApplication {
     // The account may have changed or lost its grant during the quiet period.
     if (!this.canUseRemote(ownerPubky)) return;
     try {
+      const keyring = await this.keyring(ownerPubky);
+      if (!keyring) return;
       const local =
         side === 'activity'
           ? await LocalCommerceService.getActivityReadCheckpoint(ownerPubky)
           : readLocalOrdersSeenAt(ownerPubky);
       const value = Math.min(local, Date.now());
       if (!(value > 0)) return;
-      const listing = await this.listEntries(ownerPubky, side);
+      const listing = await this.listEntries(ownerPubky, keyring, side);
       if (listing.kind === 'unavailable') return;
-      if (listing.entries.some(({ at }) => at >= value)) return;
-      const directory = CommerceRecordNormalizer.attentionSeenDirectoryUri(ownerPubky, side);
-      await CommerceHomeserverService.putJson(`${directory}${entryName(value)}`, { version: 1, seenAt: value });
-      await Promise.allSettled(listing.entries.map(({ url }) => CommerceHomeserverService.delete(url)));
+      await this.store(keyring, side, listing, value);
     } catch (error) {
       Logger.warn('Failed to save the marketplace badge checkpoint', { error });
     }
   }
 
+  /**
+   * Makes the encrypted entries hold at least `value`, then prunes: sealed
+   * entries below the newest, and every plaintext entry an encrypted entry
+   * now covers.
+   */
+  private static async store(
+    keyring: PrivKeyring,
+    side: MarketplaceAttentionSide,
+    listing: Extract<Listing, { kind: 'entries' }>,
+    value: number,
+  ): Promise<void> {
+    let newest = latestSealed(listing);
+    const stale: SealedEntry[] = [];
+    if (newest < value) {
+      const name = newPrivEntryName();
+      await CommercePrivStoreService.writeListed(keyring, FAMILY[side], name, { version: 1, seenAt: value });
+      stale.push(...listing.sealed);
+      newest = value;
+    }
+    const covered = listing.legacy.filter(({ at }) => at <= newest);
+    await Promise.allSettled([
+      ...stale.map(({ name }) => CommercePrivStoreService.deleteListed(keyring, FAMILY[side], name)),
+      ...covered.map(({ url }) => CommerceHomeserverService.delete(url)),
+    ]);
+  }
+
   private static async runPull(ownerPubky: string): Promise<void> {
     try {
-      const [activity, orders] = await Promise.all([
-        this.listEntries(ownerPubky, 'activity'),
-        this.listEntries(ownerPubky, 'orders'),
-      ]);
+      const keyring = await this.keyring(ownerPubky);
+      if (!keyring) return;
       const now = Date.now();
-      await this.raiseLocal(ownerPubky, 'activity', Math.min(latest(activity), now));
-      await this.raiseLocal(ownerPubky, 'orders', Math.min(latest(orders), now));
+      for (const side of ['activity', 'orders'] as const) {
+        const listing = await this.listEntries(ownerPubky, keyring, side);
+        if (listing.kind === 'unavailable') continue;
+        const newest = Math.max(latestSealed(listing), latestLegacy(listing));
+        await this.raiseLocal(ownerPubky, side, Math.min(newest, now));
+        if (listing.legacy.length > 0) await this.store(keyring, side, listing, newest);
+      }
     } catch (error) {
       Logger.warn('Failed to load the marketplace badge checkpoint', { error });
     }
   }
 
-  private static async listEntries(ownerPubky: string, side: MarketplaceAttentionSide): Promise<Listing> {
-    let urls: string[];
+  private static async listEntries(
+    ownerPubky: string,
+    keyring: PrivKeyring,
+    side: MarketplaceAttentionSide,
+  ): Promise<Listing> {
+    let names: string[];
+    let legacyUrls: string[];
     try {
-      urls = await CommerceHomeserverService.list(
-        CommerceRecordNormalizer.attentionSeenDirectoryUri(ownerPubky, side),
-        ENTRY_LIST_LIMIT,
-      );
+      [names, legacyUrls] = await Promise.all([
+        CommercePrivStoreService.listNames(keyring, FAMILY[side], ENTRY_LIST_LIMIT),
+        CommerceHomeserverService.list(
+          CommerceRecordNormalizer.attentionSeenDirectoryUri(ownerPubky, side),
+          ENTRY_LIST_LIMIT,
+        ),
+      ]);
     } catch (error) {
       if (hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED)) {
         return { kind: 'unavailable' };
       }
       throw error;
     }
-    const entries: Entry[] = [];
-    for (const url of urls) {
-      const name = url.slice(url.lastIndexOf('/') + 1);
-      if (ENTRY_NAME.test(name)) entries.push({ url, at: Number(name) });
+    const sealed: SealedEntry[] = [];
+    for (const name of names) {
+      const at = await this.readSealed(keyring, side, name);
+      if (at !== null) sealed.push({ name, at });
     }
-    return { kind: 'entries', entries };
+    const legacy: LegacyEntry[] = [];
+    for (const url of legacyUrls) {
+      const name = url.slice(url.lastIndexOf('/') + 1);
+      if (LEGACY_ENTRY_NAME.test(name)) legacy.push({ url, at: Number(name) });
+    }
+    return { kind: 'entries', sealed, legacy };
+  }
+
+  private static async readSealed(
+    keyring: PrivKeyring,
+    side: MarketplaceAttentionSide,
+    name: string,
+  ): Promise<number | null> {
+    try {
+      const record = await CommercePrivStoreService.readListed(keyring, FAMILY[side], name);
+      const seenAt = (record as { seenAt?: unknown } | null)?.seenAt;
+      return typeof seenAt === 'number' && Number.isFinite(seenAt) && seenAt > 0 ? seenAt : null;
+    } catch (error) {
+      Logger.warn('Ignoring a marketplace badge checkpoint that does not decrypt', { error });
+      return null;
+    }
+  }
+
+  private static async keyring(ownerPubky: string): Promise<PrivKeyring | null> {
+    const result = await CommercePrivKeyringApplication.get(ownerPubky);
+    return result.kind === 'keys' ? result.keyring : null;
   }
 
   private static async raiseLocal(ownerPubky: string, side: MarketplaceAttentionSide, at: number): Promise<void> {
@@ -176,11 +252,10 @@ export class CommerceAttentionSeenApplication {
   }
 }
 
-function entryName(at: number): string {
-  return String(Math.trunc(at)).padStart(ENTRY_NAME_DIGITS, '0');
+function latestSealed(listing: Extract<Listing, { kind: 'entries' }>): number {
+  return listing.sealed.reduce((max, { at }) => Math.max(max, at), 0);
 }
 
-function latest(listing: Listing): number {
-  if (listing.kind === 'unavailable') return 0;
-  return listing.entries.reduce((max, { at }) => Math.max(max, at), 0);
+function latestLegacy(listing: Extract<Listing, { kind: 'entries' }>): number {
+  return listing.legacy.reduce((max, { at }) => Math.max(max, at), 0);
 }

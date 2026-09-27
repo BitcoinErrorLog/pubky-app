@@ -146,6 +146,30 @@ export function privEntryPath(keyring: PrivKeyring, family: PrivFamily, id: stri
   return `${privFamilyPath(keyring, family)}${segment(pathKey(keyring), `id|${family}|${id}`)}`;
 }
 
+/**
+ * A listed entry: its name is a random 32-hex id (see {@link newPrivEntryName})
+ * rather than an HMAC, because readers find it by listing the family, and
+ * the name doubles as the entry id in the associated data.
+ */
+export function privListedEntryPath(keyring: PrivKeyring, family: PrivFamily, name: string): string {
+  if (!isPrivEntryName(name)) throw rejected('malformed');
+  return `${privFamilyPath(keyring, family)}${name}`;
+}
+
+export function privListedEntryUrl(keyring: PrivKeyring, family: PrivFamily, name: string): string {
+  return `pubky://${keyring.ownerPubky}${privListedEntryPath(keyring, family, name)}`;
+}
+
+const ENTRY_NAME = /^[0-9a-f]{32}$/;
+
+export function isPrivEntryName(value: string): boolean {
+  return ENTRY_NAME.test(value);
+}
+
+export function newPrivEntryName(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function privEntryUrl(keyring: PrivKeyring, family: PrivFamily, id: string): string {
   return `pubky://${keyring.ownerPubky}${privEntryPath(keyring, family, id)}`;
 }

@@ -1,11 +1,13 @@
 import {
   decryptPrivRecord,
   encryptPrivRecord,
+  isPrivEntryName,
   PRIV_V2_LOG_PATH,
   privEntryUrl,
   type PrivFamily,
   privFamilyUrl,
   type PrivKeyring,
+  privListedEntryUrl,
 } from '@/libs/commerce/priv-envelope';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -24,18 +26,12 @@ export class CommercePrivStoreService {
 
   /** The decrypted record, or null when the entry does not exist. */
   static async read(keyring: PrivKeyring, family: PrivFamily, id: string): Promise<unknown | null> {
-    let envelope: unknown;
-    try {
-      envelope = await HomeserverService.request<unknown>({
-        method: HttpMethod.GET,
-        url: privEntryUrl(keyring, family, id),
-        logUrl: PRIV_V2_LOG_PATH,
-      });
-    } catch (error) {
-      if (isAppError(error) && isNotFound(error)) return null;
-      throw error;
-    }
-    return decryptPrivRecord({ keyring, family, id, envelope });
+    return await this.readAt(keyring, family, id, privEntryUrl(keyring, family, id));
+  }
+
+  /** {@link read} for an entry found by listing its family, named by its id. */
+  static async readListed(keyring: PrivKeyring, family: PrivFamily, name: string): Promise<unknown | null> {
+    return await this.readAt(keyring, family, name, privListedEntryUrl(keyring, family, name));
   }
 
   /**
@@ -44,10 +40,35 @@ export class CommercePrivStoreService {
    * plaintext it replaces.
    */
   static async write(keyring: PrivKeyring, family: PrivFamily, id: string, record: unknown): Promise<void> {
-    const url = privEntryUrl(keyring, family, id);
+    await this.writeAt(keyring, family, id, privEntryUrl(keyring, family, id), record);
+  }
+
+  /** {@link write} for an entry readers find by listing its family. */
+  static async writeListed(keyring: PrivKeyring, family: PrivFamily, name: string, record: unknown): Promise<void> {
+    await this.writeAt(keyring, family, name, privListedEntryUrl(keyring, family, name), record);
+  }
+
+  private static async readAt(keyring: PrivKeyring, family: PrivFamily, id: string, url: string): Promise<unknown> {
+    let envelope: unknown;
+    try {
+      envelope = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url, logUrl: PRIV_V2_LOG_PATH });
+    } catch (error) {
+      if (isAppError(error) && isNotFound(error)) return null;
+      throw error;
+    }
+    return decryptPrivRecord({ keyring, family, id, envelope });
+  }
+
+  private static async writeAt(
+    keyring: PrivKeyring,
+    family: PrivFamily,
+    id: string,
+    url: string,
+    record: unknown,
+  ): Promise<void> {
     const envelope = encryptPrivRecord({ keyring, family, id, record });
     await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: envelope, logUrl: PRIV_V2_LOG_PATH });
-    const stored = await this.read(keyring, family, id);
+    const stored = await this.readAt(keyring, family, id, url);
     if (JSON.stringify(stored) !== JSON.stringify(record)) {
       throw Err.client(ClientErrorCode.CONFLICT, 'The encrypted private record did not read back as written.', {
         service: ErrorService.Homeserver,
@@ -57,16 +78,17 @@ export class CommercePrivStoreService {
     }
   }
 
-  static async delete(keyring: PrivKeyring, family: PrivFamily, id: string): Promise<void> {
+  static async deleteListed(keyring: PrivKeyring, family: PrivFamily, name: string): Promise<void> {
     await HomeserverService.request({
       method: HttpMethod.DELETE,
-      url: privEntryUrl(keyring, family, id),
+      url: privListedEntryUrl(keyring, family, name),
       logUrl: PRIV_V2_LOG_PATH,
     });
   }
 
-  /** The URLs of the family's entries (opaque names). */
-  static async listUrls(keyring: PrivKeyring, family: PrivFamily, limit: number): Promise<string[]> {
-    return await HomeserverService.list({ baseDirectory: privFamilyUrl(keyring, family), limit });
+  /** The names of the family's listed entries; anything else in the directory is skipped. */
+  static async listNames(keyring: PrivKeyring, family: PrivFamily, limit: number): Promise<string[]> {
+    const urls = await HomeserverService.list({ baseDirectory: privFamilyUrl(keyring, family), limit });
+    return urls.map((url) => url.slice(url.lastIndexOf('/') + 1)).filter(isPrivEntryName);
   }
 }
