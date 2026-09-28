@@ -10,6 +10,8 @@ import {
   marketplaceErrorCode,
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
+import { isAppError } from '@/libs/error/error';
+import { ErrorCategory } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { copyToClipboard } from '@/libs/utils/utils';
@@ -17,7 +19,6 @@ import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils
 import { beginMarketplaceBootstrapFlow } from '@/services/marketplace/marketplace-bootstrap-client';
 import { beginMarketplaceGrantFlow, type MarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
-import { claimedGrantRejection } from '@/services/marketplace/marketplace-session-grant';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type {
   MarketplaceSessionConnectStatus,
@@ -214,30 +215,23 @@ export function useMarketplaceSessionConnect(
               setStatus('mismatch');
               return;
             }
-            const rejection = claimedGrantRejection(
-              result.capabilities,
-              MarketplaceSessionService.getActiveSession(),
-              result.pubky,
-            );
-            if (rejection) {
-              Logger.warn('Refused a claimed marketplace grant session', { rejection });
-              setErrorMessage(
-                rejection === 'narrower_than_current'
-                  ? MARKETPLACE_FAILURE_MESSAGES.sessionGrantNarrower
-                  : MARKETPLACE_FAILURE_MESSAGES.sessionGrantUnexpected,
+            let session;
+            try {
+              session = MarketplaceSessionService.establishClaimedGrantSession(
+                {
+                  token: result.token,
+                  pubky: result.pubky,
+                  capabilities: result.capabilities,
+                  expiresAt: result.expires_at,
+                },
+                expectedPubky,
               );
+            } catch (error) {
+              if (!isAppError(error) || error.category !== ErrorCategory.Validation) throw error;
+              setErrorMessage(error.message);
               setStatus('error');
               return;
             }
-            const session = MarketplaceSessionService.establishClaimedGrantSession(
-              {
-                token: result.token,
-                pubky: result.pubky,
-                capabilities: result.capabilities,
-                expiresAt: result.expires_at,
-              },
-              expectedPubky,
-            );
             CommerceController.writeMarketplaceSessionStore(session);
             setStatus('connected');
             onConnectedRef.current?.(session);

@@ -17,7 +17,7 @@ import { asOpaque } from '@/test-utils/type-assertions';
 import { useMarketplaceSessionConnect } from './useMarketplaceSessionConnect';
 
 vi.mock('@/libs/logger/logger', () => ({
-  Logger: { error: vi.fn(), warn: vi.fn() },
+  Logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
 }));
 
 const SESSION: CommerceMarketplaceSession = {
@@ -626,14 +626,27 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
     });
 
     it('keeps a Ring sign-in session whose grant covers /priv when the claim is inventory-only', async () => {
+      process.env.PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE = 'transaction-service';
       const restore = await enableGrantFlow();
       try {
-        seedCurrentSession(parityCapture.shop_signin_request.homeserver_verified);
-        const { result } = await claim(parityCapture.previous_request.homeserver_verified);
+        const signIn = parityCapture.shop_signin_request.homeserver_verified;
+        vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ token: WIDE_TOKEN, pubky: SESSION.pubky, capabilities: signIn, expires_at: FUTURE }),
+            { status: 201, headers: { 'content-type': 'application/json' } },
+          ),
+        );
+        await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(new Uint8Array([1]), SESSION.pubky, Date.now());
+        expect(MarketplaceSessionService.getActiveSession()?.capabilities).toBe(signIn);
+
+        const { result, onConnected } = await claim(parityCapture.previous_request.homeserver_verified);
 
         await waitFor(() => expect(result.current.status).toBe('error'));
+        expect(result.current.errorMessage).toBe(MARKETPLACE_FAILURE_MESSAGES.sessionGrantNarrower);
         expect(MarketplaceSessionService.getActiveSession()?.token).toBe(WIDE_TOKEN);
+        expect(onConnected).not.toHaveBeenCalled();
       } finally {
+        delete process.env.PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE;
         restore();
       }
     });

@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import ringCapture from '@/test/fixtures/auth/ring-signin-url.sdk-0.8.0.json';
+import { CAPABILITIES } from '@/config/app';
 import {
   capabilitiesCoverScope,
-  claimedGrantRejection,
   isMarketplaceSessionGrant,
   isMarketplaceSessionGrantUrl,
+  MARKETPLACE_CLAIMABLE_GRANTS,
   MARKETPLACE_PREVIOUS_SESSION_GRANT,
   MARKETPLACE_PRIVATE_DATA_SCOPE,
   MARKETPLACE_SESSION_GRANT,
   sessionGrantApprovalCaption,
+  sessionReplacementRejection,
 } from './marketplace-session-grant';
 
 type CapturedRequest = { scheme: string; host: string; params: string[]; caps: string; cid: string };
@@ -101,10 +103,37 @@ describe('capabilitiesCoverScope', () => {
   });
 });
 
-describe('claimedGrantRejection', () => {
+describe('sessionReplacementRejection', () => {
   const PUBKY = 'y'.repeat(52);
   const parity = captured.parity_request.homeserver_verified;
   const previous = captured.previous_request.homeserver_verified;
+  const signIn = captured.shop_signin_request.caps;
+  const claimedGrantRejection = (
+    capabilities: string,
+    current: { pubky: string; capabilities: string } | null,
+    pubky: string,
+  ) => sessionReplacementRejection(capabilities, MARKETPLACE_CLAIMABLE_GRANTS, current, pubky);
+
+  it('pins the Ring connect QR to the parity grant and the sign-in redeem to the Shop sign-in grant', () => {
+    expect(signIn.split(',').sort()).toEqual(CAPABILITIES.split(',').sort());
+    expect(sessionReplacementRejection(parity, [MARKETPLACE_SESSION_GRANT], null, PUBKY)).toBeNull();
+    expect(sessionReplacementRejection(previous, [MARKETPLACE_SESSION_GRANT], null, PUBKY)).toBe(
+      'unexpected_capabilities',
+    );
+    expect(sessionReplacementRejection('', [MARKETPLACE_SESSION_GRANT], null, PUBKY)).toBe('unexpected_capabilities');
+    expect(
+      sessionReplacementRejection(signIn, [CAPABILITIES], { pubky: PUBKY, capabilities: parity }, PUBKY),
+    ).toBeNull();
+    expect(sessionReplacementRejection(parity, [CAPABILITIES], null, PUBKY)).toBe('unexpected_capabilities');
+  });
+
+  it('applies the no-downgrade rule even when no grant is pinned', () => {
+    expect(sessionReplacementRejection('', null, { pubky: PUBKY, capabilities: parity }, PUBKY)).toBe(
+      'narrower_than_current',
+    );
+    expect(sessionReplacementRejection('', null, { pubky: PUBKY, capabilities: '' }, PUBKY)).toBeNull();
+    expect(sessionReplacementRejection('garbage', null, null, PUBKY)).toBeNull();
+  });
 
   it('accepts either marketplace session grant in any order with no current session', () => {
     expect(claimedGrantRejection(parity, null, PUBKY)).toBeNull();

@@ -49,28 +49,35 @@ function sameCapabilitySet(capabilities: string, expected: string): boolean {
   return raw.length === wanted.length && wanted.every((part) => raw.includes(part));
 }
 
-/** True only for exactly one of the two marketplace session grants, in any order. */
-export function isMarketplaceSessionGrant(capabilities: string): boolean {
-  return (
-    sameCapabilitySet(capabilities, MARKETPLACE_SESSION_GRANT) ||
-    sameCapabilitySet(capabilities, MARKETPLACE_PREVIOUS_SESSION_GRANT)
-  );
+/** The grants a claimed (Bitkit or Ring grant-flow) session may carry. */
+export const MARKETPLACE_CLAIMABLE_GRANTS = [MARKETPLACE_SESSION_GRANT, MARKETPLACE_PREVIOUS_SESSION_GRANT] as const;
+
+/** True only for exactly one of `accepted`, entries in any order, no blanks or duplicates. */
+export function matchesCapabilitySet(capabilities: string, accepted: readonly string[]): boolean {
+  return accepted.some((expected) => sameCapabilitySet(capabilities, expected));
 }
 
-/** Why a claimed grant session must not replace the current one, or null when it may. */
-export type ClaimedGrantRejection = 'unexpected_capabilities' | 'narrower_than_current';
+/** True only for exactly one of the two marketplace session grants, in any order. */
+export function isMarketplaceSessionGrant(capabilities: string): boolean {
+  return matchesCapabilitySet(capabilities, MARKETPLACE_CLAIMABLE_GRANTS);
+}
+
+/** Why a new session must not replace the current one, or null when it may. */
+export type SessionReplacementRejection = 'unexpected_capabilities' | 'narrower_than_current';
 
 /**
- * A claimed grant result replaces the active purchase session only when it
- * carries exactly a marketplace session grant and keeps every scope the
- * current session for the same pubky already covers.
+ * A newly minted session replaces the active purchase session only when it
+ * carries exactly one of the `accepted` grants (null: whatever the caller
+ * requested was not a fixed grant) and keeps every scope the current session
+ * for the same pubky already covers.
  */
-export function claimedGrantRejection(
+export function sessionReplacementRejection(
   claimedCapabilities: string,
+  accepted: readonly string[] | null,
   current: { pubky: string; capabilities: string } | null,
   claimedPubky: string,
-): ClaimedGrantRejection | null {
-  if (!isMarketplaceSessionGrant(claimedCapabilities)) return 'unexpected_capabilities';
+): SessionReplacementRejection | null {
+  if (accepted && !matchesCapabilitySet(claimedCapabilities, accepted)) return 'unexpected_capabilities';
   if (!current || current.pubky !== claimedPubky) return null;
   for (const scope of [MARKETPLACE_INVENTORY_SCOPE, MARKETPLACE_PRIVATE_DATA_SCOPE]) {
     if (capabilitiesCoverScope(current.capabilities, scope) && !capabilitiesCoverScope(claimedCapabilities, scope)) {

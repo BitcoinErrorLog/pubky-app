@@ -1,8 +1,16 @@
 import { z } from 'zod';
+import { CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
+import {
+  AuthErrorCode,
+  ClientErrorCode,
+  ServerErrorCode,
+  TimeoutErrorCode,
+  ValidationErrorCode,
+} from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
@@ -13,7 +21,11 @@ import { sleep } from '@/libs/utils/utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { clearMarketplaceBffSession, pairMarketplaceBffSession } from './marketplace-grant-client';
 import { resetMarketplaceNotificationDiagnostics } from './marketplace-notification-diagnostics';
-import { MARKETPLACE_SESSION_GRANT } from './marketplace-session-grant';
+import {
+  MARKETPLACE_CLAIMABLE_GRANTS,
+  MARKETPLACE_SESSION_GRANT,
+  sessionReplacementRejection,
+} from './marketplace-session-grant';
 
 /**
  * Treat a session as expired slightly before the server does, so a request
@@ -150,7 +162,9 @@ export class MarketplaceSessionService {
       authorizationUrl: flow.authorizationUrl,
       awaitSession: async () => {
         const authToken = await this.withFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
-        return await this.establishWithAuthToken(authToken.toBytes(), authToken.publicKey.z32());
+        return await this.establishWithAuthToken(authToken.toBytes(), authToken.publicKey.z32(), [
+          MARKETPLACE_SESSION_GRANT,
+        ]);
       },
       cancel: flow.cancelAuthFlow,
     };
@@ -187,11 +201,14 @@ export class MarketplaceSessionService {
    * Exchanges signed AuthToken bytes for a transaction-service session and
    * stores it in memory, replacing any previous session. `expectedPubky` is
    * the requesting account (the AuthToken signer); a response for any other
-   * pubky is rejected.
+   * pubky is rejected. `acceptedCapabilities` pins the grant the caller
+   * requested; the minted session is refused, and the current one kept, when
+   * it carries anything else or drops a scope the current session covers.
    */
   static async establishWithAuthToken(
     authTokenBytes: Uint8Array,
     expectedPubky: string,
+    acceptedCapabilities: readonly string[] | null = null,
   ): Promise<MarketplaceSessionInfo> {
     this.assertTransactionServiceMode('establishWithAuthToken');
     const url = `${getMarketplaceUrl()}/v1/auth/sessions`;
@@ -233,6 +250,7 @@ export class MarketplaceSessionService {
       });
     }
     const { token, sessionId, pubky, capabilities, expiresAt } = parsed.data;
+    this.assertMayReplace(pubky, capabilities, acceptedCapabilities, 'establishWithAuthToken');
     const issuedAt = new Date().toISOString();
     resetMarketplaceNotificationDiagnostics();
     this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt), issuedAt };
@@ -260,7 +278,7 @@ export class MarketplaceSessionService {
     const deadline = tokenResolvedAtMs + MARKETPLACE_TOKEN_RETRY_DEADLINE_MS;
     for (;;) {
       try {
-        return await this.establishWithAuthToken(authTokenBytes, expectedPubky);
+        return await this.establishWithAuthToken(authTokenBytes, expectedPubky, [CAPABILITIES]);
       } catch (error) {
         if (this.isAuthTokenAlreadyUsedError(error)) {
           const existing = this.bearerForPubky(expectedPubky);
@@ -383,6 +401,7 @@ export class MarketplaceSessionService {
         operation: 'establishClaimedGrantSession',
       });
     }
+    this.assertMayReplace(parsed.pubky, parsed.capabilities, MARKETPLACE_CLAIMABLE_GRANTS, 'establishClaimedGrantSession');
     const issuedAt = new Date().toISOString();
     this.session = {
       ...parsed,
@@ -392,6 +411,25 @@ export class MarketplaceSessionService {
     this.writePersistedSession(parsed);
     resetMarketplaceNotificationDiagnostics();
     return this.toPublicInfo(this.session);
+  }
+
+  /** Every writer of the purchase session calls this before replacing it. */
+  private static assertMayReplace(
+    pubky: string,
+    capabilities: string,
+    accepted: readonly string[] | null,
+    operation: string,
+  ): void {
+    const rejection = sessionReplacementRejection(capabilities, accepted, this.getActiveSession(), pubky);
+    if (!rejection) return;
+    Logger.warn('Refused a marketplace session that would replace the current one', { rejection, operation });
+    throw Err.validation(
+      ValidationErrorCode.INVALID_INPUT,
+      rejection === 'narrower_than_current'
+        ? MARKETPLACE_FAILURE_MESSAGES.sessionGrantNarrower
+        : MARKETPLACE_FAILURE_MESSAGES.sessionGrantUnexpected,
+      { service: ErrorService.Marketplace, operation, context: { rejection } },
+    );
   }
 
   private static notifySessionEnded(event: MarketplaceSessionEndedEvent): void {
