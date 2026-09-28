@@ -3,13 +3,13 @@ import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-gr
 import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { MarketplaceShopClientService, PubkyShopError } from '@/services/marketplace/marketplace-shop-client';
+import capturedParity from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import {
   classifySyncManyItem,
   CommerceInventoryApplication,
   type InventoryBoardRow,
   planInventoryAdjust,
 } from './inventory';
-import capturedParity from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import capturedUnavailableExport from './unavailable-listing-export.fixture.json';
 
 const PUBKY = 'y'.repeat(52);
