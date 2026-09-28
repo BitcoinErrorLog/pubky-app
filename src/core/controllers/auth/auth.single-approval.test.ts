@@ -408,7 +408,7 @@ describe('AuthController single-approval ceremony', () => {
         JSON.stringify({
           token: 'A'.repeat(43),
           pubky: bearerPubky,
-          capabilities: '',
+          capabilities: CAPABILITIES,
           expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         }),
       );

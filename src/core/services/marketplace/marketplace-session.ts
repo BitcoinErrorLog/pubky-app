@@ -23,9 +23,18 @@ import { clearMarketplaceBffSession, pairMarketplaceBffSession } from './marketp
 import { resetMarketplaceNotificationDiagnostics } from './marketplace-notification-diagnostics';
 import {
   MARKETPLACE_CLAIMABLE_GRANTS,
+  MARKETPLACE_PREVIOUS_SESSION_GRANT,
   MARKETPLACE_SESSION_GRANT,
+  type SessionReplacementRejection,
   sessionReplacementRejection,
 } from './marketplace-session-grant';
+
+/** Every grant a purchase-session writer may have persisted. */
+const MARKETPLACE_RESTORABLE_GRANTS = [
+  MARKETPLACE_SESSION_GRANT,
+  MARKETPLACE_PREVIOUS_SESSION_GRANT,
+  CAPABILITIES,
+] as const;
 
 /**
  * Treat a session as expired slightly before the server does, so a request
@@ -319,10 +328,16 @@ export class MarketplaceSessionService {
   /**
    * Restores a persisted session from `localStorage` for the given account.
    * Called once the app's own session restore has identified who is signed in
-   * (`AuthController.restorePersistedSession`). Anything that does not
-   * validate — malformed blob, wrong account, already past the expiry margin,
-   * non-durable mode — removes the stored value and returns null, so a stale
+   * (`AuthController.restorePersistedSession`), and again by Seller Studio and
+   * own-drop loads. Anything that does not validate — malformed blob, wrong
+   * account, already past the expiry margin, non-durable mode, a grant no
+   * writer may store — removes the stored value and returns null, so a stale
    * token can never outlive its checks.
+   *
+   * `localStorage` is shared across tabs, so the slot can hold another tab's
+   * narrower session. A restore never replaces a wider in-memory session for
+   * the same pubky: it keeps memory, leaves the other tab's blob alone, and
+   * returns the in-memory facts so the store mirror stays on the wider one.
    */
   static restorePersistedSession(expectedPubky: string): MarketplaceSessionInfo | null {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return null;
@@ -339,6 +354,21 @@ export class MarketplaceSessionService {
     if (Date.now() >= expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
       this.removePersistedSession();
       return null;
+    }
+    const rejection = this.replacementRejection(
+      pubky,
+      capabilities,
+      MARKETPLACE_RESTORABLE_GRANTS,
+      'restorePersistedSession',
+    );
+    if (rejection === 'unexpected_capabilities') {
+      this.removePersistedSession();
+      const current = this.getActiveSession();
+      return current?.pubky === expectedPubky ? this.toPublicInfo(current) : null;
+    }
+    if (rejection === 'narrower_than_current') {
+      const current = this.getActiveSession();
+      return current ? this.toPublicInfo(current) : null;
     }
 
     const issuedAt = new Date().toISOString();
@@ -418,16 +448,32 @@ export class MarketplaceSessionService {
     return this.toPublicInfo(this.session);
   }
 
-  /** Every writer of the purchase session calls this before replacing it. */
+  /**
+   * The one check every path that puts a purchase session into memory or
+   * storage runs first: the establish writers through {@link assertMayReplace},
+   * the persisted restore directly.
+   */
+  private static replacementRejection(
+    pubky: string,
+    capabilities: string,
+    accepted: readonly string[] | null,
+    operation: string,
+  ): SessionReplacementRejection | null {
+    const rejection = sessionReplacementRejection(capabilities, accepted, this.getActiveSession(), pubky);
+    if (rejection) {
+      Logger.warn('Refused a marketplace session that would replace the current one', { rejection, operation });
+    }
+    return rejection;
+  }
+
   private static assertMayReplace(
     pubky: string,
     capabilities: string,
     accepted: readonly string[] | null,
     operation: string,
   ): void {
-    const rejection = sessionReplacementRejection(capabilities, accepted, this.getActiveSession(), pubky);
+    const rejection = this.replacementRejection(pubky, capabilities, accepted, operation);
     if (!rejection) return;
-    Logger.warn('Refused a marketplace session that would replace the current one', { rejection, operation });
     throw Err.validation(
       ValidationErrorCode.INVALID_INPUT,
       rejection === 'narrower_than_current'

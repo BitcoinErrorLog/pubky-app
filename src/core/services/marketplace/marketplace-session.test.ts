@@ -139,7 +139,7 @@ describe('MarketplaceSessionService', () => {
   });
 
   it('restores a persisted session for the matching account across a simulated reload', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, MARKETPLACE_SESSION_GRANT));
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
 
     dropMemoryOnly();
