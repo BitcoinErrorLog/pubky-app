@@ -5,14 +5,14 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
-import { isSingleApprovalSignInEnabled } from '@/config/app';
 import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceSessionNeedsPrivateData } from '@/hooks/useMarketplaceSessionNeedsPrivateData/useMarketplaceSessionNeedsPrivateData';
 import { useStepUpReauth } from '@/hooks/useStepUpReauth/useStepUpReauth';
 import { Logger } from '@/libs/logger/logger';
+import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
-import { marketplaceApprovalDisclosure } from '@/services/marketplace/marketplace-session-grant';
+import { signInApprovalDisclosure } from '@/services/marketplace/marketplace-session-grant';
 import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
 
 type MarketplaceReauthDialogProps = {
@@ -78,11 +78,7 @@ function HomeserverStepUpDialog({ triggerLabel, onReauthenticated }: Marketplace
     cancel();
   }, [open, start, cancel]);
 
-  // With single approval the same token also mints the purchase session.
-  const approvalDisclosure =
-    isSingleApprovalSignInEnabled() && reauth.authorizationUrl
-      ? marketplaceApprovalDisclosure(reauth.authorizationUrl)
-      : null;
+  const approvalDisclosure = reauth.authorizationUrl ? signInApprovalDisclosure(reauth.authorizationUrl) : null;
 
   const copyUrl = async () => {
     try {
@@ -140,15 +136,7 @@ function HomeserverStepUpDialog({ triggerLabel, onReauthenticated }: Marketplace
               />
             </button>
 
-            {approvalDisclosure && (
-              <Typography
-                as="p"
-                data-testid="session-approval-disclosure"
-                className="max-w-xs text-center text-sm text-muted-foreground"
-              >
-                {approvalDisclosure}
-              </Typography>
-            )}
+            <MarketplaceApprovalDisclosure sentence={approvalDisclosure} />
 
             {reauth.status === 'awaiting' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">

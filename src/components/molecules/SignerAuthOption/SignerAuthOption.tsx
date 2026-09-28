@@ -3,6 +3,7 @@
 import { Key, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
+import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import type { SignerAuthCopy, SignerAuthOptionProps, SignerAuthorizeButtonProps } from './SignerAuthOption.types';
 
@@ -54,7 +55,7 @@ export const SIGNER_AUTH_COPY = {
 } as const satisfies Record<'signIn' | 'signUp', Record<'ring' | 'bitkit', SignerAuthCopy>>;
 
 /** One signer's labelled QR in the side-by-side desktop layout. */
-export function SignerAuthOption({ copy, auth, onCopied, testId }: SignerAuthOptionProps) {
+export function SignerAuthOption({ copy, auth, onCopied, testId, disclosure = null }: SignerAuthOptionProps) {
   const { url, isLoading, isExpired, fetchUrl } = auth;
   const handleQRClick = async () => {
     if (!url) return;
@@ -90,6 +91,7 @@ export function SignerAuthOption({ copy, auth, onCopied, testId }: SignerAuthOpt
           {copy.identityHint}
         </Typography>
       ) : null}
+      <MarketplaceApprovalDisclosure sentence={disclosure} className="max-w-48" />
     </div>
   );
 }

@@ -1,4 +1,5 @@
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, isSingleApprovalSignInEnabled } from '@/config/app';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 
 /**
  * The capabilities a marketplace purchase session requests, whichever signer
@@ -124,4 +125,15 @@ export function marketplaceApprovalDisclosure(authorizationUrl: string): string 
   if (matchesCapabilitySet(caps, [MARKETPLACE_PREVIOUS_SESSION_GRANT])) return MARKETPLACE_DISCLOSURE_INVENTORY;
   if (matchesCapabilitySet(caps, [CAPABILITIES])) return MARKETPLACE_DISCLOSURE_SIGN_IN;
   return null;
+}
+
+/**
+ * The disclosure for a Pubky Ring sign-in or step-up QR. Its AuthToken also
+ * mints a marketplace session only under single approval in a durable
+ * commerce mode (`AuthApplication.completeSingleApprovalCeremony`); otherwise
+ * the QR hands the marketplace nothing and shows nothing.
+ */
+export function signInApprovalDisclosure(authorizationUrl: string): string | null {
+  if (!isSingleApprovalSignInEnabled() || !isDurableCommerceMode(getCommerceAdapterMode())) return null;
+  return marketplaceApprovalDisclosure(authorizationUrl);
 }

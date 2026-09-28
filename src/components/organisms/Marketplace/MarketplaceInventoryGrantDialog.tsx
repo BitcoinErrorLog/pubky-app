@@ -7,8 +7,10 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Typography } from '@/atoms/Typography/Typography';
 import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceInventoryGrantConnect } from '@/hooks/useMarketplaceInventoryGrantConnect/useMarketplaceInventoryGrantConnect';
+import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { marketplaceApprovalDisclosure } from '@/services/marketplace/marketplace-session-grant';
 import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
 
 type MarketplaceInventoryGrantDialogProps = {
@@ -118,6 +120,9 @@ function StudioInventoryGrantDialog({
                 activeQrHasHoverEffect
               />
             </button>
+            <MarketplaceApprovalDisclosure
+              sentence={grant.authorizationUrl ? marketplaceApprovalDisclosure(grant.authorizationUrl) : null}
+            />
             {grant.status === 'awaiting' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
                 <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />

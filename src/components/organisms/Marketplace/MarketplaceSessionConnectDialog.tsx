@@ -10,6 +10,7 @@ import { useMarketplaceSessionConnect } from '@/hooks/useMarketplaceSessionConne
 import { Logger } from '@/libs/logger/logger';
 import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
+import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { marketplaceApprovalDisclosure } from '@/services/marketplace/marketplace-session-grant';
@@ -158,15 +159,7 @@ export function MarketplaceSessionConnectDialog({
               />
             </button>
 
-            {approvalDisclosure && (
-              <Typography
-                as="p"
-                data-testid="session-approval-disclosure"
-                className="max-w-xs text-center text-sm text-muted-foreground"
-              >
-                {approvalDisclosure}
-              </Typography>
-            )}
+            <MarketplaceApprovalDisclosure sentence={approvalDisclosure} />
 
             {session.status === 'awaiting' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">

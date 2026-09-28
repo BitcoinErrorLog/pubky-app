@@ -18,6 +18,7 @@ import { cn } from '@/libs/utils/utils';
 import { BalancedQrCard } from '@/molecules/BalancedQrCard/BalancedQrCard';
 import { ContentCard } from '@/molecules/Content/Content';
 import { Logo } from '@/molecules/Logo/Logo';
+import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
 import { PageTitle } from '@/molecules/Page/Page';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import {
@@ -27,6 +28,7 @@ import {
   SignerAuthorizeButton,
 } from '@/molecules/SignerAuthOption/SignerAuthOption';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { signInApprovalDisclosure } from '@/services/marketplace/marketplace-session-grant';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import { useSignInStore } from '@/stores/signIn/signIn.store';
 import type { SignInState } from '@/stores/signIn/signIn.types';
@@ -118,12 +120,29 @@ type TSignerAuth = ReturnType<typeof useMobileAuth>;
 
 const SIGNERS = SIGNER_AUTH_COPY.signIn;
 
-const SignInQrOption = ({ signer, auth }: { signer: keyof typeof SIGNERS; auth: TSignerAuth }) => (
+/**
+ * The Ring sign-in token is also redeemed at the marketplace under single
+ * approval; Bitkit's grant sign-in never is, so only Ring gets a disclosure.
+ */
+function ringSignInDisclosure(ring: TSignerAuth): string | null {
+  return ring.url ? signInApprovalDisclosure(ring.url) : null;
+}
+
+const SignInQrOption = ({
+  signer,
+  auth,
+  disclosure = null,
+}: {
+  signer: keyof typeof SIGNERS;
+  auth: TSignerAuth;
+  disclosure?: string | null;
+}) => (
   <SignerAuthOption
     copy={SIGNERS[signer]}
     auth={auth}
     onCopied={() => copyWithToast(auth.copyAuthUrl)}
     testId={`sign-in-${signer}-option`}
+    disclosure={disclosure}
   />
 );
 
@@ -141,6 +160,7 @@ const SignInAuthorizeButton = ({ signer, auth }: { signer: keyof typeof SIGNERS;
  */
 const SignInBothSigners = ({ ring }: { ring: TSignerAuth }) => {
   const bitkit = useMobileAuth({ type: 'grant' });
+  const ringDisclosure = ringSignInDisclosure(ring);
   return (
     <>
       <Container size="container" className="hidden md:flex">
@@ -149,7 +169,7 @@ const SignInBothSigners = ({ ring }: { ring: TSignerAuth }) => {
           data-testid="sign-in-qr-card"
           className="w-full flex-row items-start justify-center gap-12 rounded-md p-6 lg:gap-24 lg:p-12"
         >
-          <SignInQrOption signer="ring" auth={ring} />
+          <SignInQrOption signer="ring" auth={ring} disclosure={ringDisclosure} />
           <SignInQrOption signer="bitkit" auth={bitkit} />
         </Card>
       </Container>
@@ -159,6 +179,7 @@ const SignInBothSigners = ({ ring }: { ring: TSignerAuth }) => {
         <ContentCard layout="column">
           <Container className="flex-col items-center justify-center gap-4">
             <SignInAuthorizeButton signer="ring" auth={ring} />
+            <MarketplaceApprovalDisclosure sentence={ringDisclosure} />
             <SignInAuthorizeButton signer="bitkit" auth={bitkit} />
             <Typography as="p" className="text-center text-sm text-muted-foreground">
               {BITKIT_IDENTITY_HINT}
@@ -175,6 +196,7 @@ export const SignInContent = () => {
   const { url, isLoading, isExpired, fetchUrl, copyAuthUrl, isOpeningRing, onAuthorizeClick } = ringAuth;
   const authUrlResolved = useSignInStore((state) => state.authUrlResolved);
   const isGrantSignInAvailable = useGrantSignInAvailable();
+  const ringDisclosure = ringSignInDisclosure(ringAuth);
   useEffect(() => {
     // Clear onboarding storage when sign-in flow begins to prevent backup reminders from showing for existing users
     useOnboardingStore.getState().reset();
@@ -201,6 +223,25 @@ export const SignInContent = () => {
       <Key className="mr-2 size-4" />
       {'Authorize with Pubky Ring'}
     </>
+  );
+
+  const signInQrButton = (
+    <button
+      type="button"
+      className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
+      onClick={isExpired ? fetchUrl : handleQRClick}
+      disabled={isLoading || (!url && !isExpired)}
+      aria-label={isExpired ? 'Reload sign-in QR code' : 'Copy authentication link'}
+    >
+      <QrCodeSlot
+        isLoading={isLoading}
+        isExpired={isExpired}
+        url={url}
+        generatingLabel={'Generating QR Code...'}
+        clickToReloadLabel={'Click to reload'}
+        activeQrHasHoverEffect
+      />
+    </button>
   );
 
   // Show progress steps once auth URL is resolved
@@ -234,22 +275,14 @@ export const SignInContent = () => {
             />
           }
         >
-          <button
-            type="button"
-            className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
-            onClick={isExpired ? fetchUrl : handleQRClick}
-            disabled={isLoading || (!url && !isExpired)}
-            aria-label={isExpired ? 'Reload sign-in QR code' : 'Copy authentication link'}
-          >
-            <QrCodeSlot
-              isLoading={isLoading}
-              isExpired={isExpired}
-              url={url}
-              generatingLabel={'Generating QR Code...'}
-              clickToReloadLabel={'Click to reload'}
-              activeQrHasHoverEffect
-            />
-          </button>
+          {ringDisclosure ? (
+            <div className="flex flex-col items-center gap-3">
+              {signInQrButton}
+              <MarketplaceApprovalDisclosure sentence={ringDisclosure} className="max-w-48" />
+            </div>
+          ) : (
+            signInQrButton
+          )}
         </BalancedQrCard>
       </Container>
 
@@ -269,6 +302,7 @@ export const SignInContent = () => {
             >
               {mobileAuthorizeContent}
             </Button>
+            <MarketplaceApprovalDisclosure sentence={ringDisclosure} />
           </Container>
         </ContentCard>
       </Container>

@@ -18,6 +18,8 @@ export type SignerAuthOptionProps = {
   auth: SignerAuth;
   onCopied: () => Promise<void>;
   testId: string;
+  /** Sentence shown under the QR when its approval also produces a marketplace session. */
+  disclosure?: string | null;
 };
 
 export type SignerAuthorizeButtonProps = {

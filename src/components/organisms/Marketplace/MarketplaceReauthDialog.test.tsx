@@ -30,11 +30,12 @@ vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
   useIsGrantSession: () => signIn.isGrantSession,
 }));
 
-const config = vi.hoisted(() => ({ singleApproval: true }));
+const config = vi.hoisted(() => ({ singleApproval: true, mode: 'transaction-service' as string }));
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>()),
   getMarketplaceGrantFlowEnabled: () => true,
   getSingleApprovalSignIn: () => config.singleApproval,
+  getCommerceAdapterMode: () => config.mode,
 }));
 
 const RING_STEP_UP_URL = `${ringCapture.scheme}//${ringCapture.host}?${ringCapture.params
@@ -71,6 +72,7 @@ describe('MarketplaceReauthDialog', () => {
     connect.bootstrap = false;
     signIn.isGrantSession = false;
     config.singleApproval = true;
+    config.mode = 'transaction-service';
     reauth.status = 'idle';
     reauth.authorizationUrl = '';
   });
@@ -86,8 +88,12 @@ describe('MarketplaceReauthDialog', () => {
     expect(screen.queryByText(ringCapture.caps)).not.toBeInTheDocument();
   });
 
-  it('the Ring step-up QR makes no marketplace claim when single approval is off', async () => {
-    config.singleApproval = false;
+  it.each([
+    ['single approval is off', false, 'transaction-service'],
+    ['no durable commerce backend', true, 'unavailable'],
+  ])('the Ring step-up QR makes no marketplace claim when %s', async (_label, singleApproval, mode) => {
+    config.singleApproval = singleApproval;
+    config.mode = mode;
     reauth.status = 'awaiting';
     reauth.authorizationUrl = RING_STEP_UP_URL;
     render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
