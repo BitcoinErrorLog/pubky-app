@@ -374,13 +374,15 @@ describe('CommerceApplication.publishOrderReceipts without a released key', () =
     CommerceApplication.resetReceiptPublicationMemo();
   });
 
-  it('writes nothing and reports needs_reauth or unavailable, leaving plaintext receipts in place', async () => {
+  it('writes nothing and reports needs_marketplace_approval or unavailable, leaving plaintext receipts in place', async () => {
     grantCapableSession();
     const fetchAttestation = vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation');
     homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), { recordType: 'order_receipt' });
 
     vi.mocked(CommercePrivKeyringApplication.get).mockResolvedValueOnce({ kind: 'needs_reauth' });
-    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('needs_reauth');
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe(
+      'needs_marketplace_approval',
+    );
     vi.mocked(CommercePrivKeyringApplication.get).mockResolvedValueOnce({ kind: 'unavailable' });
     await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('unavailable');
     vi.mocked(CommercePrivKeyringApplication.get).mockRejectedValueOnce(new TypeError('network unavailable'));

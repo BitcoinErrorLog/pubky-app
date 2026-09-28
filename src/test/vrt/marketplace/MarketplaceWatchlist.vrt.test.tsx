@@ -264,6 +264,14 @@ describe('Marketplace watchlist — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('watchlist-sync-unavailable-desktop');
   });
 
+  it('renders the marketplace-approval sync notice at desktop viewport', async () => {
+    const { entries } = await fixtures;
+    await setView({ entries, watchlistSyncStatus: 'needs_marketplace_approval' });
+
+    const screen = await renderForVRT(<MarketplaceWatchlist />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('watchlist-sync-marketplace-approval-desktop');
+  });
+
   it('renders the unsupported-browser sync notice at desktop viewport', async () => {
     const { entries } = await fixtures;
     await setView({ entries, watchlistSyncStatus: 'unsupported' });

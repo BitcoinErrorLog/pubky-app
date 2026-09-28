@@ -11,10 +11,12 @@ import {
 } from '@/hooks/useExportPrivRecoveryKey/useExportPrivRecoveryKey';
 import { SettingsSection } from '@/molecules/Settings/SettingsSection/SettingsSection';
 import { SettingsSectionCard } from '@/molecules/Settings/SettingsSectionCard/SettingsSectionCard';
+import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 
 const STATUS_COPY: Partial<Record<ExportPrivRecoveryKeyStatus, string>> = {
   exported: 'Recovery key downloaded. Store it offline, away from this device.',
-  needs_reauth: 'Sign in again and approve the private-storage permission to export your recovery key.',
+  needs_reauth:
+    'The marketplace releases your recovery key only to a purchase session that includes your private Shop data. Approve one, then export again.',
   unavailable: 'The marketplace cannot provide your recovery key right now. Try again later.',
   error: 'The recovery key could not be exported. Try again.',
 };
@@ -48,6 +50,11 @@ export function MarketplaceRecoveryKey() {
         <Typography as="p" size="sm" className="text-secondary-foreground" data-testid="export-recovery-key-status">
           {STATUS_COPY[status]}
         </Typography>
+      )}
+      {status === 'needs_reauth' && (
+        <div>
+          <MarketplaceReauthDialog triggerLabel="Approve private data" refusal="purchase_session" />
+        </div>
       )}
       <Dialog open={isOpen} onOpenChange={(open) => !isExporting && setIsOpen(open)}>
         <DialogContent className="max-w-md sm:max-w-lg" hiddenTitle={'Export recovery key'}>

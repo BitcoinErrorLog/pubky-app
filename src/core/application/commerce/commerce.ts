@@ -229,14 +229,18 @@ export type CommerceWatchlistSyncCapability = 'capable' | 'needs_reauth' | 'no_s
 
 /**
  * Outcome of one watchlist sync round. `skipped` covers sandbox mode and
- * signed-out/restoring states; `needs_reauth` is the honest "this session's
- * grant cannot touch /priv" state (from capability facts, an actual 401/403,
- * or the marketplace refusing to release the data key); `unavailable` means
- * the marketplace cannot release the key right now, so nothing is written.
+ * signed-out/restoring states; `needs_reauth` is the honest "this homeserver
+ * session's grant cannot touch /priv" state (from capability facts or an
+ * actual 401/403); `needs_marketplace_approval` means the marketplace refused
+ * to release the data key to the current purchase session (missing, or
+ * approved without `/priv/pubky.app/`), which only a marketplace session
+ * approval repairs; `unavailable` means the marketplace cannot release the
+ * key right now, so nothing is written.
  */
 export type CommerceWatchlistSyncStatus =
   | 'synced'
   | 'needs_reauth'
+  | 'needs_marketplace_approval'
   | 'unavailable'
   | 'unsupported'
   | 'skipped'
@@ -253,14 +257,20 @@ const RECEIPT_MIGRATION_BATCH = 100;
  * controller into the commerce store for UI surfaces. Same honesty contract
  * as the watchlist sync status: capability is decided from session facts,
  * and a refused private read/write reports `needs_reauth` — nothing
- * silently no-ops. `unavailable` covers the cases re-approval cannot fix:
+ * silently no-ops. A data-key refusal for the purchase session reports
+ * `needs_marketplace_approval`. `unavailable` covers the cases re-approval cannot fix:
  * this deployment issued no attestation, the marketplace cannot release the
  * data key that seals receipts, or a transient failure left a receipt
  * unpublished or a plaintext receipt unmoved (it retries on the next
  * orders-surface load).
  * `skipped` covers non-durable modes and signed-out/restoring states.
  */
-export type CommerceReceiptPublicationStatus = 'published' | 'needs_reauth' | 'unavailable' | 'skipped';
+export type CommerceReceiptPublicationStatus =
+  | 'published'
+  | 'needs_reauth'
+  | 'needs_marketplace_approval'
+  | 'unavailable'
+  | 'skipped';
 
 export type CommerceSellerReputationOverview =
   | { status: 'rated'; summary: CommerceReputationSummary }
@@ -1784,7 +1794,7 @@ export class CommerceApplication {
     try {
       const stagedAt = (await LocalCommerceService.getSyncJob(jobId))?.updated_at ?? null;
       const keys = await CommercePrivKeyringApplication.get(ownerPubky);
-      if (keys.kind !== 'keys') return keys.kind;
+      if (keys.kind !== 'keys') return keys.kind === 'needs_reauth' ? 'needs_marketplace_approval' : keys.kind;
       const { keyring } = keys;
 
       let encrypted: CommerceWatchlistRecord | null = null;
@@ -2032,7 +2042,7 @@ export class CommerceApplication {
       );
       return 'unavailable';
     }
-    if (keys.kind !== 'keys') return keys.kind;
+    if (keys.kind !== 'keys') return keys.kind === 'needs_reauth' ? 'needs_marketplace_approval' : keys.kind;
     const { keyring } = keys;
     const migration = await this.migratePlaintextReceipts(ownerPubky, keyring);
     if (migration === 'needs_reauth') return 'needs_reauth';

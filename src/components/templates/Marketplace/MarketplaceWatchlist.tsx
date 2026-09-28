@@ -117,6 +117,32 @@ export function MarketplaceWatchlist() {
               <div className="mt-2">
                 <MarketplaceReauthDialog
                   triggerLabel="Sign in again to enable sync"
+                  refusal="homeserver"
+                  onReauthenticated={syncWatchlist}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {isSignedIn && watchlistSyncStatus === 'needs_marketplace_approval' && (
+          <Card
+            className="border border-amber-500/40 bg-amber-500/5"
+            data-cy="watchlist-sync-marketplace-approval-notice"
+          >
+            <CardContent className="flex flex-col gap-1 py-4">
+              <Typography as="p" className="font-medium">
+                Sync across devices needs a marketplace approval
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Your watchlist keeps working on this device. It syncs encrypted through your homeserver, and the
+                marketplace releases the key only to a purchase session that includes your private Shop data. Approve
+                one to turn sync on.
+              </Typography>
+              <div className="mt-2">
+                <MarketplaceReauthDialog
+                  triggerLabel="Approve private sync"
+                  refusal="purchase_session"
                   onReauthenticated={syncWatchlist}
                 />
               </div>

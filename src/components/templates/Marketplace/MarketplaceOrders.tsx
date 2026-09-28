@@ -424,7 +424,23 @@ export function MarketplaceOrders() {
                                 <Typography as="p" className="text-sm text-muted-foreground">
                                   Receipt not saved to your private storage yet — reconnect to save it
                                 </Typography>
-                                <MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={refresh} />
+                                <MarketplaceReauthDialog
+                                  triggerLabel="Sign in again"
+                                  refusal="homeserver"
+                                  onReauthenticated={refresh}
+                                />
+                              </div>
+                            )}
+                            {receipt && receiptsPublicationStatus === 'needs_marketplace_approval' && (
+                              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                <Typography as="p" className="text-sm text-muted-foreground">
+                                  Receipt not saved to your private storage yet — approve the marketplace to save it
+                                </Typography>
+                                <MarketplaceReauthDialog
+                                  triggerLabel="Approve private storage"
+                                  refusal="purchase_session"
+                                  onReauthenticated={refresh}
+                                />
                               </div>
                             )}
                             {order.shipment && order.fulfillment !== 'digital' && (

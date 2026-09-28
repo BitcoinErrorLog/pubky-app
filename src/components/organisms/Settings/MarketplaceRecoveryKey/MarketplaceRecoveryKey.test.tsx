@@ -44,13 +44,17 @@ describe('MarketplaceRecoveryKey', () => {
 
   it.each([
     ['exported', 'Recovery key downloaded. Store it offline, away from this device.'],
-    ['needs_reauth', 'Sign in again and approve the private-storage permission to export your recovery key.'],
+    [
+      'needs_reauth',
+      'The marketplace releases your recovery key only to a purchase session that includes your private Shop data. Approve one, then export again.',
+    ],
     ['unavailable', 'The marketplace cannot provide your recovery key right now. Try again later.'],
     ['error', 'The recovery key could not be exported. Try again.'],
   ])('explains the %s state', (status, copy) => {
     hook.status = status;
     render(<MarketplaceRecoveryKey />);
     expect(screen.getByTestId('export-recovery-key-status')).toHaveTextContent(copy);
+    expect(screen.queryByRole('button', { name: 'Approve private data' }) !== null).toBe(status === 'needs_reauth');
   });
 
   it('renders nothing where the marketplace holds no data keys', () => {

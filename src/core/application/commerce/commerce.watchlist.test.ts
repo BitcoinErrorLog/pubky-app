@@ -132,10 +132,10 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
       });
     const writes = () => homeserver.log.filter((entry) => !entry.startsWith('GET ') && !entry.startsWith('LIST '));
 
-    it('writes nothing without a key: needs_reauth or unavailable, outbox pending', async () => {
+    it('writes nothing without a key: needs_marketplace_approval or unavailable, outbox pending', async () => {
       homeserver.files.set(WATCHLIST_URL, v1Record(2, [['boots_01', 100]]));
       vi.mocked(CommercePrivKeyringApplication.get).mockResolvedValueOnce({ kind: 'needs_reauth' });
-      expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('needs_reauth');
+      expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('needs_marketplace_approval');
       vi.mocked(CommercePrivKeyringApplication.get).mockResolvedValueOnce({ kind: 'unavailable' });
       expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('unavailable');
       expect(homeserver.log).toEqual([]);
