@@ -30,8 +30,8 @@ export function useMessagingSafety(): UseMessagingSafetyReturn {
         description: approval ? MESSAGING_COPY.muteNeedsApproval : MESSAGING_COPY.muteFailed,
       });
       return false;
-    } catch (error) {
-      Logger.warn('Could not change a messaging mute', { error });
+    } catch {
+      Logger.warn('Could not change a messaging mute', { reason: 'mute_change_failed' });
       toast({ variant: 'error', description: MESSAGING_COPY.muteFailed });
       return false;
     } finally {
@@ -45,8 +45,8 @@ export function useMessagingSafety(): UseMessagingSafetyReturn {
       await MessagingController.acceptRequest(counterpartyPubky);
       toast({ description: MESSAGING_COPY.requestAccepted });
       return true;
-    } catch (error) {
-      Logger.warn('Could not accept a message request', { error });
+    } catch {
+      Logger.warn('Could not accept a message request', { reason: 'request_accept_failed' });
       return false;
     } finally {
       setIsPending(false);
@@ -59,8 +59,8 @@ export function useMessagingSafety(): UseMessagingSafetyReturn {
       await navigator.clipboard.writeText(details);
       toast({ description: MESSAGING_COPY.reportCopied });
       return true;
-    } catch (error) {
-      Logger.warn('Could not copy report details', { error });
+    } catch {
+      Logger.warn('Could not copy report details', { reason: 'report_copy_failed' });
       toast({ variant: 'error', description: MESSAGING_COPY.reportFailed });
       return false;
     }
