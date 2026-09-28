@@ -181,7 +181,7 @@ The interim dual-POST is accepted only alongside the §4.2 upstream asks (two to
 
 ### Connect-marketplace QR (2026-09-28)
 
-The Pubky Ring "Connect marketplace" QR is no longer an empty-capability token. It requests `/pub/pubky.app/marketplace-service/v1/:rw,/priv/pubky.app/:rw` so the resulting session qualifies for the `/priv` data key. Stolen in flight, those bytes can mint a homeserver session with inventory and private-data read and write inside the verifier window above. That is narrower than the sign-in token (no `/pub/pubky.app` root, no `/pub/paykit`) but no longer worthless. The Shop discloses the private-data authority beside that QR (see [`step-up-approval.md`](step-up-approval.md), "Current state of the marketplace approval").
+The Pubky Ring "Connect marketplace" QR is no longer an empty-capability token. It requests `/pub/pubky.app/marketplace-service/v1/:rw,/priv/pubky.app/:rw` so the resulting session qualifies for the `/priv` data key. Stolen in flight, those bytes can mint a homeserver session with inventory and private-data read and write inside the verifier window above. That is narrower than the sign-in token (no `/pub/pubky.app` root, no `/pub/paykit`) but no longer worthless. The Shop discloses the marketplace authority beside that QR, and beside the Ring sign-in and step-up QRs whenever this ceremony redeems their token at the marketplace (see [`step-up-approval.md`](step-up-approval.md), "Current state of the marketplace approval").
 
 ## 6. Bridged arrivals
 
