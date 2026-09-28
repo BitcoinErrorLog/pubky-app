@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getMarketplaceGrantPollMilliseconds } from '@/libs/runtime-config/runtime-config';
 import { sleep } from '@/libs/utils/utils';
+import { isMarketplaceSessionGrantUrl } from './marketplace-session-grant';
 
 const createSchema = z.object({
   authorization_url: z.string().startsWith('pubkyauth://signin_grant'),
@@ -71,6 +72,21 @@ export async function beginMarketplaceGrantFlow(): Promise<MarketplaceGrantFlow>
     ),
   );
   let cancelled = false;
+  const cancel = async () => {
+    if (cancelled) return;
+    cancelled = true;
+    await fetch(`/api/marketplace/grant-flows/${created.state_id}/cancel`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }).catch(() => undefined);
+  };
+  // Never show a signer a QR that asks for more than the marketplace session grant.
+  if (!isMarketplaceSessionGrantUrl(created.authorization_url)) {
+    await cancel();
+    throw new Error('result_denied');
+  }
   return {
     authorizationUrl: created.authorization_url,
     awaitResult: async () => {
@@ -90,15 +106,6 @@ export async function beginMarketplaceGrantFlow(): Promise<MarketplaceGrantFlow>
       }
       throw new Error(cancelled ? 'flow_cancelled' : 'flow_expired');
     },
-    cancel: async () => {
-      if (cancelled) return;
-      cancelled = true;
-      await fetch(`/api/marketplace/grant-flows/${created.state_id}/cancel`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      }).catch(() => undefined);
-    },
+    cancel,
   };
 }

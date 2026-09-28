@@ -126,6 +126,21 @@ describe('MarketplaceSessionConnectDialog', () => {
     );
   });
 
+  it('bootstrap QR for the /priv parity grant says it covers private Shop data', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl =
+      'pubkyauth://signin_grant?caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw%2C%2Fpriv%2Fpubky.app%2F%3Arw&relay=r&secret=s&cid=marketplace.staging.shop.pubky.app&cpk=k';
+    view.isGrantSession = true;
+    view.grantEnabled = true;
+    view.requestsGrantBootstrap = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.getByTestId('bootstrap-approval-caption')).toHaveTextContent(
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases and your private Shop data.',
+    );
+  });
+
   it('bootstrap creating state confirms with the homeserver', () => {
     view.status = 'creating';
     view.isGrantSession = true;

@@ -13,6 +13,7 @@ import { sleep } from '@/libs/utils/utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { clearMarketplaceBffSession, pairMarketplaceBffSession } from './marketplace-grant-client';
 import { resetMarketplaceNotificationDiagnostics } from './marketplace-notification-diagnostics';
+import { MARKETPLACE_SESSION_GRANT } from './marketplace-session-grant';
 
 /**
  * Treat a session as expired slightly before the server does, so a request
@@ -134,14 +135,17 @@ export class MarketplaceSessionService {
   /**
    * Starts the interactive session flow. Returns the authorization URL to show
    * on the user's signer (QR/deeplink) and a lazy `awaitSession` that resolves
-   * once the user approves and the transaction service issues a session.
+   * once the user approves and the transaction service issues a session. The
+   * request is a `pubkyauth://signin` AuthToken for
+   * {@link MARKETPLACE_SESSION_GRANT}, the scope the grant flow asks for, so
+   * the session qualifies for the `/priv` data key.
    * `awaitSession` rejects with a retryable timeout error after
    * {@link SESSION_FLOW_TIMEOUT_MS} so an abandoned or dead-relay flow can
    * never hold the UI in an awaiting state forever.
    */
   static beginSessionFlow(): MarketplaceSessionFlow {
     this.assertTransactionServiceMode('beginSessionFlow');
-    const flow = HomeserverService.generateAuthTokenFlow();
+    const flow = HomeserverService.generateAuthTokenFlow(MARKETPLACE_SESSION_GRANT);
     return {
       authorizationUrl: flow.authorizationUrl,
       awaitSession: async () => {

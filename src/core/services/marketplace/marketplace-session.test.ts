@@ -6,6 +6,7 @@ import {
   MarketplaceSessionService,
   SESSION_FLOW_TIMEOUT_MS,
 } from './marketplace-session';
+import { MARKETPLACE_SESSION_GRANT } from './marketplace-session-grant';
 
 const PUBKY = 'y'.repeat(52);
 const TOKEN = 'A'.repeat(43);
@@ -28,15 +29,19 @@ vi.mock('@/config/commerce', async () => {
 const authTokenFlow = vi.hoisted(() => ({
   awaitToken: vi.fn(),
   cancelAuthFlow: vi.fn(),
+  requestedCapabilities: [] as Array<string | undefined>,
 }));
 
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
-    generateAuthTokenFlow: () => ({
-      authorizationUrl: 'pubkyauth:///?relay=http%3A%2F%2Flocalhost%2Finbox&secret=s',
-      awaitToken: authTokenFlow.awaitToken,
-      cancelAuthFlow: authTokenFlow.cancelAuthFlow,
-    }),
+    generateAuthTokenFlow: (capabilities?: string) => {
+      authTokenFlow.requestedCapabilities.push(capabilities);
+      return {
+        authorizationUrl: 'pubkyauth:///?relay=http%3A%2F%2Flocalhost%2Finbox&secret=s',
+        awaitToken: authTokenFlow.awaitToken,
+        cancelAuthFlow: authTokenFlow.cancelAuthFlow,
+      };
+    },
   },
 }));
 
@@ -91,6 +96,14 @@ describe('MarketplaceSessionService', () => {
       issuedAt: expect.any(String),
     });
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
+  });
+
+  it('asks the signer for the marketplace session grant', () => {
+    authTokenFlow.requestedCapabilities.length = 0;
+    const flow = MarketplaceSessionService.beginSessionFlow();
+    flow.cancel();
+
+    expect(authTokenFlow.requestedCapabilities).toEqual([MARKETPLACE_SESSION_GRANT]);
   });
 
   it('never hands the bearer token to callers of the session flow', async () => {
