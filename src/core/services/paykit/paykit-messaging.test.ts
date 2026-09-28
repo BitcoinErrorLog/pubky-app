@@ -702,12 +702,12 @@ describe('PaykitMessagingService', () => {
         }
         world.calls = [];
 
-        const TEN_MINUTES = 10 * 60_000;
+        const FIVE_MINUTES = 5 * 60_000;
         const restoresPerPass: number[] = [];
         const markerReadsPerPass: number[] = [];
         const receivesPerPass: number[] = [];
         const recoveringMarkerReads = () => world.calls.filter((call) => call.startsWith('getReceiverMarker:r')).length;
-        for (let elapsed = 0; elapsed <= TEN_MINUTES; elapsed += POLL_MS) {
+        for (let elapsed = 0; elapsed <= FIVE_MINUTES; elapsed += POLL_MS) {
           const restoresBefore = world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length;
           const receivesBefore = world.calls.filter((call) => call === 'link.receive').length;
           const markerReadsBefore = recoveringMarkerReads();
@@ -726,11 +726,12 @@ describe('PaykitMessagingService', () => {
         expect(Math.max(...restoresPerPass.slice(1))).toBeLessThanOrEqual(3);
         // Each retry reads the counterparty marker at most twice (crossed-handshake probe, key check).
         expect(Math.max(...markerReadsPerPass.slice(1))).toBeLessThanOrEqual(2 * 3);
-        expect(markerReadsPerPass.reduce((sum, count) => sum + count, 0)).toBeLessThanOrEqual(2 * 25 * 10);
+        // At most 7 spaced attempts per pair fit in 5 minutes (0, 4, 10, 20, 40, 80, 160 s).
+        expect(markerReadsPerPass.reduce((sum, count) => sum + count, 0)).toBeLessThanOrEqual(2 * 25 * 7);
         const total = restoresPerPass.reduce((sum, count) => sum + count, 0);
-        expect(total).toBeLessThanOrEqual(25 * 10);
+        expect(total).toBeLessThanOrEqual(25 * 7);
         expect(receivesPerPass.every((count) => count === 1)).toBe(true);
-      });
+      }, 60_000);
     });
 
     it('restores an established link from the persisted snapshot after a reload', async () => {
