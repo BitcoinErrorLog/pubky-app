@@ -152,6 +152,25 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
     expect('amount' in MarketplaceNotificationNormalizer.toFeedNotification(absent, 'sandbox')).toBe(false);
   });
 
+  it('copies a known Bitcoin review reason and drops any other string', () => {
+    const known = createNotificationFixture('bitcoin_manual_review', {
+      reviewReason: 'seller_response_overdue',
+      actorPubky: 'system',
+    });
+    const copied = MarketplaceNotificationNormalizer.toFeedNotification(known, 'transaction-service');
+    expect('reviewReason' in copied ? copied.reviewReason : undefined).toBe('seller_response_overdue');
+
+    const unknown = {
+      ...createNotificationFixture('bitcoin_manual_review', { actorPubky: 'system' }),
+      reviewReason: 'refund_required',
+    } as unknown as MarketplaceNotification;
+    const dropped = MarketplaceNotificationNormalizer.toFeedNotification(unknown, 'transaction-service');
+    expect('reviewReason' in dropped).toBe(false);
+    for (const key of Object.keys(dropped)) {
+      expect(MARKETPLACE_FEED_NOTIFICATION_KEYS).toContain(key);
+    }
+  });
+
   it('includes kind in the exact redacted key set for quarantined rows', () => {
     const item = MarketplaceNotificationNormalizer.toFeedNotification(
       { kind: 'unrecognized', id: 'row-1', index: 0, type: 'future_event', createdAt: '1970-01-01T00:00:00.000Z' },
@@ -180,6 +199,7 @@ describe('MarketplaceNotificationNormalizer.toDeepLink', () => {
     fiat_payment_reported: MARKETPLACE_ROUTES.ORDERS,
     payment_confirmed: MARKETPLACE_ROUTES.ORDERS,
     bitcoin_manual_review: MARKETPLACE_ROUTES.ORDERS,
+    bitcoin_payment_seen: MARKETPLACE_ROUTES.ORDERS,
     bitcoin_prepare_voided: MARKETPLACE_ROUTES.ORDERS,
     order_cancelled: MARKETPLACE_ROUTES.ORDERS,
     order_cancelled_terms_change: MARKETPLACE_ROUTES.ORDERS,

@@ -390,4 +390,45 @@ describe('MarketplaceNotifications', () => {
       '/marketplace/orders',
     );
   });
+
+  it('shows each seller Bitcoin notice as its own sentence and links it to the order', () => {
+    const orderId = '018f47d2-6a27-7c23-a62f-0000000000c1';
+    const seller = 's'.repeat(52);
+    const row = (id: string, type: string, reviewReason: string | null) => ({
+      id,
+      recipientPubky: seller,
+      actorPubky: 'system',
+      type,
+      aggregateId: `order:${orderId}`,
+      createdAt: '2026-09-28T10:56:41.000Z',
+      readAt: null,
+      reviewReason,
+    });
+    marketplaceView.notifications = [
+      row('018f47d2-6a27-7c23-a62f-0000000000b1', 'bitcoin_payment_seen', null),
+      row('018f47d2-6a27-7c23-a62f-0000000000b2', 'bitcoin_manual_review', 'late_settlement'),
+      row('018f47d2-6a27-7c23-a62f-0000000000b3', 'bitcoin_manual_review', 'amount_mismatch'),
+      row('018f47d2-6a27-7c23-a62f-0000000000b4', 'bitcoin_manual_review', 'confirmation_failed'),
+      row('018f47d2-6a27-7c23-a62f-0000000000b5', 'bitcoin_manual_review', 'seller_confirmation_window_elapsed'),
+      row('018f47d2-6a27-7c23-a62f-0000000000b6', 'bitcoin_manual_review', 'seller_response_overdue'),
+      { kind: 'unrecognized', id: 'future', type: 'future_bitcoin_notice', createdAt: '2026-09-28T10:56:41.000Z' },
+    ];
+
+    render(<MarketplaceNotifications />);
+
+    const orderHref = `/marketplace/orders#order-${orderId}`;
+    const sentences = [
+      'A Bitcoin payment is waiting for your confirmation',
+      'A Bitcoin payment settled late and needs your decision',
+      'A Bitcoin payment amount does not match the invoice',
+      'A confirmed Bitcoin payment could not be applied to this order',
+      'The confirmation window ended before you confirmed this payment',
+      'This Bitcoin payment has waited two business days for your decision',
+    ];
+    for (const sentence of sentences) {
+      expect(screen.getByRole('link', { name: sentence })).toHaveAttribute('href', orderHref);
+    }
+    expect(screen.getByText('Unrecognized marketplace event')).toBeInTheDocument();
+    expect(screen.getByText(/1 unrecognized marketplace event/)).toBeInTheDocument();
+  });
 });

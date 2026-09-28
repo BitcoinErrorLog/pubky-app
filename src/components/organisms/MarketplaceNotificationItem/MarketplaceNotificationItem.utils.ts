@@ -1,11 +1,16 @@
 import { formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
-import { DIGITAL_DELIVERED_COPY, type DigitalDeliveryNotice } from '@/services/marketplace/marketplace-activity-copy';
+import {
+  bitcoinNotificationCopy,
+  DIGITAL_DELIVERED_COPY,
+  type DigitalDeliveryNotice,
+} from '@/services/marketplace/marketplace-activity-copy';
 
 type MarketplaceNotificationActionInput = {
   type: MarketplaceNotification['type'];
   amount?: { amountMinor: number; currency: string; exponent: number };
   digitalDelivery?: DigitalDeliveryNotice;
+  reviewReason?: string | null;
 };
 
 /**
@@ -22,6 +27,8 @@ export function getMarketplaceNotificationActionText(notification: MarketplaceNo
   if (notification.type === 'order_delivered' && notification.digitalDelivery) {
     return DIGITAL_DELIVERED_COPY[notification.digitalDelivery].action;
   }
+  const bitcoin = bitcoinNotificationCopy(notification);
+  if (bitcoin) return bitcoin.action;
   const base = getBaseActionText(notification.type);
   if (!notification.amount) return base;
   const money = formatBitcoinAwareMoney(notification.amount);
@@ -75,6 +82,8 @@ function getBaseActionText(type: MarketplaceNotification['type']): string {
       return 'confirmed payment for an order';
     case 'bitcoin_manual_review':
       return 'flagged a bitcoin payment for a decision';
+    case 'bitcoin_payment_seen':
+      return 'saw a Bitcoin payment waiting for your confirmation';
     case 'bitcoin_prepare_voided':
       return 'expired a bitcoin payment';
     case 'order_cancelled':
