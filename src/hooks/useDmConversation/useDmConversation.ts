@@ -81,6 +81,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
       if (cancelled) return;
       if (state.status === 'ready') setStatus('ready');
       else if (state.status === 'not-enrolled') setStatus('not-enrolled');
+      else if (state.status === 'recovery-needed') setStatus('recovery-needed');
       else setStatus(state.role === 'initiator' ? 'handshaking-initiator' : 'handshaking-responder');
     };
 

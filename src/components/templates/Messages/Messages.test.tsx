@@ -185,4 +185,14 @@ describe('MessagesConversation pending-handshake composer', () => {
     expect(screen.getByLabelText('Message')).toBeEnabled();
     expect(screen.getByText(MESSAGING_COPY.handshakeResponder)).toBeInTheDocument();
   });
+
+  it('keeps the history and composer and says nothing was deleted while the link needs recovery', () => {
+    dmView.status = 'recovery-needed';
+
+    render(<MessagesConversation counterpartyPubky={COUNTERPARTY} />);
+
+    expect(screen.getByLabelText('Message')).toBeEnabled();
+    expect(screen.getByText(MESSAGING_COPY.linkRecoveryNeeded)).toBeInTheDocument();
+    expect(screen.queryByText(MESSAGING_COPY.handshakeInitiator)).not.toBeInTheDocument();
+  });
 });

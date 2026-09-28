@@ -324,6 +324,23 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     );
   });
 
+  it('renders the link-recovery state with a kept queued message at desktop viewport', async () => {
+    conversationView.status = 'recovery-needed';
+    conversationView.thread = [
+      fixedQueued(
+        '00000000-0000-4000-8000-000000000904',
+        'Still interested if it is available.',
+        VRT_FROZEN_NOW_MS - 60_000,
+      ),
+    ];
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-recovery-needed-desktop',
+    );
+  });
+
   it('renders the answering-handshake (responder) state at desktop viewport', async () => {
     conversationView.status = 'handshaking-responder';
 
