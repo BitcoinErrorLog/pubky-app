@@ -58,6 +58,29 @@ afterEach(() => {
   window.sessionStorage.clear();
 });
 
+describe('MarketplacePackingSlipDialog — bitcoin amount', () => {
+  it('prints items, shipping, and the payment code as the total', async () => {
+    render(
+      <MarketplacePackingSlipDialog
+        order={createOrderFixture('paid', {
+          paymentMethod: 'bitcoin',
+          paykitTotalSats: 1_255,
+          subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+          total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+        })}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Packing slip' }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Items ₿1,000')).toBeInTheDocument();
+    expect(within(dialog).getByText('Shipping ₿0')).toBeInTheDocument();
+    expect(within(dialog).getByText('Payment code ₿255')).toBeInTheDocument();
+    expect(within(dialog).getByText('Total ₿1,255')).toBeInTheDocument();
+  });
+});
+
 describe('MarketplacePackingSlipDialog — paste delivery address', () => {
   it('shows the deployment limitation note and ruled lines while the field is empty', async () => {
     const dialog = await openSlip();

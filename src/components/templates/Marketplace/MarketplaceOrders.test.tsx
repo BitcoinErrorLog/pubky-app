@@ -8,6 +8,7 @@ import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketp
 import {
   createOrderFixture,
   createPaymentFixture,
+  createReceiptFixture,
   ORDER_FIXTURE_BUYER,
   ORDER_FIXTURE_SELLER,
 } from '@/test/fixtures/commerce/orders';
@@ -326,6 +327,29 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.queryByText(/refunded external/i)).not.toBeInTheDocument();
   });
 
+  it('records a Bitcoin refund with the payment-code equation', () => {
+    ordersState.orders = [
+      orderView('refunded_external', 'Sold bitcoin refund', 'seller', {
+        paymentMethod: 'bitcoin',
+        paykitTotalSats: 1_255,
+        merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+        subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+        total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+        externalRefund: {
+          amountMinor: 1_255,
+          transactionId: 'txid-canary-refund',
+          recordedAt: '2026-09-24T18:00:00.000Z',
+        },
+      }),
+    ];
+    render(<MarketplaceOrders />);
+    expect(screen.getByTestId('order-refund-record')).toHaveTextContent(
+      'Refunded in full (Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255). Reference: txid-canary-refund',
+    );
+  });
+
   it('explains a cancelled PayPal reversal on the reopened order', () => {
     ordersState.orders = [
       orderView('paid', 'Sold restored lamp', 'seller', {
@@ -382,15 +406,23 @@ describe('MarketplaceOrders tabs', () => {
   it('shows reserved checkout copy on Continue checkout, not a payment deadline on Orders', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-15T10:00:00.000Z'));
     ordersState.orders = [
-      orderView('pending_payment', 'Bought deadline boots', 'buyer', {
-        holdExpiresAt: '2026-09-15T10:05:00.000Z',
-        paymentMethod: 'bitcoin',
-        nextActor: 'buyer',
-      }),
+      orderView(
+        'pending_payment',
+        'Bought deadline boots',
+        'buyer',
+        {
+          holdExpiresAt: '2026-09-15T10:05:00.000Z',
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          nextActor: 'buyer',
+        },
+        'awaiting_entitlement',
+      ),
     ];
     const { rerender } = render(<MarketplaceOrders />);
     expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
     expect(screen.getByText(/Reserved while you pay · 5:00/)).toBeInTheDocument();
+    expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Complete payment by/)).not.toBeInTheDocument();
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
 
@@ -402,14 +434,97 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByTestId('marketplace-continue-checkout')).toHaveTextContent('Checkout in progress');
 
     ordersState.orders = [
-      orderView('pending_payment', 'Bought expired boots', 'buyer', {
-        holdExpiresAt: '2026-09-15T09:59:59.000Z',
-        paymentMethod: 'bitcoin',
-        nextActor: 'buyer',
-      }),
+      orderView(
+        'pending_payment',
+        'Bought expired boots',
+        'buyer',
+        {
+          holdExpiresAt: '2026-09-15T09:59:59.000Z',
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          nextActor: 'buyer',
+        },
+        'awaiting_entitlement',
+      ),
     ];
     rerender(<MarketplaceOrders />);
     expect(screen.getByText(/Reserved while you pay · 0:00/)).toBeInTheDocument();
+  });
+
+  it('replaces the pay-by line with the seller confirm-by time after a Bitcoin payment is seen', () => {
+    ordersState.orders = [
+      orderView(
+        'pending_payment',
+        'Bought seen boots',
+        'buyer',
+        {
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'awaiting_seller_confirmation',
+          paykitSellerConfirmationDeadline: '2026-09-29T10:56:41.980Z',
+          holdExpiresAt: '2026-09-29T10:56:41.980Z',
+          nextActor: 'buyer',
+        },
+        'awaiting_entitlement',
+      ),
+    ];
+    render(<MarketplaceOrders />);
+    expect(screen.getByText('Seller confirms by Sep 29, 2026, 10:56 AM UTC.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View payment' })).toBeInTheDocument();
+    expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+  });
+
+  it('does not tell a buyer in unconfirmed manual review to pay again', () => {
+    ordersState.orders = [
+      orderView(
+        'pending_payment',
+        'Bought review boots',
+        'buyer',
+        {
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          holdExpiresAt: '2026-09-29T10:56:41.980Z',
+          nextActor: 'buyer',
+        },
+        'manual_review',
+      ),
+    ];
+    render(<MarketplaceOrders />);
+    expect(screen.getByText('Payment received — the seller is reviewing it.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View payment' })).toBeInTheDocument();
+    expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/confirmed on-chain/)).not.toBeInTheDocument();
+  });
+
+  it('prompts the seller to confirm a seen Bitcoin payment', () => {
+    ordersState.adapterMode = 'transaction-service';
+    const money = {
+      paymentMethod: 'bitcoin' as const,
+      paykitRequestState: 'awaiting_seller_confirmation' as const,
+      paykitTotalSats: 1_303,
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC' as const, exponent: 8 as const },
+      bitcoinPayable: { amountMinor: 1_303, currency: 'SAT' as const, exponent: 0 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC' as const, exponent: 8 as const },
+      shipping: { amountMinor: 0, currency: 'BTC' as const, exponent: 8 as const },
+      total: { amountMinor: 1_303, currency: 'BTC' as const, exponent: 8 as const },
+      nextActor: 'buyer' as const,
+    };
+    ordersState.orders = [
+      orderView(
+        'pending_payment',
+        'Sold seen boots',
+        'seller',
+        money,
+        'awaiting_entitlement',
+        createPaymentFixture('awaiting_entitlement', { adapter: 'paykit' }),
+      ),
+    ];
+    render(<MarketplaceOrders />);
+    expect(screen.getAllByText('Payment seen')).toHaveLength(2);
+    expect(screen.getByTestId('payment-status')).toBeInTheDocument();
+    expect(screen.queryByText(/restocks/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
   });
 
   it('keeps a cancelled paid order in buyer and seller history, never Abandoned', async () => {
@@ -772,6 +887,46 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Locked Bitcoin amount: ₿2,588/)).toBeInTheDocument();
     expect(screen.getByText(/ · Bitcoin quote expired/)).toBeInTheDocument();
     expect(screen.queryByText(/≈ ₿/)).not.toBeInTheDocument();
+  });
+
+  it('shows items, shipping, and the payment code on the order and its receipt', async () => {
+    const user = userEvent.setup();
+    const order = createOrderFixture('paid', {
+      paymentMethod: 'bitcoin',
+      paykitTotalSats: 1_255,
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+      total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+      lines: [
+        {
+          listingAggregateId: `listing:${ORDER_FIXTURE_SELLER}_canary`,
+          listingRevision: 1,
+          contentHash: 'a'.repeat(64),
+          title: 'Canary boots',
+          quantity: 1,
+          unitPrice: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        },
+      ],
+    });
+    ordersState.orders = [
+      {
+        order,
+        payment: createPaymentFixture('confirmed', { id: order.paymentId, orderId: order.id, adapter: 'paykit' }),
+        receipt: createReceiptFixture({ orderId: order.id, total: order.total }),
+      },
+    ];
+
+    render(<MarketplaceOrders />);
+    await user.click(screen.getByRole('tab', { name: /All 1/i }));
+
+    const equation = 'Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255';
+    expect(screen.getByText('₿1,255')).toBeInTheDocument();
+    expect(screen.getAllByText(equation)).toHaveLength(2);
+    expect(within(screen.getByTestId('order-receipt-details')).getByText(equation)).toBeInTheDocument();
+    expect(screen.queryByText(/Locked Bitcoin amount/)).not.toBeInTheDocument();
   });
 
   it.each([null, undefined])('shows the indicative Bitcoin estimate when the quote is %s', async (bitcoinQuote) => {

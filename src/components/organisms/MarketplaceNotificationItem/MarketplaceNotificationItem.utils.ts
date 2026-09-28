@@ -1,4 +1,4 @@
-import { formatCommerceMoney } from '@/libs/commerce/format';
+import { formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
 import { DIGITAL_DELIVERED_COPY, type DigitalDeliveryNotice } from '@/services/marketplace/marketplace-activity-copy';
 
@@ -14,7 +14,7 @@ type MarketplaceNotificationActionInput = {
  * claims what the notification type itself asserts. When the payload
  * carries an amount (the §8-permitted monetary context the recipient
  * already sees in a projection), it is appended through
- * `formatCommerceMoney`, so bitcoin renders per BIP-177 (₿ + grouped base
+ * `formatBitcoinAwareMoney`, so bitcoin renders per BIP-177 (₿ + grouped base
  * units, never "sats"). Exhaustive: adding a notification type fails
  * compilation.
  */
@@ -24,7 +24,7 @@ export function getMarketplaceNotificationActionText(notification: MarketplaceNo
   }
   const base = getBaseActionText(notification.type);
   if (!notification.amount) return base;
-  const money = formatCommerceMoney(notification.amount);
+  const money = formatBitcoinAwareMoney(notification.amount);
   switch (notification.type) {
     case 'offer_received':
       return `sent you an offer of ${money}`;

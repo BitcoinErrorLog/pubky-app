@@ -16,10 +16,17 @@ import { type CommerceAdapterMode, isDurableCommerceMode, isTransactionalCommerc
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarkMarketplaceOrdersSeen } from '@/hooks/useMarkMarketplaceOrdersSeen/useMarkMarketplaceOrdersSeen';
 import { orderAnchorId, readOrderAnchorId } from '@/libs/commerce/activity-links';
+import {
+  bitcoinPaymentHasBeenSeen,
+  buyerCheckoutBadgeLabel,
+  buyerCheckoutProgressCopy,
+  PAYMENT_SEEN_LABEL,
+  sellerBitcoinDecision,
+} from '@/libs/commerce/bitcoin-buyer-status';
+import { bitcoinPaymentBreakdown, formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
 import {
-  buyerCheckoutStateLabel,
   getMarketplaceCheckoutRoute,
   isAbandonedCheckout,
   isBuyerCheckoutInProgress,
@@ -28,7 +35,6 @@ import {
   isSellerPaidOrder,
   isSellerReservation,
   readCheckoutHashOrderId,
-  reservedWhileYouPayCopy,
   sellerReservationCopy,
   unlistedOrderStateLabel,
 } from '@/libs/commerce/checkout-phase';
@@ -52,6 +58,7 @@ import {
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
+import { MarketplaceBitcoinAmountBreakdown } from '@/organisms/Marketplace/MarketplaceBitcoinAmountBreakdown';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
@@ -250,7 +257,7 @@ export function MarketplaceOrders() {
                 <Heading level={2} size="sm" className="text-xl font-semibold">
                   Checkout in progress
                 </Heading>
-                {buyerCheckouts.map(({ order }) => (
+                {buyerCheckouts.map(({ order, payment }) => (
                   <Card key={order.id} className="border py-4">
                     <CardContent className="flex flex-wrap items-center justify-between gap-3 px-5">
                       <div>
@@ -258,15 +265,13 @@ export function MarketplaceOrders() {
                           {order.lines.map((line) => line.title).join(', ')}
                         </Typography>
                         <Typography as="p" className="text-sm text-muted-foreground">
-                          {order.paymentMethod
-                            ? reservedWhileYouPayCopy(order.holdExpiresAt)
-                            : buyerCheckoutStateLabel(order)}
+                          {buyerCheckoutProgressCopy(order, payment)}
                         </Typography>
                         <MarketplaceOrderReference order={order} isBuyer />
                       </div>
                       <Button asChild className="rounded-full">
                         <Link href={getMarketplaceCheckoutRoute(order.id)} overrideDefaults>
-                          Continue checkout
+                          {bitcoinPaymentHasBeenSeen(order, payment) ? 'View payment' : 'Continue checkout'}
                         </Link>
                       </Button>
                     </CardContent>
@@ -279,27 +284,40 @@ export function MarketplaceOrders() {
                 <Heading level={2} size="sm" className="text-xl font-semibold">
                   Reservations
                 </Heading>
-                {sellerReservations.map(({ order }) => (
-                  <Card key={order.id} className="border py-4">
-                    <CardContent className="grid gap-2 px-5">
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline" className="border-border/60 text-muted-foreground">
-                          Reservation
-                        </Badge>
-                        <Badge variant="secondary">Held</Badge>
-                      </div>
-                      {order.lines.map((line) => (
-                        <Typography key={line.listingAggregateId} as="p" className="font-semibold">
-                          {line.title} × {line.quantity}
+                {sellerReservations.map(({ order, payment }) => {
+                  const decision = sellerBitcoinDecision(order, payment);
+                  return (
+                    <Card key={order.id} className="border py-4">
+                      <CardContent className="grid gap-2 px-5">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline" className="border-border/60 text-muted-foreground">
+                            Reservation
+                          </Badge>
+                          <Badge variant="secondary">{decision ? PAYMENT_SEEN_LABEL : 'Held'}</Badge>
+                        </div>
+                        {order.lines.map((line) => (
+                          <Typography key={line.listingAggregateId} as="p" className="font-semibold">
+                            {line.title} × {line.quantity}
+                          </Typography>
+                        ))}
+                        <Typography as="p" className="text-sm text-muted-foreground">
+                          {decision ? PAYMENT_SEEN_LABEL : sellerReservationCopy(order.holdExpiresAt)}
                         </Typography>
-                      ))}
-                      <Typography as="p" className="text-sm text-muted-foreground">
-                        {sellerReservationCopy(order.holdExpiresAt)}
-                      </Typography>
-                      <MarketplaceOrderReference order={order} isBuyer={false} />
-                    </CardContent>
-                  </Card>
-                ))}
+                        <MarketplaceOrderReference order={order} isBuyer={false} />
+                        {decision && (
+                          <MarketplacePaymentStatusCard
+                            order={order}
+                            payment={payment}
+                            isBuyer={false}
+                            adapterMode={adapterMode}
+                            advancePayment={advancePayment}
+                            onPaymentChanged={refresh}
+                          />
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
             {historyOrders.length > 0 && (
@@ -335,6 +353,7 @@ export function MarketplaceOrders() {
                     const isBuyer = currentUserPubky === order.buyerPubky;
                     const refundRecord = refundRecordLine(order);
                     const nextActorHint = getNextActorHint(order, payment, isBuyer);
+                    const bitcoinBreakdown = bitcoinPaymentBreakdown(order);
                     return (
                       <Card key={order.id} id={orderAnchorId(order.id)} className="scroll-mt-24 border py-5">
                         <CardContent className="grid min-w-0 gap-5 px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
@@ -346,7 +365,7 @@ export function MarketplaceOrders() {
                               <Badge variant="secondary">
                                 {isPendingPaymentState(order.state)
                                   ? isBuyer
-                                    ? buyerCheckoutStateLabel(order)
+                                    ? buyerCheckoutBadgeLabel(order, payment)
                                     : 'Held'
                                   : orderStateLabel(order)}
                               </Badge>
@@ -376,17 +395,24 @@ export function MarketplaceOrders() {
                               </div>
                             ))}
                             <Typography as="p" className="mt-2 text-2xl font-bold text-brand">
-                              {formatCommerceMoney(order.total)} <MarketplaceOrderBitcoinAmount order={order} />
+                              {bitcoinBreakdown
+                                ? formatBitcoinAwareMoney(bitcoinBreakdown.payable)
+                                : formatCommerceMoney(order.total)}{' '}
+                              <MarketplaceOrderBitcoinAmount order={order} />
                             </Typography>
-                            <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-                              Items {formatCommerceMoney(order.subtotal)} · Shipping{' '}
-                              {formatCommerceMoney(order.shipping)}
-                            </Typography>
+                            {bitcoinBreakdown ? (
+                              <MarketplaceBitcoinAmountBreakdown order={order} className="mt-1" />
+                            ) : (
+                              <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                                Items {formatCommerceMoney(order.subtotal)} · Shipping{' '}
+                                {formatCommerceMoney(order.shipping)}
+                              </Typography>
+                            )}
                             <MarketplaceOrderReference order={order} isBuyer={isBuyer} />
                             {order.state === 'pending_payment' && order.holdExpiresAt && (
                               <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                                 {isBuyer
-                                  ? reservedWhileYouPayCopy(order.holdExpiresAt)
+                                  ? buyerCheckoutProgressCopy(order, payment)
                                   : sellerReservationCopy(order.holdExpiresAt)}
                               </Typography>
                             )}
@@ -409,6 +435,7 @@ export function MarketplaceOrders() {
                                 data-testid="order-receipt-details"
                               >
                                 <summary className="cursor-pointer text-sm text-muted-foreground">Receipt</summary>
+                                <MarketplaceBitcoinAmountBreakdown order={order} className="mt-2" />
                                 <div
                                   className="mt-1 flex items-center gap-2 text-sm break-all text-muted-foreground"
                                   data-testid="order-receipt-hash"
@@ -614,6 +641,7 @@ function MarketplaceOrderMessageCta({
 }
 
 function MarketplaceOrderBitcoinAmount({ order }: { order: MarketplaceOrder }): ReactNode {
+  if (bitcoinPaymentBreakdown(order)) return null;
   const quote = order.paymentMethod === 'bitcoin' ? order.bitcoinQuote : null;
   if (quote?.quotedSats !== null && quote?.quotedSats !== undefined) {
     return (

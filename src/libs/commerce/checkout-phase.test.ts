@@ -106,6 +106,9 @@ describe('checkout-phase', () => {
       'Reserved while you pay · 9:41',
     );
     expect(formatRemainingMmSs(null)).toBeNull();
+    expect(formatRemainingMmSs('2026-09-28T11:59:59.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('59:59');
+    expect(formatRemainingMmSs('2026-09-28T12:00:00.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('1:00:00');
+    expect(formatRemainingMmSs('2026-09-29T10:53:06.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('23:53:06');
     expect(sellerReservationCopy('2099-01-01T00:10:00.000Z')).toMatch(/^Held for a buyer · restocks /);
   });
 

@@ -15,14 +15,17 @@ import { useMarketplaceOrderAction } from '@/hooks/useMarketplaceOrderAction/use
 import type { MarketplaceOrderActionData } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
 import { paypalRefundedMinor } from '@/hooks/useMarketplaceOrderAction/useMarketplaceOrderAction.types';
 import { usePickupOrderActions } from '@/hooks/usePickupOrderActions/usePickupOrderActions';
+import { orderAmountEntry } from '@/libs/commerce/bitcoin-payment-code';
 import { OTHER_CARRIER_ID, SHIPPING_CARRIERS } from '@/libs/commerce/carriers';
 import { DIGITAL_ORDER_COPY, DIGITAL_SELLER_COPY, isInstantDigitalDeliveryKind } from '@/libs/commerce/digital';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { formatBitcoinAmount } from '@/libs/commerce/pricing';
 import type { CommerceReviewModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { ControlledTextareaField } from '@/molecules/ControlledTextareaField/ControlledTextareaField';
 import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { MarketplaceBitcoinAmountBreakdown } from '@/organisms/Marketplace/MarketplaceBitcoinAmountBreakdown';
 import { MarketplacePackingSlipDialog } from '@/organisms/Marketplace/MarketplacePackingSlipDialog';
 import { MarketplacePickupRevealDialog } from '@/organisms/Marketplace/MarketplacePickupRevealDialog';
 import { MarketplaceShippingLabelDialog } from '@/organisms/Marketplace/MarketplaceShippingLabelDialog';
@@ -136,7 +139,15 @@ export function MarketplaceOrderActions({
     (['return_received', 'cancelled'].includes(order.state) ||
       (order.fulfillment === 'digital' && ['delivered', 'completed'].includes(order.state)));
   const refundedMinor = paypalRefundedMinor(order);
-  const refundedMoney = formatCommerceMoney({ ...order.total, amountMinor: refundedMinor });
+  const amountEntry = orderAmountEntry(order);
+  const isPaypal = order.paymentMethod === 'paypal';
+  const amountLabel = amountEntry.unitLabel === 'USD' ? 'Amount (USD)' : `Amount (${amountEntry.unitLabel})`;
+  const refundedMoney =
+    amountEntry.unitLabel === '₿'
+      ? formatBitcoinAmount(refundedMinor)
+      : formatCommerceMoney({ ...order.total, amountMinor: refundedMinor });
+  const refundCapMoney =
+    amountEntry.unitLabel === '₿' ? formatBitcoinAmount(amountEntry.amountMinor) : formatCommerceMoney(order.total);
   const canReveal =
     isBuyer &&
     isPickup &&
@@ -318,14 +329,19 @@ export function MarketplaceOrderActions({
           Press when the buyer has brought it back
         </p>
       )}
-      {canRecordRefund && order.paymentMethod === 'paypal' && refundedMinor === 0 && (
+      {canRecordRefund && isPaypal && refundedMinor === 0 && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-refund-hint">
           Refund the buyer in PayPal first, then record it here
         </p>
       )}
-      {canRecordRefund && refundedMinor > 0 && (
+      {canRecordRefund && isPaypal && refundedMinor > 0 && (
         <p className="mt-2 text-xs text-muted-foreground" data-testid="paypal-partial-refund-hint">
-          PayPal refunded {refundedMoney} of {formatCommerceMoney(order.total)}. Record the rest to close this order.
+          PayPal refunded {refundedMoney} of {refundCapMoney}. Record the rest to close this order.
+        </p>
+      )}
+      {canRecordRefund && !isPaypal && refundedMinor > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground" data-testid="partial-refund-hint">
+          Recorded {refundedMoney} of {refundCapMoney}. Record the rest to close this order.
         </p>
       )}
 
@@ -385,16 +401,17 @@ export function MarketplaceOrderActions({
               <ControlledInputField name="trackingNumber" control={action.form.control} label="Tracking number" />
             </>
           )}
-          {actionType === 'refund' && refundedMinor > 0 && (
+          {actionType === 'refund' && isPaypal && refundedMinor > 0 && (
             <Typography as="p" className="text-sm text-muted-foreground" data-testid="refund-paypal-already">
               PayPal already refunded {refundedMoney}. Enter what you refunded outside PayPal, or 0 to close the order
               at the PayPal amount.
             </Typography>
           )}
-          {(actionType === 'return' || (actionType === 'refund' && refundedMinor === 0)) && (
-            <ControlledInputField name="amount" control={action.form.control} label="Amount (USD)" />
+          {(actionType === 'return' || actionType === 'refund') && <MarketplaceBitcoinAmountBreakdown order={order} />}
+          {(actionType === 'return' || (actionType === 'refund' && (refundedMinor === 0 || !isPaypal))) && (
+            <ControlledInputField name="amount" control={action.form.control} label={amountLabel} />
           )}
-          {actionType === 'refund' && refundedMinor > 0 && (
+          {actionType === 'refund' && isPaypal && refundedMinor > 0 && (
             <ControlledInputField
               name="amount"
               control={action.form.control}

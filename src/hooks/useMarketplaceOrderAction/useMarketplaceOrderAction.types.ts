@@ -70,10 +70,18 @@ export function formatOrderMajor(total: MarketplaceRefundCap): string {
  * The recorded total, `refundedMinor` plus the entry, must be positive and
  * at most the order total.
  */
-export function marketplaceOrderActionSchemaFor(total: MarketplaceRefundCap, refundedMinor = 0) {
+export function marketplaceOrderActionSchemaFor(
+  total: MarketplaceRefundCap,
+  refundedMinor = 0,
+  rail: 'paypal' | 'other' = 'other',
+) {
   return marketplaceOrderActionSchema.superRefine((data, context) => {
     if (data.action !== 'refund') return;
     if (!/^\d+(?:\.\d{1,2})?$/.test(data.amount)) return;
+    if (total.exponent === 0 && !/^\d+$/.test(data.amount)) {
+      context.addIssue({ code: 'custom', path: ['amount'], message: 'Enter a whole number.' });
+      return;
+    }
     const amountMinor = majorToMinor(data.amount, total.exponent);
     if (refundedMinor === 0 && amountMinor <= 0) {
       context.addIssue({ code: 'custom', path: ['amount'], message: 'Enter a valid refund amount.' });
@@ -86,7 +94,9 @@ export function marketplaceOrderActionSchemaFor(total: MarketplaceRefundCap, ref
         message:
           refundedMinor === 0
             ? 'Enter a refund up to the order total.'
-            : 'Enter a refund up to the amount PayPal has not refunded.',
+            : rail === 'paypal'
+              ? 'Enter a refund up to the amount PayPal has not refunded.'
+              : 'Enter a refund up to the amount not yet recorded.',
       });
     }
   });
