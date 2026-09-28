@@ -3,7 +3,7 @@ import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyr
 import { decryptPrivRecord, encryptPrivRecord, privEntryName, privEntryUrl } from '@/libs/commerce/priv-envelope';
 import { HttpMethod } from '@/libs/http/http.types';
 import { conversationRequestUrl } from '@/libs/messaging/first-contact';
-import { applyMuteChange, emptyMuteList, parseMuteList } from '@/libs/messaging/mute-list';
+import { applyMuteChange, emptyMuteList, MUTE_LIST_MAX_ENTRIES, parseMuteList } from '@/libs/messaging/mute-list';
 import { CommerceMessagingConversationModel, CommerceMessagingMessageModel } from '@/models/messaging/messaging.models';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';
@@ -103,6 +103,46 @@ describe('FirstContactApplication mutes', () => {
     homeserver.failNext(HttpMethod.GET, muteUrl(), 503);
 
     await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
+  });
+
+  it('restores a mute another device overwrote the next time this device loads the list', async () => {
+    plantMuteList(homeserver, emptyMuteList(OWNER));
+    await FirstContactApplication.setMuted(OWNER, A, true);
+    // Another device read the list before that write and saved its own change over it.
+    plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), B, true, Date.now()));
+
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A, B]) });
+
+    expect(storedMuteList(homeserver)?.entries).toMatchObject({ [A]: { muted: true }, [B]: { muted: true } });
+  });
+
+  it('keeps this device’s earlier changes when it writes over another device’s list', async () => {
+    plantMuteList(homeserver, emptyMuteList(OWNER));
+    await FirstContactApplication.setMuted(OWNER, A, true);
+    plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), B, true, Date.now()));
+
+    await FirstContactApplication.setMuted(OWNER, 'z'.repeat(52), true);
+
+    expect(Object.keys(storedMuteList(homeserver)?.entries ?? {}).sort()).toEqual([A, B, 'z'.repeat(52)].sort());
+  });
+
+  it('refuses a mute past the limit without writing, so the list stays readable', async () => {
+    const z32 = 'ybndrfg8ejkmcpqxot1uwisza345h769';
+    const pubkyFor = (n: number) =>
+      [3, 2, 1, 0]
+        .map((power) => z32[Math.floor(n / 32 ** power) % 32])
+        .join('')
+        .padStart(52, 'y');
+    let full = emptyMuteList(OWNER);
+    for (let index = 0; index < MUTE_LIST_MAX_ENTRIES; index += 1)
+      full = applyMuteChange(full, pubkyFor(index), true, 1);
+    plantMuteList(homeserver, full);
+
+    await expect(FirstContactApplication.setMuted(OWNER, A, true)).resolves.toEqual({ kind: 'full' });
+
+    expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
+    const state = await FirstContactApplication.loadMutes(OWNER);
+    expect(state.kind).toBe('ready');
   });
 
   it('asks for approval when the marketplace session is not this owner’s', async () => {

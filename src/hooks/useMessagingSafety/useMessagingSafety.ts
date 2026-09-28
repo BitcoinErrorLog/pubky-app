@@ -27,7 +27,11 @@ export function useMessagingSafety(): UseMessagingSafetyReturn {
       const approval = state.kind === 'needs_approval' || state.kind === 'needs_reauth';
       toast({
         variant: approval ? 'warning' : 'error',
-        description: approval ? MESSAGING_COPY.muteNeedsApproval : MESSAGING_COPY.muteFailed,
+        description: approval
+          ? MESSAGING_COPY.muteNeedsApproval
+          : state.kind === 'full'
+            ? MESSAGING_COPY.muteListFull
+            : MESSAGING_COPY.muteFailed,
       });
       return false;
     } catch {

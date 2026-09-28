@@ -206,6 +206,26 @@ export class MessagingApplication {
     return { state, received, flushed: delivered };
   }
 
+  /**
+   * Throws the same typed error a send would when this listing message could
+   * not be sent at all (too long, empty, or a thread that does not name both
+   * people), so callers can refuse before doing anything else.
+   */
+  static assertSendableChat(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    input: { conversationId: string; listingRef: string; body: string },
+  ): void {
+    assertListingConversationBound(ownerPubky, counterpartyPubky, input, 'assertSendableChat');
+    buildChatMessage({
+      eventId: crypto.randomUUID(),
+      conversationId: input.conversationId,
+      listingRef: input.listingRef,
+      sentAt: Date.now(),
+      body: input.body,
+    });
+  }
+
   static async sendMessage(
     ownerPubky: string,
     counterpartyPubky: string,

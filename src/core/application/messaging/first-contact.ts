@@ -23,7 +23,16 @@ import {
   ReceiveRateLimiter,
 } from '@/libs/messaging/first-contact';
 import type { MessagingIntakeGate } from '@/libs/messaging/intake-gate';
-import { applyMuteChange, emptyMuteList, mutedPubkys, type MuteList, parseMuteList } from '@/libs/messaging/mute-list';
+import {
+  applyMuteChange,
+  emptyMuteList,
+  mergeMuteLists,
+  mutedPubkys,
+  type MuteList,
+  muteListSchema,
+  muteListsEqual,
+  parseMuteList,
+} from '@/libs/messaging/mute-list';
 import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
@@ -55,6 +64,9 @@ export type MessagingMutesState =
   | { kind: 'needs_approval' }
   | { kind: 'needs_reauth' }
   | { kind: 'error' };
+
+/** The outcome of a mute or unmute: the new state, or `full` when nothing was changed because the list is at its limit. */
+export type MuteChangeResult = MessagingMutesState | { kind: 'full' };
 
 /** Why the first message to a seller was not allowed, or what it did. */
 export type FirstContactPreparation =
@@ -90,6 +102,11 @@ export class FirstContactApplication {
    * Reads the mute list from `/priv`. A list read earlier in this session is
    * kept when a later read fails, so a passing network error does not stop
    * delivery; a first read that fails leaves the state unknown.
+   *
+   * The stored list is merged with every change this session already knows.
+   * There is no conditional write on the homeserver, so another device can
+   * overwrite a change made here; when the merge finds one missing, it is
+   * written back, and the lost mute returns on this device's next sync.
    */
   static async loadMutes(ownerPubky: string): Promise<MessagingMutesState> {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return { kind: 'unavailable' };
@@ -98,11 +115,15 @@ export class FirstContactApplication {
       keys.kind === 'keys'
         ? await this.readMuteList(ownerPubky, keys.keyring)
         : ({ kind: keys.kind === 'needs_reauth' ? 'needs_approval' : 'error' } as const);
-    if (result.kind === 'list') {
-      this.mutes.set(ownerPubky, result.list);
-      return { kind: 'ready', muted: mutedPubkys(result.list) };
-    }
     const cached = this.mutes.get(ownerPubky);
+    if (result.kind === 'list') {
+      const merged = cached ? mergeMuteLists(result.list, cached) : result.list;
+      this.mutes.set(ownerPubky, merged);
+      if (keys.kind === 'keys' && !muteListsEqual(merged, result.list) && muteListSchema.safeParse(merged).success) {
+        await this.writeMuteList(keys.keyring, merged);
+      }
+      return { kind: 'ready', muted: mutedPubkys(merged) };
+    }
     if (cached) return { kind: 'ready', muted: mutedPubkys(cached) };
     return { kind: result.kind };
   }
@@ -117,10 +138,11 @@ export class FirstContactApplication {
   /**
    * Mutes or unmutes one person: reads the stored list, applies the change,
    * writes it sealed and reads it back. A failed read writes nothing, so a
-   * list that could not be opened is never replaced. Changes from one tab
+   * list that could not be opened is never replaced, and a change that would
+   * take the list past its limit is refused (`full`). Changes from one tab
    * run one after another.
    */
-  static async setMuted(ownerPubky: string, counterpartyPubky: string, muted: boolean): Promise<MessagingMutesState> {
+  static async setMuted(ownerPubky: string, counterpartyPubky: string, muted: boolean): Promise<MuteChangeResult> {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return { kind: 'unavailable' };
     if (ownerPubky === counterpartyPubky) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'You cannot mute yourself.', {
@@ -144,21 +166,39 @@ export class FirstContactApplication {
     ownerPubky: string,
     counterpartyPubky: string,
     muted: boolean,
-  ): Promise<MessagingMutesState> {
+  ): Promise<MuteChangeResult> {
     const keys = await CommercePrivKeyringApplication.get(ownerPubky);
     if (keys.kind !== 'keys') return { kind: keys.kind === 'needs_reauth' ? 'needs_approval' : 'error' };
     const stored = await this.readMuteList(ownerPubky, keys.keyring);
     if (stored.kind !== 'list') return { kind: stored.kind };
-    const next = applyMuteChange(stored.list, counterpartyPubky, muted, Date.now());
-    try {
-      await CommercePrivStoreService.write(keys.keyring, MUTES_FAMILY, MUTES_ENTRY_ID, next);
-    } catch (error) {
-      if (this.isPrivateAccessDenied(error)) return { kind: 'needs_reauth' };
-      Logger.warn('Could not save the mute list', privErrorSummary(error));
-      return { kind: 'error' };
+    const cached = this.mutes.get(ownerPubky);
+    const base = cached ? mergeMuteLists(stored.list, cached) : stored.list;
+    const next = applyMuteChange(base, counterpartyPubky, muted, Date.now());
+    // A list readers would reject must never be written: it would stop every
+    // later read, and so all receiving, until it was repaired by hand.
+    if (!muteListSchema.safeParse(next).success) {
+      Logger.warn('The mute list is full; nothing was changed', { reason: 'mute_list_full' });
+      return { kind: 'full' };
     }
+    const written = await this.writeMuteList(keys.keyring, next);
+    if (written !== 'written') return { kind: written };
     this.mutes.set(ownerPubky, next);
     return { kind: 'ready', muted: mutedPubkys(next) };
+  }
+
+  /** Seals and writes `list`, reading it back; never throws. */
+  private static async writeMuteList(
+    keyring: PrivKeyring,
+    list: MuteList,
+  ): Promise<'written' | 'needs_reauth' | 'error'> {
+    try {
+      await CommercePrivStoreService.write(keyring, MUTES_FAMILY, MUTES_ENTRY_ID, list);
+      return 'written';
+    } catch (error) {
+      if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+      Logger.warn('Could not save the mute list', privErrorSummary(error));
+      return 'error';
+    }
   }
 
   /** The stored list (empty when absent), or why it could not be opened. */

@@ -491,6 +491,19 @@ describe('journey: the buyer follows the seller on the first message', () => {
     expect(homeserver.log).not.toContain(`PUT ${conversationRequestUrl(BUYER, SELLER, LISTING)}`);
   });
 
+  it('follows nobody and publishes nothing for a first message that cannot be sent', async () => {
+    await actAs(SELLER);
+    await actAs(BUYER);
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+
+    await expect(MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'x'.repeat(2_000))).rejects.toThrow(
+      /too long/,
+    );
+
+    expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
+    await expect(MessagingController.willFollowOnSend(SELLER, BUYER, LISTING)).resolves.toBe(true);
+  });
+
   it('refuses a sixth new seller within the hour before following, publishing or queueing anything', async () => {
     await actAs(BUYER);
     const sellers = ['c', 'd', 'e', 'f', 'g', 'h'].map((letter) => letter.repeat(52));

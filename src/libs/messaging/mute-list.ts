@@ -94,7 +94,8 @@ export function muteListsEqual(left: MuteList, right: MuteList): boolean {
 /**
  * Keeps the list within {@link MUTE_LIST_MAX_ENTRIES} by dropping the oldest
  * unmute records first. Mutes are never dropped: a list that would need to
- * drop one keeps them all and fails validation when it is written.
+ * drop one keeps them all and fails {@link muteListSchema}, which writers
+ * check before writing.
  */
 function pruneEntries(entries: MuteList['entries']): MuteList['entries'] {
   const keys = Object.keys(entries);

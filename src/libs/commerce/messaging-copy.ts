@@ -55,6 +55,7 @@ export const MESSAGING_COPY = {
   mutedThread: 'You muted this person. Unmute them to see new messages or reply.',
   mutedSendRefused: 'You muted this person. Unmute them to send a message.',
   muteFailed: 'The mute could not be saved. Try again.',
+  muteListFull: 'You can mute up to 1,000 people. Unmute someone to mute another person.',
   muteNeedsApproval: 'Approve private sync to save mutes.',
   approvePrivateSync: 'Approve private sync',
   mutesNeedApproval: 'New messages are paused until you approve private sync, so mutes keep working.',

@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { CommerceApplication } from '@/application/commerce/commerce';
-import { FirstContactApplication, type MessagingMutesState } from '@/application/messaging/first-contact';
+import {
+  FirstContactApplication,
+  type MessagingMutesState,
+  type MuteChangeResult,
+} from '@/application/messaging/first-contact';
 import {
   MESSAGING_SYNC_MAX_COUNTERPARTIES,
   MessagingApplication,
@@ -140,6 +144,8 @@ export class MessagingController {
     const resolved = this.resolveConversation(sellerPubky, buyerPubky, listingId);
     const { ownerPubky, counterpartyPubky, conversationId, listingRef } = resolved;
     await this.assertNotMuted(ownerPubky, counterpartyPubky, 'sendOrQueueMessage');
+    // A message that cannot be sent must not follow anyone or publish anything.
+    MessagingApplication.assertSendableChat(ownerPubky, counterpartyPubky, { conversationId, listingRef, body });
     const firstContact =
       ownerPubky === resolved.buyerPubky
         ? await this.runFirstContact(ownerPubky, counterpartyPubky, resolved.listingId)
@@ -289,7 +295,7 @@ export class MessagingController {
   }
 
   /** Mutes or unmutes a person, then refreshes the unread fact. */
-  static async setCounterpartyMuted(counterpartyPubky: unknown, muted: boolean): Promise<MessagingMutesState> {
+  static async setCounterpartyMuted(counterpartyPubky: unknown, muted: boolean): Promise<MuteChangeResult> {
     const ownerPubky = this.getCurrentUserPubky();
     const state = await FirstContactApplication.setMuted(
       ownerPubky,
