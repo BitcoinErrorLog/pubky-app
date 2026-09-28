@@ -24,6 +24,7 @@ import {
   MarketplaceSessionService,
   SESSION_FLOW_TIMEOUT_MS,
 } from './marketplace-session';
+import { marketplaceSessionIdSchema } from './marketplace-session-id';
 
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -32,7 +33,7 @@ export type InventoryBearer = { token: string; source: 'inventory' | 'purchase' 
 
 const sessionResponseSchema = z.object({
   token: z.string().regex(SESSION_TOKEN_PATTERN),
-  sessionId: z.uuid().optional(),
+  sessionId: marketplaceSessionIdSchema.optional(),
   pubky: commercePubkySchema,
   capabilities: z.string(),
   expiresAt: z.iso.datetime({ offset: true }),

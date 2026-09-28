@@ -1,7 +1,30 @@
 /** @vitest-environment node */
 import { describe, expect, it } from 'vitest';
-import { BffError, mapBffError } from './bff';
+import { z } from 'zod';
+import { BffError, mapBffError, sessionPairSchema } from './bff';
 import { GrantServiceError } from './service';
+
+const legacySessionId = 'c91ac604-4109-a63d-ab8b-327fc9decd05';
+const pubky = 'y'.repeat(52);
+
+describe('session pair body', () => {
+  it('revert-fail: pair body accepts a migration-0035 session id that z.uuid() rejects', () => {
+    expect(z.uuid().safeParse(legacySessionId).success).toBe(false);
+    expect(sessionPairSchema.safeParse({ pubky, session_id: legacySessionId }).success).toBe(true);
+  });
+
+  it.each([
+    ['plain string', 'shop-session-id-plain-string-1234567'],
+    ['uppercase', 'C91AC604-4109-A63D-AB8B-327FC9DECD05'],
+    ['without hyphens', 'c91ac6044109a63dab8b327fc9decd05'],
+    ['empty', ''],
+    ['newline', 'abc\n'],
+    ['nul', 'ab\u0000c'],
+    ['del', 'ab\u007Fc'],
+  ])('rejects a session id that is %s', (_label, sessionId) => {
+    expect(sessionPairSchema.safeParse({ pubky, session_id: sessionId }).success).toBe(false);
+  });
+});
 
 describe('mapBffError', () => {
   it('passes BffError status and code through unchanged', () => {

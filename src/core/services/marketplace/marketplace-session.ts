@@ -28,6 +28,7 @@ import {
   type SessionReplacementRejection,
   sessionReplacementRejection,
 } from './marketplace-session-grant';
+import { marketplaceSessionIdSchema } from './marketplace-session-id';
 
 /** Every grant a purchase-session writer may have persisted. */
 const MARKETPLACE_RESTORABLE_GRANTS = [
@@ -67,7 +68,7 @@ const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 const sessionResponseSchema = z.object({
   token: z.string().regex(SESSION_TOKEN_PATTERN),
-  sessionId: z.uuid().optional(),
+  sessionId: marketplaceSessionIdSchema.optional(),
   pubky: commercePubkySchema,
   capabilities: z.string(),
   expiresAt: z.iso.datetime({ offset: true }),
@@ -418,6 +419,7 @@ export class MarketplaceSessionService {
   static establishClaimedGrantSession(
     input: {
       token: string;
+      sessionId?: string;
       pubky: string;
       capabilities: string;
       expiresAt: string;

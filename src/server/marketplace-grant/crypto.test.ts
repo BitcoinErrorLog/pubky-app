@@ -1,6 +1,7 @@
 /** @vitest-environment node */
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import type { MarketplaceGrantConfig } from './config';
 import {
   cookieMatches,
@@ -50,6 +51,19 @@ describe('marketplace grant BFF cryptography', () => {
     const digest = hashBoundCookie(config, 1, 'session', id, bound.secret);
     expect(cookieMatches(digest, hashBoundCookie(config, 1, 'session', id, bound.secret))).toBe(true);
     expect(cookieMatches(digest, hashBoundCookie(config, 1, 'flow', id, bound.secret))).toBe(false);
+  });
+
+  it('revert-fail: sealBearer round-trips a migration-0035 session id and rejects a plain string', () => {
+    const bridgeId = randomUUID();
+    const sessionId = 'c91ac604-4109-a63d-ab8b-327fc9decd05';
+    expect(z.uuid().safeParse(sessionId).success).toBe(false);
+    const pubky = 'y'.repeat(52);
+    const bearer = 'A'.repeat(43);
+    const sealed = sealBearer(config, bridgeId, sessionId, pubky, bearer);
+    expect(openBearer(config, bridgeId, sessionId, pubky, 1, sealed)).toBe(bearer);
+    expect(() => sealBearer(config, bridgeId, 'shop-session-id-plain-string-1234567', pubky, bearer)).toThrow(
+      /Expected canonical UUID/,
+    );
   });
 
   it('round-trips and context-binds the sealed bearer', () => {

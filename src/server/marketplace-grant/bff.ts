@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { marketplaceSessionIdSchema } from '@/core/services/marketplace/marketplace-session-id';
 import { getMarketplaceGrantConfig, type MarketplaceGrantConfig } from './config';
 import {
   cookieMatches,
@@ -41,7 +42,7 @@ import {
 export const SESSION_COOKIE = '__Host-shop-bff-session';
 export const FLOW_COOKIE = '__Host-shop-marketplace-grant';
 
-const pairSchema = z.object({ pubky: z.string(), session_id: z.uuid() }).strict();
+export const sessionPairSchema = z.object({ pubky: z.string(), session_id: marketplaceSessionIdSchema }).strict();
 
 export class BffError extends Error {
   constructor(
@@ -88,7 +89,7 @@ export async function pairSession(
   const config = requiredConfig();
   assertSameOrigin(request, config);
   await assertGrantSchema(config);
-  const input = await parseStrictJson(request, pairSchema);
+  const input = await parseStrictJson(request, sessionPairSchema);
   const bearer = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
   const verifiedExpiry = await verifyMarketplaceSession(config, bearer, input.pubky, input.session_id);
   const expiresAt = new Date(Math.min(verifiedExpiry.getTime(), Date.now() + 24 * 60 * 60 * 1000));
