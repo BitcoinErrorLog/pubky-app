@@ -445,7 +445,7 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.error = null;
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await screen.getByText('Receipt').click();
+    await screen.getByText('Receipt', { exact: true }).click();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-shipped-track-link-desktop');
   });
 
