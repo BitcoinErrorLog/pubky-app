@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { CAPABILITIES } from '@/config/app';
 import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import ringCapture from '@/test/fixtures/auth/ring-signin-url.sdk-0.8.0.json';
-import { CAPABILITIES } from '@/config/app';
 import {
   capabilitiesCoverScope,
   isMarketplaceSessionGrant,
   isMarketplaceSessionGrantUrl,
   MARKETPLACE_CLAIMABLE_GRANTS,
+  MARKETPLACE_DISCLOSURE_INVENTORY,
+  MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
+  MARKETPLACE_DISCLOSURE_SIGN_IN,
   MARKETPLACE_PREVIOUS_SESSION_GRANT,
   MARKETPLACE_PRIVATE_DATA_SCOPE,
   MARKETPLACE_SESSION_GRANT,
-  sessionGrantApprovalCaption,
+  marketplaceApprovalDisclosure,
   sessionReplacementRejection,
 } from './marketplace-session-grant';
 
@@ -59,30 +62,38 @@ describe('marketplace session grant', () => {
     expect(isMarketplaceSessionGrantUrl('not a url')).toBe(false);
   });
 
-  it('captions the scope the signer shows', () => {
-    expect(sessionGrantApprovalCaption(urlFor(captured.parity_request), 'Bitkit')).toBe(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases, stock edits, and reading and writing your private Shop data.',
-    );
-    expect(sessionGrantApprovalCaption(urlFor(captured.previous_request), 'Bitkit')).toBe(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases and stock edits.',
-    );
-    expect(sessionGrantApprovalCaption('pubkyauth://signin_grant?caps=x', 'Bitkit')).toBeNull();
-    expect(
-      sessionGrantApprovalCaption(
-        urlFor(captured.parity_request, { caps: captured.shop_signin_request.caps }),
-        'Bitkit',
-      ),
-    ).toBeNull();
-    expect(sessionGrantApprovalCaption('not a url', 'Bitkit')).toBeNull();
+  it('discloses each captured grant in one plain sentence', () => {
+    expect(marketplaceApprovalDisclosure(urlFor(captured.parity_request))).toBe(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
+    expect(marketplaceApprovalDisclosure(urlFor(captured.previous_request))).toBe(MARKETPLACE_DISCLOSURE_INVENTORY);
+    expect(marketplaceApprovalDisclosure(urlFor(captured.shop_signin_request))).toBe(MARKETPLACE_DISCLOSURE_SIGN_IN);
   });
 
-  it('captions the Ring connect-marketplace QR, which names no client', () => {
-    const ringUrl = `${ringCapture.scheme}//${ringCapture.host}?${ringCapture.params
-      .map((name) => `${name}=${encodeURIComponent(name === 'caps' ? MARKETPLACE_SESSION_GRANT : 'x')}`)
-      .join('&')}`;
-    expect(sessionGrantApprovalCaption(ringUrl, 'Pubky Ring')).toBe(
-      'Pubky Ring shows this request for marketplace purchases, stock edits, and reading and writing your private Shop data.',
-    );
+  it('discloses the Ring connect QR and the Ring sign-in QR from their captured shapes', () => {
+    const ringUrl = (caps: string) =>
+      `${ringCapture.scheme}//${ringCapture.host}?${ringCapture.params
+        .map((name) => `${name}=${encodeURIComponent(name === 'caps' ? caps : 'x')}`)
+        .join('&')}`;
+    expect(marketplaceApprovalDisclosure(ringUrl(MARKETPLACE_SESSION_GRANT))).toBe(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
+    expect(marketplaceApprovalDisclosure(ringUrl(ringCapture.caps))).toBe(MARKETPLACE_DISCLOSURE_SIGN_IN);
+  });
+
+  it('never names a capability path, a client host, or a signer', () => {
+    for (const sentence of [
+      MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
+      MARKETPLACE_DISCLOSURE_INVENTORY,
+      MARKETPLACE_DISCLOSURE_SIGN_IN,
+    ]) {
+      expect(sentence).not.toMatch(/\/|:rw|pubky\.app|marketplace-service|Bitkit|Ring/);
+      expect(sentence.match(/\./g)).toHaveLength(1);
+      expect(sentence.endsWith('.')).toBe(true);
+    }
+  });
+
+  it('shows nothing for any other request', () => {
+    for (const caps of ['x', '', '/:rw', `${MARKETPLACE_SESSION_GRANT},/pub/paykit/:rw`, '/priv/pubky.app/:rw']) {
+      expect(marketplaceApprovalDisclosure(urlFor(captured.parity_request, { caps })), caps).toBeNull();
+    }
+    expect(marketplaceApprovalDisclosure('not a url')).toBeNull();
   });
 });
 

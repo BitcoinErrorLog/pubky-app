@@ -8,9 +8,11 @@ import captured from '@/test/fixtures/auth/marketplace-bootstrap-url.staging.jso
 import parityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import { beginMarketplaceBootstrapFlow } from './marketplace-bootstrap-client';
 import {
+  MARKETPLACE_DISCLOSURE_INVENTORY,
+  MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
   MARKETPLACE_PREVIOUS_SESSION_GRANT,
   MARKETPLACE_SESSION_GRANT,
-  sessionGrantApprovalCaption,
+  marketplaceApprovalDisclosure,
 } from './marketplace-session-grant';
 
 vi.mock('@/services/homeserver/homeserver', () => ({
@@ -198,9 +200,7 @@ describe('marketplace purchase bootstrap client', () => {
     const flow = await beginMarketplaceBootstrapFlow({ pubky: PUBKY });
 
     expect(flow.authorizationUrl).toBe(url);
-    expect(sessionGrantApprovalCaption(url, 'Bitkit')).toBe(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases and stock edits.',
-    );
+    expect(marketplaceApprovalDisclosure(url)).toBe(MARKETPLACE_DISCLOSURE_INVENTORY);
   });
 
   it('accepts the /priv parity grant Bitkit approved on staging', async () => {
@@ -213,9 +213,7 @@ describe('marketplace purchase bootstrap client', () => {
     const flow = await beginMarketplaceBootstrapFlow({ pubky: PUBKY });
 
     expect(flow.authorizationUrl).toBe(url);
-    expect(sessionGrantApprovalCaption(url, 'Bitkit')).toBe(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases, stock edits, and reading and writing your private Shop data.',
-    );
+    expect(marketplaceApprovalDisclosure(url)).toBe(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
   });
 
   it('cancel posts to the bootstrap cancel route once', async () => {

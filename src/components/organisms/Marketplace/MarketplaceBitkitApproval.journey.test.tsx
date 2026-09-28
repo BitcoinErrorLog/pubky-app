@@ -6,6 +6,7 @@ import { resetRuntimeConfigForTests } from '@/libs/runtime-config/runtime-config
 import { beginMarketplaceBootstrapFlow } from '@/services/marketplace/marketplace-bootstrap-client';
 import { beginMarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { MARKETPLACE_DISCLOSURE_PRIVATE_DATA } from '@/services/marketplace/marketplace-session-grant';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import parityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
@@ -116,9 +117,7 @@ describe('#49 Bitkit approval journeys (real hooks)', () => {
 
     await waitFor(() => expect(beginMarketplaceBootstrapFlow).toHaveBeenCalledWith({ pubky: PUBKY }));
     expect(await screen.findByRole('button', { name: 'Open in Bitkit' })).toBeEnabled();
-    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
-      'reading and writing your private Shop data',
-    );
+    expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
     expect(screen.queryByRole('button', { name: /open in pubky ring/i })).not.toBeInTheDocument();
 
     bootstrap.resolve({
@@ -149,9 +148,7 @@ describe('#49 Bitkit approval journeys (real hooks)', () => {
 
     await waitFor(() => expect(beginMarketplaceGrantFlow).toHaveBeenCalledTimes(1));
     expect(await screen.findByRole('button', { name: 'Open in signer' })).toBeEnabled();
-    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
-      `Your signer shows this request from ${SERVICE_CID}, for marketplace purchases, stock edits, and reading and writing your private Shop data.`,
-    );
+    expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
     expect(ringStepUp.start).not.toHaveBeenCalled();
 
     reconnect.resolve({

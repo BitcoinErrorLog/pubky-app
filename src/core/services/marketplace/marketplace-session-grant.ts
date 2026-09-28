@@ -1,3 +1,5 @@
+import { CAPABILITIES } from '@/config/app';
+
 /**
  * The capabilities a marketplace purchase session requests, whichever signer
  * approves it: the Bitkit/Ring grant flow (marketplace-service
@@ -104,16 +106,22 @@ export function isMarketplaceSessionGrantUrl(authorizationUrl: string): boolean 
   return caps === MARKETPLACE_SESSION_GRANT || caps === MARKETPLACE_PREVIOUS_SESSION_GRANT;
 }
 
+export const MARKETPLACE_DISCLOSURE_PRIVATE_DATA =
+  'Approving lets the marketplace handle your purchases and stock edits and read and write your private Shop data.';
+export const MARKETPLACE_DISCLOSURE_INVENTORY = 'Approving lets the marketplace handle your purchases and stock edits.';
+export const MARKETPLACE_DISCLOSURE_SIGN_IN =
+  'Approving signs you in to Pubky Shop and gives the marketplace the same access, including your private Shop data.';
+
 /**
- * What the signer shows for a marketplace session approval, in plain words:
- * the client id when the URL names one, and the authority it hands over.
- * Null when the URL requests anything but a marketplace session grant.
+ * The one sentence Shop shows beside a QR whose approval produces a
+ * marketplace session, chosen from the capabilities the QR actually requests.
+ * Null for any other request, which no marketplace surface may show.
  */
-export function sessionGrantApprovalCaption(authorizationUrl: string, signer: string): string | null {
-  if (!isMarketplaceSessionGrantUrl(authorizationUrl)) return null;
-  const cid = new URL(authorizationUrl).searchParams.get('cid');
-  const scope = capabilitiesCoverScope(capsParam(authorizationUrl) ?? '', MARKETPLACE_PRIVATE_DATA_SCOPE)
-    ? 'for marketplace purchases, stock edits, and reading and writing your private Shop data'
-    : 'for marketplace purchases and stock edits';
-  return cid ? `${signer} shows this request from ${cid}, ${scope}.` : `${signer} shows this request ${scope}.`;
+export function marketplaceApprovalDisclosure(authorizationUrl: string): string | null {
+  const caps = capsParam(authorizationUrl);
+  if (caps === null) return null;
+  if (matchesCapabilitySet(caps, [MARKETPLACE_SESSION_GRANT])) return MARKETPLACE_DISCLOSURE_PRIVATE_DATA;
+  if (matchesCapabilitySet(caps, [MARKETPLACE_PREVIOUS_SESSION_GRANT])) return MARKETPLACE_DISCLOSURE_INVENTORY;
+  if (matchesCapabilitySet(caps, [CAPABILITIES])) return MARKETPLACE_DISCLOSURE_SIGN_IN;
+  return null;
 }

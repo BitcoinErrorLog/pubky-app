@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CAPABILITIES } from '@/config/app';
 import type { UseStepUpReauthReturn } from '@/hooks/useStepUpReauth/useStepUpReauth.types';
+import {
+  MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
+  MARKETPLACE_DISCLOSURE_SIGN_IN,
+} from '@/services/marketplace/marketplace-session-grant';
+import ringCapture from '@/test/fixtures/auth/ring-signin-url.sdk-0.8.0.json';
 import { MarketplaceReauthDialog } from './MarketplaceReauthDialog';
 
 const reauth: UseStepUpReauthReturn = {
@@ -25,10 +30,16 @@ vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
   useIsGrantSession: () => signIn.isGrantSession,
 }));
 
+const config = vi.hoisted(() => ({ singleApproval: true }));
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>()),
   getMarketplaceGrantFlowEnabled: () => true,
+  getSingleApprovalSignIn: () => config.singleApproval,
 }));
+
+const RING_STEP_UP_URL = `${ringCapture.scheme}//${ringCapture.host}?${ringCapture.params
+  .map((name) => `${name}=${encodeURIComponent(name === 'caps' ? ringCapture.caps : 'x')}`)
+  .join('&')}`;
 
 const RECONNECT_URL =
   'pubkyauth://signin_grant?caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw%2C%2Fpriv%2Fpubky.app%2F%3Arw&relay=r&secret=s&cid=marketplace.staging.shop.pubky.app&cpk=k';
@@ -59,6 +70,31 @@ describe('MarketplaceReauthDialog', () => {
     connect.start.mockClear();
     connect.bootstrap = false;
     signIn.isGrantSession = false;
+    config.singleApproval = true;
+    reauth.status = 'idle';
+    reauth.authorizationUrl = '';
+  });
+
+  it('the Ring step-up QR discloses the marketplace access its single approval also grants', async () => {
+    reauth.status = 'awaiting';
+    reauth.authorizationUrl = RING_STEP_UP_URL;
+    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
+
+    expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_SIGN_IN);
+    expect(screen.queryByText(ringCapture.caps)).not.toBeInTheDocument();
+  });
+
+  it('the Ring step-up QR makes no marketplace claim when single approval is off', async () => {
+    config.singleApproval = false;
+    reauth.status = 'awaiting';
+    reauth.authorizationUrl = RING_STEP_UP_URL;
+    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
+
+    expect(screen.queryByTestId('session-approval-disclosure')).not.toBeInTheDocument();
   });
 
   it('opening starts a fresh step-up flow and shows its QR', async () => {
@@ -110,8 +146,6 @@ describe('MarketplaceReauthDialog', () => {
 
     expect(reauth.start).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Open in Bitkit' })).toBeInTheDocument();
-    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases, stock edits, and reading and writing your private Shop data.',
-    );
+    expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
   });
 });
