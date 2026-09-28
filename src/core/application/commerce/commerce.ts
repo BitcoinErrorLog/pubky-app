@@ -3,6 +3,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 import { CommerceAttentionSeenApplication } from '@/application/commerce/attention-seen';
 import { CommerceInventoryApplication } from '@/application/commerce/inventory';
+import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { TagKind } from '@/application/tag/tag.types';
 import {
   COMMERCE_SAVED_SEARCH_MAX_PER_OWNER,
@@ -52,6 +53,7 @@ import {
   commerceListingFulfillmentMethods,
   type CommerceListingRecord,
   commerceListingShippingMinor,
+  type CommerceOrderReceiptRecord,
   commerceReviewRecordSchema,
   type CommerceShopRecord,
   type CommerceWatchlistRecord,
@@ -68,6 +70,15 @@ import {
   pickupRefusalFailureMessage,
   resolveCheckoutFulfillment,
 } from '@/libs/commerce/pickup';
+import {
+  assertPrivKeyringLive,
+  isPrivKeyringRevoked,
+  PRIV_V1_LOG_PATH,
+  privEntryUrl,
+  privErrorSummary,
+  type PrivKeyring,
+} from '@/libs/commerce/priv-envelope';
+import type { MarketplacePrivKeysResult } from '@/libs/commerce/priv-keys';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
 import {
@@ -128,6 +139,7 @@ import {
 import { MarketplaceMediaService } from '@/services/commerce/marketplace-media';
 import { ExchangerateService } from '@/services/exchangerate/exchangerate';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService, PRIVATE_APP_DATA_PATH } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import {
@@ -217,22 +229,48 @@ export type CommerceWatchlistSyncCapability = 'capable' | 'needs_reauth' | 'no_s
 
 /**
  * Outcome of one watchlist sync round. `skipped` covers sandbox mode and
- * signed-out/restoring states; `needs_reauth` is the honest "this session's
- * grant cannot touch /priv" state (from capability facts OR an actual 401/403).
+ * signed-out/restoring states; `needs_reauth` is the honest "this homeserver
+ * session's grant cannot touch /priv" state (from capability facts or an
+ * actual 401/403); `needs_marketplace_approval` means the marketplace refused
+ * to release the data key to the current purchase session (missing, or
+ * approved without `/priv/pubky.app/`), which only a marketplace session
+ * approval repairs; `unavailable` means the marketplace cannot release the
+ * key right now, so nothing is written.
  */
-export type CommerceWatchlistSyncStatus = 'synced' | 'needs_reauth' | 'skipped' | 'error';
+export type CommerceWatchlistSyncStatus =
+  | 'synced'
+  | 'needs_reauth'
+  | 'needs_marketplace_approval'
+  | 'unavailable'
+  | 'unsupported'
+  | 'skipped'
+  | 'error';
+
+/** The logical id of the one encrypted watchlist entry. */
+const WATCHLIST_PRIV_ENTRY_ID = 'watchlist';
+
+/** Plaintext receipts moved per orders load; the rest move on later loads. */
+const RECEIPT_MIGRATION_BATCH = 100;
 
 /**
  * Outcome of one portable order-receipt publication pass, mirrored by the
  * controller into the commerce store for UI surfaces. Same honesty contract
  * as the watchlist sync status: capability is decided from session facts,
  * and a refused private read/write reports `needs_reauth` — nothing
- * silently no-ops. `unavailable` covers the cases re-approval cannot fix:
- * this deployment issued no attestation, or a transient failure left a
- * receipt unpublished (it retries on the next orders-surface load).
+ * silently no-ops. A data-key refusal for the purchase session reports
+ * `needs_marketplace_approval`. `unavailable` covers the cases re-approval cannot fix:
+ * this deployment issued no attestation, the marketplace cannot release the
+ * data key that seals receipts, or a transient failure left a receipt
+ * unpublished or a plaintext receipt unmoved (it retries on the next
+ * orders-surface load).
  * `skipped` covers non-durable modes and signed-out/restoring states.
  */
-export type CommerceReceiptPublicationStatus = 'published' | 'needs_reauth' | 'unavailable' | 'skipped';
+export type CommerceReceiptPublicationStatus =
+  | 'published'
+  | 'needs_reauth'
+  | 'needs_marketplace_approval'
+  | 'unavailable'
+  | 'skipped';
 
 export type CommerceSellerReputationOverview =
   | { status: 'rated'; summary: CommerceReputationSummary }
@@ -1143,6 +1181,7 @@ export class CommerceApplication {
     LocksFrontendSessionStore.clear();
     this.publishedReceiptUrls.clear();
     this.ownReviewHomeserverMisses.clear();
+    CommercePrivKeyringApplication.clear();
   }
 
   static clearInventorySession(): void {
@@ -1660,7 +1699,7 @@ export class CommerceApplication {
   private static async stageWatchlistPush(ownerPubky: string): Promise<void> {
     if (getCommerceAdapterMode() === 'sandbox') return;
     const now = Date.now();
-    await LocalCommerceService.upsertSyncJob({
+    await LocalCommerceService.restageSyncJob({
       id: this.watchlistSyncJobId(ownerPubky),
       owner_id: ownerPubky,
       entity_type: 'watchlist',
@@ -1700,7 +1739,9 @@ export class CommerceApplication {
    *
    * Honesty contract: capability is decided from session facts up front, and
    * a 401/403 on the actual read or write ALSO returns `needs_reauth` — the
-   * caller (controller) surfaces that state; nothing silently no-ops.
+   * caller (controller) surfaces that state; nothing silently no-ops. A
+   * browser without the Web Locks API gets `unsupported` and a refused lock
+   * gets `error`; neither touches the homeserver.
    */
   static async syncWatchlist(ownerPubky: string): Promise<CommerceWatchlistSyncStatus> {
     if (getCommerceAdapterMode() === 'sandbox') return 'skipped';
@@ -1712,20 +1753,63 @@ export class CommerceApplication {
     const inFlight = this.watchlistSyncInFlight.get(ownerPubky);
     if (inFlight) return await inFlight;
 
-    const run = this.runWatchlistSync(ownerPubky).finally(() => {
-      this.watchlistSyncInFlight.delete(ownerPubky);
-    });
+    // Without a lock every tab shares, two rounds can interleave their
+    // read-merge-write and one tab's change is lost. No lock, no remote work:
+    // the list keeps working on this device and the outbox job stays.
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+    if (typeof locks?.request !== 'function') return 'unsupported';
+
+    const run = (async (): Promise<CommerceWatchlistSyncStatus> => {
+      try {
+        return await locks.request(`pubky-priv|watchlist|${ownerPubky}`, () => this.runWatchlistSync(ownerPubky));
+      } catch (error) {
+        Logger.warn('The watchlist sync lock was refused; the outbox job stays pending', privErrorSummary(error));
+        return 'error';
+      } finally {
+        this.watchlistSyncInFlight.delete(ownerPubky);
+      }
+    })();
     this.watchlistSyncInFlight.set(ownerPubky, run);
     return await run;
   }
 
+  /** Test support: forgets in-flight rounds, as a second tab of the same origin would not see them. */
+  static resetWatchlistSyncInFlight(): void {
+    this.watchlistSyncInFlight.clear();
+  }
+
+  /**
+   * The watchlist lives encrypted at an opaque v2 path. A plaintext v1
+   * document (`watchlist.json`, written before encryption or by a cached
+   * older build) is merged in, the merged state is written to v2 and read
+   * back, and only then is v1 deleted. Without a key nothing is written:
+   * no plaintext fallback and no empty overwrite.
+   *
+   * The outbox job is completed only if no change was staged after this
+   * round read the local state; a later change keeps it pending.
+   */
   private static async runWatchlistSync(ownerPubky: string): Promise<CommerceWatchlistSyncStatus> {
-    const url = CommerceRecordNormalizer.watchlistUri(ownerPubky);
+    const legacyUrl = CommerceRecordNormalizer.watchlistUri(ownerPubky);
+    const jobId = this.watchlistSyncJobId(ownerPubky);
     try {
-      let remote: CommerceWatchlistRecord | null = null;
+      const stagedAt = (await LocalCommerceService.getSyncJob(jobId))?.updated_at ?? null;
+      const keys = await CommercePrivKeyringApplication.get(ownerPubky);
+      if (keys.kind !== 'keys') return keys.kind === 'needs_reauth' ? 'needs_marketplace_approval' : keys.kind;
+      const { keyring } = keys;
+
+      let encrypted: CommerceWatchlistRecord | null = null;
       try {
-        const payload = await CommerceHomeserverService.fetchJson(url);
-        remote = CommerceRecordNormalizer.watchlistRecord(payload);
+        const payload = await CommercePrivStoreService.read(keyring, 'watchlist', WATCHLIST_PRIV_ENTRY_ID);
+        if (payload !== null) encrypted = CommerceRecordNormalizer.watchlistRecord(payload);
+      } catch (error) {
+        if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+        throw error;
+      }
+      let legacy: CommerceWatchlistRecord | null = null;
+      try {
+        legacy = CommerceRecordNormalizer.watchlistRecord(
+          await CommerceHomeserverService.fetchJson(legacyUrl, PRIV_V1_LOG_PATH),
+        );
       } catch (error) {
         if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
         if (!(isAppError(error) && isNotFound(error))) throw error;
@@ -1736,16 +1820,20 @@ export class CommerceApplication {
         LocalCommerceService.getWatchTombstones(ownerPubky),
       ]);
       const localState = localRowsToWatchlistState(favorites, tombstoneRows);
-      const remoteState = remote ? watchlistRecordToState(remote) : emptyWatchlistState();
+      const encryptedState = encrypted ? watchlistRecordToState(encrypted) : emptyWatchlistState();
+      const remoteState = legacy
+        ? mergeWatchlistStates(encryptedState, watchlistRecordToState(legacy))
+        : encryptedState;
       const merged = mergeWatchlistStates(localState, remoteState);
 
       if (!watchlistStatesEqual(merged, localState)) {
         await LocalCommerceService.applyWatchlistState(ownerPubky, merged.items, merged.tombstones);
       }
 
-      const isEmptyAndUnpublished = !remote && merged.items.size === 0 && merged.tombstones.size === 0;
-      const remoteNeedsWrite = !isEmptyAndUnpublished && (!remote || !watchlistStatesEqual(merged, remoteState));
+      const isEmptyAndUnpublished = !encrypted && !legacy && merged.items.size === 0 && merged.tombstones.size === 0;
+      const remoteNeedsWrite = !isEmptyAndUnpublished && (!encrypted || !watchlistStatesEqual(merged, encryptedState));
       if (remoteNeedsWrite) {
+        const remote = encrypted ?? legacy;
         const nowIso = new Date().toISOString();
         const createdAt = remote?.createdAt ?? nowIso;
         // Guard against clock skew between devices: updatedAt must not
@@ -1754,27 +1842,32 @@ export class CommerceApplication {
         const body = watchlistStateToRecordBody({
           ownerPubky,
           state: merged,
-          revision: (remote?.revision ?? 0) + 1,
+          revision: Math.max(encrypted?.revision ?? 0, legacy?.revision ?? 0) + 1,
           createdAt,
           updatedAt,
         });
-        // Validate through the vendored specs builder before the PUT, the
-        // same guarantee every other published marketplace record gets.
+        // Validate through the vendored specs builder before sealing, the
+        // same guarantee every other marketplace record gets.
         const { PubkySpecsBuilder } = await import('pubky-app-specs');
         const built = new PubkySpecsBuilder(ownerPubky).createWatchlist(body);
         const record = CommerceRecordNormalizer.watchlistRecord(built.watchlist.toJson());
         try {
-          await CommerceHomeserverService.putJson(url, { ...record });
+          await CommercePrivStoreService.write(keyring, 'watchlist', WATCHLIST_PRIV_ENTRY_ID, { ...record });
         } catch (error) {
           if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
           throw error;
         }
       }
+      // v2 now holds a state that includes every v1 entry and tombstone.
+      if (legacy) {
+        assertPrivKeyringLive(keyring);
+        await CommerceHomeserverService.delete(legacyUrl, PRIV_V1_LOG_PATH);
+      }
 
-      await LocalCommerceService.completeSyncJob(this.watchlistSyncJobId(ownerPubky));
+      await LocalCommerceService.completeSyncJobIfUnchanged(jobId, stagedAt);
       return 'synced';
     } catch (error) {
-      Logger.warn('Watchlist sync failed; the outbox job stays pending', { url, error });
+      Logger.warn('Watchlist sync failed; the outbox job stays pending', privErrorSummary(error));
       return 'error';
     }
   }
@@ -1796,8 +1889,8 @@ export class CommerceApplication {
   // ---------------------------------------------------------------------
 
   /**
-   * Session-scoped memo of receipt URLs confirmed present on the owner's
-   * homeserver, so one browsing session re-reads each private receipt path
+   * Session-scoped memo of encrypted receipt URLs confirmed present on the
+   * owner's homeserver, so one browsing session re-reads each receipt entry
    * at most once. Keyed by the full owner-scoped URL, so an account switch
    * cannot bleed publication state across identities.
    */
@@ -1809,10 +1902,107 @@ export class CommerceApplication {
   }
 
   /**
-   * Publishes the portable order receipt for every eligible paid order to
-   * the CURRENT user's own homeserver
-   * (`/priv/pubky.app/marketplace/v1/receipts/{receiptId}`, specs
-   * `0.6.2-marketplace.7`) — the "credible exit for orders" record: killing
+   * Moves plaintext v1 receipts (`/priv/pubky.app/marketplace/v1/receipts/`)
+   * into encrypted entries. Each one is parsed; when no sealed entry exists
+   * it is written sealed and read back, and when one exists it must open to
+   * exactly the same record. Only then is the plaintext deleted. A sealed
+   * entry that differs, fails validation or does not open is never
+   * overwritten, and both copies stay. One bounded batch per call; a file
+   * that does not parse, or names another receipt than its path, stays in
+   * place and leaves the pass incomplete.
+   */
+  private static async migratePlaintextReceipts(
+    ownerPubky: string,
+    keyring: PrivKeyring,
+  ): Promise<'done' | 'incomplete' | 'needs_reauth'> {
+    let urls: string[];
+    try {
+      urls = await CommerceHomeserverService.list(
+        CommerceRecordNormalizer.orderReceiptDirectoryUri(ownerPubky),
+        RECEIPT_MIGRATION_BATCH,
+        PRIV_V1_LOG_PATH,
+      );
+    } catch (error) {
+      if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+      Logger.warn(
+        'Listing plaintext order receipts failed; the move retries on the next orders load',
+        privErrorSummary(error),
+      );
+      return 'incomplete';
+    }
+    let incomplete = urls.length >= RECEIPT_MIGRATION_BATCH;
+    for (const url of urls) {
+      const receiptId = url.slice(url.lastIndexOf('/') + 1);
+      try {
+        const sealedUrl = privEntryUrl(keyring, 'order_receipt', receiptId);
+        const legacy = CommerceRecordNormalizer.orderReceiptRecord(
+          await CommerceHomeserverService.fetchJson(url, PRIV_V1_LOG_PATH),
+        );
+        if (legacy.receiptId !== receiptId || legacy.ownerPubky !== ownerPubky) {
+          incomplete = true;
+          continue;
+        }
+        const sealed = await CommercePrivStoreService.read(keyring, 'order_receipt', receiptId);
+        if (sealed === null) {
+          await CommercePrivStoreService.write(keyring, 'order_receipt', receiptId, { ...legacy });
+        } else if (!this.isSameReceipt(sealed, legacy)) {
+          Logger.warn('A sealed order receipt differs from its plaintext copy; both are kept');
+          incomplete = true;
+          continue;
+        }
+        assertPrivKeyringLive(keyring);
+        await CommerceHomeserverService.delete(url, PRIV_V1_LOG_PATH);
+        if (this.verifiedSealedReceipt(sealed ?? legacy, ownerPubky, receiptId) !== null) {
+          this.publishedReceiptUrls.add(sealedUrl);
+        }
+      } catch (error) {
+        if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+        if (isPrivKeyringRevoked(error)) return 'incomplete';
+        Logger.warn(
+          'Moving a plaintext order receipt failed; it retries on the next orders load',
+          privErrorSummary(error),
+        );
+        incomplete = true;
+      }
+    }
+    return incomplete ? 'incomplete' : 'done';
+  }
+
+  /** Whether a decrypted sealed receipt is exactly the validated plaintext one. */
+  private static isSameReceipt(sealed: unknown, legacy: CommerceOrderReceiptRecord): boolean {
+    try {
+      return JSON.stringify(CommerceRecordNormalizer.orderReceiptRecord(sealed)) === JSON.stringify(legacy);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * A decrypted receipt counts as published only when it is a valid order
+   * receipt of this owner, for this receipt id, whose attestations verify.
+   */
+  private static verifiedSealedReceipt(
+    sealed: unknown,
+    ownerPubky: string,
+    receiptId: string,
+  ): CommerceOrderReceiptRecord | null {
+    let record: CommerceOrderReceiptRecord;
+    try {
+      record = CommerceRecordNormalizer.orderReceiptRecord(sealed);
+    } catch {
+      return null;
+    }
+    if (record.receiptId !== receiptId || record.ownerPubky !== ownerPubky) return null;
+    if (verifyOwnOrderReceipt({ ...record }) === null) return null;
+    if (record.editionAttestation !== undefined && verifyOwnDropEdition({ ...record }) === null) return null;
+    return record;
+  }
+
+  /**
+   * Publishes the portable order receipt (specs `0.6.2-marketplace.7`) for
+   * every eligible paid order to the CURRENT user's own homeserver, sealed
+   * at the opaque v2 entry for its receipt id, and first moves any
+   * plaintext v1 receipts there — the "credible exit for orders" record: killing
    * the marketplace operator must still leave a signed, verifiable purchase
    * history on the participants' homeservers.
    *
@@ -1828,8 +2018,11 @@ export class CommerceApplication {
    * and a failed PUT simply retries on the next orders-surface load (the
    * homeserver read is the durable "already published" check — no local
    * marker table to drift). The returned status is what the controller
-   * mirrors into the store: a narrow (bridged or legacy) grant reports
-   * `needs_reauth` instead of returning without a trace.
+   * mirrors into the store: a narrow (bridged or legacy) grant, or a
+   * session the marketplace will not release the data key to, reports
+   * `needs_reauth` instead of returning without a trace. Without a key
+   * nothing is written; a sealed entry that does not decrypt is never
+   * overwritten.
    */
   static async publishOrderReceipts(
     ownerPubky: string,
@@ -1839,23 +2032,59 @@ export class CommerceApplication {
     if (!HomeserverService.hasActiveSession()) return 'skipped';
     if (!HomeserverService.canCurrentSessionWrite(PRIVATE_APP_DATA_PATH)) return 'needs_reauth';
 
+    let keys: MarketplacePrivKeysResult;
+    try {
+      keys = await CommercePrivKeyringApplication.get(ownerPubky);
+    } catch (error) {
+      Logger.warn(
+        'The private data key could not be read; receipts retry on the next orders load',
+        privErrorSummary(error),
+      );
+      return 'unavailable';
+    }
+    if (keys.kind !== 'keys') return keys.kind === 'needs_reauth' ? 'needs_marketplace_approval' : keys.kind;
+    const { keyring } = keys;
+    const migration = await this.migratePlaintextReceipts(ownerPubky, keyring);
+    if (migration === 'needs_reauth') return 'needs_reauth';
+
     const eligible = orders.filter(
       (order) =>
         typeof order.receiptId === 'string' && (order.buyerPubky === ownerPubky || order.sellerPubky === ownerPubky),
     );
 
+    // Derived now, while the keyring is known live; a revoked keyring stops here.
+    let entryUrls: Map<string, string>;
+    try {
+      entryUrls = new Map(
+        eligible.map((order) => [
+          order.receiptId as string,
+          privEntryUrl(keyring, 'order_receipt', order.receiptId as string),
+        ]),
+      );
+    } catch (error) {
+      if (isPrivKeyringRevoked(error)) return 'unavailable';
+      throw error;
+    }
+
     for (const order of eligible) {
       const receiptId = order.receiptId as string;
-      const url = CommerceRecordNormalizer.orderReceiptUri(ownerPubky, receiptId);
+      const url = entryUrls.get(receiptId) as string;
       if (this.publishedReceiptUrls.has(url)) continue;
       try {
+        let sealed: unknown;
         try {
-          await CommerceHomeserverService.fetchJson(url);
-          this.publishedReceiptUrls.add(url);
-          continue;
+          sealed = await CommercePrivStoreService.read(keyring, 'order_receipt', receiptId);
         } catch (error) {
           if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
-          if (!(isAppError(error) && isNotFound(error))) throw error;
+          throw error;
+        }
+        if (sealed !== null) {
+          if (this.verifiedSealedReceipt(sealed, ownerPubky, receiptId) !== null) {
+            this.publishedReceiptUrls.add(url);
+          } else {
+            Logger.warn('A sealed order receipt opens but does not verify; it is kept and not overwritten');
+          }
+          continue;
         }
 
         const attestation = await MarketplaceGatewayService.getReceiptAttestation(ownerPubky, receiptId);
@@ -1959,32 +2188,31 @@ export class CommerceApplication {
         const record = CommerceRecordNormalizer.orderReceiptRecord(built.order_receipt.toJson());
         if (verifiedClaims.v === 2) record.settlementTotal = verifiedClaims.settlementTotal;
         if (verifyOwnOrderReceipt({ ...record }) === null) {
-          Logger.warn('Refusing to publish an order receipt whose attestation does not verify', { url });
+          Logger.warn('Refusing to publish an order receipt whose attestation does not verify');
           continue;
         }
         if (record.editionAttestation !== undefined && verifyOwnDropEdition({ ...record }) === null) {
-          Logger.warn('Refusing to publish an order receipt whose edition attestation does not verify', { url });
+          Logger.warn('Refusing to publish an order receipt whose edition attestation does not verify');
           continue;
         }
         try {
-          await CommerceHomeserverService.putJson(url, { ...record });
+          await CommercePrivStoreService.write(keyring, 'order_receipt', receiptId, { ...record });
         } catch (error) {
           if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
           throw error;
         }
         this.publishedReceiptUrls.add(url);
       } catch (error) {
-        Logger.warn('Order receipt publication failed; it will retry on the next orders load', { url, error });
+        if (isPrivKeyringRevoked(error)) return 'unavailable';
+        Logger.warn('Order receipt publication failed; it will retry on the next orders load', privErrorSummary(error));
       }
     }
 
-    // A receipt that failed mid-flight (logged above) retries on the next
-    // orders-surface load; report that honestly instead of claiming done.
-    const hasUnpublished = eligible.some(
-      (order) =>
-        !this.publishedReceiptUrls.has(CommerceRecordNormalizer.orderReceiptUri(ownerPubky, order.receiptId as string)),
-    );
-    return hasUnpublished ? 'unavailable' : 'published';
+    // A receipt that failed mid-flight (logged above), or a plaintext receipt
+    // still waiting to move, retries on the next orders-surface load; report
+    // that honestly instead of claiming done.
+    const hasUnpublished = [...entryUrls.values()].some((url) => !this.publishedReceiptUrls.has(url));
+    return hasUnpublished || migration === 'incomplete' ? 'unavailable' : 'published';
   }
 
   static async getWatchAlerts(ownerPubky: string): Promise<CommerceWatchAlertModelSchema[]> {

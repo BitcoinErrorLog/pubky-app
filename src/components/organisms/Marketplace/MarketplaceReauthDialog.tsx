@@ -14,29 +14,38 @@ import { toast } from '@/molecules/Toaster/use-toast';
 import { signInApprovalDisclosure } from '@/services/marketplace/marketplace-session-grant';
 import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
 
+/**
+ * Who refused: the homeserver (the Shop session's grant cannot write
+ * `/priv/pubky.app/`, the `needs_reauth` states) or the marketplace, which
+ * would not release the private data key to the current purchase session
+ * (the `needs_marketplace_approval` states and the recovery-key export).
+ */
+export type MarketplaceReauthRefusal = 'homeserver' | 'purchase_session';
+
 type MarketplaceReauthDialogProps = {
   triggerLabel: string;
+  refusal: MarketplaceReauthRefusal;
   onReauthenticated?: () => void | Promise<void>;
 };
 
 /**
- * The shared step-up re-approval affordance (docs/ecommerce/step-up-approval.md,
- * Option C) for scope-gated features — watchlist sync and portable receipts
- * today.
+ * The shared re-approval affordance (docs/ecommerce/step-up-approval.md) for
+ * scope-gated features: watchlist sync, portable receipts and the recovery
+ * key.
  *
- * It routes on who raised the refusal. On this release every producer of
- * the watchlist and receipt `needs_reauth` states is a homeserver refusal,
- * so a cookie sign-in gets the Pubky Ring step-up below, which is the only
- * approval that repairs it (and, under single approval, also mints a
- * covering purchase session). A Bitkit (grant) sign-in cannot run the Ring
- * step-up (`AuthController.getStepUpAuthUrl` refuses it), so it gets the
- * marketplace session approval in Bitkit or Pubky Ring instead. A refusal
- * raised by the purchase session itself arrives with the private-data key
- * release and must route on that source, not on session facts.
+ * It routes on who raised the refusal, never on session facts. A
+ * purchase-session refusal is repaired only by a marketplace session approval
+ * that includes `/priv/pubky.app/`, so every signer gets
+ * `MarketplaceSessionConnectDialog`: the Bitkit bootstrap or the grant
+ * reconnect (Bitkit or Pubky Ring) when the grant flow is on, the Ring connect
+ * QR otherwise. A homeserver refusal gets the Pubky Ring step-up for a cookie
+ * sign-in. A Bitkit (grant) sign-in cannot run that step-up
+ * (`AuthController.getStepUpAuthUrl` refuses it) and always holds the full
+ * grant, so it gets the marketplace session approval there too.
  */
-export function MarketplaceReauthDialog({ triggerLabel, onReauthenticated }: MarketplaceReauthDialogProps) {
+export function MarketplaceReauthDialog({ triggerLabel, refusal, onReauthenticated }: MarketplaceReauthDialogProps) {
   const isGrantSession = useIsGrantSession();
-  if (isGrantSession) {
+  if (refusal === 'purchase_session' || isGrantSession) {
     return <MarketplaceSessionConnectDialog triggerLabel={triggerLabel} onConnected={onReauthenticated} />;
   }
   return <HomeserverStepUpDialog triggerLabel={triggerLabel} onReauthenticated={onReauthenticated} />;
@@ -53,7 +62,7 @@ export function MarketplaceReauthDialog({ triggerLabel, onReauthenticated }: Mar
  * (superset-grant) one, which is what makes watchlist sync, receipts, and
  * messaging cookie-resume capable without a reload.
  */
-function HomeserverStepUpDialog({ triggerLabel, onReauthenticated }: MarketplaceReauthDialogProps) {
+function HomeserverStepUpDialog({ triggerLabel, onReauthenticated }: Omit<MarketplaceReauthDialogProps, 'refusal'>) {
   const [open, setOpen] = useState(false);
   const reauth = useStepUpReauth({
     onReauthenticated: async () => {

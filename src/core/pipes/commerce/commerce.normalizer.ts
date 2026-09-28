@@ -581,6 +581,11 @@ export class CommerceRecordNormalizer {
     return orderReceiptUriBuilder(this.pubky(ownerPubky), z.uuid().parse(receiptId));
   }
 
+  /** The owner's plaintext v1 receipt directory, read only to move its files into encrypted entries. */
+  static orderReceiptDirectoryUri(ownerPubky: unknown): string {
+    return `pubky://${this.pubky(ownerPubky)}/priv/pubky.app/marketplace/v1/receipts/`;
+  }
+
   static orderReceiptRecord(input: unknown): CommerceOrderReceiptRecord {
     return this.parse(commerceOrderReceiptRecordSchema, input, 'orderReceiptRecord');
   }

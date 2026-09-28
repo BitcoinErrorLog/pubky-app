@@ -107,6 +107,8 @@ export type THomeserverListParams = {
   cursor?: string;
   reverse?: boolean;
   limit?: number;
+  /** Logged and put in error context instead of `baseDirectory`. */
+  logUrl?: string;
 };
 
 export type THomeserverListAllParams = Pick<THomeserverListParams, 'baseDirectory'>;

@@ -117,9 +117,63 @@ export function MarketplaceWatchlist() {
               <div className="mt-2">
                 <MarketplaceReauthDialog
                   triggerLabel="Sign in again to enable sync"
+                  refusal="homeserver"
                   onReauthenticated={syncWatchlist}
                 />
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {isSignedIn && watchlistSyncStatus === 'needs_marketplace_approval' && (
+          <Card
+            className="border border-amber-500/40 bg-amber-500/5"
+            data-cy="watchlist-sync-marketplace-approval-notice"
+          >
+            <CardContent className="flex flex-col gap-1 py-4">
+              <Typography as="p" className="font-medium">
+                Sync across devices needs a marketplace approval
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Your watchlist keeps working on this device. It syncs encrypted through your homeserver, and the
+                marketplace releases the key only to a purchase session that includes your private Shop data. Approve
+                one to turn sync on.
+              </Typography>
+              <div className="mt-2">
+                <MarketplaceReauthDialog
+                  triggerLabel="Approve private sync"
+                  refusal="purchase_session"
+                  onReauthenticated={syncWatchlist}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {isSignedIn && watchlistSyncStatus === 'unavailable' && (
+          <Card className="border border-muted-foreground/30" data-cy="watchlist-sync-unavailable-notice">
+            <CardContent className="flex flex-col gap-1 py-4">
+              <Typography as="p" className="font-medium">
+                Private sync is unavailable right now
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Your watchlist keeps working on this device. It syncs encrypted through your homeserver once the
+                marketplace can provide your private data key again.
+              </Typography>
+            </CardContent>
+          </Card>
+        )}
+
+        {isSignedIn && watchlistSyncStatus === 'unsupported' && (
+          <Card className="border border-muted-foreground/30" data-cy="watchlist-sync-unsupported-notice">
+            <CardContent className="flex flex-col gap-1 py-4">
+              <Typography as="p" className="font-medium">
+                This browser cannot sync your watchlist
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Your watchlist keeps working on this device. Syncing it across devices needs a browser that can
+                coordinate its open tabs, so no change is lost. Update this browser or use a current one to sync.
+              </Typography>
             </CardContent>
           </Card>
         )}

@@ -142,6 +142,7 @@ export class MarketplaceSessionService {
 
   private static session: StoredMarketplaceSession | null = null;
   private static sessionEndedListeners = new Set<(event: MarketplaceSessionEndedEvent) => void>();
+  private static sessionReplacedListeners = new Set<() => void>();
 
   /**
    * Fires after the in-memory session is dropped (TTL margin, 401/mismatch, or
@@ -151,6 +152,18 @@ export class MarketplaceSessionService {
     this.sessionEndedListeners.add(listener);
     return () => {
       this.sessionEndedListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Fires synchronously, before the new session is installed, whenever a new
+   * session replaces a live one. Unlike {@link onSessionEnded} nothing ended
+   * for the user, so listeners only drop what they hold for the old session.
+   */
+  static onSessionReplaced(listener: () => void): () => void {
+    this.sessionReplacedListeners.add(listener);
+    return () => {
+      this.sessionReplacedListeners.delete(listener);
     };
   }
 
@@ -263,7 +276,15 @@ export class MarketplaceSessionService {
     this.assertMayReplace(pubky, capabilities, acceptedCapabilities, 'establishWithAuthToken');
     const issuedAt = new Date().toISOString();
     resetMarketplaceNotificationDiagnostics();
-    this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt), issuedAt };
+    const installed = this.installSession({
+      token,
+      sessionId,
+      pubky,
+      capabilities,
+      expiresAt,
+      expiresAtMs: Date.parse(expiresAt),
+      issuedAt,
+    });
     this.writePersistedSession(parsed.data);
     if (getMarketplaceGrantFlowEnabled() && sessionId) {
       void pairMarketplaceBffSession({ token, pubky, sessionId }).catch(() => {
@@ -271,7 +292,7 @@ export class MarketplaceSessionService {
       });
     }
     Logger.info('Established marketplace transaction session', { pubky, expiresAt });
-    return this.toPublicInfo(this.session);
+    return this.toPublicInfo(installed);
   }
 
   /**
@@ -373,14 +394,14 @@ export class MarketplaceSessionService {
     }
 
     const issuedAt = new Date().toISOString();
-    this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs, issuedAt };
+    const installed = this.installSession({ token, sessionId, pubky, capabilities, expiresAt, expiresAtMs, issuedAt });
     if (getMarketplaceGrantFlowEnabled() && sessionId) {
       void pairMarketplaceBffSession({ token, pubky, sessionId }).catch(() => {
         Logger.warn('Marketplace grant reconnect is unavailable for the restored session.');
       });
     }
     Logger.info('Restored marketplace transaction session', { pubky, expiresAt });
-    return this.toPublicInfo(this.session);
+    return this.toPublicInfo(installed);
   }
 
   /**
@@ -440,14 +461,22 @@ export class MarketplaceSessionService {
       'establishClaimedGrantSession',
     );
     const issuedAt = new Date().toISOString();
-    this.session = {
+    const installed = this.installSession({
       ...parsed,
       expiresAtMs: Date.parse(parsed.expiresAt),
       issuedAt,
-    };
+    });
     this.writePersistedSession(parsed);
     resetMarketplaceNotificationDiagnostics();
-    return this.toPublicInfo(this.session);
+    return this.toPublicInfo(installed);
+  }
+
+  private static installSession(next: StoredMarketplaceSession): StoredMarketplaceSession {
+    if (this.session) {
+      for (const listener of [...this.sessionReplacedListeners]) listener();
+    }
+    this.session = next;
+    return next;
   }
 
   /**

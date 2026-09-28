@@ -19,8 +19,8 @@ import { MarketplaceSessionRequiredCard } from './MarketplaceSessionRequiredCard
  * clients and the Ring step-up hook are stubbed. The auth store (a
  * grant-backed Bitkit sign-in), the purchase session service, the commerce
  * store and the session-connect hook are real. The re-approval dialog is
- * mounted directly: no producer on this release opens it for a Bitkit
- * sign-in (docs/ecommerce/step-up-approval.md).
+ * mounted directly; `MarketplaceWatchlist.keyRelease.journey.test.tsx`
+ * proves the key-release producer opens it.
  */
 vi.mock('@/services/marketplace/marketplace-grant-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/marketplace/marketplace-grant-client')>()),
@@ -145,7 +145,13 @@ describe('#49 Bitkit approval journeys (real hooks)', () => {
     const onReauthenticated = vi.fn();
     const user = userEvent.setup();
 
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" onReauthenticated={onReauthenticated} />);
+    render(
+      <MarketplaceReauthDialog
+        refusal="homeserver"
+        triggerLabel="Sign in again"
+        onReauthenticated={onReauthenticated}
+      />,
+    );
     await user.click(screen.getByRole('button', { name: 'Sign in again' }));
 
     await waitFor(() => expect(beginMarketplaceGrantFlow).toHaveBeenCalledTimes(1));
@@ -177,7 +183,7 @@ describe('#49 Bitkit approval journeys (real hooks)', () => {
       if (capabilities !== null) seedPurchaseSession(capabilities);
       const user = userEvent.setup();
 
-      render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+      render(<MarketplaceReauthDialog refusal="homeserver" triggerLabel="Sign in again" />);
       await user.click(screen.getByRole('button', { name: 'Sign in again' }));
 
       await waitFor(() => expect(ringStepUp.start).toHaveBeenCalledTimes(1));
@@ -191,7 +197,7 @@ describe('#49 Bitkit approval journeys (real hooks)', () => {
     seedPurchaseSession(parityCapture.parity_request.homeserver_verified);
     const user = userEvent.setup();
 
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+    render(<MarketplaceReauthDialog refusal="homeserver" triggerLabel="Sign in again" />);
     await user.click(screen.getByRole('button', { name: 'Sign in again' }));
 
     await waitFor(() => expect(ringStepUp.start).toHaveBeenCalledTimes(1));
