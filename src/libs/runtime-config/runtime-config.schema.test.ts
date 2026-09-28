@@ -204,6 +204,18 @@ describe('runtimeEnvInputSchema', () => {
     );
   });
 
+  it('keeps the fork Paykit setup creator parameter unless explicitly turned off', () => {
+    expect(runtimeEnvInputSchema.parse(VALID_ENV_INPUT).paykitSetupCreatorParam).toBe(true);
+    expect(runtimeEnvInputSchemaWithDefaults.parse({}).paykitSetupCreatorParam).toBe(true);
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, paykitSetupCreatorParam: '' }).paykitSetupCreatorParam,
+    ).toBe(true);
+    expect(
+      runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, paykitSetupCreatorParam: 'false' }).paykitSetupCreatorParam,
+    ).toBe(false);
+    expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, paykitSetupCreatorParam: 'no' })).toThrow();
+  });
+
   it('throws on invalid optional boolean values', () => {
     expect(() => runtimeEnvInputSchema.parse({ ...VALID_ENV_INPUT, notificationPollOnStart: 'tru' })).toThrow();
     expect(() => runtimeEnvInputSchemaWithDefaults.parse({ streamPollOnStart: 'yes' })).toThrow();
