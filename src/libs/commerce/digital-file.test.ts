@@ -144,6 +144,7 @@ describe('digital file metadata the service accepts', () => {
     expect(digitalFileContentType('not a type')).toBe('application/octet-stream');
     expect(digitalFileContentType('a/b/c')).toBe('application/octet-stream');
     expect(digitalFileContentType(`application/${'x'.repeat(130)}`)).toBe('application/octet-stream');
+    expect(digitalFileContentType('text/<script>')).toBe('application/octet-stream');
   });
 
   it('keeps the last path segment, strips control characters, trims and caps at 255 characters', () => {

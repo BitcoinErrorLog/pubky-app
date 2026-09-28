@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isDigitalContentType } from './digital-file';
 import { commercePubkySchema } from './transaction-contracts';
 
 // -----------------------------------------------------------------------------
@@ -159,7 +160,7 @@ export const digitalDeliveryFileSchema = z
     ciphertextBlake3: lowerHex(64),
     plaintextBlake3: lowerHex(64),
     sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-    contentType: z.string().min(3).max(127),
+    contentType: z.string().refine(isDigitalContentType, { message: 'Expected a type/subtype MIME type' }),
     fileName: z
       .string()
       .min(1)
@@ -295,6 +296,7 @@ export const DIGITAL_DELIVERY_SETUP_COPY = {
   changed: 'This delivery changed. Refresh to see the latest.',
   uploadStorageFull: 'Your homeserver refused the upload: storage is full.',
   uploadFailed: 'Your homeserver refused the upload. Try again.',
+  encryptFailed: "This browser couldn't encrypt the file, so nothing was uploaded. Try again, or use another browser.",
   failed: 'Delivery could not be saved. Try again.',
 } as const;
 

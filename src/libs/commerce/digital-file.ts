@@ -178,18 +178,27 @@ export const DIGITAL_FILE_NAME_MAX_CHARS = 255;
 const FALLBACK_CONTENT_TYPE = 'application/octet-stream';
 const FALLBACK_FILE_NAME = 'download';
 
-/** The browser's MIME type if the service would accept it, else `application/octet-stream`. */
-export function digitalFileContentType(browserType: string): string {
-  const value = browserType.split(';')[0].trim().toLowerCase();
+/**
+ * A MIME type exactly as the service accepts one (`is_valid_content_type` in
+ * the domain commands): `type/subtype`, each of letters, digits and
+ * `!#$&^_.+-`, no parameters, at most 127 characters.
+ */
+export function isDigitalContentType(value: string): boolean {
   const [kind, subtype, ...rest] = value.split('/');
-  const valid =
+  return (
     rest.length === 0 &&
     value.length <= DIGITAL_CONTENT_TYPE_MAX_CHARS &&
     kind !== undefined &&
     subtype !== undefined &&
     CONTENT_TYPE_TOKEN.test(kind) &&
-    CONTENT_TYPE_TOKEN.test(subtype);
-  return valid ? value : FALLBACK_CONTENT_TYPE;
+    CONTENT_TYPE_TOKEN.test(subtype)
+  );
+}
+
+/** The browser's MIME type if the service would accept it, else `application/octet-stream`. */
+export function digitalFileContentType(browserType: string): string {
+  const value = browserType.split(';')[0].trim().toLowerCase();
+  return isDigitalContentType(value) ? value : FALLBACK_CONTENT_TYPE;
 }
 
 /**
