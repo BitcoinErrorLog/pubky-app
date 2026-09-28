@@ -8,6 +8,7 @@ import {
   commerceShippingOptionSchema,
   commerceVariantSchema,
 } from '@/libs/commerce/marketplace-records';
+import { listingStockRefusal } from '@/libs/commerce/unlimited-stock';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 
 type ImportJsonPrimitive = string | number | boolean | null;
@@ -163,6 +164,12 @@ function fromRecordJson(row: CanonicalImportRow, ownerPubky: string): CommerceLi
   });
 }
 
+/** A mapped record the shared publish rule accepts, or that rule's refusal as the row's plan error. */
+function publishable(record: CommerceListingRecord): ListingMapResult {
+  const refusal = listingStockRefusal(record);
+  return refusal === null ? { ok: true, record } : { ok: false, message: refusal };
+}
+
 /** Map one listing's canonical rows (variants) to a Shop `CommerceListingRecord`. */
 export function mapCanonicalRowsToListing(rows: readonly CanonicalImportRow[], ownerPubky: string): ListingMapResult {
   if (rows.length === 0) {
@@ -172,7 +179,7 @@ export function mapCanonicalRowsToListing(rows: readonly CanonicalImportRow[], o
     const first = rows[0];
     const fromJson = fromRecordJson(first, ownerPubky);
     if (fromJson) {
-      return { ok: true, record: fromJson };
+      return publishable(fromJson);
     }
     const now = new Date().toISOString();
     const shippingOptions = mapShipping(first);
@@ -210,7 +217,7 @@ export function mapCanonicalRowsToListing(rows: readonly CanonicalImportRow[], o
       returnPolicy: mapReturnPolicy(first.returnPolicy),
       adultOnly: false,
     });
-    return { ok: true, record };
+    return publishable(record);
   } catch (error) {
     return {
       ok: false,

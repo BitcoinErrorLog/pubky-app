@@ -37,6 +37,7 @@ import { useMarketplaceSellerDashboard } from '@/hooks/useMarketplaceSellerDashb
 import { useSellerPaymentMethodGate } from '@/hooks/useSellerPaymentMethodGate/useSellerPaymentMethodGate';
 import { listingDisplayState } from '@/libs/commerce/auction-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
+import { formatListingStock } from '@/libs/commerce/unlimited-stock';
 import { isListingRegistrationPending } from '@/models/commerce/commerce.schema';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
@@ -468,9 +469,7 @@ export function MarketplaceDashboard() {
                                   </Badge>
                                 </td>
                                 <td className="p-3">{listing.format.replace('_', ' ')}</td>
-                                <td className="p-3">
-                                  {listing.record.variants.reduce((total, variant) => total + variant.quantity, 0)}
-                                </td>
+                                <td className="p-3">{formatListingStock(listing.record)}</td>
                                 <td className="p-3">
                                   {/* The record's own price money: the model row's
                                     `price_minor` has no exponent column, and

@@ -28,6 +28,7 @@ import {
   MarketplaceShopClientService,
   PubkyShopError,
   type SdkResult,
+  SHOPIFY_CSV_PRICE,
   type SyncManyEnvelope,
   type SyncManyListing,
 } from '@/services/marketplace/marketplace-shop-client';
@@ -151,7 +152,14 @@ export class CommerceInventoryImportApplication {
     return {
       sellerPubky,
       store,
-      planFile: overrides.planFile ?? MarketplaceShopClientService.planBrowserFile.bind(MarketplaceShopClientService),
+      planFile:
+        overrides.planFile ??
+        ((file, manifestStore, currentItems) =>
+          MarketplaceShopClientService.planBrowserFile(file, manifestStore, currentItems, {
+            sellerPubky,
+            currency: SHOPIFY_CSV_PRICE.currency,
+            exponent: SHOPIFY_CSV_PRICE.exponent,
+          })),
       putListing: overrides.putListing ?? CommerceApplication.putPublicListingForImport.bind(CommerceApplication),
       listingExists: overrides.listingExists ?? ((url) => CommerceHomeserverService.exists(url)),
       syncMany:

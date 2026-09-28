@@ -43,6 +43,7 @@ import {
 } from '@/libs/commerce/pricing';
 import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 import { dimensionInputFromMillimeters, type MeasurementSystem, weightInputFromGrams } from '@/libs/commerce/units';
+import { stockFormFields } from '@/libs/commerce/unlimited-stock';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -271,7 +272,7 @@ export function partitionListingAttributes(record: Pick<CommerceListingRecord, '
   return { formValues, passthrough };
 }
 
-function formDataFromRecord(
+export function formDataFromRecord(
   record: CommerceListingRecord,
   currency: ListingCurrencyChoice,
   measurementSystem: MeasurementSystem,
@@ -312,7 +313,7 @@ function formDataFromRecord(
       size: variant.options.size ?? '',
       color: variant.options.color ?? '',
       style: variant.options.style ?? '',
-      quantity: String(variant.quantity),
+      ...stockFormFields(record, variant.quantity),
       priceOverride: variant.priceOverride ? amountInputFromMoney(variant.priceOverride) : '',
     })),
     fulfillment,

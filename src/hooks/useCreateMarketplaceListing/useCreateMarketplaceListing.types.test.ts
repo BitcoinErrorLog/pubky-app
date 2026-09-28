@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
+import { UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/libs/commerce/unlimited-stock';
 import {
   CREATE_MARKETPLACE_LISTING_SCHEMA_KEYS,
+  type CreateMarketplaceListingData,
   createMarketplaceListingDefaults,
+  createMarketplaceListingDraftSchema,
   createMarketplaceListingPublishChecklist,
   createMarketplaceListingSchema,
   createMarketplaceListingValuesFromWatch,
@@ -13,6 +17,7 @@ import {
   isCreateMarketplaceListingPublishReady,
   type ListingFulfillment,
   listingFulfillmentSchema,
+  UNLIMITED_STOCK_FORM_MESSAGE,
 } from './useCreateMarketplaceListing.types';
 
 /**
@@ -26,6 +31,7 @@ describe('createMarketplaceListingSchema', () => {
   it('defaults to physical shipping and final sale', () => {
     expect(createMarketplaceListingDefaults.fulfillment).toBe('shipping');
     expect(createMarketplaceListingDefaults.returnDays).toBe('none');
+    expect(createMarketplaceListingDefaults.variants[0].unlimited).toBe(false);
   });
 
   it('accepts complete physical delivery terms', () => {
@@ -109,8 +115,12 @@ describe('createMarketplaceListingSchema', () => {
       packageWidth: '25.0',
       packageHeight: '15.0',
     };
-    const baseUnitOverride = [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '175000' }];
-    const decimalOverride = [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '175000.50' }];
+    const baseUnitOverride = [
+      { sku: '', size: '', color: '', style: '', quantity: '1', unlimited: false, priceOverride: '175000' },
+    ];
+    const decimalOverride = [
+      { sku: '', size: '', color: '', style: '', quantity: '1', unlimited: false, priceOverride: '175000.50' },
+    ];
     expect(createMarketplaceListingSchema.safeParse({ ...base, variants: baseUnitOverride }).success).toBe(true);
     expect(createMarketplaceListingSchema.safeParse({ ...base, variants: decimalOverride }).success).toBe(false);
     expect(createMarketplaceListingSchema.safeParse({ ...base, shippingPrice: '15000.50' }).success).toBe(false);
@@ -156,8 +166,16 @@ describe('createMarketplaceListingSchema', () => {
 
   it('supports multiple fixed-price variants but only one auction variant', () => {
     const variants = [
-      { sku: 'BOOTS-42', size: '42', color: 'Brown', style: '', quantity: '1', priceOverride: '' },
-      { sku: 'BOOTS-43', size: '43', color: 'Brown', style: '', quantity: '2', priceOverride: '135.00' },
+      { sku: 'BOOTS-42', size: '42', color: 'Brown', style: '', quantity: '1', unlimited: false, priceOverride: '' },
+      {
+        sku: 'BOOTS-43',
+        size: '43',
+        color: 'Brown',
+        style: '',
+        quantity: '2',
+        unlimited: false,
+        priceOverride: '135.00',
+      },
     ];
     const base = {
       ...formDefaults,
@@ -173,7 +191,15 @@ describe('createMarketplaceListingSchema', () => {
   });
 
   it('requires unique non-empty seller SKUs', () => {
-    const duplicate = { sku: 'BOOTS', size: '', color: '', style: '', quantity: '1', priceOverride: '' };
+    const duplicate = {
+      sku: 'BOOTS',
+      size: '',
+      color: '',
+      style: '',
+      quantity: '1',
+      unlimited: false,
+      priceOverride: '',
+    };
     expect(
       createMarketplaceListingSchema.safeParse({
         ...formDefaults,
@@ -401,6 +427,90 @@ describe('delivery options record encoding (digital delivery design §2)', () =>
         : parsed.error.issues.find((issue) => issue.path[0] === 'fulfillment');
       expect(Boolean(fulfillmentIssue), value).toBe(value !== 'shipping');
     }
+  });
+
+  it('accepts an empty quantity when the variant is unlimited on a digital-only listing', () => {
+    const parsed = createMarketplaceListingSchema.safeParse({
+      ...formDefaults,
+      title: 'Field guide',
+      description: 'A printable guide.',
+      price: '10.00',
+      fulfillment: 'digital',
+      variants: [{ sku: '', size: '', color: '', style: '', quantity: '', unlimited: true, priceOverride: '' }],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects unlimited stock on a listing that is not digital-only', () => {
+    const variant = { sku: '', size: '', color: '', style: '', quantity: '2', unlimited: true, priceOverride: '' };
+    for (const fulfillment of ['shipping', 'shipping_and_digital', 'pickup_and_digital'] as const) {
+      const parsed = createMarketplaceListingSchema.safeParse({
+        ...formDefaults,
+        title: 'Field guide',
+        description: 'A printable guide.',
+        price: '10.00',
+        fulfillment,
+        shippingPrice: '12.00',
+        packageWeight: '1200',
+        packageLength: '35.0',
+        packageWidth: '25.0',
+        packageHeight: '15.0',
+        variants: [variant],
+      });
+      expect(parsed.success, fulfillment).toBe(false);
+      if (!parsed.success) {
+        expect(parsed.error.issues.some((issue) => issue.message === UNLIMITED_STOCK_FORM_MESSAGE)).toBe(true);
+      }
+    }
+  });
+
+  it('refuses the unlimited cap as a typed quantity on any line that ships or offers pickup', () => {
+    const listing = (fulfillment: CreateMarketplaceListingData['fulfillment'], quantity: string) =>
+      createMarketplaceListingSchema.safeParse({
+        ...formDefaults,
+        title: 'Field guide',
+        description: 'A printable guide.',
+        price: '10.00',
+        fulfillment,
+        shippingPrice: '12.00',
+        packageWeight: '1200',
+        packageLength: '35.0',
+        packageWidth: '25.0',
+        packageHeight: '15.0',
+        variants: [{ sku: '', size: '', color: '', style: '', quantity, unlimited: false, priceOverride: '' }],
+      });
+    const reserved = (parsed: ReturnType<typeof listing>) =>
+      !parsed.success &&
+      parsed.error.issues.some(
+        (issue) => issue.path.join('.') === 'variants.0.quantity' && issue.message === UNLIMITED_STOCK_RESERVED_MESSAGE,
+      );
+    for (const fulfillment of [
+      'shipping',
+      'pickup',
+      'shipping_and_pickup',
+      'shipping_and_digital',
+      'pickup_and_digital',
+      'shipping_pickup_and_digital',
+    ] as const) {
+      expect(reserved(listing(fulfillment, String(COMMERCE_LISTING_MAX_QUANTITY))), fulfillment).toBe(true);
+      expect(reserved(listing(fulfillment, ` ${COMMERCE_LISTING_MAX_QUANTITY} `)), fulfillment).toBe(true);
+      expect(reserved(listing(fulfillment, String(COMMERCE_LISTING_MAX_QUANTITY - 1))), fulfillment).toBe(false);
+    }
+    expect(listing('digital', String(COMMERCE_LISTING_MAX_QUANTITY)).success).toBe(true);
+  });
+
+  it('accepts an optional unlimited flag so an older draft still loads', () => {
+    const older = createMarketplaceListingDraftSchema.safeParse({
+      title: 'Field guide',
+      variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
+    });
+    expect(older.success).toBe(true);
+    if (older.success) expect(older.data.variants?.[0].unlimited).toBeUndefined();
+    const flagged = createMarketplaceListingDraftSchema.safeParse({
+      variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '', unlimited: true }],
+    });
+    expect(flagged.success).toBe(true);
+    if (flagged.success) expect(flagged.data.variants?.[0].unlimited).toBe(true);
   });
 
   it('a digital-only listing needs no shipping or package fields', () => {

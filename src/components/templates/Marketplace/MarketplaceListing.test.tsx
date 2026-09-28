@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommerceSellerReputationOverview } from '@/application/commerce/commerce';
 import { CAPABILITIES } from '@/config/app';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
@@ -809,6 +810,38 @@ describe('MarketplaceListing', () => {
     expect(
       screen.queryByText('This listing could not be prepared for checkout. It may have been removed by the seller.'),
     ).not.toBeInTheDocument();
+  });
+
+  it('shows Unlimited on a digital-only variant instead of the quantity cap', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['digital'],
+        package: undefined,
+        shippingOptions: [],
+        variants: [
+          {
+            id: 'variant_pdf',
+            options: { size: 'PDF' },
+            quantity: COMMERCE_LISTING_MAX_QUANTITY,
+            mediaIds: ['image_01'],
+            enabled: true,
+          },
+          {
+            id: 'variant_epub',
+            options: { size: 'EPUB' },
+            quantity: COMMERCE_LISTING_MAX_QUANTITY,
+            mediaIds: ['image_01'],
+            enabled: true,
+          },
+        ],
+      }),
+    );
+
+    renderListing();
+
+    const variant = screen.getByRole('combobox', { name: 'Choose listing variant' });
+    expect(variant).toHaveTextContent('Unlimited');
+    expect(variant).not.toHaveTextContent(String(COMMERCE_LISTING_MAX_QUANTITY));
   });
 
   it('reveals the empty-caps reconnect card when a full-grant buyer places a bid without a marketplace session', async () => {

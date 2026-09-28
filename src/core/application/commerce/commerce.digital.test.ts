@@ -150,6 +150,69 @@ describe('CommerceApplication digital delivery seller setup (digital delivery de
     expect(JSON.stringify(warn.mock.calls)).not.toContain('/deliverables/');
   });
 
+  const fileSet = () =>
+    CommerceApplication.commitSetDigitalDelivery(SELLER, {
+      sellerPubky: SELLER,
+      listingId: LISTING_ID,
+      expectedVersion: 2,
+      delivery: { kind: 'file', bytes: PLAINTEXT, fileName: 'guide.pdf', contentType: 'application/pdf' },
+    });
+
+  it('replays a set that threw after the upload, and deletes the upload when the service had refused it', async () => {
+    vi.spyOn(CommerceHomeserverService, 'putDeliverable').mockResolvedValue(undefined);
+    const remove = vi.spyOn(CommerceHomeserverService, 'deleteDeliverable').mockResolvedValue(undefined);
+    const execute = vi
+      .spyOn(MarketplaceGatewayService, 'execute')
+      .mockRejectedValueOnce(new TypeError('connection reset'))
+      .mockResolvedValueOnce(refusal as never);
+
+    const response = await fileSet();
+
+    expect(response.ok).toBe(false);
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute.mock.calls[1][1]).toBe(execute.mock.calls[0][1]);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove.mock.calls[0][0]).toMatch(DELIVERABLE_URL);
+  });
+
+  it('keeps the upload when the replay shows the service had set it', async () => {
+    vi.spyOn(CommerceHomeserverService, 'putDeliverable').mockResolvedValue(undefined);
+    const remove = vi.spyOn(CommerceHomeserverService, 'deleteDeliverable').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'execute')
+      .mockRejectedValueOnce(new TypeError('connection reset'))
+      .mockResolvedValueOnce(okResponse as never);
+
+    const response = await fileSet();
+
+    expect(response.ok).toBe(true);
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('keeps the upload and rethrows when the set gets no answer twice, logging no path', async () => {
+    vi.spyOn(CommerceHomeserverService, 'putDeliverable').mockResolvedValue(undefined);
+    const remove = vi.spyOn(CommerceHomeserverService, 'deleteDeliverable').mockResolvedValue(undefined);
+    vi.spyOn(MarketplaceGatewayService, 'execute')
+      .mockRejectedValueOnce(new TypeError('connection reset'))
+      .mockRejectedValueOnce(new TypeError('still offline'));
+    const warn = vi.spyOn(Logger, 'warn');
+
+    await expect(fileSet()).rejects.toThrow('connection reset');
+    expect(remove).not.toHaveBeenCalled();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('/deliverables/');
+  });
+
+  it('uploads and sends nothing when the file cannot be encrypted, and says it was the encryption', async () => {
+    vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValueOnce(new DOMException('encrypt failed', 'OperationError'));
+    const put = vi.spyOn(CommerceHomeserverService, 'putDeliverable');
+    const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+    const error = await fileSet().catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ context: { refusal: 'encrypt_failed' } });
+    expect(put).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('sends no command when the homeserver refuses the upload', async () => {
     vi.spyOn(CommerceHomeserverService, 'putDeliverable').mockRejectedValue(new TypeError('quota'));
     const execute = vi.spyOn(MarketplaceGatewayService, 'execute');

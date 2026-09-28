@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
 import { useEditMarketplaceListing } from './useEditMarketplaceListing';
@@ -386,6 +387,29 @@ describe('useEditMarketplaceListing', () => {
 
     await waitFor(() => expect(result.current.status).toBe('not-owner'));
     expect(CommerceController.getOrFetchListing).not.toHaveBeenCalled();
+  });
+
+  it('hydrates unlimited stock only when a digital-only variant is at the quantity cap', async () => {
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue({
+      ...structuredClone(publishedRecord),
+      fulfillmentMethods: ['digital' as const],
+      package: undefined,
+      shippingOptions: [],
+      variants: [{ ...publishedRecord.variants[0], quantity: COMMERCE_LISTING_MAX_QUANTITY }],
+    });
+    const digital = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(digital.result.current.status).toBe('ready'));
+    // No number is carried: leaving digital-only must not inherit the cap as physical stock.
+    expect(digital.result.current.form.getValues('variants')[0]).toMatchObject({ unlimited: true, quantity: '' });
+    digital.unmount();
+
+    vi.mocked(CommerceController.getOrFetchListing).mockResolvedValue({
+      ...structuredClone(publishedRecord),
+      variants: [{ ...publishedRecord.variants[0], quantity: COMMERCE_LISTING_MAX_QUANTITY }],
+    });
+    const physical = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(physical.result.current.status).toBe('ready'));
+    expect(physical.result.current.form.getValues('variants')[0].unlimited).toBe(false);
   });
 
   it('hydrates a digital-only listing (digital delivery design §2)', async () => {

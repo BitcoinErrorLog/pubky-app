@@ -1,6 +1,8 @@
 import type { InventoryAdjustRequest } from '@bitcoinerrorlog/pubky-shop';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
+import { isUnlimitedStock } from '@/libs/commerce/unlimited-stock';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -25,6 +27,8 @@ export type InventoryBoardRow = {
   sold: number;
   total: number;
   serverRevision: number;
+  /** Set when the listing record itself is unlimited. Available may be lower while a hold reserves units. */
+  unlimited?: boolean;
   sync: 'synced' | 'missing';
   syncMessage?: string | null;
   recordStatus?: 'unavailable';
@@ -91,6 +95,26 @@ function dropIdFromRecord(record: Record<string, unknown> | null): string | null
 
 function recordStatusFromExport(entry: Record<string, unknown>): 'unavailable' | undefined {
   return entry.record_status === 'unavailable' ? 'unavailable' : undefined;
+}
+
+const EXPORT_FULFILLMENT_METHODS = ['physical', 'shipping', 'pickup', 'digital'] as const;
+
+function exportRecordIsUnlimited(record: Record<string, unknown> | null): boolean {
+  if (!record) return false;
+  const methods = Array.isArray(record.fulfillmentMethods)
+    ? record.fulfillmentMethods.filter(
+        (method): method is CommerceListingRecord['fulfillmentMethods'][number] =>
+          typeof method === 'string' && (EXPORT_FULFILLMENT_METHODS as readonly string[]).includes(method),
+      )
+    : [];
+  const variants = Array.isArray(record.variants) ? record.variants : [];
+  return variants.some((entry) => {
+    const object = asObject(entry);
+    const quantity = object ? asInt(object.quantity) : null;
+    return (
+      quantity !== null && isUnlimitedStock({ fulfillmentMethods: methods, digitalLock: record.digitalLock }, quantity)
+    );
+  });
 }
 
 export function planInventoryAdjust(input: {
@@ -217,6 +241,7 @@ export class CommerceInventoryApplication {
         const record = asObject(object.record);
         const listingId = asString(projection?.listing_id) ?? asString(record?.listingId);
         if (!listingId) continue;
+        const unlimited = exportRecordIsUnlimited(record);
         const aggregateId =
           asString(projection?.aggregate_id) ?? buildMarketplaceListingAggregateId(sellerPubky, listingId);
         const inventoryResult = await MarketplaceShopClientService.getInventoryProjection(client, aggregateId);
@@ -242,6 +267,7 @@ export class CommerceInventoryApplication {
             sold: asInt(projection?.sold_quantity) ?? 0,
             total: asInt(projection?.total_quantity) ?? 0,
             serverRevision: asInt(projection?.server_revision) ?? 0,
+            ...(unlimited ? { unlimited: true as const } : {}),
             sync: 'missing',
             ...(recordStatusFromExport(object) ? { recordStatus: 'unavailable' as const } : {}),
           });
@@ -262,6 +288,7 @@ export class CommerceInventoryApplication {
           sold: Number(stock.sold),
           total: Number(stock.total),
           serverRevision: Number(inventoryResult.value.server_revision),
+          ...(unlimited ? { unlimited: true as const } : {}),
           sync: 'synced',
           ...(recordStatusFromExport(object) ? { recordStatus: 'unavailable' as const } : {}),
         });

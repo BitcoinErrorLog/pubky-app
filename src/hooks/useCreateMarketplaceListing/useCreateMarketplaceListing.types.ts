@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   COMMERCE_LISTING_DESCRIPTION_MAX_CHARS,
+  COMMERCE_LISTING_MAX_QUANTITY,
   COMMERCE_LISTING_TITLE_MAX_CHARS,
   COMMERCE_LISTING_TITLE_MIN_CHARS,
 } from '@/config/commerce';
@@ -18,6 +19,7 @@ import {
   type ListingCurrencyChoice,
 } from '@/libs/commerce/pricing';
 import { gramsFromWeightInput, type MeasurementSystem, millimetersFromDimensionInput } from '@/libs/commerce/units';
+import { isUnlimitedStockSentinel, UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/libs/commerce/unlimited-stock';
 
 export const CREATE_MARKETPLACE_LISTING_FIELDS = {
   TITLE: 'title',
@@ -87,18 +89,37 @@ export function listingAttributeFormField(key: string): ListingAttributeFormFiel
 const attributeTextSchema = z.string().trim().max(COMMERCE_ATTRIBUTE_VALUE_MAX_CHARS, 'Keep this under 80 characters.');
 const attributeMultiSchema = z.array(z.string().trim().min(1).max(COMMERCE_ATTRIBUTE_VALUE_MAX_CHARS));
 
-const listingVariantSchema = z.object({
-  sku: z.string().trim().max(64, 'SKU must be 64 characters or fewer.'),
-  size: z.string().trim().max(80, 'Size is too long.'),
-  color: z.string().trim().max(80, 'Color is too long.'),
-  style: z.string().trim().max(80, 'Style is too long.'),
-  quantity: z
-    .string()
-    .trim()
-    .regex(/^[1-9]\d*$/, 'Quantity must be a positive whole number.')
-    .refine((value) => Number(value) <= 1_000_000, 'Quantity is too large.'),
-  priceOverride: z.string().trim(),
-});
+export const UNLIMITED_STOCK_FORM_MESSAGE = 'Unlimited stock is for digital-only listings. Enter a number of copies.';
+
+const listingVariantSchema = z
+  .object({
+    sku: z.string().trim().max(64, 'SKU must be 64 characters or fewer.'),
+    size: z.string().trim().max(80, 'Size is too long.'),
+    color: z.string().trim().max(80, 'Color is too long.'),
+    style: z.string().trim().max(80, 'Style is too long.'),
+    quantity: z.string(),
+    unlimited: z.boolean(),
+    priceOverride: z.string().trim(),
+  })
+  .superRefine((variant, context) => {
+    if (variant.unlimited) return;
+    const quantity = variant.quantity.trim();
+    if (!/^[1-9]\d*$/.test(quantity)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['quantity'],
+        message: 'Quantity must be a positive whole number.',
+      });
+      return;
+    }
+    if (Number(quantity) > COMMERCE_LISTING_MAX_QUANTITY) {
+      context.addIssue({
+        code: 'custom',
+        path: ['quantity'],
+        message: 'Quantity is too large.',
+      });
+    }
+  });
 
 /**
  * The category must resolve in the taxonomy (the picker only offers leaves;
@@ -414,6 +435,25 @@ export const createMarketplaceListingSchema = z
         message: 'Variant SKUs must be unique.',
       });
     }
+    if (data.fulfillment !== 'digital') {
+      data.variants.forEach((variant, index) => {
+        if (variant.unlimited) {
+          context.addIssue({
+            code: 'custom',
+            path: ['variants', index, 'unlimited'],
+            message: UNLIMITED_STOCK_FORM_MESSAGE,
+          });
+          return;
+        }
+        if (isUnlimitedStockSentinel(variant.quantity)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['variants', index, 'quantity'],
+            message: UNLIMITED_STOCK_RESERVED_MESSAGE,
+          });
+        }
+      });
+    }
   });
 
 export const createMarketplaceListingDraftSchema = z
@@ -447,6 +487,8 @@ export const createMarketplaceListingDraftSchema = z
         color: z.string(),
         style: z.string(),
         quantity: z.string(),
+        /** Older drafts omit this; a missing flag is a numbered quantity. */
+        unlimited: z.boolean().optional(),
         priceOverride: z.string(),
       }),
     ),
@@ -593,7 +635,7 @@ export const createMarketplaceListingDefaults: CreateMarketplaceListingData = {
   currency: 'USD',
   price: '',
   reservePrice: '',
-  variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
+  variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', unlimited: false, priceOverride: '' }],
   fulfillment: 'shipping',
   shippingLabel: 'Seller shipping',
   freeShipping: false,
