@@ -17,9 +17,13 @@ import { installWebLocks, removeWebLocks } from '@/test-utils/web-locks';
  * Shop left them: a watchlist, a portable receipt for a real sandbox-paid
  * order (attested by the staging attestor), and badge checkpoints. Then:
  *
- *   1. No key: a marketplace session minted without the `/priv` grant (the
- *      "Connect marketplace" QR shape) gets `needs_reauth`; nothing is
- *      written and the plaintext stays.
+ *   1. No key: a marketplace session minted without the `/priv` grant is
+ *      refused the key, so watchlist sync and receipt publication report
+ *      `needs_marketplace_approval` (the recovery-key export `needs_reauth`);
+ *      nothing is written and the plaintext stays.
+ *   1b. Homeserver refusal: a homeserver session whose grant cannot write
+ *      `/priv/pubky.app/` reports `needs_reauth` without requesting a key,
+ *      even beside a purchase session that would get one.
  *   2. Full grant: a session minted from the Shop-grant AuthToken gets the
  *      key; without Web Locks the watchlist sync refuses to run; every plaintext record is sealed, read back, and only then
  *      deleted, in that order on the wire; a second paid order's receipt is
@@ -645,11 +649,12 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
     const refusedBody = (await refused.json()) as { error: { code: string } };
     expect(refusedBody.error.code).toBe('needs_reauth');
     expect(wireShape(refusedBody)).toEqual(wireShape(PRIV_KEYS_WIRE_NEEDS_REAUTH));
+    // The marketplace refused the key to this purchase session: the fix is a marketplace approval (#49).
     let mark = wire.length;
     await m.CommerceController.syncWatchlist();
-    expect(m.useCommerceStore.getState().watchlistSyncStatus).toBe('needs_reauth');
+    expect(m.useCommerceStore.getState().watchlistSyncStatus).toBe('needs_marketplace_approval');
     expect(await m.CommerceApplication.publishOrderReceipts(buyer.pubky, [firstOrder, secondOrder])).toBe(
-      'needs_reauth',
+      'needs_marketplace_approval',
     );
     await m.CommerceAttentionSeenApplication.pull(buyer.pubky);
     expect(await m.CommercePrivKeyringApplication.exportRecoveryKey(buyer.pubky)).toEqual({ kind: 'needs_reauth' });
@@ -658,7 +663,38 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
     expect(
       await m.HomeserverService.list({ baseDirectory: `pubky://${buyer.pubky}/priv/pubky.app/marketplace/v2/` }),
     ).toEqual([]);
-    console.info('[priv-live] 1. no key: needs_reauth everywhere, zero writes, plaintext untouched, no v2 entries');
+    console.info(
+      '[priv-live] 1. key refused: needs_marketplace_approval for sync and receipts, zero writes, plaintext untouched, no v2 entries',
+    );
+
+    // A homeserver session that cannot write /priv/pubky.app/ is a homeserver refusal: needs_reauth,
+    // decided before any key is requested, even beside a purchase session that would get one.
+    activate(buyerFullGrant);
+    m.CommercePrivKeyringApplication.clear();
+    const narrowFlow = new m.sdk.Pubky().startCookieAuthFlow('/pub/pubky.app/:rw', m.sdk.AuthFlowKind.signin());
+    await new m.sdk.Pubky().signer(buyer.keypair).approveAuthRequest(narrowFlow.authorizationUrl);
+    const narrowSession = await narrowFlow.awaitApproval();
+    expect(m.HomeserverService.isGrantSession(narrowSession)).toBe(false);
+    actAs({ ...buyer, session: narrowSession });
+    expect(m.HomeserverService.canCurrentSessionWrite('/priv/pubky.app/')).toBe(false);
+    const keyReads = vi.spyOn(m.MarketplaceGatewayService, 'getPrivKeys');
+    mark = wire.length;
+    await m.CommerceController.syncWatchlist();
+    expect(m.useCommerceStore.getState().watchlistSyncStatus).toBe('needs_reauth');
+    expect(await m.CommerceApplication.publishOrderReceipts(buyer.pubky, [firstOrder, secondOrder])).toBe(
+      'needs_reauth',
+    );
+    expect(keyReads).not.toHaveBeenCalled();
+    keyReads.mockRestore();
+    expect(wire.slice(mark).filter((entry) => entry.includes('/priv/'))).toEqual([]);
+    // The narrow sign-in replaced the buyer's homeserver cookie; sign back in with the full session.
+    const restored = await m.HomeserverService.signIn({ keypair: buyer.keypair });
+    if (!restored) throw new Error('buyer: sign-in asked for a retry after republish; re-run.');
+    buyer.session = restored.session;
+    actAs(buyer);
+    expect(m.HomeserverService.canCurrentSessionWrite('/priv/pubky.app/')).toBe(true);
+    for (const url of legacyUrls) expect(await exists(url), url).toBe(true);
+    console.info('[priv-live] 1b. homeserver grant without /priv: needs_reauth, no /priv request, plaintext untouched');
 
     // ── 2. Full grant: seal, read back, then delete ───────────────────────
     activate(buyerFullGrant);
