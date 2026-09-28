@@ -401,7 +401,12 @@ export class MarketplaceSessionService {
         operation: 'establishClaimedGrantSession',
       });
     }
-    this.assertMayReplace(parsed.pubky, parsed.capabilities, MARKETPLACE_CLAIMABLE_GRANTS, 'establishClaimedGrantSession');
+    this.assertMayReplace(
+      parsed.pubky,
+      parsed.capabilities,
+      MARKETPLACE_CLAIMABLE_GRANTS,
+      'establishClaimedGrantSession',
+    );
     const issuedAt = new Date().toISOString();
     this.session = {
       ...parsed,

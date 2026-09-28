@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CAPABILITIES } from '@/config/app';
 import type { AppError } from '@/libs/error/error';
 import { Logger } from '@/libs/logger/logger';
+import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import {
   MARKETPLACE_SESSION_STORAGE_KEY,
   MarketplaceSessionService,
   SESSION_FLOW_TIMEOUT_MS,
 } from './marketplace-session';
-import { CAPABILITIES } from '@/config/app';
-import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import { MARKETPLACE_SESSION_GRANT } from './marketplace-session-grant';
 
 const PUBKY = 'y'.repeat(52);
@@ -586,9 +586,7 @@ describe('MarketplaceSessionService replacement guard (staging grant shapes)', (
   });
 
   it('the Ring connect QR installs the parity grant, in the normalized order the service stores', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(
-      sessionResponse(inOneDay(), TOKEN_B, parity.split(',').reverse().join(',')),
-    );
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, parity.split(',').reverse().join(',')));
     await expect(ringApproval(5)).resolves.toMatchObject({ pubky: PUBKY });
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN_B });
   });
