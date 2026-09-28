@@ -486,7 +486,7 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.error = null;
 
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
-    await expect.element(screen.getByText(/Payment code/)).toBeVisible();
+    await expect.element(screen.getByTestId('order-refund-record')).toBeVisible();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-bitcoin-refund-desktop');
   });
 

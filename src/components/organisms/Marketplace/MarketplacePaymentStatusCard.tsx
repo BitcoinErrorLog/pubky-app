@@ -221,7 +221,10 @@ export function MarketplacePaymentStatusCard({
         {order.fiatVerification === 'seller-attested' && <Badge variant="outline">Seller-attested</Badge>}
         {isSandbox && <Badge variant="secondary">Sandbox · simulated payment · no real funds</Badge>}
       </div>
-      <MarketplaceBitcoinAmountBreakdown order={order} showExact={isBuyer} />
+      <MarketplaceBitcoinAmountBreakdown
+        order={order}
+        showExact={isBuyer && isAwaiting && buyerBitcoinWalletCopy(order, payment).kind === 'pay'}
+      />
       {!isSandbox && isBuyer && isAwaiting && isStaging && (
         <Typography
           as="p"

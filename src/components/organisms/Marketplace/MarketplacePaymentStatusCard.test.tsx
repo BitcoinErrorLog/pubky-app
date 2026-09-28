@@ -478,6 +478,7 @@ describe('MarketplacePaymentStatusCard', () => {
       'Seller confirms by Sep 29, 2026, 10:56 AM UTC.',
     );
     expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay exactly/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
   });
@@ -502,6 +503,7 @@ describe('MarketplacePaymentStatusCard', () => {
       'Payment confirmed on-chain. The seller is reviewing it.',
     );
     expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay exactly/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
   });
 
