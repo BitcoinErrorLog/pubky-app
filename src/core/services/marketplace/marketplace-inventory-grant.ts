@@ -1,3 +1,5 @@
+import { capabilitiesCoverScope, MARKETPLACE_INVENTORY_SCOPE } from './marketplace-session-grant';
+
 /**
  * Studio inventory step-up grant. The only capability string Inventory Studio
  * may pass to `generateAuthTokenFlow`. Root `/:rw` covers the service ACL if
@@ -31,24 +33,14 @@ export function inventoryCapabilityCovers(capabilities: string): boolean {
   return parts.includes(INVENTORY_GRANT) || parts.includes(ROOT_GRANT);
 }
 
-const INVENTORY_SCOPE = '/pub/pubky.app/marketplace-service/v1/';
-const READ_WRITE_ACTIONS = new Set(['rw', 'wr']);
-
 /**
  * True when some entry grants read and write over a directory that contains
- * the inventory scope — the service's own coverage rule (`scope_covers_path`
- * plus both actions). A purchase session carrying the marketplace session
- * grant, the Shop sign-in grant, or root covers it; empty, read-only,
- * narrower and unrelated grants do not.
+ * the inventory scope — the service's own coverage rule. A purchase session
+ * carrying the marketplace session grant, the Shop sign-in grant, or root
+ * covers it; empty, read-only, narrower and unrelated grants do not.
  */
 export function capabilitiesCoverInventoryScope(capabilities: string): boolean {
-  return capabilityParts(capabilities).some((part) => {
-    const separator = part.lastIndexOf(':');
-    if (separator <= 0) return false;
-    const scope = part.slice(0, separator);
-    const actions = part.slice(separator + 1);
-    return scope.endsWith('/') && INVENTORY_SCOPE.startsWith(scope) && READ_WRITE_ACTIONS.has(actions);
-  });
+  return capabilitiesCoverScope(capabilities, MARKETPLACE_INVENTORY_SCOPE);
 }
 
 /**

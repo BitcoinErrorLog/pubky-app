@@ -199,7 +199,7 @@ describe('marketplace purchase bootstrap client', () => {
 
     expect(flow.authorizationUrl).toBe(url);
     expect(sessionGrantApprovalCaption(url, 'Bitkit')).toBe(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases only.',
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases and stock edits.',
     );
   });
 
@@ -214,7 +214,7 @@ describe('marketplace purchase bootstrap client', () => {
 
     expect(flow.authorizationUrl).toBe(url);
     expect(sessionGrantApprovalCaption(url, 'Bitkit')).toBe(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases and your private Shop data.',
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases, stock edits, and reading and writing your private Shop data.',
     );
   });
 

@@ -40,6 +40,10 @@ export const MARKETPLACE_FAILURE_MESSAGES = {
   session: 'Your marketplace session expired. Reconnect and try again.',
   sessionTimeout: 'The approval expired before it was completed. Try again.',
   sessionStart: 'Could not start the marketplace session.',
+  sessionGrantUnexpected:
+    'That approval did not match the marketplace permissions Shop asked for. Your current session is unchanged. Try again.',
+  sessionGrantNarrower:
+    'That approval covered less than your current marketplace session, so Shop kept the current session.',
   sessionMissing: 'Connect a marketplace session to continue. This is a new session, not an expired approval.',
   sessionCookieExpired:
     'This marketplace session is no longer valid. Connect a new session. This is not an expired signer approval.',

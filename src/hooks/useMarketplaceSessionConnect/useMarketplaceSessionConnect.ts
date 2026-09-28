@@ -17,6 +17,7 @@ import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils
 import { beginMarketplaceBootstrapFlow } from '@/services/marketplace/marketplace-bootstrap-client';
 import { beginMarketplaceGrantFlow, type MarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { claimedGrantRejection } from '@/services/marketplace/marketplace-session-grant';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type {
   MarketplaceSessionConnectStatus,
@@ -211,6 +212,21 @@ export function useMarketplaceSessionConnect(
             }
             if (result.pubky !== expectedPubky) {
               setStatus('mismatch');
+              return;
+            }
+            const rejection = claimedGrantRejection(
+              result.capabilities,
+              MarketplaceSessionService.getActiveSession(),
+              result.pubky,
+            );
+            if (rejection) {
+              Logger.warn('Refused a claimed marketplace grant session', { rejection });
+              setErrorMessage(
+                rejection === 'narrower_than_current'
+                  ? MARKETPLACE_FAILURE_MESSAGES.sessionGrantNarrower
+                  : MARKETPLACE_FAILURE_MESSAGES.sessionGrantUnexpected,
+              );
+              setStatus('error');
               return;
             }
             const session = MarketplaceSessionService.establishClaimedGrantSession(

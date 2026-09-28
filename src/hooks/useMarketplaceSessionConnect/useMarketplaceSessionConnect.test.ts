@@ -12,6 +12,7 @@ import { beginMarketplaceGrantFlow } from '@/services/marketplace/marketplace-gr
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.types';
+import parityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { useMarketplaceSessionConnect } from './useMarketplaceSessionConnect';
 
@@ -522,43 +523,120 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
     }
   });
 
-  it('writes the commerce store after a claimed grant session', async () => {
-    const restore = await enableGrantFlow();
-    try {
-      vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue({
-        token: 'session-token',
-        sessionId: '11111111-1111-4111-8111-111111111111',
-        pubky: SESSION.pubky,
-        capabilities: '',
-        expiresAt: SESSION.expiresAt,
-        expiresAtMs: Date.parse(SESSION.expiresAt),
-        issuedAt: SESSION.issuedAt,
-      });
-      const { grantFlow, resolveResult } = createDeferredGrantFlow('pubkyauth://signin_grant/?caps=empty');
-      vi.mocked(beginMarketplaceGrantFlow).mockResolvedValue(grantFlow);
-      vi.spyOn(MarketplaceSessionService, 'establishClaimedGrantSession').mockReturnValue(SESSION);
+  describe('claimed grant results (real MarketplaceSessionService)', () => {
+    const WIDE_TOKEN = 'W'.repeat(43);
+    const CLAIMED_TOKEN = 'C'.repeat(43);
+    const FUTURE = new Date(Date.now() + 86_400_000).toISOString();
+
+    beforeEach(() => {
+      vi.restoreAllMocks();
+      vi.mocked(CommerceController.hasFullHomeserverGrant).mockReturnValue(true);
+      MarketplaceSessionService.clearSession();
       useAuthStore.setState({ currentUserPubky: SESSION.pubky });
+    });
+
+    afterEach(() => {
+      MarketplaceSessionService.clearSession();
+      useAuthStore.setState({ currentUserPubky: null });
+    });
+
+    function seedCurrentSession(capabilities: string) {
+      MarketplaceSessionService.establishClaimedGrantSession(
+        { token: WIDE_TOKEN, pubky: SESSION.pubky, capabilities, expiresAt: FUTURE },
+        SESSION.pubky,
+      );
+    }
+
+    async function claim(capabilities: string) {
+      const { grantFlow, resolveResult } = createDeferredGrantFlow('pubkyauth://signin_grant?caps=reconnect');
+      vi.mocked(beginMarketplaceGrantFlow).mockResolvedValue(grantFlow);
       const onConnected = vi.fn();
-      const { result } = renderHook(() => useMarketplaceSessionConnect({ onConnected }));
-
-      act(() => result.current.start());
-      await waitFor(() => expect(result.current.status).toBe('awaiting'));
-      expect(result.current.requestsGrantReconnect).toBe(true);
-      expect(result.current.authorizationUrl).toBe('pubkyauth://signin_grant/?caps=empty');
-
+      const hook = renderHook(() => useMarketplaceSessionConnect({ onConnected }));
+      act(() => hook.result.current.start());
+      await waitFor(() => expect(hook.result.current.status).toBe('awaiting'));
       resolveResult({
         status: 'connected',
-        token: 'claimed-token',
+        token: CLAIMED_TOKEN,
         pubky: SESSION.pubky,
-        capabilities: '',
-        expires_at: SESSION.expiresAt,
+        capabilities,
+        expires_at: FUTURE,
       });
-      await waitFor(() => expect(result.current.status).toBe('connected'));
-      expect(CommerceController.writeMarketplaceSessionStore).toHaveBeenCalledWith(SESSION);
-      expect(onConnected).toHaveBeenCalledWith(SESSION);
-    } finally {
-      restore();
+      return { ...hook, onConnected };
     }
+
+    it('replaces the current session with the /priv parity grant Bitkit approved on staging', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        seedCurrentSession(parityCapture.previous_request.homeserver_verified);
+        const { result, onConnected } = await claim(parityCapture.parity_request.homeserver_verified);
+
+        await waitFor(() => expect(result.current.status).toBe('connected'));
+        expect(MarketplaceSessionService.getActiveSession()?.token).toBe(CLAIMED_TOKEN);
+        expect(MarketplaceSessionService.getActiveSession()?.capabilities).toBe(
+          parityCapture.parity_request.homeserver_verified,
+        );
+        expect(CommerceController.writeMarketplaceSessionStore).toHaveBeenCalledTimes(1);
+        expect(onConnected).toHaveBeenCalledTimes(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it.each([
+      ['an empty grant', ''],
+      ['a read-only inventory grant', '/pub/pubky.app/marketplace-service/v1/:r'],
+      ['only /priv', '/priv/pubky.app/:rw'],
+      ['an extra tree', `${parityCapture.parity_request.homeserver_verified},/pub/paykit/:rw`],
+      ['root', '/:rw'],
+      [
+        'a duplicated entry',
+        `${parityCapture.previous_request.homeserver_verified},/pub/pubky.app/marketplace-service/v1/:rw`,
+      ],
+      ['malformed text', 'not-a-capability'],
+    ])('keeps a wide current session when the claimed result carries %s', async (_label, capabilities) => {
+      const restore = await enableGrantFlow();
+      try {
+        seedCurrentSession(parityCapture.parity_request.homeserver_verified);
+        const { result, onConnected } = await claim(capabilities);
+
+        await waitFor(() => expect(result.current.status).toBe('error'));
+        expect(result.current.errorMessage).toBe(MARKETPLACE_FAILURE_MESSAGES.sessionGrantUnexpected);
+        expect(MarketplaceSessionService.getActiveSession()?.token).toBe(WIDE_TOKEN);
+        expect(CommerceController.writeMarketplaceSessionStore).not.toHaveBeenCalled();
+        expect(onConnected).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('keeps a wide current session when the claimed grant drops /priv', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        seedCurrentSession(parityCapture.parity_request.homeserver_verified);
+        const { result, onConnected } = await claim(parityCapture.previous_request.homeserver_verified);
+
+        await waitFor(() => expect(result.current.status).toBe('error'));
+        expect(result.current.errorMessage).toBe(MARKETPLACE_FAILURE_MESSAGES.sessionGrantNarrower);
+        expect(MarketplaceSessionService.getActiveSession()?.token).toBe(WIDE_TOKEN);
+        expect(CommerceController.writeMarketplaceSessionStore).not.toHaveBeenCalled();
+        expect(onConnected).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('keeps a Ring sign-in session whose grant covers /priv when the claim is inventory-only', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        seedCurrentSession(parityCapture.shop_signin_request.homeserver_verified);
+        const { result } = await claim(parityCapture.previous_request.homeserver_verified);
+
+        await waitFor(() => expect(result.current.status).toBe('error'));
+        expect(MarketplaceSessionService.getActiveSession()?.token).toBe(WIDE_TOKEN);
+      } finally {
+        restore();
+      }
+    });
   });
 
   describe('Bitkit (grant) sign-in purchase bootstrap', () => {
