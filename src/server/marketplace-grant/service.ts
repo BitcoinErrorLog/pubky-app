@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { marketplaceSessionIdSchema } from '@/core/services/marketplace/marketplace-session-id';
 import type { MarketplaceGrantConfig } from './config';
 import {
   canonicalJson,
@@ -16,7 +17,7 @@ const sessionsSchema = z.object({
   schema_version: z.literal(1),
   sessions: z.array(
     z.object({
-      id: z.uuid(),
+      id: marketplaceSessionIdSchema,
       expires_at: z.iso.datetime({ offset: true }),
       revoked_at: z.iso.datetime({ offset: true }).nullable(),
     }),
