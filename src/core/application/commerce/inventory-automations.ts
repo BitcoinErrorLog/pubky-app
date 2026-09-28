@@ -1,7 +1,10 @@
 import { CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
-import { INVENTORY_GRANT, inventoryCapabilityCovers } from '@/services/marketplace/marketplace-inventory-grant';
-import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
+import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
+import {
+  type InventoryBearer,
+  MarketplaceInventorySessionService,
+} from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { MARKETPLACE_SESSION_GRANT } from '@/services/marketplace/marketplace-session-grant';
 import {
@@ -160,14 +163,17 @@ function classifyClientError(error: PubkyShopError): InventoryAutomationsAuth['s
   return 'error';
 }
 
-function mapError(error: PubkyShopError): InventoryAutomationsBlocked | { status: 'error'; message: string } {
+function mapError(
+  error: PubkyShopError,
+  bearer: InventoryBearer,
+): InventoryAutomationsBlocked | { status: 'error'; message: string } {
   if (MarketplaceShopClientService.isRateLimited(error)) {
     return { status: 'error', message: MarketplaceShopClientService.formatRateLimitCopy(error) };
   }
   const classified = classifyClientError(error);
   if (classified === 'grant-needed') {
     if (MarketplaceShopClientService.isSessionRejected(error)) {
-      MarketplaceInventorySessionService.clearSession('rejected');
+      MarketplaceInventorySessionService.clearRejectedBearer(bearer);
     }
     return { status: 'grant-needed' };
   }
@@ -239,19 +245,18 @@ export class CommerceInventoryAutomationsApplication {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return { status: 'durable-unavailable' };
     if (!sellerPubky) return { status: 'unauthenticated' };
     if (!MarketplaceSessionService.getActiveSession()) return { status: 'session-required' };
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
-    if (!inventory || !inventoryCapabilityCovers(inventory.capabilities)) return { status: 'grant-needed' };
+    if (!MarketplaceInventorySessionService.getCoveringBearer(sellerPubky)) return { status: 'grant-needed' };
     return { status: 'ready' };
   }
 
   static async load(sellerPubky: string): Promise<InventoryAutomationsLoad> {
     const auth = this.authStatus(sellerPubky);
     if (auth.status !== 'ready') return auth;
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(sellerPubky);
     if (!inventory) return { status: 'grant-needed' };
     const client = MarketplaceShopClientService.createInventoryClient(inventory.token);
     const listed = await MarketplaceShopClientService.listSessions(client);
-    if (!listed.ok) return this.fail(listed);
+    if (!listed.ok) return this.fail(listed, inventory);
     const sessions = decodeSessions(listed.value).filter((row) => !sessionHasBearer(row));
     const webhooks = await new DexieWebhookStore(sellerPubky).list();
     const webhookRows = webhooks.map((row) => ({ id: row.id, url: row.url, createdAt: row.created_at }));
@@ -264,11 +269,11 @@ export class CommerceInventoryAutomationsApplication {
   static async revoke(sellerPubky: string, id: string, kind: InventorySessionKind): Promise<InventoryRevokeResult> {
     const auth = this.authStatus(sellerPubky);
     if (auth.status !== 'ready') return auth;
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(sellerPubky);
     if (!inventory) return { status: 'grant-needed' };
     const client = MarketplaceShopClientService.createInventoryClient(inventory.token);
     const result = await MarketplaceShopClientService.revokeSession(client, id);
-    if (!result.ok) return this.fail(result);
+    if (!result.ok) return this.fail(result, inventory);
     this.clearLocalAfterRevoke(id, kind);
     return { status: 'revoked', id };
   }
@@ -279,7 +284,7 @@ export class CommerceInventoryAutomationsApplication {
     if (!isPublicHttpsWebhookUrl(url)) {
       return { status: 'invalid-url', message: WEBHOOK_URL_COPY };
     }
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(sellerPubky);
     if (!inventory) return { status: 'grant-needed' };
     const client = MarketplaceShopClientService.createInventoryClient(inventory.token);
     const result = await MarketplaceShopClientService.addWebhook(client, url);
@@ -287,7 +292,7 @@ export class CommerceInventoryAutomationsApplication {
       if (result.error.code === 'validation_failed') {
         return { status: 'invalid-url', message: WEBHOOK_URL_COPY };
       }
-      return this.fail(result);
+      return this.fail(result, inventory);
     }
     const created = decodeWebhookCreated(result.value);
     if (!created) {
@@ -304,13 +309,13 @@ export class CommerceInventoryAutomationsApplication {
   static async rotateWebhook(sellerPubky: string, id: string): Promise<InventoryWebhookSecretResult> {
     const auth = this.authStatus(sellerPubky);
     if (auth.status !== 'ready') return auth;
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(sellerPubky);
     if (!inventory) return { status: 'grant-needed' };
     const store = new DexieWebhookStore(sellerPubky);
     const existing = (await store.list()).find((row) => row.id === id);
     const client = MarketplaceShopClientService.createInventoryClient(inventory.token);
     const result = await MarketplaceShopClientService.rotateWebhook(client, id);
-    if (!result.ok) return this.fail(result);
+    if (!result.ok) return this.fail(result, inventory);
     const rotated = decodeWebhookRotated(result.value, id);
     if (!rotated) {
       return { status: 'error', message: 'The service returned an invalid webhook response.' };
@@ -327,19 +332,20 @@ export class CommerceInventoryAutomationsApplication {
   static async deleteWebhook(sellerPubky: string, id: string): Promise<InventoryWebhookDeleteResult> {
     const auth = this.authStatus(sellerPubky);
     if (auth.status !== 'ready') return auth;
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(sellerPubky);
     if (!inventory) return { status: 'grant-needed' };
     const client = MarketplaceShopClientService.createInventoryClient(inventory.token);
     const result = await MarketplaceShopClientService.deleteWebhook(client, id);
-    if (!result.ok) return this.fail(result);
+    if (!result.ok) return this.fail(result, inventory);
     await new DexieWebhookStore(sellerPubky).remove(id);
     return { status: 'deleted', id };
   }
 
   private static fail<T>(
     result: Extract<SdkResult<T>, { ok: false }>,
+    bearer: InventoryBearer,
   ): InventoryAutomationsBlocked | { status: 'error'; message: string } {
-    return mapError(result.error);
+    return mapError(result.error, bearer);
   }
 
   private static clearLocalAfterRevoke(id: string, kind: InventorySessionKind): void {

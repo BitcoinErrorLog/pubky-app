@@ -9,6 +9,7 @@ import {
   type InventoryBoardRow,
   planInventoryAdjust,
 } from './inventory';
+import capturedParity from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import capturedUnavailableExport from './unavailable-listing-export.fixture.json';
 
 const PUBKY = 'y'.repeat(52);
@@ -288,6 +289,59 @@ describe('CommerceInventoryApplication', () => {
         },
       ],
     });
+  });
+
+  function purchaseSessionOnly(capabilities: string) {
+    vi.spyOn(MarketplaceInventorySessionService, 'getActiveSession').mockReturnValue(null);
+    vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue({
+      token: TOKEN,
+      pubky: PUBKY,
+      capabilities,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      expiresAtMs: Date.parse('2099-01-01T00:00:00.000Z'),
+      issuedAt: '2026-09-21T00:00:00.000Z',
+    });
+  }
+
+  it('loads the board with a Bitkit purchase session that carries the inventory scope', async () => {
+    purchaseSessionOnly(capturedParity.parity_request.homeserver_verified);
+    vi.mocked(MarketplaceShopClientService.createInventoryClient).mockClear();
+    vi.mocked(MarketplaceShopClientService.listSellerListings).mockResolvedValue({
+      ok: true,
+      value: { listings: [], next_cursor: null },
+    } as never);
+
+    const result = await CommerceInventoryApplication.loadBoard(PUBKY);
+
+    expect(result.status).not.toBe('grant-needed');
+    expect(MarketplaceShopClientService.createInventoryClient).toHaveBeenCalledWith(TOKEN);
+  });
+
+  it('still needs the Studio grant when the purchase session is identity-only', async () => {
+    purchaseSessionOnly('');
+    await expect(CommerceInventoryApplication.loadBoard(PUBKY)).resolves.toEqual({ status: 'grant-needed' });
+    expect(MarketplaceShopClientService.listSellerListings).not.toHaveBeenCalled();
+  });
+
+  it('drops the purchase session, not the Studio slot, when the service rejects its bearer', async () => {
+    purchaseSessionOnly(capturedParity.parity_request.homeserver_verified);
+    const clearPurchase = vi.spyOn(MarketplaceSessionService, 'clearSession').mockImplementation(() => {});
+    const clearStudio = vi.spyOn(MarketplaceInventorySessionService, 'clearSession').mockImplementation(() => {});
+    vi.mocked(MarketplaceShopClientService.adjustInventory).mockResolvedValue({
+      ok: false,
+      error: new PubkyShopError('session_rejected', { status: 401 }),
+    });
+
+    const result = await CommerceInventoryApplication.setAvailable({
+      sellerPubky: PUBKY,
+      row: row(),
+      targetAvailable: 5,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(result.status).toBe('grant-needed');
+    expect(clearPurchase).toHaveBeenCalledWith('rejected');
+    expect(clearStudio).not.toHaveBeenCalled();
   });
 
   it('does not treat 409 as a grant miss', async () => {

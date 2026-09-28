@@ -31,6 +31,25 @@ export function inventoryCapabilityCovers(capabilities: string): boolean {
   return parts.includes(INVENTORY_GRANT) || parts.includes(ROOT_GRANT);
 }
 
+const INVENTORY_SCOPE = '/pub/pubky.app/marketplace-service/v1/';
+
+/**
+ * True when some entry grants read and write over a directory that contains
+ * the inventory scope — the service's own coverage rule (`scope_covers_path`
+ * plus both actions). A purchase session carrying the marketplace session
+ * grant, the Shop sign-in grant, or root covers it; empty, read-only,
+ * narrower and unrelated grants do not.
+ */
+export function capabilitiesCoverInventoryScope(capabilities: string): boolean {
+  return capabilityParts(capabilities).some((part) => {
+    const separator = part.lastIndexOf(':');
+    if (separator <= 0) return false;
+    const scope = part.slice(0, separator);
+    const actions = part.slice(separator + 1);
+    return scope.endsWith('/') && INVENTORY_SCOPE.startsWith(scope) && actions.includes('r') && actions.includes('w');
+  });
+}
+
 /**
  * Studio persists only the requested grant. Returned caps that are empty,
  * narrower, or wider (`/:rw`, extra paths) fail closed. Callers must store

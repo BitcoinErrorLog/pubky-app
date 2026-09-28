@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import { INVENTORY_GRANT, INVENTORY_SESSION_STORAGE_KEY } from './marketplace-inventory-grant';
 import { MarketplaceInventorySessionService } from './marketplace-inventory-session';
 import { MARKETPLACE_SESSION_STORAGE_KEY, MarketplaceSessionService } from './marketplace-session';
@@ -56,8 +57,8 @@ function inOneDay(): string {
   return new Date(Date.now() + 86_400_000).toISOString();
 }
 
-async function establishIdentity(): Promise<void> {
-  vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, ''));
+async function establishIdentity(capabilities = ''): Promise<void> {
+  vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, capabilities));
   await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1, 2, 3]), PUBKY);
 }
 
@@ -172,5 +173,54 @@ describe('MarketplaceInventorySessionService', () => {
     );
     expect(MarketplaceInventorySessionService.restorePersistedSession(PUBKY)).toBeNull();
     expect(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY)).toBeNull();
+  });
+
+  describe('getCoveringBearer', () => {
+    it.each([
+      ['the Bitkit parity grant', captured.parity_request.homeserver_verified],
+      ['the previous service grant', captured.previous_request.homeserver_verified],
+      ['the Shop sign-in grant', captured.shop_signin_request.homeserver_verified],
+      ['root', '/:rw'],
+    ])('uses the purchase session when it carries %s', async (_label, capabilities) => {
+      await establishIdentity(capabilities);
+
+      expect(MarketplaceInventorySessionService.getCoveringBearer(PUBKY)).toEqual({ token: TOKEN, source: 'purchase' });
+    });
+
+    it.each([
+      ['an empty grant', ''],
+      ['read only', '/pub/pubky.app/marketplace-service/v1/:r'],
+      ['a narrower tree', '/pub/pubky.app/marketplace-service/v1/listings/:rw'],
+      ['a sibling tree', '/pub/pubky.app/marketplace-service/v2/:rw'],
+      ['only /priv', '/priv/pubky.app/:rw'],
+      ['a path without a trailing slash', '/pub/pubky.app/marketplace-service:rw'],
+    ])('needs a Studio grant when the purchase session carries %s', async (_label, capabilities) => {
+      await establishIdentity(capabilities);
+
+      expect(MarketplaceInventorySessionService.getCoveringBearer(PUBKY)).toBeNull();
+    });
+
+    it('never returns a purchase bearer for another pubky', async () => {
+      await establishIdentity(captured.parity_request.homeserver_verified);
+
+      expect(MarketplaceInventorySessionService.getCoveringBearer('z'.repeat(52))).toBeNull();
+    });
+
+    it('prefers the Studio session and clears only the session the service refused', async () => {
+      await establishIdentity(captured.parity_request.homeserver_verified);
+      vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), INVENTORY_TOKEN, INVENTORY_GRANT));
+      await MarketplaceInventorySessionService.mintInventorySession(new Uint8Array([4]), PUBKY);
+
+      const studio = MarketplaceInventorySessionService.getCoveringBearer(PUBKY);
+      expect(studio).toEqual({ token: INVENTORY_TOKEN, source: 'inventory' });
+      MarketplaceInventorySessionService.clearRejectedBearer(studio!);
+      expect(MarketplaceInventorySessionService.getActiveSession()).toBeNull();
+      expect(MarketplaceSessionService.getActiveSession()?.token).toBe(TOKEN);
+
+      const purchase = MarketplaceInventorySessionService.getCoveringBearer(PUBKY);
+      expect(purchase).toEqual({ token: TOKEN, source: 'purchase' });
+      MarketplaceInventorySessionService.clearRejectedBearer(purchase!);
+      expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    });
   });
 });
