@@ -9,6 +9,7 @@ import {
   parseDmConversationId,
   type PubkyAppDmMessage,
 } from '@/libs/messaging/dm-contracts';
+import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import type {
   CommerceMessagingConversationModelSchema,
   CommerceMessagingMessageModelSchema,
@@ -102,6 +103,7 @@ export class MessagingApplication {
   /** Sign-out teardown: drops the in-memory session and all live link handles. */
   static clearMessagingSession(): void {
     PaykitMessagingService.clearSession();
+    this.outboxRetry.clear();
   }
 
   /** True when the counterparty has published a messaging receiver marker. */
@@ -311,15 +313,18 @@ export class MessagingApplication {
 
   /** In-flight flush per `${owner}:${counterparty}`, so overlapping triggers share one pass and never double-send. */
   private static outboxFlushInFlight = new Map<string, Promise<MessagingOutboxFlushResult>>();
+  /** A failed flush is retried on the shared messaging backoff, not on every poll. */
+  private static outboxRetry = new RetryBackoff<true>();
 
   /**
    * Delivers this counterparty's queued messages IN QUEUE ORDER over the
    * ready link, through the same real send methods a live send uses. Each
    * row is deleted only AFTER its send succeeded; the first failure records
    * `last_error`/`attempts` on the failing row and STOPS the pass, so order
-   * is preserved and the next flush resumes from that row. Bounded (one pass
-   * over the rows present at start) and reentrancy-safe (concurrent callers
-   * share the in-flight pass).
+   * is preserved and the next flush resumes from that row. After a failure
+   * the pair's rows stay queued, untouched, until its backoff-spaced retry is
+   * due. Bounded (one pass over the rows present at start) and
+   * reentrancy-safe (concurrent callers share the in-flight pass).
    */
   static async flushOutbox(ownerPubky: string, counterpartyPubky: string): Promise<MessagingOutboxFlushResult> {
     const key = `${ownerPubky}:${counterpartyPubky}`;
@@ -337,6 +342,12 @@ export class MessagingApplication {
     counterpartyPubky: string,
   ): Promise<MessagingOutboxFlushResult> {
     const rows = await LocalMessagingService.getQueuedMessages(ownerPubky, counterpartyPubky);
+    const retryKey = `${ownerPubky}:${counterpartyPubky}`;
+    if (rows.length === 0) {
+      this.outboxRetry.succeed(retryKey);
+      return { delivered: 0, remaining: 0 };
+    }
+    if (this.outboxRetry.status(retryKey) === 'waiting') return { delivered: 0, remaining: rows.length };
     let delivered = 0;
     for (const row of rows) {
       try {
@@ -365,9 +376,11 @@ export class MessagingApplication {
         delivered += 1;
       } catch (error) {
         await LocalMessagingService.recordOutboxFailure(ownerPubky, row.id, getErrorMessage(error), Date.now());
+        this.outboxRetry.fail(retryKey, true);
         return { delivered, remaining: rows.length - delivered };
       }
     }
+    this.outboxRetry.succeed(retryKey);
     return { delivered, remaining: 0 };
   }
 
@@ -445,12 +458,25 @@ export class MessagingApplication {
    * marketplace order/offer participants plus the user's follows and
    * followers. A total stranger outside that set stays invisible until they
    * enter it; the UI discloses this instead of pretending otherwise.
+   *
+   * Pairs whose last link attempt failed are kept out of that budget: one
+   * still waiting on its backoff is skipped with no network, and at most
+   * {@link MESSAGING_SYNC_MAX_RECOVERY_PROBES} due retries run per pass,
+   * after every healthy pair, so a retry never delays or displaces healthy
+   * delivery.
    */
   static async syncCounterparties(ownerPubky: string, candidatePubkys: string[]): Promise<void> {
     // Insertion order is the probe priority: local messaging state (live or
     // pending conversations) must never be crowded out by fresh candidates.
+    // Established links first: until a pair's first failure is recorded (for
+    // example after a reload) a retry looks healthy, and it must not push a
+    // live link out of the budget.
     const known = new Set<string>();
-    for (const link of await LocalMessagingService.getLinksByOwner(ownerPubky)) {
+    const links = await LocalMessagingService.getLinksByOwner(ownerPubky);
+    for (const link of links) {
+      if (link.status === 'established') known.add(link.counterparty_pubky);
+    }
+    for (const link of links) {
       known.add(link.counterparty_pubky);
     }
     for (const conversation of await LocalMessagingService.getConversationsByOwner(ownerPubky)) {
@@ -460,9 +486,19 @@ export class MessagingApplication {
       known.add(candidate);
     }
     known.delete(ownerPubky);
+    const healthy: string[] = [];
+    const retries: string[] = [];
+    for (const counterparty of known) {
+      const retry = PaykitMessagingService.linkRetryStatus(ownerPubky, counterparty);
+      if (retry === 'none') healthy.push(counterparty);
+      else if (retry === 'due') retries.push(counterparty);
+    }
     // Sequential on purpose: each probe is a couple of homeserver reads, and
     // parallel fan-out against one homeserver session buys nothing but load.
-    for (const counterparty of [...known].slice(0, MESSAGING_SYNC_MAX_COUNTERPARTIES)) {
+    for (const counterparty of [
+      ...healthy.slice(0, MESSAGING_SYNC_MAX_COUNTERPARTIES),
+      ...retries.slice(0, MESSAGING_SYNC_MAX_RECOVERY_PROBES),
+    ]) {
       const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
       if (state.status === 'ready') {
         // The probe may have JUST completed the handshake — deliver anything
@@ -474,5 +510,8 @@ export class MessagingApplication {
   }
 }
 
-/** Upper bound on counterparties probed per inbox sync pass. */
+/** Upper bound on healthy counterparties probed per inbox sync pass. */
 export const MESSAGING_SYNC_MAX_COUNTERPARTIES = 25;
+
+/** Upper bound on due link retries run per inbox sync pass, on top of the healthy budget. */
+export const MESSAGING_SYNC_MAX_RECOVERY_PROBES = 3;

@@ -129,6 +129,17 @@ describe('useDmConversation queued-message behavior', () => {
     expect(toast).toHaveBeenCalledOnce();
   });
 
+  it('surfaces a link that needs recovery as its own state, never as handshaking', async () => {
+    vi.mocked(MessagingController.openDmConversation).mockResolvedValue({
+      state: { status: 'recovery-needed', reason: 'counterparty-key-changed' },
+      counterpartyPubky: COUNTERPARTY,
+    });
+
+    const { result } = renderHook(() => useDmConversation(COUNTERPARTY, true));
+
+    await waitFor(() => expect(result.current.status).toBe('recovery-needed'));
+  });
+
   it('send reports "delivered" when the link was ready and the binding actually sent it', async () => {
     vi.mocked(MessagingController.sendOrQueueDmMessage).mockResolvedValue({
       delivered: true,
