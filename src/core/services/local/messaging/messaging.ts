@@ -121,10 +121,6 @@ export class LocalMessagingService {
     });
   }
 
-  static async deleteLink(ownerId: string, counterpartyPubky: string): Promise<void> {
-    await CommerceMessagingLinkModel.deleteById(this.linkId(ownerId, counterpartyPubky));
-  }
-
   /**
    * Persists a fresh link snapshot for an existing row. Callers MUST persist
    * any received messages BEFORE calling this — the binding's read checkpoint

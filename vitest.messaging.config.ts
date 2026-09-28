@@ -30,7 +30,7 @@ export default defineConfig({
     // `.live.browser.ts` (not `.test.ts`) keeps the unit project's jsdom
     // glob from picking this up; only this config runs it. The staging
     // variant (single-use tokens) has its own config.
-    include: ['src/test/live/messaging.live.browser.ts'],
+    include: ['src/test/live/messaging.live.browser.ts', 'src/test/live/messaging-recovery.live.browser.ts'],
     env: {
       NEXT_PUBLIC_APP_VERSION: '0.0.0-live',
     },

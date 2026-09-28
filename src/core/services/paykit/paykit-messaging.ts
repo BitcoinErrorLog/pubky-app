@@ -93,10 +93,16 @@ export type MessagingEnabledInfo = {
  *   an inbound handshake is being answered and completion needs the
  *   initiator to come back online for the final round.
  * - `ready`: the link is established; sends/receives are live.
+ * - `recovery-needed`: a persisted handshake cannot proceed — the
+ *   counterparty's published key no longer matches it, or its snapshot
+ *   failed to restore. Every local row and remote slot is kept and the
+ *   handshake is retried unchanged on each poll; nothing is deleted or
+ *   restarted.
  */
 export type MessagingLinkState =
   | { status: 'not-enrolled' }
   | { status: 'handshaking'; role: 'initiator' | 'responder' }
+  | { status: 'recovery-needed'; reason: 'counterparty-key-changed' | 'handshake-restore-failed' }
   | { status: 'ready' };
 
 /** Probe-only result: `none` means no local state and no inbound handshake — nothing was started. */
@@ -786,32 +792,19 @@ export class PaykitMessagingService {
     }
 
     if (stored?.status === 'handshaking') {
-      // A counterparty that rotated its Noise key (reinstall, new device,
-      // cleared site data) can never finish a handshake snapshot bound to the
-      // old key — advance() would report `pending` forever. Detect the
-      // rotation against the freshly published marker and discard the
-      // unrecoverable state so discovery below starts over.
+      // Recovery never deletes link state. The counterparty may already have
+      // completed its side and be writing messages this snapshot alone can
+      // read, and our outbox may hold handshake slots it has not read yet;
+      // dropping the row or clearing the outbox kills the pair for good. The
+      // vendored binding has no per-counterparty recovery marker, so a
+      // handshake that cannot proceed reports a fixed recovery state and is
+      // retried unchanged on every poll.
       const currentMarker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
       if (currentMarker && currentMarker.noisePublicKey !== stored.remote_noise_public_key) {
-        Logger.warn('Counterparty rotated its messaging key mid-handshake; discarding the stale handshake state');
-        await LocalMessagingService.deleteLink(ownerPubky, counterpartyPubky);
-        await wasmModule.clearEncryptedLinkOutbox(
-          session.handle,
-          receiver.noise_secret,
-          counterpartyPubky,
-          stored.remote_noise_public_key,
-          stored.local_receiver_path,
-          stored.remote_receiver_path,
-        );
-        return await this.discoverAndStart(
-          wasmModule,
-          session,
-          receiver,
-          ownerPubky,
-          counterpartyPubky,
-          currentMarker,
-          allowInitiate,
-        );
+        // Another device of the counterparty can publish over the same
+        // marker path, so a different key does not prove this handshake dead.
+        Logger.warn('The counterparty publishes a different messaging key than this handshake is bound to');
+        return { status: 'recovery-needed', reason: 'counterparty-key-changed' };
       }
       try {
         const handle = (await wasmModule.restoreEncryptedLinkHandshake(
@@ -827,20 +820,8 @@ export class PaykitMessagingService {
         this.handshakes.set(key, handshake);
         return await this.advanceHandshake(wasmModule, ownerPubky, counterpartyPubky, handshake);
       } catch (error) {
-        // An unrecoverable mid-handshake snapshot must not wedge the pair
-        // forever: drop the row and our stale outbox slots so the next poll
-        // starts a fresh handshake (the documented recovery path).
-        Logger.warn('Failed to restore a mid-handshake snapshot; clearing state for a fresh handshake', { error });
-        await LocalMessagingService.deleteLink(ownerPubky, counterpartyPubky);
-        await wasmModule.clearEncryptedLinkOutbox(
-          session.handle,
-          receiver.noise_secret,
-          counterpartyPubky,
-          stored.remote_noise_public_key,
-          stored.local_receiver_path,
-          stored.remote_receiver_path,
-        );
-        return { status: 'handshaking', role: stored.role };
+        Logger.warn('Failed to restore a mid-handshake snapshot; keeping it for the next attempt', { error });
+        return { status: 'recovery-needed', reason: 'handshake-restore-failed' };
       }
     }
 
@@ -861,8 +842,8 @@ export class PaykitMessagingService {
   }
 
   /**
-   * Fresh-start branch shared by first contact and post-rotation recovery:
-   * answers a queued inbound handshake if one exists, otherwise initiates.
+   * First contact with no local link state: answers a queued inbound
+   * handshake if one exists, otherwise initiates.
    */
   private static async discoverAndStart(
     wasmModule: PaykitWasmModule,
