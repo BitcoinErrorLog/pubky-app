@@ -18,6 +18,7 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMarketplaceInventory } from '@/hooks/useMarketplaceInventory/useMarketplaceInventory';
 import { useMarketplaceInventoryImport } from '@/hooks/useMarketplaceInventoryImport/useMarketplaceInventoryImport';
+import { UNLIMITED_STOCK_LABEL } from '@/libs/commerce/unlimited-stock';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceInventoryGrantBanner } from '@/organisms/Marketplace/MarketplaceInventoryGrantBanner';
 import { MarketplaceInventoryImport } from '@/organisms/Marketplace/MarketplaceInventoryImport';
@@ -209,11 +210,14 @@ export function MarketplaceInventory() {
                         <td className="p-3">
                           <div className="flex flex-col gap-0.5" data-testid={`inventory-stock-${entry.listingId}`}>
                             <span>
-                              <span className="font-medium">{entry.available}</span>
+                              <span className="font-medium">
+                                {entry.unlimited ? UNLIMITED_STOCK_LABEL : entry.available}
+                              </span>
                               <span className="text-muted-foreground"> avail</span>
                             </span>
                             <span className="text-muted-foreground">
-                              {entry.reserved} reserved · {entry.sold} sold · {entry.total} total
+                              {entry.reserved} reserved · {entry.sold} sold
+                              {entry.unlimited ? '' : ` · ${entry.total} total`}
                             </span>
                             {entry.reserved > 0 && (
                               <span className="text-xs text-muted-foreground">

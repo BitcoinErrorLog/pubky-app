@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { COMMERCE_FIXTURE_SELLER, createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
 import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import { MarketplaceDashboard } from './MarketplaceDashboard';
@@ -353,6 +354,43 @@ describe('MarketplaceDashboard', () => {
     expect(note).toHaveTextContent('Set up how you get paid first');
     const headerSell = screen.getAllByRole('link', { name: 'Sell an item' })[0];
     expect(headerSell.parentElement?.contains(note as Node)).toBe(false);
+  });
+
+  it('shows Unlimited for a listing with an unlimited variant and a number for the rest', () => {
+    viewport.isMobile = false;
+    dashboardState.listings = [
+      listing({
+        listingId: 'guide',
+        title: 'Printable field guide',
+        fulfillmentMethods: ['digital'],
+        package: undefined,
+        shippingOptions: [],
+        variants: [
+          {
+            id: 'file',
+            options: { size: 'pdf' },
+            quantity: COMMERCE_LISTING_MAX_QUANTITY,
+            mediaIds: ['image_01'],
+            enabled: true,
+          },
+          {
+            id: 'sample',
+            options: { size: 'sample' },
+            quantity: 2,
+            mediaIds: ['image_01'],
+            enabled: true,
+          },
+        ],
+      }),
+      listing(),
+    ];
+
+    render(<MarketplaceDashboard />);
+
+    const guide = screen.getByRole('row', { name: /Printable field guide/ });
+    expect(within(guide).getByText('Unlimited')).toBeInTheDocument();
+    expect(within(guide).queryByText(String(COMMERCE_LISTING_MAX_QUANTITY))).not.toBeInTheDocument();
+    expect(within(screen.getByRole('row', { name: /Vintage leather boots/ })).getByText('1')).toBeInTheDocument();
   });
 });
 

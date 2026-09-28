@@ -84,6 +84,7 @@ import {
   type MarketplaceCommandResponse,
 } from '@/libs/commerce/transaction-commands';
 import type { CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
+import { assertPublishableListingStock } from '@/libs/commerce/unlimited-stock';
 import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -3043,6 +3044,8 @@ export class CommerceApplication {
         operation: 'commitUpsertListing',
       });
     }
+    // Before anything is staged locally, so a refused listing leaves no sync job behind.
+    assertPublishableListingStock(record, 'commitUpsertListing');
     const now = Date.now();
     const url = CommerceRecordNormalizer.listingUri(record.ownerPubky, record.listingId);
     const publishJob = this.createSyncJob({
@@ -3354,7 +3357,9 @@ export class CommerceApplication {
     return await MarketplaceMediaService.fetchMedia(uri);
   }
 
+  /** The only write of a public listing record: every Shop publisher, Inventory Studio included, reaches it. */
   private static async putVerifiedPublicListing(record: CommerceListingRecord, url: string): Promise<void> {
+    assertPublishableListingStock(record, 'putVerifiedPublicListing');
     let current: Record<string, unknown> = {};
     let exists = false;
     try {
@@ -3588,6 +3593,7 @@ export class CommerceApplication {
     listing: CommerceListingRecord,
     preparedAuctionCommand: MarketplaceCommand | null = null,
   ): Promise<void> {
+    assertPublishableListingStock(listing, 'registerListing');
     const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
     if (listing.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())) {
       const command = preparedAuctionCommand ?? (await this.prepareAuctionRegistration(listing));

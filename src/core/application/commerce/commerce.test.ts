@@ -4,9 +4,11 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import * as commerceConfig from '@/config/commerce';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { marketplaceCommandResponseSchema } from '@/libs/commerce/transaction-commands';
+import { UNLIMITED_STOCK_REFUSAL, UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/libs/commerce/unlimited-stock';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -571,6 +573,54 @@ describe('CommerceApplication', () => {
       code: ClientErrorCode.CONFLICT,
     });
     expect(put).not.toHaveBeenCalled();
+  });
+
+  // Sol round 3: the unlimited cap is refused on physical stock where every
+  // Shop publisher writes or registers a listing, not only in the form.
+  describe('the shared stock publish rule', () => {
+    const atCap = (overrides: Parameters<typeof createCommerceListingFixture>[0] = {}) => {
+      const record = createCommerceListingFixture(overrides);
+      record.variants = record.variants.map((variant) => ({ ...variant, quantity: COMMERCE_LISTING_MAX_QUANTITY }));
+      return record;
+    };
+    const refused = { context: { refusal: UNLIMITED_STOCK_REFUSAL }, message: UNLIMITED_STOCK_RESERVED_MESSAGE };
+
+    it('refuses to publish a physical listing at the cap before staging or writing anything', async () => {
+      const record = atCap();
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+      const put = vi.spyOn(CommerceHomeserverService, 'putJson');
+
+      await expect(CommerceApplication.commitUpsertListing(record)).rejects.toMatchObject(refused);
+      expect(CommerceHomeserverService.fetchJson).not.toHaveBeenCalled();
+      expect(put).not.toHaveBeenCalled();
+      await expect(LocalCommerceService.getListing(`${record.ownerPubky}:${record.listingId}`)).resolves.toBeFalsy();
+    });
+
+    it('refuses the Inventory Studio write of a physical listing at the cap', async () => {
+      const put = vi.spyOn(CommerceHomeserverService, 'putJson');
+
+      await expect(CommerceApplication.putPublicListingForImport(atCap())).rejects.toMatchObject(refused);
+      expect(put).not.toHaveBeenCalled();
+    });
+
+    it('sends no registration for a physical listing at the cap', async () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      const getListing = vi.spyOn(MarketplaceGatewayService, 'getListing');
+      const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+      await expect(CommerceApplication.ensureListingRegistered(atCap())).resolves.toBe(false);
+      expect(getListing).not.toHaveBeenCalled();
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('still writes a digital-only listing at the cap, which is how Unlimited is stored', async () => {
+      const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+
+      await CommerceApplication.putPublicListingForImport(
+        atCap({ fulfillmentMethods: ['digital'], package: undefined, shippingOptions: [] }),
+      );
+      expect(put).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('reads the reserve from the service, writes no private copy, and deletes the seller file', async () => {

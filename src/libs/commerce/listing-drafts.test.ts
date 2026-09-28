@@ -36,6 +36,24 @@ describe('listing drafts helpers', () => {
     expect(listingDraftTitleLabel('')).toBe('Untitled listing');
   });
 
+  it('treats unlimited stock as an edited variant', () => {
+    expect(
+      listingDraftHasUserContent({
+        variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', unlimited: true, priceOverride: '' }],
+      }),
+    ).toBe(true);
+    expect(
+      listingDraftHasUserContent({
+        variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', unlimited: false, priceOverride: '' }],
+      }),
+    ).toBe(false);
+    expect(
+      listingDraftHasUserContent({
+        variants: [{ sku: '', size: '', color: '', style: '', quantity: '1', priceOverride: '' }],
+      }),
+    ).toBe(false);
+  });
+
   it('treats media refs as user content and ignores default shipping', () => {
     expect(listingDraftHasUserContent({})).toBe(false);
     expect(listingDraftHasUserContent({ title: 'Boots' })).toBe(true);

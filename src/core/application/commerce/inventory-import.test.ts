@@ -6,6 +6,8 @@ import {
   IMPORT_PARSE_FAIL_COPY,
 } from '@/application/commerce/inventory-import';
 import { listingToCanonicalRows } from '@/application/commerce/inventory-listing-map';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
+import { UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/libs/commerce/unlimited-stock';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -310,6 +312,50 @@ describe('CommerceInventoryImportApplication', () => {
     expect(puts).toEqual(['boots_01', 'hat_01']);
     expect(syncCalls.at(-1)).toEqual([{ seller_pubky: PUBKY, listing_id: 'hat_01' }]);
     expect(resumed.status).toBe('complete');
+  });
+
+  // Sol round 3: Inventory Studio publishes through its own path, so the
+  // shared stock rule must refuse the unlimited cap there too.
+  it.each(['record_json', 'fielded'] as const)(
+    'refuses a physical listing at the unlimited cap before any PUT or sync (%s row)',
+    async (shape) => {
+      const record = createCommerceListingFixture({ listingId: 'boots_01' });
+      record.variants = record.variants.map((variant) => ({ ...variant, quantity: COMMERCE_LISTING_MAX_QUANTITY }));
+      const rows = listingToCanonicalRows(record).map((row) =>
+        shape === 'record_json' ? row : { ...row, extraFields: { country_code: row.extraFields.country_code } },
+      );
+      const importer = app();
+      const planned = await importer.planFile(
+        new BytesFile(utf8(JSON.stringify(rows)), 'cap.json', 'application/json'),
+      );
+      expect(planned.status).toBe('planned');
+      if (planned.status !== 'planned') return;
+
+      const published = await importer.publish(planned.manifestId);
+
+      expect(published).toEqual({ status: 'error', message: UNLIMITED_STOCK_RESERVED_MESSAGE });
+      expect(puts).toEqual([]);
+      expect(syncCalls).toEqual([]);
+    },
+  );
+
+  it('publishes a digital-only listing at the cap, which is how Unlimited is stored', async () => {
+    const record = createCommerceListingFixture({
+      listingId: 'guide_01',
+      fulfillmentMethods: ['digital'],
+      package: undefined,
+      shippingOptions: [],
+    });
+    record.variants = record.variants.map((variant) => ({ ...variant, quantity: COMMERCE_LISTING_MAX_QUANTITY }));
+    const importer = app();
+    const planned = await importer.planFile(
+      new BytesFile(utf8(JSON.stringify(listingToCanonicalRows(record))), 'guide.json', 'application/json'),
+    );
+    if (planned.status !== 'planned') throw new Error(`not planned: ${planned.status}`);
+
+    await importer.publish(planned.manifestId);
+
+    expect(puts).toEqual(['guide_01']);
   });
 
   it('checkpoints conflict on CAS 409 and does not overwrite', async () => {

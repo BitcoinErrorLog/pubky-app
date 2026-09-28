@@ -17,6 +17,7 @@ import {
   markListingDraftResumeId,
 } from '@/libs/commerce/listing-drafts';
 import { sumMoneyByAsset } from '@/libs/commerce/pricing';
+import { countableStockQuantity, isUnlimitedStock, UNLIMITED_STOCK_LABEL } from '@/libs/commerce/unlimited-stock';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -69,13 +70,20 @@ export function useMarketplaceSellerDashboard() {
   const offersAwaitingReply = sellerOffers.filter(
     ({ state, offeredBy }) => (state === 'pending' || state === 'countered') && offeredBy !== currentUserPubky,
   ).length;
-  const totalInventory = activeListings.reduce(
-    (total, listing) =>
+  const finiteInventory = activeListings.reduce((total, listing) => {
+    const record = listing.record;
+    const unlimited = record.variants.some((variant) => isUnlimitedStock(record, variant.quantity));
+    if (unlimited) return total + countableStockQuantity(record);
+    return (
       total +
       (listing.purchasableQuantity ??
-        listing.record.variants.reduce((sum, variant) => sum + (variant.enabled ? variant.quantity : 0), 0)),
-    0,
+        record.variants.reduce((sum, variant) => sum + (variant.enabled ? variant.quantity : 0), 0))
+    );
+  }, 0);
+  const unlimitedActive = activeListings.some((listing) =>
+    listing.record.variants.some((variant) => isUnlimitedStock(listing.record, variant.quantity)),
   );
+  const totalInventory = finiteInventory === 0 && unlimitedActive ? UNLIMITED_STOCK_LABEL : finiteInventory;
   // One revenue figure per pricing asset: minor units of different assets
   // (USD cents, bitcoin base units) are never summed into one false number.
   const revenueOrders = sellerOrders.filter(({ order }) =>
@@ -214,7 +222,9 @@ export function useMarketplaceSellerDashboard() {
       activeListings: activeListings.length,
       totalInventory,
       lowStock: activeListings.filter((listing) =>
-        listing.record.variants.some((variant) => variant.enabled && variant.quantity <= 1),
+        listing.record.variants.some(
+          (variant) => variant.enabled && !isUnlimitedStock(listing.record, variant.quantity) && variant.quantity <= 1,
+        ),
       ).length,
       paidOrders: revenueOrders.length,
       revenue,
