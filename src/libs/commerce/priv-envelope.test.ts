@@ -163,6 +163,36 @@ describe('priv envelope', () => {
     expect(JSON.parse(Buffer.from(plaintext).toString('utf8'))).toEqual({ a: 1 });
   });
 
+  it('reproduces the pubky-app-specs test vector for pubky-priv-aead/v1', () => {
+    // SPEC.md, "Encrypted Private Records": fixed inputs and expected outputs.
+    const vector: PrivKeyring = {
+      ownerPubky: 'pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy',
+      currentKeyId: '0123456789abcdef0123456789abcdef',
+      keys: [{ keyId: '0123456789abcdef0123456789abcdef', key: Uint8Array.from({ length: 32 }, (_, index) => index) }],
+    };
+    expect(privEntryPath(vector, 'order_receipt', '018f47d2-6a27-7c23-a49d-6b21bb770201')).toBe(
+      '/priv/pubky.app/marketplace/v2/s/XYERVz2efvcmNtICv_HgRsgOhhZ_BW5BkPaSRRUmQ_w/drFSr_su7fkWn_6O7mSTHIekbFRfly7hIldHKsSX6ts',
+    );
+    expect(privFamilyPath(vector, 'attention_seen/orders')).toBe(
+      '/priv/pubky.app/marketplace/v2/s/InCtZ0EnT0foAzvK60hXONp9heYLHj31e4vNDAvuIXw/',
+    );
+    const envelope = {
+      enc: 'pubky-priv-aead/v1',
+      kid: '0123456789abcdef0123456789abcdef',
+      nonce: 'QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZX',
+      ct: 'RO7jkZWdaLNwhZW-C4Mu6eNxKBGx_CyEPjVIkr024VXH630Zo5FC4sdbnOpsT8S9otZkmFSrby57Og7OZa4ptw',
+    };
+    expect(
+      decryptPrivRecord({
+        keyring: vector,
+        family: 'order_receipt',
+        id: '018f47d2-6a27-7c23-a49d-6b21bb770201',
+        envelope,
+      }),
+    ).toEqual({ schemaVersion: 1, recordType: 'order_receipt' });
+    expect(base64UrlToBytes(envelope.nonce)).toEqual(Uint8Array.from({ length: 24 }, (_, index) => 0x40 + index));
+  });
+
   it('refuses a field that could forge the associated-data layout', () => {
     expect(rejection(() => privAad(OWNER, 'watchlist', 'a|b', KID_A))).toBe('malformed');
     expect(rejection(() => privAad(OWNER, 'watchlist', '', KID_A))).toBe('malformed');

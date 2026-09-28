@@ -28,6 +28,8 @@ Encrypted records live under `/priv/pubky.app/marketplace/v2/s/` on your homeser
 
 ## The recipe
 
+The normative definition, with a test vector, is the "Encrypted Private Records (`pubky-priv-aead/v1`)" section of `SPEC.md` in [BitcoinErrorLog/pubky-app-specs](https://github.com/BitcoinErrorLog/pubky-app-specs). The summary below matches it.
+
 For each data key:
 
 ```
