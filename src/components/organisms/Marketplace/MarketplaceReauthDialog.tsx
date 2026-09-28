@@ -5,15 +5,38 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useStepUpReauth } from '@/hooks/useStepUpReauth/useStepUpReauth';
 import { Logger } from '@/libs/logger/logger';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
+
+type MarketplaceReauthDialogProps = {
+  triggerLabel: string;
+  onReauthenticated?: () => void | Promise<void>;
+};
 
 /**
  * The shared step-up re-approval affordance (docs/ecommerce/step-up-approval.md,
  * Option C) for scope-gated features — watchlist sync and portable receipts
- * today. Mirrors the sign-in / session-connect precedent: the `pubkyauth://`
+ * today.
+ *
+ * A Bitkit (grant) sign-in already holds the full Shop homeserver grant; what
+ * it can lack is a marketplace session that covers `/priv/pubky.app/`. Its
+ * re-approval is the marketplace grant flow, which Bitkit or Pubky Ring can
+ * approve. A cookie sign-in gets the Pubky Ring step-up below.
+ */
+export function MarketplaceReauthDialog({ triggerLabel, onReauthenticated }: MarketplaceReauthDialogProps) {
+  const isGrantSession = useIsGrantSession();
+  if (isGrantSession) {
+    return <MarketplaceSessionConnectDialog triggerLabel={triggerLabel} onConnected={onReauthenticated} />;
+  }
+  return <HomeserverStepUpDialog triggerLabel={triggerLabel} onReauthenticated={onReauthenticated} />;
+}
+
+/**
+ * Mirrors the sign-in / session-connect precedent: the `pubkyauth://`
  * authorization URL renders as a QR for a cross-device Pubky Ring scan, and
  * as a deeplink/copy affordance for same-device Ring.
  *
@@ -23,13 +46,7 @@ import { toast } from '@/molecules/Toaster/use-toast';
  * (superset-grant) one, which is what makes watchlist sync, receipts, and
  * messaging cookie-resume capable without a reload.
  */
-export function MarketplaceReauthDialog({
-  triggerLabel,
-  onReauthenticated,
-}: {
-  triggerLabel: string;
-  onReauthenticated?: () => void | Promise<void>;
-}) {
+function HomeserverStepUpDialog({ triggerLabel, onReauthenticated }: MarketplaceReauthDialogProps) {
   const [open, setOpen] = useState(false);
   const reauth = useStepUpReauth({
     onReauthenticated: async () => {
