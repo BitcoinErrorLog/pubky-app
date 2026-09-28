@@ -19,6 +19,7 @@ import { MarketplaceSessionService } from '@/services/marketplace/marketplace-se
 export class CommercePrivKeyringApplication {
   private constructor() {}
 
+  /** Every keyring `get` hands out is the one held here, so clear() revokes all of them. */
   private static ready = new Map<string, PrivKeyring>();
   private static inFlight = new Map<string, Promise<MarketplacePrivKeysResult>>();
   private static generation = 0;
@@ -56,7 +57,10 @@ export class CommercePrivKeyringApplication {
         return result;
       })
       .finally(() => {
-        this.inFlight.delete(ownerPubky);
+        // A fetch that went stale must not drop the slot of the fetch that
+        // replaced it: a second fetch would then overwrite that keyring in
+        // `ready` while callers still hold it, and clear() would miss it.
+        if (this.inFlight.get(ownerPubky) === run) this.inFlight.delete(ownerPubky);
       });
     this.inFlight.set(ownerPubky, run);
     return await run;

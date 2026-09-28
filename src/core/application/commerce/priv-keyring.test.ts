@@ -17,6 +17,16 @@ vi.mock('@/config/commerce', async () => {
 
 const session = vi.hoisted(() => ({ pubky: null as string | null }));
 
+/** What deriving a path from `held` throws, or undefined when it is still live. */
+function refusalOf(held: PrivKeyring): unknown {
+  try {
+    privFamilyPath(held, 'watchlist');
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 function keyring(owner = OWNER): PrivKeyring {
   return {
     ownerPubky: owner,
@@ -178,6 +188,59 @@ describe('CommercePrivKeyringApplication', () => {
 
     expect(await pending).toEqual({ kind: 'needs_reauth' });
     expect(Array.from(held.keys[0].key).every((byte) => byte === 0)).toBe(true);
+  });
+
+  describe.each([
+    ['releases keys', 'keys'],
+    ['is refused', 'refused'],
+    ['fails', 'fails'],
+  ] as const)('when a fetch that went stale %s after a session replacement', (_name, staleOutcome) => {
+    it.each([
+      ['the same account', OWNER],
+      ['another account', OTHER],
+    ])('the next replacement, by %s, still revokes the keys the new session handed out', async (_who, next) => {
+      const fetches: { resolve: (value: MarketplacePrivKeysResult) => void; reject: (error: unknown) => void }[] = [];
+      const read = vi.spyOn(MarketplaceGatewayService, 'getPrivKeys').mockImplementation(
+        () =>
+          new Promise((resolve, reject) => {
+            fetches.push({ resolve, reject });
+          }),
+      );
+      vi.mocked(MarketplaceSessionService.getActiveSession).mockRestore();
+      const establish = (pubky: string) =>
+        MarketplaceSessionService.establishClaimedGrantSession(
+          {
+            token: 'A'.repeat(43),
+            pubky,
+            capabilities: '',
+            expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          },
+          pubky,
+        );
+      const stale = keyring();
+      const handedOut = keyring();
+
+      establish(OWNER);
+      const fetchA = CommercePrivKeyringApplication.get(OWNER);
+      establish(OWNER);
+      const fetchB = CommercePrivKeyringApplication.get(OWNER);
+      if (staleOutcome === 'keys') fetches[0].resolve({ kind: 'keys', keyring: stale });
+      if (staleOutcome === 'refused') fetches[0].resolve({ kind: 'needs_reauth' });
+      if (staleOutcome === 'fails') fetches[0].reject(new Error('network'));
+      await fetchA.catch(() => undefined);
+      const fetchC = CommercePrivKeyringApplication.get(OWNER);
+      fetches[1].resolve({ kind: 'keys', keyring: handedOut });
+      expect(await fetchB).toEqual({ kind: 'keys', keyring: handedOut });
+      for (const extra of fetches.slice(2)) extra.resolve({ kind: 'keys', keyring: keyring() });
+      await fetchC;
+
+      establish(next);
+
+      if (staleOutcome === 'keys') expect(privKeyringRefusal(refusalOf(stale))).toBe('revoked');
+      expect(privKeyringRefusal(refusalOf(handedOut))).toBe('revoked');
+      expect(read).toHaveBeenCalledTimes(2);
+      MarketplaceSessionService.clearSession();
+    });
   });
 
   it('exports the released keys as the recovery file, or passes the refusal through', async () => {
