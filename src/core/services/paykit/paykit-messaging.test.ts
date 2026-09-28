@@ -864,6 +864,63 @@ describe('PaykitMessagingService', () => {
       expect(order).toEqual(['message', 'snapshot']);
     });
 
+    describe('intake gate', () => {
+      const chatRaw = (body: string, eventId = crypto.randomUUID()) => ({
+        version: 1,
+        kind: 'marketplace.chat_message.v0',
+        rawJson: JSON.stringify({
+          version: 1,
+          kind: 'marketplace.chat_message.v0',
+          event_id: eventId,
+          conversation_id: CONVERSATION_ID,
+          listing_ref: LISTING_REF,
+          sent_at: 1_787_565_600_000,
+          body,
+        }),
+      });
+
+      it('stores nothing the gate refuses, yet still advances past it', async () => {
+        const snapshotSpy = vi.spyOn(LocalMessagingService, 'updateLinkSnapshot');
+        const gate = { admit: vi.fn(async () => ({ store: false as const, reason: 'muted' as const })) };
+        world.links.at(-1)!.inboundQueue.push(chatRaw('from a muted person'));
+
+        await expect(PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, gate)).resolves.toEqual([]);
+
+        expect(gate.admit).toHaveBeenCalledWith({
+          counterpartyPubky: COUNTERPARTY,
+          kind: 'listing',
+          conversationId: CONVERSATION_ID,
+        });
+        await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toEqual([]);
+        expect(snapshotSpy).toHaveBeenCalledOnce();
+        await expect(PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE)).resolves.toEqual([]);
+      });
+
+      it('files a new thread under the origin the gate decides', async () => {
+        await CommerceMessagingConversationModel.clear();
+        world.links.at(-1)!.inboundQueue.push(chatRaw('hello stranger'));
+
+        await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, {
+          admit: async () => ({ store: true, origin: 'request' }),
+        });
+
+        await expect(LocalMessagingService.getConversation(OWNER, CONVERSATION_ID)).resolves.toMatchObject({
+          origin: 'request',
+        });
+      });
+
+      it('does not put a redelivered message to the gate again', async () => {
+        const eventId = crypto.randomUUID();
+        const gate = { admit: vi.fn(ADMIT_ALL_GATE.admit) };
+        world.links.at(-1)!.inboundQueue.push(chatRaw('once', eventId));
+        await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, gate);
+        world.links.at(-1)!.inboundQueue.push(chatRaw('once', eventId));
+        await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, gate);
+
+        expect(gate.admit).toHaveBeenCalledOnce();
+      });
+    });
+
     it('sends a DM with the pubky_app.dm.v0 kind into the counterparty-keyed conversation', async () => {
       const message = await PaykitMessagingService.sendDmMessage(OWNER, COUNTERPARTY, { body: 'hi — direct' });
 

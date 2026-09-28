@@ -1,0 +1,518 @@
+// Journeys for first contact, driven through MessagingController the way the
+// dialogs and the inbox drive it. Two accounts share one in-memory homeserver
+// (follows, conversation requests, the sealed mute list) and one two-party
+// link fake, so every step runs the real controller, policy, application,
+// transport service, Dexie and /priv envelope code. Switching accounts drops
+// every in-memory session and cache, as a second device would.
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CommerceApplication } from '@/application/commerce/commerce';
+import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
+import { FirstContactApplication } from '@/application/messaging/first-contact';
+import { MessagingApplication } from '@/application/messaging/messaging';
+import { UserStreamApplication } from '@/application/stream/users/users';
+import { buildChatMessage, MARKETPLACE_CHAT_MESSAGE_KIND } from '@/libs/commerce/messaging-contracts';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { PRIV_V2_BASE_PATH } from '@/libs/commerce/priv-envelope';
+import {
+  buildMarketplaceConversationAggregateId,
+  buildMarketplaceListingAggregateId,
+} from '@/libs/commerce/transaction-commands';
+import { HttpMethod } from '@/libs/http/http.types';
+import {
+  CONVERSATION_REQUEST_KIND,
+  conversationRequestUrl,
+  FIRST_CONTACT_WINDOW_MS,
+  RECEIVE_CAP_MAX_MESSAGES,
+} from '@/libs/messaging/first-contact';
+import {
+  CommerceMessagingConversationModel,
+  CommerceMessagingLinkModel,
+  CommerceMessagingMessageModel,
+  CommerceMessagingOutboxModel,
+  CommerceMessagingReceiverModel,
+} from '@/models/messaging/messaging.models';
+import type { Pubky } from '@/models/models.types';
+import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import { PaykitMessagingService, setPaykitWasmModuleForTests } from '@/services/paykit/paykit-messaging';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { useMessagingStore } from '@/stores/messaging/messaging.store';
+import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';
+import { createFakePaykitPair } from '@/test-utils/fake-paykit-pair';
+import { establishMarketplaceSession, releasedKeyring } from '@/test-utils/priv-session-replacement';
+import { MessagingController } from './messaging';
+
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return { ...actual, getCommerceAdapterMode: () => 'transaction-service' };
+});
+
+vi.mock('@/libs/runtime-config/runtime-config', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/runtime-config/runtime-config')>(
+    '@/libs/runtime-config/runtime-config',
+  );
+  return { ...actual, getTestnet: () => true };
+});
+
+const SELLER = 'i9cewoshwtswuzh6h7hzrjkqbkmf9d7o7kqqx7qnfp76mi3tbwiy';
+const BUYER = 'ep4ej6h5xyb4ouzob63w1kwg4uuxncyj7cphd1tobcik8fg9guno';
+const FORGER = 'bieuqr94cew8gk3cuh7x7pfxwwdgktrnz441w9fsmd8r3fwkn3wy';
+const OTHER_BUYER = 'rpkwgwckimtzc4wpz35pzbd7gyr9i8ek5toetzccby8owufhguoy';
+const LISTING = '0033GVVN22HJ0FYQGZZS8R2BFC';
+const SECOND_LISTING = '0033GVVN22HJ0FYQGZZS8R2BFD';
+const THREAD = buildMarketplaceConversationAggregateId(SELLER, BUYER, LISTING);
+
+let homeserver: FakeHomeserver;
+let pair: ReturnType<typeof createFakePaykitPair>;
+let actor: string;
+let orders: { buyerPubky: string; sellerPubky: string }[];
+
+const followUrl = (follower: string, followee: string) => `pubky://${follower}/pub/pubky.app/follows/${followee}`;
+
+/** The Nexus follow graph, read from the follow records on the homeserver. */
+function followGraph(pubky: string, reach: 'following' | 'followers'): string[] {
+  const out: string[] = [];
+  for (const url of homeserver.files.keys()) {
+    const match = /^pubky:\/\/([^/]+)\/pub\/pubky\.app\/follows\/([^/]+)$/.exec(url);
+    if (!match) continue;
+    const [, follower, followee] = match;
+    if (reach === 'following' && follower === pubky) out.push(followee);
+    if (reach === 'followers' && followee === pubky) out.push(follower);
+  }
+  return out;
+}
+
+/** Signs in as `pubky` on a fresh device session: nothing in memory survives. */
+async function actAs(pubky: string) {
+  actor = pubky;
+  MessagingApplication.clearMessagingSession();
+  FirstContactApplication.clear();
+  CommercePrivKeyringApplication.clear();
+  establishMarketplaceSession(pubky);
+  const status = await MessagingController.getMessagingStatus();
+  expect(status.sessionActive).toBe(true);
+}
+
+async function rowsOf(owner: string) {
+  return (await CommerceMessagingConversationModel.findByOwner(owner)).sort((a, b) =>
+    a.conversation_id.localeCompare(b.conversation_id),
+  );
+}
+
+/** The bodies stored in one thread, sorted (receipt times tie under the frozen clock). */
+async function bodiesIn(owner: string, conversationId: string) {
+  return (await CommerceMessagingMessageModel.findByConversation(owner, conversationId)).map((row) => row.body).sort();
+}
+
+/** The buyer's first message reaches the seller: request, handshake, delivery. */
+async function strangerSendsFirstMessage(body = 'Is this still available?') {
+  await actAs(SELLER);
+  await actAs(BUYER);
+  await MessagingController.openConversation(SELLER, BUYER, LISTING);
+  const outcome = await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, body);
+  await actAs(SELLER);
+  await MessagingController.syncInbox();
+  await actAs(BUYER);
+  await MessagingController.syncInbox();
+  await actAs(SELLER);
+  await MessagingController.syncInbox();
+  return outcome;
+}
+
+beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(1_790_000_000_000);
+  homeserver = installFakeHomeserver();
+  pair = createFakePaykitPair();
+  setPaykitWasmModuleForTests(pair.module);
+  orders = [];
+  actor = SELLER;
+  vi.spyOn(useAuthStore, 'getState').mockImplementation(() => ({
+    ...useAuthStore.getInitialState(),
+    currentUserPubky: actor as Pubky,
+    selectCurrentUserPubky: () => actor as Pubky,
+  }));
+  vi.spyOn(MarketplaceGatewayService, 'getPrivKeys').mockImplementation(async (owner: string) => ({
+    kind: 'keys',
+    keyring: releasedKeyring(owner),
+  }));
+  vi.spyOn(CommerceApplication, 'getMarketplaceOrders').mockImplementation(async (owner: string) =>
+    orders
+      .filter((order) => order.buyerPubky === owner || order.sellerPubky === owner)
+      .map((order) => order as Awaited<ReturnType<typeof CommerceApplication.getMarketplaceOrders>>[number]),
+  );
+  vi.spyOn(CommerceApplication, 'getMarketplaceOffers').mockResolvedValue([]);
+  vi.spyOn(UserStreamApplication, 'getOrFetchStreamSlice').mockImplementation(async ({ streamId }) => {
+    const [pubky, reach] = String(streamId).split(':');
+    return {
+      nextPageIds: followGraph(pubky, reach === 'following' ? 'following' : 'followers') as Pubky[],
+      cacheMissUserIds: [],
+      skip: undefined,
+      isExhausted: true,
+    };
+  });
+  await Promise.all([
+    CommerceMessagingReceiverModel.clear(),
+    CommerceMessagingLinkModel.clear(),
+    CommerceMessagingConversationModel.clear(),
+    CommerceMessagingMessageModel.clear(),
+    CommerceMessagingOutboxModel.clear(),
+  ]);
+});
+
+afterEach(() => {
+  MessagingApplication.clearMessagingSession();
+  FirstContactApplication.clear();
+  CommercePrivKeyringApplication.clear();
+  setPaykitWasmModuleForTests(null);
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe('journey: a stranger asks a seller about a listing', () => {
+  it('follows the seller, publishes the request, and lands in the seller’s Requests with no unread badge', async () => {
+    await actAs(SELLER);
+    await actAs(BUYER);
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+    await expect(MessagingController.willFollowOnSend(SELLER, BUYER, LISTING)).resolves.toBe(true);
+
+    const outcome = await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Is this still available?');
+
+    expect(outcome.delivered).toBe(false);
+    expect(outcome.firstContact).toEqual({ followed: 'followed', request: 'written' });
+    expect(homeserver.files.has(followUrl(BUYER, SELLER))).toBe(true);
+    expect(homeserver.files.get(conversationRequestUrl(BUYER, SELLER, LISTING))).toEqual({
+      version: 1,
+      kind: CONVERSATION_REQUEST_KIND,
+      seller_pubky: SELLER,
+      buyer_pubky: BUYER,
+      listing_id: LISTING,
+      created_at: Date.now(),
+    });
+    await expect(MessagingController.willFollowOnSend(SELLER, BUYER, LISTING)).resolves.toBe(false);
+
+    // The seller's first sync finds the buyer through the follow and the
+    // request, and shows the listing thread before any message arrives.
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+    const [requestRow] = await MessagingController.getConversations();
+    expect(requestRow).toMatchObject({ conversation_id: THREAD, counterparty_pubky: BUYER, origin: 'request' });
+    expect(requestRow.lastMessage).toBeNull();
+
+    await actAs(BUYER);
+    await MessagingController.syncInbox();
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
+    const [row] = await MessagingController.getConversations();
+    expect(row.origin).toBe('request');
+    await expect(MessagingController.refreshUnreadCount()).resolves.toBe(0);
+    expect(useMessagingStore.getState().unreadConversations).toBe(0);
+  });
+
+  it('adds one request thread per listing the buyer asks about', async () => {
+    await strangerSendsFirstMessage();
+    await actAs(BUYER);
+    await MessagingController.openConversation(SELLER, BUYER, SECOND_LISTING);
+    const second = await MessagingController.sendOrQueueMessage(SELLER, BUYER, SECOND_LISTING, 'And this one?');
+    // Not a new person any more: no second follow, but the listing gets its request.
+    expect(second.firstContact).toEqual({ followed: 'already', request: 'written' });
+
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+    const rows = await rowsOf(SELLER);
+    expect(rows.map((row) => [row.conversation_id, row.origin])).toEqual([
+      [THREAD, 'request'],
+      [buildMarketplaceConversationAggregateId(SELLER, BUYER, SECOND_LISTING), 'request'],
+    ]);
+  });
+
+  it('ignores a request whose fields name anyone but the account whose homeserver holds it', async () => {
+    await actAs(SELLER);
+    // FORGER follows the seller and writes, under its own /pub, a request
+    // that claims to come from BUYER.
+    homeserver.files.set(followUrl(FORGER, SELLER), { uri: `pubky://${SELLER}` });
+    homeserver.files.set(conversationRequestUrl(FORGER, SELLER, LISTING), {
+      version: 1,
+      kind: CONVERSATION_REQUEST_KIND,
+      seller_pubky: SELLER,
+      buyer_pubky: BUYER,
+      listing_id: LISTING,
+      created_at: Date.now(),
+    });
+    // And one that names a different listing than its path.
+    homeserver.files.set(conversationRequestUrl(FORGER, SELLER, SECOND_LISTING), {
+      version: 1,
+      kind: CONVERSATION_REQUEST_KIND,
+      seller_pubky: SELLER,
+      buyer_pubky: FORGER,
+      listing_id: LISTING,
+      created_at: Date.now(),
+    });
+
+    await MessagingController.syncInbox();
+
+    await expect(rowsOf(SELLER)).resolves.toEqual([]);
+  });
+
+  it('drops a message that files itself under another buyer’s thread', async () => {
+    await strangerSendsFirstMessage();
+    const otherThread = buildMarketplaceConversationAggregateId(SELLER, OTHER_BUYER, LISTING);
+    const { json } = buildChatMessage({
+      eventId: crypto.randomUUID(),
+      conversationId: otherThread,
+      listingRef: buildMarketplaceListingAggregateId(SELLER, LISTING),
+      sentAt: Date.now(),
+      body: 'planted',
+    });
+    pair.inject(BUYER, SELLER, json);
+
+    await MessagingController.syncInbox();
+
+    await expect(bodiesIn(SELLER, otherThread)).resolves.toEqual([]);
+    expect((await rowsOf(SELLER)).map((row) => row.conversation_id)).toEqual([THREAD]);
+  });
+
+  it('stores at most the receive cap from one person per minute, whatever sent_at claims', async () => {
+    await strangerSendsFirstMessage();
+    vi.setSystemTime(Date.now() + 61_000);
+    const listingRef = buildMarketplaceListingAggregateId(SELLER, LISTING);
+    for (let index = 0; index < RECEIVE_CAP_MAX_MESSAGES + 5; index += 1) {
+      pair.inject(
+        BUYER,
+        SELLER,
+        JSON.stringify({
+          version: 1,
+          kind: MARKETPLACE_CHAT_MESSAGE_KIND,
+          event_id: crypto.randomUUID(),
+          conversation_id: THREAD,
+          listing_ref: listingRef,
+          // Claims to be spread over hours; the cap uses the receiver's clock.
+          sent_at: Date.now() - index * 3_600_000,
+          body: `flood ${index}`,
+        }),
+      );
+    }
+
+    const synced = await MessagingController.syncInbox();
+
+    // The first message arrived in an earlier minute, so all 20 slots were free.
+    expect(await bodiesIn(SELLER, THREAD)).toHaveLength(1 + RECEIVE_CAP_MAX_MESSAGES);
+    expect(synced.rateLimited).toBe(5);
+  });
+});
+
+describe('journey: the seller accepts a request', () => {
+  it('moves the thread into the inbox, where it counts as unread until read', async () => {
+    await strangerSendsFirstMessage();
+
+    await MessagingController.acceptRequest(BUYER);
+
+    const [row] = await MessagingController.getConversations();
+    expect(row.origin).toBe('known');
+    expect(useMessagingStore.getState().unreadConversations).toBe(1);
+    await MessagingController.markConversationRead(THREAD);
+    expect(useMessagingStore.getState().unreadConversations).toBe(0);
+  });
+
+  it('treats a reply as accepting the person', async () => {
+    await strangerSendsFirstMessage();
+
+    const reply = await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Yes, it is.');
+
+    expect(reply.delivered).toBe(true);
+    expect(reply.firstContact).toBeNull();
+    expect((await rowsOf(SELLER)).map((row) => row.origin)).toEqual(['known']);
+  });
+
+  it('puts a buyer the seller shares an order with straight into the inbox', async () => {
+    orders = [{ buyerPubky: BUYER, sellerPubky: SELLER }];
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+    await actAs(BUYER);
+    await MessagingController.syncInbox();
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+    const outcome = await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'About my order');
+    // Both sides of an order already find each other: no follow, no request.
+    expect(outcome.firstContact).toBeNull();
+    expect(homeserver.files.has(followUrl(BUYER, SELLER))).toBe(false);
+    expect(homeserver.files.has(conversationRequestUrl(BUYER, SELLER, LISTING))).toBe(false);
+
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+    await actAs(BUYER);
+    await MessagingController.syncInbox();
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+
+    const [row] = await MessagingController.getConversations();
+    expect(row).toMatchObject({ conversation_id: THREAD, origin: 'known' });
+    expect(useMessagingStore.getState().unreadConversations).toBe(1);
+  });
+
+  it('moves a request into the inbox once the seller follows the buyer', async () => {
+    await strangerSendsFirstMessage();
+    homeserver.files.set(followUrl(SELLER, BUYER), { uri: `pubky://${BUYER}` });
+
+    await MessagingController.syncInbox();
+
+    expect((await rowsOf(SELLER)).map((row) => row.origin)).toEqual(['known']);
+  });
+});
+
+describe('journey: the seller mutes a buyer', () => {
+  it('saves the mute sealed in /priv, hides the thread, and stops probing, sending and storing', async () => {
+    await strangerSendsFirstMessage();
+
+    const state = await MessagingController.setCounterpartyMuted(BUYER, true);
+
+    expect(state.kind).toBe('ready');
+    const sealed = [...homeserver.files.entries()].filter(([url]) => url.includes(PRIV_V2_BASE_PATH));
+    expect(sealed).toHaveLength(1);
+    const [[url, body]] = sealed;
+    expect(url).not.toContain('mute');
+    expect(Object.keys(body as object).sort()).toEqual(['ct', 'enc', 'kid', 'nonce']);
+    expect(JSON.stringify(body)).not.toContain(BUYER);
+    expect(homeserver.unredacted).toEqual([]);
+    await expect(MessagingController.getConversations()).resolves.toEqual([]);
+
+    await actAs(BUYER);
+    await expect(MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Hello?')).resolves.toMatchObject({
+      delivered: true,
+    });
+
+    // A new device of the seller reads the mute back from /priv.
+    await actAs(SELLER);
+    pair.log.length = 0;
+    await MessagingController.syncInbox();
+    expect(pair.log.filter((entry) => entry.startsWith(`receive ${SELLER.slice(0, 4)}`))).toEqual([]);
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
+    await expect(MessagingController.openConversation(SELLER, BUYER, LISTING)).resolves.toMatchObject({
+      state: { status: 'muted' },
+    });
+    await expect(MessagingController.pollConversation(SELLER, BUYER, LISTING)).resolves.toMatchObject({
+      state: { status: 'muted' },
+      received: [],
+    });
+    await expect(MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'reply')).rejects.toThrow(
+      MESSAGING_COPY.mutedSendRefused,
+    );
+    await expect(MessagingController.sendOrQueueDmMessage(BUYER, 'dm')).rejects.toThrow(
+      MESSAGING_COPY.mutedSendRefused,
+    );
+  });
+
+  it('delivers again after an unmute', async () => {
+    await strangerSendsFirstMessage();
+    await MessagingController.setCounterpartyMuted(BUYER, true);
+    await actAs(BUYER);
+    await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Sent while muted');
+
+    await actAs(SELLER);
+    await expect(MessagingController.setCounterpartyMuted(BUYER, false)).resolves.toMatchObject({ kind: 'ready' });
+    await MessagingController.syncInbox();
+
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?', 'Sent while muted'].sort());
+    expect((await MessagingController.getConversations()).map((row) => row.counterparty_pubky)).toEqual([BUYER]);
+  });
+
+  it('receives nothing new while the mute list cannot be read, and says why', async () => {
+    await strangerSendsFirstMessage();
+    await actAs(BUYER);
+    await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'While the list is unreadable');
+
+    await actAs(SELLER);
+    homeserver.failNext(HttpMethod.GET, new RegExp(PRIV_V2_BASE_PATH), 503);
+    const synced = await MessagingController.syncInbox();
+
+    expect(synced.mutes).toBe('error');
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
+
+    // The message was left on the homeserver, so the next readable pass stores it.
+    await expect(MessagingController.syncInbox()).resolves.toMatchObject({ mutes: 'ready' });
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(
+      ['Is this still available?', 'While the list is unreadable'].sort(),
+    );
+  });
+
+  it('never replaces a mute list it could not read', async () => {
+    await strangerSendsFirstMessage();
+    await MessagingController.setCounterpartyMuted(BUYER, true);
+    const before = new Map(homeserver.files);
+
+    await actAs(SELLER);
+    homeserver.failNext(HttpMethod.GET, new RegExp(PRIV_V2_BASE_PATH), 503);
+    await expect(MessagingController.setCounterpartyMuted(OTHER_BUYER, true)).resolves.toEqual({ kind: 'error' });
+
+    expect(homeserver.log.filter((entry) => entry.startsWith('PUT') && entry.includes(PRIV_V2_BASE_PATH))).toHaveLength(
+      1,
+    );
+    expect(homeserver.files).toEqual(before);
+  });
+});
+
+describe('journey: the buyer follows the seller on the first message', () => {
+  it('does not follow again when the buyer already follows the seller', async () => {
+    await actAs(SELLER);
+    await actAs(BUYER);
+    homeserver.files.set(followUrl(BUYER, SELLER), { uri: `pubky://${SELLER}` });
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+    await expect(MessagingController.willFollowOnSend(SELLER, BUYER, LISTING)).resolves.toBe(false);
+
+    const outcome = await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Hi');
+
+    expect(outcome.firstContact).toEqual({ followed: 'already', request: 'written' });
+    expect(homeserver.log.filter((entry) => entry === `PUT ${followUrl(BUYER, SELLER)}`)).toEqual([]);
+  });
+
+  it('still queues the message and reports the failed follow, never a fake delivery', async () => {
+    await actAs(SELLER);
+    await actAs(BUYER);
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+    homeserver.failNext(HttpMethod.PUT, followUrl(BUYER, SELLER), 500);
+
+    const outcome = await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Hi');
+
+    expect(outcome).toMatchObject({ delivered: false, firstContact: { followed: 'failed', request: 'written' } });
+    expect(homeserver.files.has(followUrl(BUYER, SELLER))).toBe(false);
+    await expect(MessagingController.getQueuedConversationMessages(THREAD)).resolves.toHaveLength(1);
+  });
+
+  it('writes no request when the existing one cannot be read', async () => {
+    await actAs(SELLER);
+    await actAs(BUYER);
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+    homeserver.failNext(HttpMethod.GET, conversationRequestUrl(BUYER, SELLER, LISTING), 503);
+
+    const outcome = await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Hi');
+
+    expect(outcome.firstContact).toEqual({ followed: 'followed', request: 'failed' });
+    expect(homeserver.log).not.toContain(`PUT ${conversationRequestUrl(BUYER, SELLER, LISTING)}`);
+  });
+
+  it('refuses a sixth new seller within the hour before following, publishing or queueing anything', async () => {
+    await actAs(BUYER);
+    const sellers = ['c', 'd', 'e', 'f', 'g', 'h'].map((letter) => letter.repeat(52));
+    for (const seller of sellers.slice(0, 5)) {
+      await MessagingController.sendOrQueueMessage(seller, BUYER, LISTING, 'Hi');
+    }
+    const sixth = sellers[5];
+
+    await expect(MessagingController.sendOrQueueMessage(sixth, BUYER, LISTING, 'Hi')).rejects.toThrow(
+      MESSAGING_COPY.firstContactLimited,
+    );
+    expect(homeserver.log.some((entry) => entry.includes(sixth))).toBe(false);
+    await expect(
+      MessagingController.getQueuedConversationMessages(buildMarketplaceConversationAggregateId(sixth, BUYER, LISTING)),
+    ).resolves.toEqual([]);
+
+    // Writing again to one of the five is not a new person.
+    await expect(MessagingController.sendOrQueueMessage(sellers[0], BUYER, LISTING, 'Again')).resolves.toBeDefined();
+
+    vi.setSystemTime(Date.now() + FIRST_CONTACT_WINDOW_MS);
+    await expect(MessagingController.sendOrQueueMessage(sixth, BUYER, LISTING, 'Hi')).resolves.toMatchObject({
+      firstContact: { followed: 'followed', request: 'written' },
+    });
+  });
+});

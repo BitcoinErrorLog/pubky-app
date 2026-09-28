@@ -10,6 +10,7 @@ import { ADMIT_ALL_GATE } from '@/test-utils/messaging-gate';
 import {
   MESSAGING_SYNC_MAX_COUNTERPARTIES,
   MESSAGING_SYNC_MAX_RECOVERY_PROBES,
+  MESSAGING_SYNC_RESERVED_NEW_PROBES,
   MessagingApplication,
 } from './messaging';
 
@@ -404,5 +405,78 @@ describe('MessagingApplication retry spacing', () => {
     expect(probed.slice(healthy.length)).toEqual(due.slice(0, MESSAGING_SYNC_MAX_RECOVERY_PROBES));
     expect(probed.some((counterparty) => waiting.includes(counterparty))).toBe(false);
     expect(receiveSpy.mock.calls.map(([, counterparty]) => counterparty).slice(0, healthy.length)).toEqual(healthy);
+  });
+});
+
+describe('MessagingApplication probe budget', () => {
+  const pubkyFor = (prefix: string, index: number) => `${prefix}${String(index).padStart(2, '0')}`.padEnd(52, 'x');
+
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    MessagingApplication.clearMessagingSession();
+    await Promise.all([CommerceMessagingOutboxModel.clear(), CommerceMessagingConversationModel.clear()]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function seedExisting(count: number) {
+    const existing = Array.from({ length: count }, (_, index) => pubkyFor('e', index));
+    for (const [index, counterparty] of existing.entries()) {
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: `dm:${counterparty}`,
+        kind: 'dm',
+        listing_ref: null,
+        counterparty_pubky: counterparty,
+        last_message_at: 1_000 + index,
+        updated_at: 1_000 + index,
+      });
+    }
+    return existing;
+  }
+
+  it('still probes a new follower when 30 existing counterparties would fill the budget', async () => {
+    const existing = await seedExisting(30);
+    const follower = 'f'.repeat(52);
+    const probeSpy = vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue({ status: 'none' });
+
+    await MessagingApplication.syncCounterparties(OWNER, [follower], { gate: ADMIT_ALL_GATE });
+
+    const probed = probeSpy.mock.calls.map(([, counterparty]) => counterparty);
+    expect(probed).toHaveLength(MESSAGING_SYNC_MAX_COUNTERPARTIES);
+    expect(probed).toContain(follower);
+    // Existing counterparties go most recent first.
+    expect(probed.slice(0, 3)).toEqual([existing[29], existing[28], existing[27]]);
+  });
+
+  it(`keeps ${MESSAGING_SYNC_RESERVED_NEW_PROBES} slots for new people, request senders first`, async () => {
+    await seedExisting(30);
+    const followers = Array.from({ length: 20 }, (_, index) => pubkyFor('g', index));
+    const requester = 'q'.repeat(52);
+    const probeSpy = vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue({ status: 'none' });
+
+    await MessagingApplication.syncCounterparties(OWNER, followers, {
+      priorityPubkys: [requester],
+      gate: ADMIT_ALL_GATE,
+    });
+
+    const probed = probeSpy.mock.calls.map(([, counterparty]) => counterparty);
+    const fresh = probed.filter((counterparty) => !counterparty.startsWith('e'));
+    expect(fresh).toHaveLength(MESSAGING_SYNC_RESERVED_NEW_PROBES);
+    expect(fresh[0]).toBe(requester);
+  });
+
+  it('never probes an excluded person and receives nothing without a gate', async () => {
+    const [muted, other] = await seedExisting(2);
+    const probeSpy = vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue(READY);
+    const receiveSpy = vi.spyOn(PaykitMessagingService, 'receiveMessages').mockResolvedValue([]);
+
+    await MessagingApplication.syncCounterparties(OWNER, [muted], { excludedPubkys: new Set([muted]), gate: null });
+
+    expect(probeSpy.mock.calls.map(([, counterparty]) => counterparty)).toEqual([other]);
+    expect(receiveSpy).not.toHaveBeenCalled();
   });
 });
