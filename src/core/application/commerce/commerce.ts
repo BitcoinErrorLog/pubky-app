@@ -718,6 +718,16 @@ export class CommerceApplication {
    * before the command. When the service refuses, the new ciphertext is
    * referenced by no version, so it is deleted (best effort). The response
    * is returned as-is; refusals stay in the envelope.
+   *
+   * A command that throws after the upload has an unknown outcome: the
+   * service may have set the version before the reply was lost, and deleting
+   * a referenced ciphertext would break every later download. The same
+   * command (same id and payload) is sent once more, which returns the
+   * service's stored result: a refusal deletes the upload and is returned,
+   * a success is returned, and a second throw keeps the upload (an
+   * unreferenced ciphertext under a random id reveals nothing) and rethrows
+   * the first error. A failed encryption throws with `refusal:
+   * 'encrypt_failed'`, before anything leaves the device.
    */
   static async commitSetDigitalDelivery(
     actorPubky: string,
@@ -734,12 +744,22 @@ export class CommerceApplication {
     if (input.delivery.kind === 'file') {
       const version = input.expectedVersion + 1;
       const deliverableId = newDigitalDeliverableId();
-      const encrypted = await encryptDigitalDeliverable({
-        plaintext: input.delivery.bytes,
-        sellerPubky: input.sellerPubky,
-        deliverableId,
-        version,
-      });
+      let encrypted: Awaited<ReturnType<typeof encryptDigitalDeliverable>>;
+      try {
+        encrypted = await encryptDigitalDeliverable({
+          plaintext: input.delivery.bytes,
+          sellerPubky: input.sellerPubky,
+          deliverableId,
+          version,
+        });
+      } catch (cause) {
+        throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The file could not be encrypted on this device.', {
+          service: ErrorService.Local,
+          operation: 'commitSetDigitalDelivery',
+          context: { refusal: 'encrypt_failed' },
+          cause,
+        });
+      }
       const url = digitalDeliverableUrl(input.sellerPubky, deliverableId, version);
       await CommerceHomeserverService.putDeliverable(url, encrypted.ciphertext);
       uploadedUrl = url;
@@ -767,7 +787,18 @@ export class CommerceApplication {
       kind: 'digital_delivery.set',
       payload: { expectedVersion: input.expectedVersion, delivery },
     });
-    const response = await this.executeMarketplaceCommand(actorPubky, command);
+    let response: MarketplaceCommandResponse;
+    try {
+      response = await this.executeMarketplaceCommand(actorPubky, command);
+    } catch (error) {
+      if (!uploadedUrl) throw error;
+      const replayed = await this.executeMarketplaceCommand(actorPubky, command).catch(() => null);
+      if (!replayed) {
+        Logger.warn('A digital delivery set had no answer; its uploaded deliverable is kept');
+        throw error;
+      }
+      response = replayed;
+    }
     if (!response.ok && uploadedUrl) {
       await CommerceHomeserverService.deleteDeliverable(uploadedUrl).catch(() => {
         Logger.warn('An unreferenced digital deliverable could not be deleted');

@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { DIGITAL_DELIVERY_SETUP_COPY } from '@/libs/commerce/digital';
-import { ServerErrorCode } from '@/libs/error/error.codes';
+import { ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -204,6 +204,41 @@ describe('useDigitalDeliveryEditor (digital delivery design §2, §6 C1–C5)', 
         context: { statusCode },
       }),
     );
+    const { result } = await ready();
+    act(() => {
+      result.current.form.setValue('kind', 'file');
+      result.current.picker.choose(pdf());
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.error).toBe(copy);
+  });
+
+  it.each([
+    [
+      'the encryption on this device',
+      Err.validation(ValidationErrorCode.INVALID_INPUT, 'encrypt failed', {
+        service: ErrorService.Local,
+        operation: 'commitSetDigitalDelivery',
+        context: { refusal: 'encrypt_failed' },
+      }),
+      DIGITAL_DELIVERY_SETUP_COPY.encryptFailed,
+    ],
+    [
+      'the command after the upload',
+      Err.server(ServerErrorCode.INTERNAL_ERROR, 'service unavailable', {
+        service: ErrorService.Marketplace,
+        operation: 'execute',
+        context: { statusCode: 503 },
+      }),
+      DIGITAL_DELIVERY_SETUP_COPY.failed,
+    ],
+    ['an untyped failure', new TypeError('network'), DIGITAL_DELIVERY_SETUP_COPY.failed],
+  ])('names a file set that failed in %s, not as a homeserver refusal', async (_where, caught, copy) => {
+    vi.mocked(CommerceController.commitSetDigitalDelivery).mockRejectedValue(caught);
     const { result } = await ready();
     act(() => {
       result.current.form.setValue('kind', 'file');
