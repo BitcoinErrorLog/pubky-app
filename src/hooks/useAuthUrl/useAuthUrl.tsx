@@ -38,7 +38,7 @@ const isAuthFlowCanceled = (error: unknown): boolean =>
 export function useAuthUrl(options: UseAuthUrlOptions = {}): UseAuthUrlReturn {
   const autoFetch = options.autoFetch ?? true;
   const type = options.type ?? 'signin';
-  const inviteCode = options.type === 'signup' ? options.inviteCode : '';
+  const inviteCode = options.type === 'signup' || options.type === 'signup-grant' ? options.inviteCode : '';
 
   const [url, setUrl] = useState('');
   const [isLoading, setIsLoading] = useState(autoFetch);
@@ -55,9 +55,11 @@ export function useAuthUrl(options: UseAuthUrlOptions = {}): UseAuthUrlReturn {
       const { authorizationUrl, awaitApproval } =
         type === 'signup'
           ? await AuthController.getSignupAuthUrl(inviteCode)
-          : type === 'grant'
-            ? await AuthController.getGrantAuthUrl()
-            : await AuthController.getAuthUrl();
+          : type === 'signup-grant'
+            ? await AuthController.getSignupGrantAuthUrl(inviteCode)
+            : type === 'grant'
+              ? await AuthController.getGrantAuthUrl()
+              : await AuthController.getAuthUrl();
 
       awaitApproval
         .then(async (session: Session) => {

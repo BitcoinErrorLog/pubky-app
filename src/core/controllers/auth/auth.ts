@@ -927,6 +927,22 @@ export class AuthController {
    * saved to BrowserSessionStore at completion.
    */
   static async getGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    return await this.beginGrantCeremony(() => AuthApplication.generateGrantAuthUrl());
+  }
+
+  /**
+   * Bitkit sign-up: a grant QR (`pubkyauth://signup_grant`) beside the Ring
+   * sign-up QR. Bitkit signs its key up with the invite code (or keeps the
+   * account it already has) and approves the same Shop grant, so completion
+   * is the Bitkit sign-in ceremony.
+   */
+  static async getSignupGrantAuthUrl(inviteCode: string): Promise<TGenerateAuthUrlResult> {
+    return await this.beginGrantCeremony(() => AuthApplication.generateGrantSignupAuthUrl(inviteCode));
+  }
+
+  private static async beginGrantCeremony(
+    generate: () => Promise<TGenerateAuthUrlResult>,
+  ): Promise<TGenerateAuthUrlResult> {
     // Before the new flow creates its key: the cleanup removes every key.
     await this.settlePendingGrantKeyCleanup();
     const epochAtStart = readAuthEpoch();
@@ -939,7 +955,7 @@ export class AuthController {
     this.cancelActiveGrantFlow();
     this.activeGrantFlow = { token, cancel: null };
     const generationAtStart = this.authFlowGeneration;
-    const { authorizationUrl, awaitApproval, cancelAuthFlow } = await AuthApplication.generateGrantAuthUrl();
+    const { authorizationUrl, awaitApproval, cancelAuthFlow } = await generate();
 
     if (!this.activeGrantFlow || this.activeGrantFlow.token !== token) {
       cancelAuthFlow();
