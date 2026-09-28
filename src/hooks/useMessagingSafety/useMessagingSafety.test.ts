@@ -61,4 +61,15 @@ describe('useMessagingSafety', () => {
     expect(MessagingController.setCounterpartyMuted).toHaveBeenCalledWith(COUNTERPARTY, true);
     expect(toast).toHaveBeenCalledWith({ description: MESSAGING_COPY.muted });
   });
+
+  it('says the list is full when a mute is refused for that reason', async () => {
+    vi.spyOn(MessagingController, 'setCounterpartyMuted').mockResolvedValue({ kind: 'full' });
+
+    const { result } = renderHook(() => useMessagingSafety());
+    await act(async () => {
+      await expect(result.current.mute(COUNTERPARTY)).resolves.toBe(false);
+    });
+
+    expect(toast).toHaveBeenCalledWith({ variant: 'error', description: MESSAGING_COPY.muteListFull });
+  });
 });

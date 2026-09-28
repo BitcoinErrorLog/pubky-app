@@ -145,6 +145,65 @@ describe('FirstContactApplication mutes', () => {
     expect(state.kind).toBe('ready');
   });
 
+  it('never lets a load’s write-back land between a mute’s read and write', async () => {
+    plantMuteList(homeserver, emptyMuteList(OWNER));
+    await FirstContactApplication.setMuted(OWNER, A, true);
+    plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), B, true, Date.now()));
+    const heal = homeserver.holdNext(HttpMethod.PUT, muteUrl());
+
+    const loading = FirstContactApplication.loadMutes(OWNER);
+    await heal.reached;
+    const muting = FirstContactApplication.setMuted(OWNER, 'z'.repeat(52), true);
+    heal.release();
+    await Promise.all([loading, muting]);
+
+    expect(Object.keys(storedMuteList(homeserver)?.entries ?? {}).sort()).toEqual([A, B, 'z'.repeat(52)].sort());
+  });
+
+  it('writes nothing on load when the stored list already holds every change', async () => {
+    plantMuteList(homeserver, emptyMuteList(OWNER));
+    await FirstContactApplication.setMuted(OWNER, A, true);
+    homeserver.log.length = 0;
+
+    await FirstContactApplication.loadMutes(OWNER);
+
+    expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
+  });
+
+  it('stays ready when a write-back fails and retries it on the next load', async () => {
+    plantMuteList(homeserver, emptyMuteList(OWNER));
+    await FirstContactApplication.setMuted(OWNER, A, true);
+    plantMuteList(homeserver, emptyMuteList(OWNER));
+    homeserver.failNext(HttpMethod.PUT, muteUrl(), 503);
+
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
+    expect(storedMuteList(homeserver)?.entries[A]).toBeUndefined();
+
+    await FirstContactApplication.loadMutes(OWNER);
+    expect(storedMuteList(homeserver)?.entries[A]).toMatchObject({ muted: true });
+  });
+
+  it('still unmutes on a full list, and mutes again once an unmute record can be dropped', async () => {
+    const z32 = 'ybndrfg8ejkmcpqxot1uwisza345h769';
+    const pubkyFor = (n: number) =>
+      [3, 2, 1, 0]
+        .map((power) => z32[Math.floor(n / 32 ** power) % 32])
+        .join('')
+        .padStart(52, 'y');
+    let full = emptyMuteList(OWNER);
+    for (let index = 0; index < MUTE_LIST_MAX_ENTRIES; index += 1)
+      full = applyMuteChange(full, pubkyFor(index), true, 1);
+    plantMuteList(homeserver, full);
+
+    await expect(FirstContactApplication.setMuted(OWNER, pubkyFor(0), false)).resolves.toMatchObject({ kind: 'ready' });
+    await expect(FirstContactApplication.setMuted(OWNER, A, true)).resolves.toMatchObject({ kind: 'ready' });
+
+    const stored = storedMuteList(homeserver);
+    expect(Object.keys(stored?.entries ?? {})).toHaveLength(MUTE_LIST_MAX_ENTRIES);
+    expect(stored?.entries[pubkyFor(0)]).toBeUndefined();
+    expect(stored?.entries[A]).toMatchObject({ muted: true });
+  });
+
   it('asks for approval when the marketplace session is not this owner’s', async () => {
     establishMarketplaceSession(OTHER_OWNER);
 

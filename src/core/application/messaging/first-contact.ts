@@ -89,7 +89,7 @@ export class FirstContactApplication {
   private constructor() {}
 
   private static mutes = new Map<string, MuteList>();
-  private static muteWrites = new Map<string, Promise<unknown>>();
+  private static muteQueue = new Map<string, Promise<unknown>>();
   private static knownContacts = new Map<string, ReadonlySet<string>>();
   private static orderCounterparties = new Map<string, ReadonlySet<string>>();
   private static seenRequests = new Set<string>();
@@ -110,6 +110,10 @@ export class FirstContactApplication {
    */
   static async loadMutes(ownerPubky: string): Promise<MessagingMutesState> {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return { kind: 'unavailable' };
+    return await this.inMuteQueue(ownerPubky, () => this.readAndHealMutes(ownerPubky));
+  }
+
+  private static async readAndHealMutes(ownerPubky: string): Promise<MessagingMutesState> {
     const keys = await CommercePrivKeyringApplication.get(ownerPubky);
     const result =
       keys.kind === 'keys'
@@ -120,12 +124,28 @@ export class FirstContactApplication {
       const merged = cached ? mergeMuteLists(result.list, cached) : result.list;
       this.mutes.set(ownerPubky, merged);
       if (keys.kind === 'keys' && !muteListsEqual(merged, result.list) && muteListSchema.safeParse(merged).success) {
+        // A failed heal is retried by the next load: the cache still holds the change.
         await this.writeMuteList(keys.keyring, merged);
       }
       return { kind: 'ready', muted: mutedPubkys(merged) };
     }
     if (cached) return { kind: 'ready', muted: mutedPubkys(cached) };
     return { kind: result.kind };
+  }
+
+  /**
+   * Runs mute list reads and writes of one owner one after another in this
+   * tab, so a load's write-back can never land between another change's
+   * read and write.
+   */
+  private static async inMuteQueue<T>(ownerPubky: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.muteQueue.get(ownerPubky) ?? Promise.resolve();
+    const run = previous.then(operation, operation);
+    this.muteQueue.set(
+      ownerPubky,
+      run.catch(() => undefined),
+    );
+    return await run;
   }
 
   /** The list this session last read or wrote, without a network call. */
@@ -139,8 +159,8 @@ export class FirstContactApplication {
    * Mutes or unmutes one person: reads the stored list, applies the change,
    * writes it sealed and reads it back. A failed read writes nothing, so a
    * list that could not be opened is never replaced, and a change that would
-   * take the list past its limit is refused (`full`). Changes from one tab
-   * run one after another.
+   * take the list past its limit is refused (`full`). Loads and changes
+   * from one tab run one after another.
    */
   static async setMuted(ownerPubky: string, counterpartyPubky: string, muted: boolean): Promise<MuteChangeResult> {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return { kind: 'unavailable' };
@@ -150,16 +170,7 @@ export class FirstContactApplication {
         operation: 'setMuted',
       });
     }
-    const previous = this.muteWrites.get(ownerPubky) ?? Promise.resolve();
-    const run = previous.then(
-      () => this.writeMuteChange(ownerPubky, counterpartyPubky, muted),
-      () => this.writeMuteChange(ownerPubky, counterpartyPubky, muted),
-    );
-    this.muteWrites.set(
-      ownerPubky,
-      run.catch(() => undefined),
-    );
-    return await run;
+    return await this.inMuteQueue(ownerPubky, () => this.writeMuteChange(ownerPubky, counterpartyPubky, muted));
   }
 
   private static async writeMuteChange(
@@ -493,7 +504,7 @@ export class FirstContactApplication {
   /** Sign-out teardown: forgets every cached list, contact set and counter. */
   static clear(): void {
     this.mutes.clear();
-    this.muteWrites.clear();
+    this.muteQueue.clear();
     this.knownContacts.clear();
     this.orderCounterparties.clear();
     this.seenRequests.clear();
