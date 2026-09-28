@@ -838,6 +838,45 @@ describe('MarketplaceTransactionService read projections', () => {
     expect('revision' in notifications[0] ? notifications[0].revision : undefined).toBeUndefined();
   });
 
+  it("reads the order's fulfillment the service names on an order notification", async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        notifications: [
+          {
+            id: '00000000-0000-4000-8000-000000000931',
+            recipient_pubky: ACTOR,
+            actor_pubky: 'system',
+            type: 'order_delivered',
+            aggregate_id: `order:${ORDER_ID}`,
+            amount: null,
+            created_at: '2026-09-27T07:00:00.000Z',
+            read_at: null,
+            order_fulfillment: 'digital',
+          },
+          {
+            id: '00000000-0000-4000-8000-000000000932',
+            recipient_pubky: ACTOR,
+            actor_pubky: OTHER_ACTOR,
+            type: 'offer_received',
+            aggregate_id: 'offer:00000000-0000-4000-8000-000000000933',
+            amount: null,
+            created_at: '2026-09-27T06:00:00.000Z',
+            read_at: null,
+            order_fulfillment: null,
+          },
+        ],
+      }),
+    );
+
+    const notifications = await MarketplaceTransactionService.getNotifications(ACTOR);
+
+    expect(notifications).toEqual([
+      expect.objectContaining({ type: 'order_delivered', orderFulfillment: 'digital' }),
+      expect.objectContaining({ type: 'offer_received', orderFulfillment: null }),
+    ]);
+  });
+
   it('keeps valid rows when a live row has an unknown type and does not log its body', async () => {
     const oldAtomicParse = z.object({ notifications: z.array(marketplaceNotificationSchema) }).safeParse({
       notifications: [

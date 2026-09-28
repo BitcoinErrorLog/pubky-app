@@ -31,6 +31,8 @@ import {
 } from '@/organisms/MarketplaceWatchAlertItem/MarketplaceWatchAlertItem.utils';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
 import {
+  DIGITAL_DELIVERED_COPY,
+  digitalDeliveryNotice,
   isIntegrityGapActivityType,
   MARKETPLACE_ACTIVITY_LABELS,
   marketplaceActivityLabel,
@@ -302,7 +304,7 @@ function NotificationCard({
   title?: string;
   canCheckout: boolean;
 }) {
-  const label = title ?? notificationLabel(notification.type);
+  const label = title ?? notificationLabel(notification);
   const href = activityRowHref(notification.type, notification.aggregateId, { canCheckout });
   return (
     <ActivityRowLink href={href} label={label}>
@@ -379,8 +381,9 @@ function NotificationIcon({ type }: { type: MarketplaceNotification['type'] }) {
   }
 }
 
-function notificationLabel(type: MarketplaceNotification['type']): string {
-  return MARKETPLACE_ACTIVITY_LABELS[type];
+function notificationLabel(notification: MarketplaceNotification): string {
+  const digital = digitalDeliveryNotice(notification);
+  return digital ? DIGITAL_DELIVERED_COPY[digital].label : MARKETPLACE_ACTIVITY_LABELS[notification.type];
 }
 
 function notificationActorLabel(actorPubky: string): string {

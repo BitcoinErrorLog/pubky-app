@@ -55,6 +55,36 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
     }
   });
 
+  it('says how a digital order was delivered, and nothing on any other notification', () => {
+    const delivered = (overrides: Partial<MarketplaceNotification>) =>
+      MarketplaceNotificationNormalizer.toFeedNotification(
+        { ...createNotificationFixture('order_delivered'), ...overrides } as MarketplaceNotification,
+        'transaction-service',
+      );
+    const buyer = createNotificationFixture('order_delivered').recipientPubky;
+
+    expect(delivered({ orderFulfillment: 'digital', actorPubky: 'system' })).toMatchObject({
+      digitalDelivery: 'automatic',
+    });
+    expect(delivered({ orderFulfillment: 'digital', actorPubky: 'paypal-ipn' })).toMatchObject({
+      digitalDelivery: 'automatic',
+    });
+    expect(delivered({ orderFulfillment: 'digital', actorPubky: buyer })).toMatchObject({
+      digitalDelivery: 'automatic',
+    });
+    expect(delivered({ orderFulfillment: 'digital', actorPubky: SELLER })).toMatchObject({
+      digitalDelivery: 'manual',
+    });
+    for (const orderFulfillment of ['shipping', 'pickup', null, undefined]) {
+      expect(delivered({ orderFulfillment, actorPubky: SELLER })).not.toHaveProperty('digitalDelivery');
+    }
+    const shipped = MarketplaceNotificationNormalizer.toFeedNotification(
+      { ...createNotificationFixture('order_shipped'), orderFulfillment: 'digital' } as MarketplaceNotification,
+      'transaction-service',
+    );
+    expect(shipped).not.toHaveProperty('digitalDelivery');
+  });
+
   it('treats a sandbox row with null readAt as unread and a read row as read', () => {
     const unread = createNotificationFixture('outbid', { readAt: null });
     const read = createNotificationFixture('outbid', { readAt: '2026-08-19T18:00:00.000Z' });

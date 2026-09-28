@@ -2,7 +2,7 @@
 // loaded through the dynamic import in loadLocksSdk(), never at module scope, so this
 // file stays safe to pull into server-rendered module graphs.
 import { z } from 'zod';
-import { getLocksUrl, getPaykitSetupUrl } from '@/config/commerce';
+import { getLocksUrl, getPaykitSetupCreatorParam, getPaykitSetupUrl } from '@/config/commerce';
 import { isAppError } from '@/libs/error/error';
 import { ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -326,7 +326,7 @@ export class LocksGatewayService {
     const url = new URL(getPaykitSetupUrl());
     url.searchParams.set('return_to', returnTo);
     url.searchParams.set('state', state);
-    url.searchParams.set('creator', creator);
+    if (getPaykitSetupCreatorParam()) url.searchParams.set('creator', creator);
     return url.toString();
   }
 

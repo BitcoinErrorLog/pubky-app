@@ -29,6 +29,16 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+# One Docker VRT at a time. The slot is held for this whole script, including
+# a direct invocation. Re-exec so the lock outlives the shell functions here.
+if [ "${VRT_LOCK_HELD:-}" != 1 ]; then
+  # shellcheck source=heavy-lock.sh
+  source "$ROOT/scripts/heavy-lock.sh"
+  export VRT_LOCK_HELD=1
+  run_heavy vrt bash "$ROOT/scripts/vrt-linux.sh" "$@"
+  exit 0
+fi
+
 # A host node_modules symlink is followed by the bind mount. npm ci then
 # deletes that symlink and writes a real directory into the worktree.
 # Replace it with an empty mountpoint for the volume, and restore the link.
