@@ -6,6 +6,7 @@ import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
+import { useMarketplaceSessionNeedsPrivateData } from '@/hooks/useMarketplaceSessionNeedsPrivateData/useMarketplaceSessionNeedsPrivateData';
 import { useStepUpReauth } from '@/hooks/useStepUpReauth/useStepUpReauth';
 import { Logger } from '@/libs/logger/logger';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
@@ -22,14 +23,19 @@ type MarketplaceReauthDialogProps = {
  * Option C) for scope-gated features — watchlist sync and portable receipts
  * today.
  *
- * A Bitkit (grant) sign-in already holds the full Shop homeserver grant; what
- * it can lack is a marketplace session that covers `/priv/pubky.app/`. Its
- * re-approval is the marketplace grant flow, which Bitkit or Pubky Ring can
- * approve. A cookie sign-in gets the Pubky Ring step-up below.
+ * Which approval fixes the refusal depends on which session lacks the
+ * private tree. When the homeserver session can already write it but the
+ * purchase session does not cover it (the `/v1/me/priv-keys` `needs_reauth`
+ * state), the fix is a new purchase session approval in Bitkit or Pubky Ring.
+ * A Bitkit (grant) sign-in always holds the full homeserver grant and cannot
+ * run the Ring step-up, so it takes the same path. Otherwise the homeserver
+ * session itself is narrow and gets the Pubky Ring step-up below, which also
+ * mints a covering purchase session.
  */
 export function MarketplaceReauthDialog({ triggerLabel, onReauthenticated }: MarketplaceReauthDialogProps) {
+  const purchaseSessionNeedsPrivateData = useMarketplaceSessionNeedsPrivateData();
   const isGrantSession = useIsGrantSession();
-  if (isGrantSession) {
+  if (purchaseSessionNeedsPrivateData || isGrantSession) {
     return <MarketplaceSessionConnectDialog triggerLabel={triggerLabel} onConnected={onReauthenticated} />;
   }
   return <HomeserverStepUpDialog triggerLabel={triggerLabel} onReauthenticated={onReauthenticated} />;
