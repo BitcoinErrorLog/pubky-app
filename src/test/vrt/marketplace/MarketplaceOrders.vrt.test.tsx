@@ -23,6 +23,7 @@ const fixtures = vi.hoisted(async () => {
     createOrderViewsForEveryState,
     createOrderViewsForEveryPaymentState,
     createPaymentFixture,
+    createReceiptFixture,
     ORDER_FIXTURE_BUYER,
     ORDER_FIXTURE_SELLER,
   } = await import('@/test/fixtures/commerce/orders');
@@ -95,8 +96,26 @@ const fixtures = vi.hoisted(async () => {
   // every-state fixtures keep the unknown carrier ("Local Courier"), whose
   // shipment line stays plain text with no link — both fallbacks get a
   // baseline.
-  const trackableShippedView = () => ({
-    order: createOrderFixture('shipped', {
+  const trackableShippedView = () => {
+    const order = createOrderFixture('shipped', {
+      paymentMethod: 'bitcoin',
+      paykitTotalSats: 51_637,
+      merchandiseTotal: { amountMinor: 51_200, currency: 'BTC', exponent: 8 },
+      bitcoinPayable: { amountMinor: 51_637, currency: 'SAT', exponent: 0 },
+      subtotal: { amountMinor: 50_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 1_200, currency: 'BTC', exponent: 8 },
+      total: { amountMinor: 51_637, currency: 'BTC', exponent: 8 },
+      lines: [
+        {
+          listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_shipped_bitcoin`,
+          listingRevision: 1,
+          contentHash: 'a'.repeat(64),
+          title: 'Handmade leather boots',
+          quantity: 1,
+          unitPrice: { amountMinor: 50_000, currency: 'BTC', exponent: 8 },
+          subtotal: { amountMinor: 50_000, currency: 'BTC', exponent: 8 },
+        },
+      ],
       shipment: {
         carrier: 'USPS',
         trackingNumber: '9400111899223197428490',
@@ -104,10 +123,13 @@ const fixtures = vi.hoisted(async () => {
         shippedAt: '2026-08-14T10:00:00.000Z',
         deliveredAt: null,
       },
-    }),
-    payment: createPaymentFixture('confirmed'),
-    receipt: null,
-  });
+    });
+    return {
+      order,
+      payment: createPaymentFixture('confirmed', { adapter: 'paykit' }),
+      receipt: createReceiptFixture({ orderId: order.id, total: order.total }),
+    };
+  };
 
   const deliveryAssumedView = () => ({
     order: createOrderFixture('delivered', {
@@ -422,7 +444,8 @@ describe('Marketplace orders — visual regression', () => {
     ordersState.isLoading = false;
     ordersState.error = null;
 
-    await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await screen.getByText('Receipt').click();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-shipped-track-link-desktop');
   });
 

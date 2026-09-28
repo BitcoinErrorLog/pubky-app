@@ -293,6 +293,12 @@ describe('Marketplace payment status card — visual regression', () => {
         paykitRequestState: 'pending',
         holdExpiresAt: HOLD_DEADLINE,
         holdSource: 'bind',
+        paykitTotalSats: 1_255,
+        merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+        subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+        total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
       },
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-bitcoin-desktop');

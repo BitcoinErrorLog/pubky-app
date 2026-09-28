@@ -564,6 +564,35 @@ describe('MarketplacePaymentStatusCard', () => {
     expect(screen.getByRole('option', { name: 'Refunded' })).toBeInTheDocument();
   });
 
+  it('shows the exact bitcoin amount as items + shipping + payment code', () => {
+    const payment = createPaymentFixture('awaiting_entitlement', { adapter: 'paykit' });
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', {
+          paymentId: payment.id,
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          paykitTotalSats: 1_255,
+          merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+          subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+          total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+        })}
+        payment={payment}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('bitcoin-amount-due')).toHaveTextContent('Pay exactly ₿1,255');
+    expect(screen.getByTestId('bitcoin-amount-breakdown')).toHaveTextContent(
+      'Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255',
+    );
+  });
+
   it('renders elapsed copy instead of the generic expired explanation', () => {
     const payment = createPaymentFixture('expired');
     render(

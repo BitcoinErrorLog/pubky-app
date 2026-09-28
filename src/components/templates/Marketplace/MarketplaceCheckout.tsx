@@ -34,6 +34,7 @@ import { useMarketplaceOfferCheckout } from '@/hooks/useMarketplaceOfferCheckout
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
+import { BITCOIN_PAYMENT_CODE_CHECKOUT_NOTE } from '@/libs/commerce/bitcoin-payment-code';
 import {
   buyerCheckoutStateLabel,
   getMarketplaceCheckoutRoute,
@@ -879,6 +880,15 @@ function MarketplaceCartCheckout() {
                           </Button>
                         ))}
                       </div>
+                    )}
+                    {bitcoinSelected && (
+                      <Typography
+                        as="p"
+                        className="text-xs text-muted-foreground"
+                        data-testid="marketplace-checkout-bitcoin-amount-note"
+                      >
+                        {BITCOIN_PAYMENT_CODE_CHECKOUT_NOTE}
+                      </Typography>
                     )}
                     {buyerWalletChecking && (
                       <Typography as="p" aria-live="polite" className="text-xs text-muted-foreground">

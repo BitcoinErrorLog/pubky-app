@@ -44,6 +44,7 @@ import { buildMarketplaceOrderAggregateId } from '@/libs/commerce/transaction-co
 import { getDeployEnv } from '@/libs/runtime-config/runtime-config';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { MarketplaceBitcoinAmountBreakdown } from './MarketplaceBitcoinAmountBreakdown';
 
 const PAYKIT_DELIVERY_FAILED_COPY =
   "Your wallet didn't receive the request. In Bitkit, add the seller as a contact, then try again.";
@@ -211,6 +212,7 @@ export function MarketplacePaymentStatusCard({
         {order.fiatVerification === 'seller-attested' && <Badge variant="outline">Seller-attested</Badge>}
         {isSandbox && <Badge variant="secondary">Sandbox · simulated payment · no real funds</Badge>}
       </div>
+      <MarketplaceBitcoinAmountBreakdown order={order} showExact={isBuyer} />
       {!isSandbox && isBuyer && isAwaiting && isStaging && (
         <Typography
           as="p"

@@ -468,6 +468,24 @@ describe('MarketplaceCheckout', () => {
     await waitFor(() => expect(pay).toBeEnabled());
   });
 
+  it('tells a Bitcoin buyer the payment adds 1–999 sats, and hides that note for PayPal', async () => {
+    const user = userEvent.setup();
+    seededCart();
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = true;
+
+    render(<MarketplaceCheckout />);
+
+    const note = await screen.findByTestId('marketplace-checkout-bitcoin-amount-note');
+    expect(note).toHaveTextContent('The payment adds a small unique amount of 1–999 sats.');
+    expect(note).toHaveTextContent('The exact amount appears when you place the order.');
+    expect(note.className).not.toMatch(/border|bg-amber|alert/);
+    expect(note.textContent).not.toMatch(/paykit|protocol/i);
+
+    await user.click(screen.getByTestId('marketplace-checkout-method-paypal'));
+    expect(screen.queryByTestId('marketplace-checkout-bitcoin-amount-note')).not.toBeInTheDocument();
+  });
+
   it('asks a buyer without a Paykit wallet to connect Bitkit instead of letting Bitcoin Pay fail', async () => {
     const user = userEvent.setup();
     seededCart();

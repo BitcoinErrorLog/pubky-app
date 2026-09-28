@@ -8,6 +8,7 @@ import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketp
 import {
   createOrderFixture,
   createPaymentFixture,
+  createReceiptFixture,
   ORDER_FIXTURE_BUYER,
   ORDER_FIXTURE_SELLER,
 } from '@/test/fixtures/commerce/orders';
@@ -772,6 +773,46 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Locked Bitcoin amount: ₿2,588/)).toBeInTheDocument();
     expect(screen.getByText(/ · Bitcoin quote expired/)).toBeInTheDocument();
     expect(screen.queryByText(/≈ ₿/)).not.toBeInTheDocument();
+  });
+
+  it('shows items, shipping, and the payment code on the order and its receipt', async () => {
+    const user = userEvent.setup();
+    const order = createOrderFixture('paid', {
+      paymentMethod: 'bitcoin',
+      paykitTotalSats: 1_255,
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+      total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+      lines: [
+        {
+          listingAggregateId: `listing:${ORDER_FIXTURE_SELLER}_canary`,
+          listingRevision: 1,
+          contentHash: 'a'.repeat(64),
+          title: 'Canary boots',
+          quantity: 1,
+          unitPrice: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        },
+      ],
+    });
+    ordersState.orders = [
+      {
+        order,
+        payment: createPaymentFixture('confirmed', { id: order.paymentId, orderId: order.id, adapter: 'paykit' }),
+        receipt: createReceiptFixture({ orderId: order.id, total: order.total }),
+      },
+    ];
+
+    render(<MarketplaceOrders />);
+    await user.click(screen.getByRole('tab', { name: /All 1/i }));
+
+    const equation = 'Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255';
+    expect(screen.getByText('₿1,255')).toBeInTheDocument();
+    expect(screen.getAllByText(equation)).toHaveLength(2);
+    expect(within(screen.getByTestId('order-receipt-details')).getByText(equation)).toBeInTheDocument();
+    expect(screen.queryByText(/Locked Bitcoin amount/)).not.toBeInTheDocument();
   });
 
   it.each([null, undefined])('shows the indicative Bitcoin estimate when the quote is %s', async (bitcoinQuote) => {

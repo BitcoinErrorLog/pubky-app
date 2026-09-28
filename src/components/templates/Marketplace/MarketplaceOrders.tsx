@@ -16,6 +16,7 @@ import { type CommerceAdapterMode, isDurableCommerceMode, isTransactionalCommerc
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarkMarketplaceOrdersSeen } from '@/hooks/useMarkMarketplaceOrdersSeen/useMarkMarketplaceOrdersSeen';
 import { orderAnchorId, readOrderAnchorId } from '@/libs/commerce/activity-links';
+import { bitcoinPaymentBreakdown, formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
 import {
@@ -52,6 +53,7 @@ import {
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropEditionBadge, DropEditionReceiptLine } from '@/organisms/Marketplace/DropEditionBadge';
+import { MarketplaceBitcoinAmountBreakdown } from '@/organisms/Marketplace/MarketplaceBitcoinAmountBreakdown';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceIndicativePrice } from '@/organisms/Marketplace/MarketplaceIndicativePrice';
 import { MarketplaceMyReviews } from '@/organisms/Marketplace/MarketplaceMyReviews';
@@ -335,6 +337,7 @@ export function MarketplaceOrders() {
                     const isBuyer = currentUserPubky === order.buyerPubky;
                     const refundRecord = refundRecordLine(order);
                     const nextActorHint = getNextActorHint(order, payment, isBuyer);
+                    const bitcoinBreakdown = bitcoinPaymentBreakdown(order);
                     return (
                       <Card key={order.id} id={orderAnchorId(order.id)} className="scroll-mt-24 border py-5">
                         <CardContent className="grid min-w-0 gap-5 px-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
@@ -376,12 +379,19 @@ export function MarketplaceOrders() {
                               </div>
                             ))}
                             <Typography as="p" className="mt-2 text-2xl font-bold text-brand">
-                              {formatCommerceMoney(order.total)} <MarketplaceOrderBitcoinAmount order={order} />
+                              {bitcoinBreakdown
+                                ? formatBitcoinAwareMoney(bitcoinBreakdown.payable)
+                                : formatCommerceMoney(order.total)}{' '}
+                              <MarketplaceOrderBitcoinAmount order={order} />
                             </Typography>
-                            <Typography as="p" className="mt-1 text-xs text-muted-foreground">
-                              Items {formatCommerceMoney(order.subtotal)} · Shipping{' '}
-                              {formatCommerceMoney(order.shipping)}
-                            </Typography>
+                            {bitcoinBreakdown ? (
+                              <MarketplaceBitcoinAmountBreakdown order={order} className="mt-1" />
+                            ) : (
+                              <Typography as="p" className="mt-1 text-xs text-muted-foreground">
+                                Items {formatCommerceMoney(order.subtotal)} · Shipping{' '}
+                                {formatCommerceMoney(order.shipping)}
+                              </Typography>
+                            )}
                             <MarketplaceOrderReference order={order} isBuyer={isBuyer} />
                             {order.state === 'pending_payment' && order.holdExpiresAt && (
                               <Typography as="p" className="mt-2 text-sm text-muted-foreground">
@@ -409,6 +419,7 @@ export function MarketplaceOrders() {
                                 data-testid="order-receipt-details"
                               >
                                 <summary className="cursor-pointer text-sm text-muted-foreground">Receipt</summary>
+                                <MarketplaceBitcoinAmountBreakdown order={order} className="mt-2" />
                                 <div
                                   className="mt-1 flex items-center gap-2 text-sm break-all text-muted-foreground"
                                   data-testid="order-receipt-hash"
@@ -614,6 +625,7 @@ function MarketplaceOrderMessageCta({
 }
 
 function MarketplaceOrderBitcoinAmount({ order }: { order: MarketplaceOrder }): ReactNode {
+  if (bitcoinPaymentBreakdown(order)) return null;
   const quote = order.paymentMethod === 'bitcoin' ? order.bitcoinQuote : null;
   if (quote?.quotedSats !== null && quote?.quotedSats !== undefined) {
     return (
