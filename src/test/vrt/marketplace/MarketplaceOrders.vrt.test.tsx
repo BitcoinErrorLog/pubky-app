@@ -361,6 +361,69 @@ const fixtures = vi.hoisted(async () => {
     sellerAwaitingPayment: sellerAwaitingPaymentViews,
     buyerPendingPayment,
     sellerPendingPayment,
+    sellerBitcoinSales: [
+      {
+        order: createOrderFixture('pending_payment', {
+          id: '018f47d2-6a27-7c23-a49d-000000000741',
+          buyerPubky: 't'.repeat(52),
+          sellerPubky: ORDER_FIXTURE_BUYER,
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'awaiting_seller_confirmation',
+          paykitDeliveryState: 'delivered',
+          nextActor: 'seller',
+          lines: [
+            {
+              listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_confirm`,
+              listingRevision: 1,
+              contentHash: '1'.repeat(64),
+              title: 'Seller confirm Bitcoin boots',
+              quantity: 1,
+              unitPrice: { amountMinor: 1_000, currency: 'SAT', exponent: 0 },
+              subtotal: { amountMinor: 1_000, currency: 'SAT', exponent: 0 },
+            },
+          ],
+          subtotal: { amountMinor: 1_000, currency: 'SAT', exponent: 0 },
+          shipping: { amountMinor: 0, currency: 'SAT', exponent: 0 },
+          total: { amountMinor: 1_303, currency: 'SAT', exponent: 0 },
+        }),
+        payment: createPaymentFixture('awaiting_entitlement', {
+          id: '018f47d2-6a27-7c23-a49d-000000000742',
+          adapter: 'paykit',
+          confirmations: 0,
+        }),
+        receipt: null,
+      },
+      {
+        order: createOrderFixture('pending_payment', {
+          id: '018f47d2-6a27-7c23-a49d-000000000743',
+          buyerPubky: 'u'.repeat(52),
+          sellerPubky: ORDER_FIXTURE_BUYER,
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          nextActor: 'seller',
+          lines: [
+            {
+              listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_review`,
+              listingRevision: 1,
+              contentHash: '2'.repeat(64),
+              title: 'Seller review Bitcoin hat',
+              quantity: 1,
+              unitPrice: { amountMinor: 1_000, currency: 'SAT', exponent: 0 },
+              subtotal: { amountMinor: 1_000, currency: 'SAT', exponent: 0 },
+            },
+          ],
+          subtotal: { amountMinor: 1_000, currency: 'SAT', exponent: 0 },
+          shipping: { amountMinor: 0, currency: 'SAT', exponent: 0 },
+          total: { amountMinor: 1_303, currency: 'SAT', exponent: 0 },
+        }),
+        payment: createPaymentFixture('manual_review', {
+          id: '018f47d2-6a27-7c23-a49d-000000000744',
+          adapter: 'paykit',
+          confirmations: 0,
+        }),
+        receipt: null,
+      },
+    ],
   };
 });
 
@@ -428,6 +491,7 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 beforeEach(async () => {
   const { useMarketplaceDisplayStore } = await import('@/stores/marketplace-display/marketplace-display.store');
   useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: 'metric' });
+  ordersState.adapterMode = 'sandbox';
 });
 
 describe('Marketplace orders — visual regression', () => {
@@ -603,6 +667,32 @@ describe('Marketplace orders — visual regression', () => {
     await expect.element(screen.getByText('Buyer pending-payment camera')).toBeVisible();
     await expect.element(screen.getByRole('link', { name: 'Continue checkout' })).toBeVisible();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-pending-payment-buyer-desktop');
+  });
+
+  it('renders a bound Bitcoin sale awaiting confirmation on the sales card', async () => {
+    const { sellerBitcoinSales } = await fixtures;
+    ordersState.orders = [sellerBitcoinSales[0]];
+    ordersState.adapterMode = 'transaction-service';
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect.element(screen.getByText(/Confirm you received/)).toBeVisible();
+    await expect.element(screen.getByRole('heading', { name: 'Reservations' })).not.toBeInTheDocument();
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-seller-bitcoin-confirm-desktop');
+  });
+
+  it('renders a bound Bitcoin sale in review on the sales card', async () => {
+    const { sellerBitcoinSales } = await fixtures;
+    ordersState.orders = [sellerBitcoinSales[1]];
+    ordersState.adapterMode = 'transaction-service';
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect.element(screen.getByText('Resolve Bitcoin payment review')).toBeVisible();
+    await expect.element(screen.getByRole('heading', { name: 'Reservations' })).not.toBeInTheDocument();
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-seller-bitcoin-resolve-desktop');
   });
 
   it('renders a seller pending-payment reservation at desktop viewport', async () => {

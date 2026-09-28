@@ -77,16 +77,29 @@ export function isAbandonedCheckout(
   return buyerPubky !== null && order.buyerPubky === buyerPubky && order.state === 'cancelled' && !hasReceipt(order);
 }
 
+type SellerOrderRole = {
+  state: string;
+  sellerPubky: string;
+  buyerPubky: string;
+  paymentMethod?: PaymentMethodKind | null;
+};
+
+function isSellerParty(order: SellerOrderRole, currentUserPubky: string | null): boolean {
+  return currentUserPubky !== null && order.sellerPubky === currentUserPubky && order.buyerPubky !== currentUserPubky;
+}
+
+/**
+ * A bound Bitcoin payment is a sale, not a stock hold. The seller resolves
+ * and confirms it on the sales card. An unbound hold stays a reservation.
+ */
+export function isSellerBoundBitcoinOrder(order: SellerOrderRole): boolean {
+  return isPendingPaymentState(order.state) && order.paymentMethod === 'bitcoin';
+}
+
 /** Seller unpaid hold — Shop has no `stock_held` field, so pending_payment is the reservation. */
-export function isSellerReservation(
-  order: { state: string; sellerPubky: string; buyerPubky: string },
-  currentUserPubky: string | null,
-): boolean {
+export function isSellerReservation(order: SellerOrderRole, currentUserPubky: string | null): boolean {
   return (
-    currentUserPubky !== null &&
-    order.sellerPubky === currentUserPubky &&
-    order.buyerPubky !== currentUserPubky &&
-    isPendingPaymentState(order.state)
+    isSellerParty(order, currentUserPubky) && isPendingPaymentState(order.state) && !isSellerBoundBitcoinOrder(order)
   );
 }
 
@@ -100,6 +113,15 @@ export function isSellerPaidOrder(
     order.buyerPubky !== currentUserPubky &&
     isPaidOrReceiptedState(order)
   );
+}
+
+/** Paid sales, plus a seller's bound Bitcoin payment that is still pending. */
+export function isSellerSalesOrder(
+  order: SellerOrderRole & { receiptId?: string | null },
+  currentUserPubky: string | null,
+): boolean {
+  if (!isSellerParty(order, currentUserPubky)) return false;
+  return isPaidOrReceiptedState(order) || isSellerBoundBitcoinOrder(order);
 }
 
 /** State pill for an order an Activity link opens but no Orders section lists (a seller's unpaid cancel). */

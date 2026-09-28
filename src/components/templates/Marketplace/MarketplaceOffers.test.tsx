@@ -8,11 +8,12 @@ import { asInvalid } from '@/test-utils/type-assertions';
 import {
   isLinkedOfferMissing,
   loadOfferListings,
+  MarketplaceOffers,
+  offerIsOpen,
   OfferListingSummary,
   offerStateLabel,
   parseListingAggregateId,
 } from './MarketplaceOffers';
-import { MarketplaceOffers } from './MarketplaceOffers';
 
 const getOrFetchListing = vi.hoisted(() => vi.fn());
 const getManyListings = vi.hoisted(() => vi.fn());
@@ -89,6 +90,19 @@ describe('Marketplace offers UX', () => {
       'Expired',
     );
     expect(offer.state).toBe('accepted');
+  });
+
+  it('names a rejected offer Declined for the seller and the buyer', () => {
+    expect(offerStateLabel('rejected', '2026-09-13T00:00:00.000Z')).toBe('Declined');
+    expect(offerStateLabel('withdrawn', '2026-09-13T00:00:00.000Z')).toBe('withdrawn');
+  });
+
+  it('hides expiry once an offer is declined, accepted, withdrawn, expired, or converted', () => {
+    expect(offerIsOpen('pending')).toBe(true);
+    expect(offerIsOpen('countered')).toBe(true);
+    for (const state of ['accepted', 'rejected', 'withdrawn', 'expired', 'converted'] as const) {
+      expect(offerIsOpen(state)).toBe(false);
+    }
   });
 
   it('parses listing references into the listing route parts', () => {

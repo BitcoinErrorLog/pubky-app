@@ -85,6 +85,8 @@ export function useMarketplaceOffers() {
       await refresh();
       if (kind === 'offer.accept') {
         toast({ title: 'Offer accepted — the buyer has 30 minutes to complete checkout.' });
+      } else if (kind === 'offer.reject') {
+        toast({ title: 'Offer declined.' });
       }
       return true;
     } catch (actionError) {
