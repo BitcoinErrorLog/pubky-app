@@ -69,8 +69,16 @@ describe('unlimited stock', () => {
     expect(listingStockRefusal({ fulfillmentMethods: ['digital'], variants: variants(cap) })).toBeNull();
     // `['physical', 'digital']` without `shipping` derives to digital-only.
     expect(listingStockRefusal({ fulfillmentMethods: ['physical', 'digital'], variants: variants(cap) })).toBeNull();
+    // A Locks listing is judged by what it publishes: a digital reveal holds no physical stock, a shipped item does.
     expect(
       listingStockRefusal({ fulfillmentMethods: ['digital'], digitalLock: {}, variants: variants(cap) }),
     ).toBeNull();
+    expect(
+      listingStockRefusal({
+        fulfillmentMethods: ['physical', 'shipping', 'digital'],
+        digitalLock: {},
+        variants: variants(cap),
+      }),
+    ).toBe(UNLIMITED_STOCK_RESERVED_MESSAGE);
   });
 });

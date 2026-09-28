@@ -46,14 +46,14 @@ export const UNLIMITED_STOCK_REFUSAL = 'unlimited_stock_on_physical_listing';
  * about to write or register: a listing that ships or offers pickup cannot
  * carry a variant at the unlimited cap, because the cap is how Unlimited
  * digital stock is stored and would otherwise sell as a million physical
- * units. Digital-only listings may hold it. A Locks listing sells a digital
- * reveal (the service registers it as shipping only for its own derivation),
- * so it is not physical stock. Returns the seller-facing refusal, or null.
+ * units. Digital-only listings may hold it. The published methods decide,
+ * as the buyer sees them: a Locks listing that publishes only `digital` is
+ * not physical stock, even though the service registers it as shipping.
+ * Returns the seller-facing refusal, or null.
  */
 export function listingStockRefusal(
   record: UnlimitedStockRecord & { variants: readonly { quantity: number }[] },
 ): string | null {
-  if (record.digitalLock !== undefined) return null;
   const methods = commerceListingFulfillmentMethods(record.fulfillmentMethods);
   if (!methods.some((method) => method === 'shipping' || method === 'pickup')) return null;
   return record.variants.some((variant) => variant.quantity === COMMERCE_LISTING_MAX_QUANTITY)
