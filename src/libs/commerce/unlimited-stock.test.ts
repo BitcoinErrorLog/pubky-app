@@ -5,7 +5,9 @@ import {
   formatListingStock,
   formatStockQuantity,
   isUnlimitedStock,
+  listingStockRefusal,
   UNLIMITED_STOCK_LABEL,
+  UNLIMITED_STOCK_RESERVED_MESSAGE,
 } from './unlimited-stock';
 
 const digital = { fulfillmentMethods: ['digital' as const] };
@@ -47,5 +49,28 @@ describe('unlimited stock', () => {
         variants: [{ quantity: 3 }, { quantity: 4 }],
       }),
     ).toBe('7');
+  });
+
+  it('refuses the cap on any listing that ships or offers pickup, and nowhere else', () => {
+    const variants = (...quantities: number[]) => quantities.map((quantity) => ({ quantity }));
+    for (const fulfillmentMethods of [
+      ['physical'],
+      ['shipping'],
+      ['pickup'],
+      ['physical', 'shipping', 'pickup'],
+      ['physical', 'shipping', 'digital'],
+      ['pickup', 'digital'],
+    ] as const) {
+      expect(listingStockRefusal({ fulfillmentMethods, variants: variants(3, cap) })).toBe(
+        UNLIMITED_STOCK_RESERVED_MESSAGE,
+      );
+      expect(listingStockRefusal({ fulfillmentMethods, variants: variants(cap - 1) })).toBeNull();
+    }
+    expect(listingStockRefusal({ fulfillmentMethods: ['digital'], variants: variants(cap) })).toBeNull();
+    // `['physical', 'digital']` without `shipping` derives to digital-only.
+    expect(listingStockRefusal({ fulfillmentMethods: ['physical', 'digital'], variants: variants(cap) })).toBeNull();
+    expect(
+      listingStockRefusal({ fulfillmentMethods: ['digital'], digitalLock: {}, variants: variants(cap) }),
+    ).toBeNull();
   });
 });

@@ -742,17 +742,9 @@ export function buildPackageRecord(
 }
 
 export function buildListingVariants(
-  data: Pick<CreateMarketplaceListingData, 'variants' | 'currency' | 'fulfillment'>,
+  data: Pick<CreateMarketplaceListingData, 'variants' | 'currency'>,
   media: ListingMediaRecord[],
 ): Array<Record<string, unknown>> {
-  // The schema refuses these first; this keeps any other route to the record
-  // from publishing the unlimited cap as physical stock.
-  if (
-    data.fulfillment !== 'digital' &&
-    data.variants.some((variant) => variant.unlimited || isUnlimitedStockSentinel(variant.quantity))
-  ) {
-    throw new Error('unlimited-stock-on-physical-listing');
-  }
   const asset: CommerceAsset = assetForListingCurrency(data.currency);
   return data.variants.map((variant, index) => ({
     id: `variant_${index + 1}`,

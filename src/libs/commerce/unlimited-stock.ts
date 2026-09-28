@@ -1,5 +1,8 @@
 import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-records';
+import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 
 export const UNLIMITED_STOCK_LABEL = 'Unlimited';
 
@@ -33,6 +36,43 @@ type StockVariant = { quantity: number; enabled?: boolean };
 export function isUnlimitedStock(record: UnlimitedStockRecord, quantity: number): boolean {
   const methods = commerceListingFulfillmentMethods(record.fulfillmentMethods, record.digitalLock !== undefined);
   return methods.length === 1 && methods[0] === 'digital' && quantity === COMMERCE_LISTING_MAX_QUANTITY;
+}
+
+/** The refusal reason the Shop and the service use for the rule below. */
+export const UNLIMITED_STOCK_REFUSAL = 'unlimited_stock_on_physical_listing';
+
+/**
+ * The publish rule every Shop publisher applies to the listing record it is
+ * about to write or register: a listing that ships or offers pickup cannot
+ * carry a variant at the unlimited cap, because the cap is how Unlimited
+ * digital stock is stored and would otherwise sell as a million physical
+ * units. Digital-only listings may hold it. A Locks listing sells a digital
+ * reveal (the service registers it as shipping only for its own derivation),
+ * so it is not physical stock. Returns the seller-facing refusal, or null.
+ */
+export function listingStockRefusal(
+  record: UnlimitedStockRecord & { variants: readonly { quantity: number }[] },
+): string | null {
+  if (record.digitalLock !== undefined) return null;
+  const methods = commerceListingFulfillmentMethods(record.fulfillmentMethods);
+  if (!methods.some((method) => method === 'shipping' || method === 'pickup')) return null;
+  return record.variants.some((variant) => variant.quantity === COMMERCE_LISTING_MAX_QUANTITY)
+    ? UNLIMITED_STOCK_RESERVED_MESSAGE
+    : null;
+}
+
+/** Throws the refusal from `listingStockRefusal`, before anything is written or sent. */
+export function assertPublishableListingStock(
+  record: UnlimitedStockRecord & { variants: readonly { quantity: number }[] },
+  operation: string,
+): void {
+  const refusal = listingStockRefusal(record);
+  if (refusal === null) return;
+  throw Err.validation(ValidationErrorCode.INVALID_INPUT, refusal, {
+    service: ErrorService.Local,
+    operation,
+    context: { refusal: UNLIMITED_STOCK_REFUSAL },
+  });
 }
 
 /**

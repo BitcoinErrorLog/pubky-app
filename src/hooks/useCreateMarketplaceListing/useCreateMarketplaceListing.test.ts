@@ -799,49 +799,13 @@ describe('buildListingVariants', () => {
     const media = [] as Parameters<typeof buildListingVariants>[1];
     const base = { sku: '', size: '', color: '', style: '', priceOverride: '' };
     expect(
-      buildListingVariants(
-        { currency: 'USD', fulfillment: 'digital', variants: [{ ...base, quantity: '3', unlimited: true }] },
-        media,
-      )[0].quantity,
+      buildListingVariants({ currency: 'USD', variants: [{ ...base, quantity: '3', unlimited: true }] }, media)[0]
+        .quantity,
     ).toBe(COMMERCE_LISTING_MAX_QUANTITY);
     expect(
-      buildListingVariants(
-        { currency: 'USD', fulfillment: 'digital', variants: [{ ...base, quantity: '4', unlimited: false }] },
-        media,
-      )[0].quantity,
+      buildListingVariants({ currency: 'USD', variants: [{ ...base, quantity: '4', unlimited: false }] }, media)[0]
+        .quantity,
     ).toBe(4);
-  });
-
-  it('refuses to write the unlimited cap on a listing that ships or offers pickup, however it was entered', () => {
-    const media = [] as Parameters<typeof buildListingVariants>[1];
-    const base = { sku: '', size: '', color: '', style: '', priceOverride: '' };
-    const cap = String(COMMERCE_LISTING_MAX_QUANTITY);
-    for (const fulfillment of ['shipping', 'pickup_and_digital', 'shipping_and_digital'] as const) {
-      expect(() =>
-        buildListingVariants(
-          { currency: 'USD', fulfillment, variants: [{ ...base, quantity: cap, unlimited: false }] },
-          media,
-        ),
-      ).toThrow('unlimited-stock-on-physical-listing');
-      expect(() =>
-        buildListingVariants(
-          { currency: 'USD', fulfillment, variants: [{ ...base, quantity: '', unlimited: true }] },
-          media,
-        ),
-      ).toThrow('unlimited-stock-on-physical-listing');
-      expect(
-        buildListingVariants(
-          { currency: 'USD', fulfillment, variants: [{ ...base, quantity: '3', unlimited: false }] },
-          media,
-        )[0].quantity,
-      ).toBe(3);
-    }
-    expect(
-      buildListingVariants(
-        { currency: 'USD', fulfillment: 'digital', variants: [{ ...base, quantity: cap, unlimited: false }] },
-        media,
-      )[0].quantity,
-    ).toBe(COMMERCE_LISTING_MAX_QUANTITY);
   });
 });
 
