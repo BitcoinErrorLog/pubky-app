@@ -17,6 +17,15 @@ const fixtures = vi.hoisted(async () => {
     pickupOrder: createOrderFixture('paid', { fulfillment: 'pickup' }),
     pendingShippingOrder: createOrderFixture('pending_payment', { fulfillment: 'shipping' }),
     returnReceivedOrder: createOrderFixture('return_received'),
+    bitcoinRefundOrder: createOrderFixture('return_received', {
+      paymentMethod: 'bitcoin',
+      paykitTotalSats: 1_255,
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+      total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+    }),
   };
 });
 
@@ -105,6 +114,25 @@ describe('Marketplace order action dialogs — visual regression', () => {
     );
     await openDialog(screen.getByRole('button', { name: 'Record refund' }));
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-order-refund-open-desktop');
+  });
+
+  it('renders the open Bitcoin refund dialog with the payment-code equation', async () => {
+    const { bitcoinRefundOrder } = await fixtures;
+
+    const screen = await renderForVRT(
+      <ActionsHarness>
+        <MarketplaceOrderActions
+          order={bitcoinRefundOrder}
+          isBuyer={false}
+          canEditReview={false}
+          actOnOrder={async () => false}
+        />
+      </ActionsHarness>,
+      { viewport: VRT_VIEWPORT_DESKTOP },
+    );
+    await openDialog(screen.getByRole('button', { name: 'Record refund' }));
+    await expect.element(screen.getByLabelText('Amount (₿)')).toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dialog-order-refund-bitcoin-desktop');
   });
 
   it('renders the open pickup cancellation dialog', async () => {

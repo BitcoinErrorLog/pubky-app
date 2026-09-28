@@ -37,6 +37,28 @@ describe('refund copy', () => {
     expect(refundRecordLine({ state: 'paid', total })).toBeNull();
   });
 
+  it('puts the payment-code equation on a Bitcoin refund record', () => {
+    const bitcoin = {
+      paymentMethod: 'bitcoin' as const,
+      paykitTotalSats: 1_255,
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+      total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+    };
+    const equation = 'Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255';
+    expect(
+      refundRecordLine({ state: 'refunded_external', ...bitcoin, externalRefund: refund(1_255) }),
+    ).toBe(`Refunded in full (${equation}). Reference: 9RF12345AB678901C`);
+    expect(refundRecordLine({ state: 'paid', ...bitcoin, externalRefund: refund(500) })).toBe(
+      `Refunded ₿500 of ₿1,255. ${equation}. Reference: 9RF12345AB678901C`,
+    );
+    expect(refundStateLabel({ state: 'paid', ...bitcoin, externalRefund: refund(500) })).toBe(
+      'Refunded ₿500 of ₿1,255',
+    );
+  });
+
   it('lists a reversal, a cancelled reversal, and each held refund notice', () => {
     expect(refundOrderNotices({ state: 'paid', total })).toEqual([]);
     expect(

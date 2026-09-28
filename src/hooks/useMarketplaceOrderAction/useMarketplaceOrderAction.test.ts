@@ -179,6 +179,35 @@ describe('useMarketplaceOrderAction refund', () => {
     });
   });
 
+  it('records a Bitcoin refund as integer satoshis of the payable', async () => {
+    const order = createOrderFixture('return_received', {
+      paymentMethod: 'bitcoin',
+      paykitTotalSats: 1_255,
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+      total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+    });
+    const actOnOrder = vi.fn(async () => true);
+    const { result } = renderHook(() => useMarketplaceOrderAction(order, actOnOrder));
+
+    act(() => {
+      result.current.setAction('refund', { transactionId: 'txid-canary-refund' });
+    });
+    expect(result.current.form.getValues('amount')).toBe('1255');
+    let succeeded = false;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(true);
+    expect(actOnOrder).toHaveBeenCalledWith(order, 'refund.record_external', {
+      amountMinor: 1_255,
+      transactionId: 'txid-canary-refund',
+    });
+  });
+
   it('still refuses a zero refund when PayPal has refunded nothing', async () => {
     const actOnOrder = vi.fn(async () => true);
     const { result } = renderHook(() => useMarketplaceOrderAction(paypalOrder, actOnOrder));

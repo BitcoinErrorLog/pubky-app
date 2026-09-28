@@ -35,13 +35,12 @@ import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplac
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
 import { BITCOIN_PAYMENT_CODE_CHECKOUT_NOTE } from '@/libs/commerce/bitcoin-payment-code';
+import { buyerCheckoutProgressCopy } from '@/libs/commerce/bitcoin-buyer-status';
 import {
-  buyerCheckoutStateLabel,
   getMarketplaceCheckoutRoute,
   intersectPaymentMethods,
   isPaidOrLaterState,
   readCheckoutHashOrderId,
-  reservedWhileYouPayCopy,
 } from '@/libs/commerce/checkout-phase';
 import { DELIVERY_EMAIL_MAX_CHARS, DIGITAL_CHECKOUT_COPY, digitalCheckoutLineLabel } from '@/libs/commerce/digital';
 import { marketplaceOfferCheckoutFailureMessage } from '@/libs/commerce/failure-messages';
@@ -282,12 +281,7 @@ function MarketplaceCartCheckout() {
   const focusedPaying = orders.orders.filter((view) => targetPayingIds.includes(view.order.id));
   const showPaying = targetPayingIds.length > 0;
   const payingOrder = focusedPaying[0]?.order;
-  const holdCopy =
-    payingOrder && payingOrder.paymentMethod
-      ? reservedWhileYouPayCopy(payingOrder.holdExpiresAt, nowMs)
-      : payingOrder
-        ? buyerCheckoutStateLabel(payingOrder)
-        : null;
+  const holdCopy = payingOrder ? buyerCheckoutProgressCopy(payingOrder, nowMs) : null;
 
   useEffect(() => {
     if (!showPaying) return;

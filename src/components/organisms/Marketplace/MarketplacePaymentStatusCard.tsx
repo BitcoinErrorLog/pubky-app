@@ -28,6 +28,15 @@ import {
   useMarketplaceSellerPaymentReviewForm,
 } from '@/hooks/useMarketplaceSellerPaymentReview/useMarketplaceSellerPaymentReviewForm';
 import {
+  BITCOIN_WALLET_DELIVERED_COPY,
+  BITCOIN_WALLET_WAITING_COPY,
+  buyerBitcoinWalletCopy,
+  PAYMENT_CONFIRMED_REVIEW_COPY,
+  PAYMENT_SEEN_WAITING_COPY,
+  sellerBitcoinConfirmPrompt,
+  sellerConfirmsByCopy,
+} from '@/libs/commerce/bitcoin-buyer-status';
+import {
   CHECKOUT_HOLD_COPY,
   holderBoundCopy,
   holderUnboundCopy,
@@ -266,9 +275,10 @@ export function MarketplacePaymentStatusCard({
           </Typography>
         )}
       {visibleStatus === 'manual_review' && !refundRequired && (
-        <Typography as="p" className="text-sm text-muted-foreground">
-          A verified event arrived outside the normal flow (for example after the payment window expired), so the seller
-          must resolve this order manually. No funds are held by this marketplace.
+        <Typography as="p" className="text-sm text-muted-foreground" data-testid="payment-manual-review-copy">
+          {isBuyer && order.paymentMethod === 'bitcoin'
+            ? PAYMENT_CONFIRMED_REVIEW_COPY
+            : 'A verified event arrived outside the normal flow (for example after the payment window expired), so the seller must resolve this order manually. No funds are held by this marketplace.'}
         </Typography>
       )}
 
@@ -276,10 +286,10 @@ export function MarketplacePaymentStatusCard({
         isSeller &&
         order.paymentMethod === 'bitcoin' &&
         payment.adapter === 'paykit' &&
-        order.paykitRequestState === 'awaiting_seller_confirmation' &&
-        order.paykitObservation && (
+        order.paykitRequestState === 'awaiting_seller_confirmation' && (
           <SellerBitcoinConfirmationReview
-            observation={order.paykitObservation}
+            prompt={sellerBitcoinConfirmPrompt(order)}
+            observation={order.paykitObservation ?? null}
             deadline={order.paykitSellerConfirmationDeadline}
             form={sellerReview.confirmForm}
             isSubmitting={sellerReview.isSubmitting}
@@ -428,25 +438,9 @@ export function MarketplacePaymentStatusCard({
         </div>
       )}
 
-      {/* Bound bitcoin: Paykit delivers the request to the buyer's wallet; the service confirms independently. */}
+      {/* Bound bitcoin: the wallet instructions stay up only until the payment is seen. */}
       {usesMethodFlow && isBuyer && order.paymentMethod === 'bitcoin' && (
-        <div className="grid gap-2">
-          <Typography as="p" className="text-sm text-muted-foreground">
-            {holderBoundCopy(order.holdExpiresAt)}
-          </Typography>
-          {order.paykitDeliveryState === 'failed' ? (
-            <Typography as="p" role="alert" className="text-sm text-amber-300" data-testid="paykit-delivery-failed">
-              {PAYKIT_DELIVERY_FAILED_COPY}
-            </Typography>
-          ) : (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="paykit-delivery-status">
-              <LoaderCircle className="size-4 animate-spin" />
-              {order.paykitDeliveryState === 'delivered'
-                ? 'Delivered to your wallet. Open Bitkit to pay. This page updates once the marketplace independently verifies the payment on-chain.'
-                : 'Waiting for your wallet. Keep Bitkit open so it can receive the payment request.'}
-            </div>
-          )}
-        </div>
+        <BuyerBitcoinPaymentProgress order={order} payment={payment} />
       )}
 
       {/* Bound paypal: hosted checkout; PayPal's verified notification pays
@@ -629,7 +623,50 @@ export function MarketplacePaymentStatusCard({
   );
 }
 
+function BuyerBitcoinPaymentProgress({ order, payment }: { order: MarketplaceOrder; payment: MarketplacePayment }) {
+  const progress = buyerBitcoinWalletCopy(order, payment);
+  if (progress.kind === 'review') {
+    return (
+      <Typography as="p" className="text-sm text-muted-foreground" data-testid="bitcoin-payment-review-status">
+        {progress.text}
+      </Typography>
+    );
+  }
+  if (progress.kind === 'seen') {
+    return (
+      <div className="grid gap-2" data-testid="bitcoin-payment-seen">
+        <Typography as="p" className="text-sm text-muted-foreground" data-testid="bitcoin-seller-confirms-by">
+          {sellerConfirmsByCopy(order.paykitSellerConfirmationDeadline ?? order.holdExpiresAt)}
+        </Typography>
+        <Typography as="p" className="text-sm text-muted-foreground">
+          {PAYMENT_SEEN_WAITING_COPY}
+        </Typography>
+      </div>
+    );
+  }
+  return (
+    <div className="grid gap-2">
+      <Typography as="p" className="text-sm text-muted-foreground">
+        {holderBoundCopy(order.holdExpiresAt)}
+      </Typography>
+      {order.paykitDeliveryState === 'failed' ? (
+        <Typography as="p" role="alert" className="text-sm text-amber-300" data-testid="paykit-delivery-failed">
+          {PAYKIT_DELIVERY_FAILED_COPY}
+        </Typography>
+      ) : (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="paykit-delivery-status">
+          <LoaderCircle className="size-4 animate-spin" />
+          {progress.text === BITCOIN_WALLET_DELIVERED_COPY
+            ? BITCOIN_WALLET_DELIVERED_COPY
+            : BITCOIN_WALLET_WAITING_COPY}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SellerBitcoinConfirmationReview({
+  prompt,
   observation,
   deadline,
   form,
@@ -637,7 +674,8 @@ function SellerBitcoinConfirmationReview({
   error,
   onConfirm,
 }: {
-  observation: NonNullable<MarketplaceOrder['paykitObservation']>;
+  prompt: string;
+  observation: MarketplaceOrder['paykitObservation'] | null;
   deadline?: string | null;
   form: UseFormReturn<SellerPaymentConfirmationForm, unknown, SellerPaymentConfirmationSubmission>;
   isSubmitting: boolean;
@@ -649,21 +687,28 @@ function SellerBitcoinConfirmationReview({
       className="grid gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4"
       aria-labelledby="bitcoin-review-title"
     >
-      <Typography as="h3" id="bitcoin-review-title" className="font-semibold">
-        Review Bitcoin payment
+      <Typography
+        as="h3"
+        id="bitcoin-review-title"
+        className="font-semibold"
+        data-testid="seller-bitcoin-confirm-prompt"
+      >
+        {prompt}
       </Typography>
       <Typography as="p" className="text-sm text-muted-foreground">
         Confirm these service-observed facts before attesting that you received the payment.
       </Typography>
-      <dl className="grid gap-2 text-sm sm:grid-cols-2">
-        <ReviewFact label="Transaction ID" value={observation.txid} />
-        <ReviewFact label="Observed sats" value={observation.observedSats} />
-        <ReviewFact label="Confirmations" value={observation.confirmations} />
-        <ReviewFact label="Amount matched" value={formatBooleanFact(observation.amountMatched)} />
-        <ReviewFact label="Payment disappeared" value={formatBooleanFact(observation.disappeared)} />
-        <ReviewFact label="Observed at" value={observation.observedAt} />
-        <ReviewFact label="Seller confirmation deadline" value={deadline ?? 'Not provided'} />
-      </dl>
+      {observation && (
+        <dl className="grid gap-2 text-sm sm:grid-cols-2">
+          <ReviewFact label="Transaction ID" value={observation.txid} />
+          <ReviewFact label="Observed sats" value={observation.observedSats} />
+          <ReviewFact label="Confirmations" value={observation.confirmations} />
+          <ReviewFact label="Amount matched" value={formatBooleanFact(observation.amountMatched)} />
+          <ReviewFact label="Payment disappeared" value={formatBooleanFact(observation.disappeared)} />
+          <ReviewFact label="Observed at" value={observation.observedAt} />
+          <ReviewFact label="Seller confirmation deadline" value={deadline ?? 'Not provided'} />
+        </dl>
+      )}
       <Controller
         control={form.control}
         name="reason"
@@ -723,7 +768,12 @@ function SellerBitcoinResolutionReview({
       className="grid gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4"
       aria-labelledby="bitcoin-resolution-title"
     >
-      <Typography as="h3" id="bitcoin-resolution-title" className="font-semibold">
+      <Typography
+        as="h3"
+        id="bitcoin-resolution-title"
+        className="font-semibold"
+        data-testid="seller-bitcoin-resolve-prompt"
+      >
         Resolve Bitcoin payment review
       </Typography>
       <Typography as="p" className="text-sm text-muted-foreground">

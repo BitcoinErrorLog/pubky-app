@@ -1,11 +1,23 @@
+import {
+  bitcoinPaymentBreakdown,
+  formatBitcoinAmountBreakdown,
+  formatBitcoinAwareMoney,
+  type BitcoinPaymentOrder,
+} from '@/libs/commerce/bitcoin-payment-code';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
-import { formatCommerceMoney } from '@/libs/commerce/format';
 import { partialRefundLabel } from '@/libs/commerce/partial-refund';
 import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
 type RefundCopyOrder = {
   state: string;
   total: CommerceMoney;
+  paymentMethod?: BitcoinPaymentOrder['paymentMethod'];
+  subtotal?: CommerceMoney;
+  shipping?: CommerceMoney;
+  merchandiseTotal?: CommerceMoney | null;
+  bitcoinPayable?: CommerceMoney | null;
+  paykitTotalSats?: number | null;
+  bitcoinQuote?: BitcoinPaymentOrder['bitcoinQuote'];
   externalRefund?: { amountMinor: number; transactionId: string } | null;
   paymentReversedAt?: string | null;
   paymentReversalCancelledAt?: string | null;
@@ -38,8 +50,25 @@ export function refundRecordLine(order: RefundCopyOrder): string | null {
   const refund = order.externalRefund;
   if (!refund) return null;
   const partial = partialRefundLabel(order);
-  const amount = partial ?? `Refunded in full (${formatCommerceMoney(order.total)})`;
+  const equation = refundEquation(order);
+  const amount = partial ?? `Refunded in full (${equation ?? formatBitcoinAwareMoney(order.total)})`;
+  if (partial && equation) return `${partial}. ${equation}. Reference: ${refund.transactionId}`;
   return `${amount}. Reference: ${refund.transactionId}`;
+}
+
+function refundEquation(order: RefundCopyOrder): string | null {
+  if (!order.subtotal || !order.shipping) return null;
+  const breakdown = bitcoinPaymentBreakdown({
+    paymentMethod: order.paymentMethod,
+    subtotal: order.subtotal,
+    shipping: order.shipping,
+    total: order.total,
+    merchandiseTotal: order.merchandiseTotal,
+    bitcoinPayable: order.bitcoinPayable,
+    paykitTotalSats: order.paykitTotalSats,
+    bitcoinQuote: order.bitcoinQuote,
+  });
+  return breakdown ? formatBitcoinAmountBreakdown(breakdown) : null;
 }
 
 /** Plain lines for PayPal reversals and held refund notices, in display order. */

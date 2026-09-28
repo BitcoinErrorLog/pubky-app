@@ -305,6 +305,32 @@ describe('Marketplace payment status card — visual regression', () => {
     view.locks.enabled = true;
   });
 
+  it('renders a seen Bitcoin payment without telling the buyer to pay again', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const deadline = '2026-09-29T10:56:41.980Z';
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      deployEnv: 'staging',
+      orderOverrides: {
+        paymentMethod: 'bitcoin',
+        paykitRequestState: 'awaiting_seller_confirmation',
+        paykitDeliveryState: 'delivered',
+        paykitSellerConfirmationDeadline: deadline,
+        holdExpiresAt: deadline,
+        holdSource: 'bind',
+        paykitTotalSats: 1_303,
+        merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        bitcoinPayable: { amountMinor: 1_303, currency: 'SAT', exponent: 0 },
+        subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+        total: { amountMinor: 1_303, currency: 'BTC', exponent: 8 },
+      },
+    });
+    await expect.element(screen.getByText(/Payment seen/)).toBeInTheDocument();
+    await expect.element(screen.getByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-bitcoin-seen-desktop');
+    view.locks.enabled = true;
+  });
+
   it('renders a bound card order without offering card checkout at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
@@ -393,7 +419,7 @@ describe('Marketplace payment status card — visual regression', () => {
 
   it('renders seller-observed Bitcoin facts and confirmation CTA', async () => {
     const screen = await renderCapturedCard('seller_awaiting_confirmation', false);
-    await expect.element(screen.getByText('Review Bitcoin payment')).toBeInTheDocument();
+    await expect.element(screen.getByText(/Confirm you received/)).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
       'payment-status-seller-awaiting-review-desktop',
     );

@@ -131,6 +131,35 @@ const fixtures = vi.hoisted(async () => {
     };
   };
 
+  const bitcoinRefundedView = () => {
+    const order = createOrderFixture('refunded_external', {
+      paymentMethod: 'bitcoin',
+      paykitTotalSats: 1_255,
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+      total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+      externalRefund: {
+        amountMinor: 1_255,
+        transactionId: 'txid-canary-refund',
+        recordedAt: '2026-09-24T18:00:00.000Z',
+      },
+      lines: [
+        {
+          listingAggregateId: `listing:${ORDER_FIXTURE_BUYER}_refunded_bitcoin`,
+          listingRevision: 1,
+          contentHash: 'a'.repeat(64),
+          title: 'Handmade leather boots',
+          quantity: 1,
+          unitPrice: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        },
+      ],
+    });
+    return { order, payment: createPaymentFixture('confirmed', { adapter: 'paykit' }), receipt: null };
+  };
+
   const deliveryAssumedView = () => ({
     order: createOrderFixture('delivered', {
       id: '018f47d2-6a27-7c23-a49d-000000000703',
@@ -325,6 +354,7 @@ const fixtures = vi.hoisted(async () => {
     reviewedInWindow: [reviewedOrderView(23)],
     reviewedOutOfWindow: [reviewedOrderView(25)],
     trackableShipped: [trackableShippedView()],
+    bitcoinRefunded: [bitcoinRefundedView()],
     deliveryAssumed: [deliveryAssumedView()],
     digitalDelivered: [digitalDeliveredView()],
     digitalToDeliver: [digitalToDeliverView()],
@@ -447,6 +477,17 @@ describe('Marketplace orders — visual regression', () => {
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await screen.getByText('Receipt', { exact: true }).click();
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-shipped-track-link-desktop');
+  });
+
+  it('renders a refunded Bitcoin order with the payment-code equation', async () => {
+    const { bitcoinRefunded } = await fixtures;
+    ordersState.orders = bitcoinRefunded;
+    ordersState.isLoading = false;
+    ordersState.error = null;
+
+    const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect.element(screen.getByText(/Payment code/)).toBeVisible();
+    await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-bitcoin-refund-desktop');
   });
 
   it('renders an assumed-delivery order at desktop viewport', async () => {

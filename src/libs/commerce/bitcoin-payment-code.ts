@@ -48,6 +48,30 @@ export function formatBitcoinAwareMoney(money: CommerceMoney): string {
   return sats === null ? formatCommerceMoney(money) : formatBitcoinAmount(sats);
 }
 
+export type OrderAmountEntry = {
+  amountMinor: number;
+  exponent: number;
+  unitLabel: string;
+};
+
+/**
+ * The amount a refund or return form records. A Bitcoin order is integer
+ * satoshis (the payable, including the payment code). Any other rail keeps
+ * the order total's own currency and exponent.
+ */
+export function orderAmountEntry(order: BitcoinPaymentOrder & { total: CommerceMoney }): OrderAmountEntry {
+  const breakdown = bitcoinPaymentBreakdown(order);
+  if (breakdown) {
+    const sats = satoshiCount(breakdown.payable);
+    if (sats !== null) return { amountMinor: sats, exponent: 0, unitLabel: '₿' };
+  }
+  if (order.paymentMethod === 'bitcoin') {
+    const sats = satoshiCount(order.total);
+    if (sats !== null) return { amountMinor: sats, exponent: 0, unitLabel: '₿' };
+  }
+  return { amountMinor: order.total.amountMinor, exponent: order.total.exponent, unitLabel: order.total.currency };
+}
+
 export function formatBitcoinAmountBreakdown(breakdown: BitcoinPaymentBreakdown): string {
   return `Items ${formatBitcoinAwareMoney(breakdown.items)} · Shipping ${formatBitcoinAwareMoney(breakdown.shipping)} · Payment code ${formatBitcoinAwareMoney(breakdown.paymentCode)} = Total ${formatBitcoinAwareMoney(breakdown.payable)}`;
 }

@@ -6,6 +6,7 @@ import {
   BITCOIN_PAYMENT_CODE_CHECKOUT_NOTE,
   bitcoinPaymentBreakdown,
   formatBitcoinAmountBreakdown,
+  orderAmountEntry,
 } from './bitcoin-payment-code';
 import { toCamelCaseWire } from './wire-casing';
 
@@ -92,6 +93,7 @@ describe('bitcoin payment code', () => {
     expect(breakdown?.paymentCode).toEqual({ amountMinor: 255, currency: 'BTC', exponent: 8 });
     expect(breakdown?.payable).toEqual({ amountMinor: 1_255, currency: 'BTC', exponent: 8 });
     expect(formatBitcoinAmountBreakdown(breakdown!)).toBe(CANARY_EQUATION);
+    expect(orderAmountEntry(order)).toEqual({ amountMinor: 1_255, exponent: 0, unitLabel: '₿' });
     expect(breakdown!.items.amountMinor + breakdown!.shipping.amountMinor + breakdown!.paymentCode.amountMinor).toBe(
       breakdown!.payable.amountMinor,
     );

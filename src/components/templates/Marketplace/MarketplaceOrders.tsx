@@ -17,10 +17,16 @@ import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMark
 import { useMarkMarketplaceOrdersSeen } from '@/hooks/useMarkMarketplaceOrdersSeen/useMarkMarketplaceOrdersSeen';
 import { orderAnchorId, readOrderAnchorId } from '@/libs/commerce/activity-links';
 import { bitcoinPaymentBreakdown, formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
+import {
+  bitcoinPaymentHasBeenSeen,
+  buyerCheckoutBadgeLabel,
+  buyerCheckoutProgressCopy,
+  PAYMENT_SEEN_LABEL,
+  sellerBitcoinDecision,
+} from '@/libs/commerce/bitcoin-buyer-status';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
 import {
-  buyerCheckoutStateLabel,
   getMarketplaceCheckoutRoute,
   isAbandonedCheckout,
   isBuyerCheckoutInProgress,
@@ -29,7 +35,6 @@ import {
   isSellerPaidOrder,
   isSellerReservation,
   readCheckoutHashOrderId,
-  reservedWhileYouPayCopy,
   sellerReservationCopy,
   unlistedOrderStateLabel,
 } from '@/libs/commerce/checkout-phase';
@@ -260,15 +265,13 @@ export function MarketplaceOrders() {
                           {order.lines.map((line) => line.title).join(', ')}
                         </Typography>
                         <Typography as="p" className="text-sm text-muted-foreground">
-                          {order.paymentMethod
-                            ? reservedWhileYouPayCopy(order.holdExpiresAt)
-                            : buyerCheckoutStateLabel(order)}
+                          {buyerCheckoutProgressCopy(order)}
                         </Typography>
                         <MarketplaceOrderReference order={order} isBuyer />
                       </div>
                       <Button asChild className="rounded-full">
                         <Link href={getMarketplaceCheckoutRoute(order.id)} overrideDefaults>
-                          Continue checkout
+                          {bitcoinPaymentHasBeenSeen(order) ? 'View payment' : 'Continue checkout'}
                         </Link>
                       </Button>
                     </CardContent>
@@ -281,27 +284,40 @@ export function MarketplaceOrders() {
                 <Heading level={2} size="sm" className="text-xl font-semibold">
                   Reservations
                 </Heading>
-                {sellerReservations.map(({ order }) => (
-                  <Card key={order.id} className="border py-4">
-                    <CardContent className="grid gap-2 px-5">
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline" className="border-border/60 text-muted-foreground">
-                          Reservation
-                        </Badge>
-                        <Badge variant="secondary">Held</Badge>
-                      </div>
-                      {order.lines.map((line) => (
-                        <Typography key={line.listingAggregateId} as="p" className="font-semibold">
-                          {line.title} × {line.quantity}
+                {sellerReservations.map(({ order, payment }) => {
+                  const decision = sellerBitcoinDecision(order, payment);
+                  return (
+                    <Card key={order.id} className="border py-4">
+                      <CardContent className="grid gap-2 px-5">
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline" className="border-border/60 text-muted-foreground">
+                            Reservation
+                          </Badge>
+                          <Badge variant="secondary">{decision ? PAYMENT_SEEN_LABEL : 'Held'}</Badge>
+                        </div>
+                        {order.lines.map((line) => (
+                          <Typography key={line.listingAggregateId} as="p" className="font-semibold">
+                            {line.title} × {line.quantity}
+                          </Typography>
+                        ))}
+                        <Typography as="p" className="text-sm text-muted-foreground">
+                          {decision ? PAYMENT_SEEN_LABEL : sellerReservationCopy(order.holdExpiresAt)}
                         </Typography>
-                      ))}
-                      <Typography as="p" className="text-sm text-muted-foreground">
-                        {sellerReservationCopy(order.holdExpiresAt)}
-                      </Typography>
-                      <MarketplaceOrderReference order={order} isBuyer={false} />
-                    </CardContent>
-                  </Card>
-                ))}
+                        <MarketplaceOrderReference order={order} isBuyer={false} />
+                        {decision && (
+                          <MarketplacePaymentStatusCard
+                            order={order}
+                            payment={payment}
+                            isBuyer={false}
+                            adapterMode={adapterMode}
+                            advancePayment={advancePayment}
+                            onPaymentChanged={refresh}
+                          />
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
             {historyOrders.length > 0 && (
@@ -349,7 +365,7 @@ export function MarketplaceOrders() {
                               <Badge variant="secondary">
                                 {isPendingPaymentState(order.state)
                                   ? isBuyer
-                                    ? buyerCheckoutStateLabel(order)
+                                    ? buyerCheckoutBadgeLabel(order)
                                     : 'Held'
                                   : orderStateLabel(order)}
                               </Badge>
@@ -396,7 +412,7 @@ export function MarketplaceOrders() {
                             {order.state === 'pending_payment' && order.holdExpiresAt && (
                               <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                                 {isBuyer
-                                  ? reservedWhileYouPayCopy(order.holdExpiresAt)
+                                  ? buyerCheckoutProgressCopy(order)
                                   : sellerReservationCopy(order.holdExpiresAt)}
                               </Typography>
                             )}
