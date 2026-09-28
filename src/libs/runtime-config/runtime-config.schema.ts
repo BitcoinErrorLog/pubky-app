@@ -231,6 +231,7 @@ export const APP_RUNTIME_DEFAULTS = {
   marketplaceUrl: 'http://localhost:3100',
   locksUrl: 'http://localhost:3101',
   paykitSetupUrl: 'http://localhost:3102/setup',
+  paykitSetupCreatorParam: true,
   commerceAdapterMode: 'unavailable' as CommerceAdapterMode,
   commercePollIntervalMs: 2_000,
   singleApprovalSignIn: true,
@@ -322,6 +323,13 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
   marketplaceNexusUrl: urlValue.optional(),
   locksUrl: urlValue.default(APP_RUNTIME_DEFAULTS.locksUrl),
   paykitSetupUrl: urlValue.default(APP_RUNTIME_DEFAULTS.paykitSetupUrl),
+  /**
+   * Whether the Paykit `/setup` iframe URL carries `creator`. The
+   * BitcoinErrorLog paykit-server fork requires it; upstream
+   * pubky/paykit-server rejects every query parameter except `return_to`
+   * and `state`. Switch it together with `paykitSetupUrl`.
+   */
+  paykitSetupCreatorParam: z.boolean().default(APP_RUNTIME_DEFAULTS.paykitSetupCreatorParam),
   commerceAdapterMode: commerceAdapterModeValue.default(APP_RUNTIME_DEFAULTS.commerceAdapterMode),
   commercePollIntervalMs: positiveIntValue.default(APP_RUNTIME_DEFAULTS.commercePollIntervalMs),
   /**
@@ -413,6 +421,7 @@ export const runtimeEnvInputSchema = z
     marketplaceNexusUrl: optionalUrlFromString,
     locksUrl: optionalUrlFromString,
     paykitSetupUrl: optionalUrlFromString,
+    paykitSetupCreatorParam: optionalBooleanFromString,
     commerceAdapterMode: commerceAdapterModeValue.optional(),
     commercePollIntervalMs: optionalPositiveIntFromString,
     singleApprovalSignIn: optionalBooleanFromString,
@@ -502,6 +511,7 @@ export const runtimeEnvInputSchemaWithDefaults = z
     marketplaceNexusUrl: optionalUrlFromString,
     locksUrl: optionalUrlFromString,
     paykitSetupUrl: optionalUrlFromString,
+    paykitSetupCreatorParam: optionalBooleanFromString,
     commerceAdapterMode: commerceAdapterModeValue.optional(),
     commercePollIntervalMs: optionalPositiveIntFromString,
     singleApprovalSignIn: optionalBooleanFromString,
@@ -583,6 +593,7 @@ export const PUBKY_RUNTIME_ENV_NAMES: Record<keyof RuntimeConfig, string> = {
   marketplaceNexusUrl: 'PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL',
   locksUrl: 'PUBKY_RUNTIME_LOCKS_URL',
   paykitSetupUrl: 'PUBKY_RUNTIME_PAYKIT_SETUP_URL',
+  paykitSetupCreatorParam: 'PUBKY_RUNTIME_PAYKIT_SETUP_CREATOR_PARAM',
   commerceAdapterMode: 'PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE',
   commercePollIntervalMs: 'PUBKY_RUNTIME_COMMERCE_POLL_INTERVAL_MS',
   singleApprovalSignIn: 'PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN',

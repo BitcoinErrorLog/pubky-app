@@ -67,6 +67,11 @@ vi.mock('@/hooks/useMobileAuth/useMobileAuth', () => ({
   })),
 }));
 
+const grantSignUp = vi.hoisted(() => ({ available: false }));
+vi.mock('@/hooks/useGrantSignInAvailable/useGrantSignInAvailable', () => ({
+  useGrantSignInAvailable: () => grantSignUp.available,
+}));
+
 // Mock molecules used by ScanContent
 vi.mock('@/molecules/ButtonsNavigation/ButtonsNavigation', () => {
   return {
@@ -347,6 +352,28 @@ describe('ScanContent', () => {
     });
 
     expect(mockFetchUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a Bitkit sign-up QR beside Pubky Ring when grant sign-in is available', async () => {
+    grantSignUp.available = true;
+    try {
+      render(<ScanContent />);
+
+      expect(screen.getByTestId('sign-up-ring-option')).toHaveTextContent('Pubky Ring');
+      expect(screen.getByTestId('sign-up-bitkit-option')).toHaveTextContent('Bitkit');
+      expect(screen.getByTestId('sign-up-grant-button')).toHaveTextContent('Authorize with Bitkit');
+      expect(vi.mocked(useMobileAuth)).toHaveBeenCalledWith({ type: 'signup', inviteCode: 'A9KM-7MJP-ERM9' });
+      expect(vi.mocked(useMobileAuth)).toHaveBeenCalledWith({ type: 'signup-grant', inviteCode: 'A9KM-7MJP-ERM9' });
+    } finally {
+      grantSignUp.available = false;
+    }
+  });
+
+  it('keeps the Pubky Ring sign-up QR alone when grant sign-in is unavailable', async () => {
+    render(<ScanContent />);
+
+    expect(screen.queryByTestId('sign-up-bitkit-option')).not.toBeInTheDocument();
+    expect(vi.mocked(useMobileAuth)).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'signup-grant' }));
   });
 
   it('redirects to human onboarding when invite code is missing', async () => {

@@ -1,11 +1,15 @@
 import type { InventoryAdjustRequest } from '@bitcoinerrorlog/pubky-shop';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import type { CommerceListingRecord } from '@/libs/commerce/marketplace-records';
 import { buildMarketplaceListingAggregateId } from '@/libs/commerce/transaction-commands';
+import { isUnlimitedStock } from '@/libs/commerce/unlimited-stock';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { inventoryCapabilityCovers } from '@/services/marketplace/marketplace-inventory-grant';
-import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
+import {
+  type InventoryBearer,
+  MarketplaceInventorySessionService,
+} from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { MarketplaceShopClientService, PubkyShopError } from '@/services/marketplace/marketplace-shop-client';
 
@@ -23,6 +27,8 @@ export type InventoryBoardRow = {
   sold: number;
   total: number;
   serverRevision: number;
+  /** Set when the listing record itself is unlimited. Available may be lower while a hold reserves units. */
+  unlimited?: boolean;
   sync: 'synced' | 'missing';
   syncMessage?: string | null;
   recordStatus?: 'unavailable';
@@ -89,6 +95,26 @@ function dropIdFromRecord(record: Record<string, unknown> | null): string | null
 
 function recordStatusFromExport(entry: Record<string, unknown>): 'unavailable' | undefined {
   return entry.record_status === 'unavailable' ? 'unavailable' : undefined;
+}
+
+const EXPORT_FULFILLMENT_METHODS = ['physical', 'shipping', 'pickup', 'digital'] as const;
+
+function exportRecordIsUnlimited(record: Record<string, unknown> | null): boolean {
+  if (!record) return false;
+  const methods = Array.isArray(record.fulfillmentMethods)
+    ? record.fulfillmentMethods.filter(
+        (method): method is CommerceListingRecord['fulfillmentMethods'][number] =>
+          typeof method === 'string' && (EXPORT_FULFILLMENT_METHODS as readonly string[]).includes(method),
+      )
+    : [];
+  const variants = Array.isArray(record.variants) ? record.variants : [];
+  return variants.some((entry) => {
+    const object = asObject(entry);
+    const quantity = object ? asInt(object.quantity) : null;
+    return (
+      quantity !== null && isUnlimitedStock({ fulfillmentMethods: methods, digitalLock: record.digitalLock }, quantity)
+    );
+  });
 }
 
 export function planInventoryAdjust(input: {
@@ -188,8 +214,8 @@ export class CommerceInventoryApplication {
     if (!MarketplaceSessionService.getActiveSession()) {
       return { status: 'session-required' };
     }
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
-    if (!inventory || !inventoryCapabilityCovers(inventory.capabilities)) {
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(sellerPubky);
+    if (!inventory) {
       return { status: 'grant-needed' };
     }
 
@@ -202,7 +228,7 @@ export class CommerceInventoryApplication {
         cursor,
       });
       if (!page.ok) {
-        return this.boardError(page.error);
+        return this.boardError(page.error, inventory);
       }
       const listings = page.value.listings;
       if (!Array.isArray(listings)) {
@@ -215,6 +241,7 @@ export class CommerceInventoryApplication {
         const record = asObject(object.record);
         const listingId = asString(projection?.listing_id) ?? asString(record?.listingId);
         if (!listingId) continue;
+        const unlimited = exportRecordIsUnlimited(record);
         const aggregateId =
           asString(projection?.aggregate_id) ?? buildMarketplaceListingAggregateId(sellerPubky, listingId);
         const inventoryResult = await MarketplaceShopClientService.getInventoryProjection(client, aggregateId);
@@ -223,7 +250,7 @@ export class CommerceInventoryApplication {
             return { status: 'grant-needed' };
           }
           if (MarketplaceShopClientService.isSessionRejected(inventoryResult.error)) {
-            MarketplaceInventorySessionService.clearSession('rejected');
+            MarketplaceInventorySessionService.clearRejectedBearer(inventory);
             return { status: 'grant-needed' };
           }
           rows.push({
@@ -240,6 +267,7 @@ export class CommerceInventoryApplication {
             sold: asInt(projection?.sold_quantity) ?? 0,
             total: asInt(projection?.total_quantity) ?? 0,
             serverRevision: asInt(projection?.server_revision) ?? 0,
+            ...(unlimited ? { unlimited: true as const } : {}),
             sync: 'missing',
             ...(recordStatusFromExport(object) ? { recordStatus: 'unavailable' as const } : {}),
           });
@@ -260,6 +288,7 @@ export class CommerceInventoryApplication {
           sold: Number(stock.sold),
           total: Number(stock.total),
           serverRevision: Number(inventoryResult.value.server_revision),
+          ...(unlimited ? { unlimited: true as const } : {}),
           sync: 'synced',
           ...(recordStatusFromExport(object) ? { recordStatus: 'unavailable' as const } : {}),
         });
@@ -280,7 +309,7 @@ export class CommerceInventoryApplication {
     targetAvailable: number;
     idempotencyKey: string;
   }): Promise<InventorySetResult> {
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(input.sellerPubky);
     if (!inventory) {
       return { status: 'grant-needed' };
     }
@@ -301,7 +330,7 @@ export class CommerceInventoryApplication {
       const classified = classifyClientError(result.error);
       if (classified === 'grant-needed') {
         if (MarketplaceShopClientService.isSessionRejected(result.error)) {
-          MarketplaceInventorySessionService.clearSession('rejected');
+          MarketplaceInventorySessionService.clearRejectedBearer(inventory);
         }
         return { status: 'grant-needed' };
       }
@@ -309,7 +338,7 @@ export class CommerceInventoryApplication {
         return { status: 'revision_conflict' };
       }
       if (classified === 'session-required') {
-        MarketplaceInventorySessionService.clearSession('rejected');
+        MarketplaceInventorySessionService.clearRejectedBearer(inventory);
         return { status: 'grant-needed' };
       }
       return { status: 'error', message: result.error.message };
@@ -330,7 +359,7 @@ export class CommerceInventoryApplication {
   }
 
   static async retrySync(sellerPubky: string, listingId: string): Promise<InventoryRetryResult> {
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(sellerPubky);
     if (!inventory) return { status: 'grant-needed' };
     const client = MarketplaceShopClientService.createInventoryClient(inventory.token);
     const result = await MarketplaceShopClientService.syncMany(client, [
@@ -340,7 +369,7 @@ export class CommerceInventoryApplication {
       const classified = classifyClientError(result.error);
       if (classified === 'grant-needed' || classified === 'session-required') {
         if (MarketplaceShopClientService.isSessionRejected(result.error)) {
-          MarketplaceInventorySessionService.clearSession('rejected');
+          MarketplaceInventorySessionService.clearRejectedBearer(inventory);
         }
         return { status: 'grant-needed' };
       }
@@ -361,11 +390,11 @@ export class CommerceInventoryApplication {
     return { status: 'missing', listingId, message: match.message };
   }
 
-  private static boardError(error: PubkyShopError): InventoryBoardLoad {
+  private static boardError(error: PubkyShopError, bearer: InventoryBearer): InventoryBoardLoad {
     const classified = classifyClientError(error);
     if (classified === 'grant-needed') return { status: 'grant-needed' };
     if (classified === 'session-required') {
-      MarketplaceInventorySessionService.clearSession('rejected');
+      MarketplaceInventorySessionService.clearRejectedBearer(bearer);
       return { status: 'grant-needed' };
     }
     return { status: 'error', message: error.message };

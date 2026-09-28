@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommerceSellerReputationOverview } from '@/application/commerce/commerce';
 import { CAPABILITIES } from '@/config/app';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { CHECKOUT_HOLD_COPY } from '@/libs/commerce/checkout-hold';
 import { getMarketplaceOfferCheckoutRoute } from '@/libs/commerce/checkout-phase';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
@@ -811,6 +812,38 @@ describe('MarketplaceListing', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('shows Unlimited on a digital-only variant instead of the quantity cap', () => {
+    view.listing = toCommerceListingModel(
+      createCommerceListingFixture({
+        fulfillmentMethods: ['digital'],
+        package: undefined,
+        shippingOptions: [],
+        variants: [
+          {
+            id: 'variant_pdf',
+            options: { size: 'PDF' },
+            quantity: COMMERCE_LISTING_MAX_QUANTITY,
+            mediaIds: ['image_01'],
+            enabled: true,
+          },
+          {
+            id: 'variant_epub',
+            options: { size: 'EPUB' },
+            quantity: COMMERCE_LISTING_MAX_QUANTITY,
+            mediaIds: ['image_01'],
+            enabled: true,
+          },
+        ],
+      }),
+    );
+
+    renderListing();
+
+    const variant = screen.getByRole('combobox', { name: 'Choose listing variant' });
+    expect(variant).toHaveTextContent('Unlimited');
+    expect(variant).not.toHaveTextContent(String(COMMERCE_LISTING_MAX_QUANTITY));
+  });
+
   it('reveals the empty-caps reconnect card when a full-grant buyer places a bid without a marketplace session', async () => {
     view.hasFullHomeserverGrant = true;
     const user = userEvent.setup();
@@ -822,7 +855,7 @@ describe('MarketplaceListing', () => {
     expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
-    expect(screen.getByText('Approve purchases for this device.')).toBeInTheDocument();
+    expect(screen.getByText('Approve with Pubky Ring to connect the marketplace on this device.')).toBeInTheDocument();
     expect(screen.queryByText(/permission list/i)).not.toBeInTheDocument();
     expect(screen.queryByText(CAPABILITIES)).not.toBeInTheDocument();
   });

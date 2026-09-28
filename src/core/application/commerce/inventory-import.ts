@@ -18,7 +18,6 @@ import {
   type InventoryManifestStore,
   isManifestConflict,
 } from '@/services/marketplace/marketplace-import-store';
-import { inventoryCapabilityCovers } from '@/services/marketplace/marketplace-inventory-grant';
 import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import {
@@ -29,6 +28,7 @@ import {
   MarketplaceShopClientService,
   PubkyShopError,
   type SdkResult,
+  SHOPIFY_CSV_PRICE,
   type SyncManyEnvelope,
   type SyncManyListing,
 } from '@/services/marketplace/marketplace-shop-client';
@@ -143,8 +143,7 @@ export class CommerceInventoryImportApplication {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return { status: 'durable-unavailable' };
     if (!sellerPubky) return { status: 'unauthenticated' };
     if (!MarketplaceSessionService.getActiveSession()) return { status: 'session-required' };
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
-    if (!inventory || !inventoryCapabilityCovers(inventory.capabilities)) return { status: 'grant-needed' };
+    if (!MarketplaceInventorySessionService.getCoveringBearer(sellerPubky)) return { status: 'grant-needed' };
     return { status: 'ready' };
   }
 
@@ -153,13 +152,20 @@ export class CommerceInventoryImportApplication {
     return {
       sellerPubky,
       store,
-      planFile: overrides.planFile ?? MarketplaceShopClientService.planBrowserFile.bind(MarketplaceShopClientService),
+      planFile:
+        overrides.planFile ??
+        ((file, manifestStore, currentItems) =>
+          MarketplaceShopClientService.planBrowserFile(file, manifestStore, currentItems, {
+            sellerPubky,
+            currency: SHOPIFY_CSV_PRICE.currency,
+            exponent: SHOPIFY_CSV_PRICE.exponent,
+          })),
       putListing: overrides.putListing ?? CommerceApplication.putPublicListingForImport.bind(CommerceApplication),
       listingExists: overrides.listingExists ?? ((url) => CommerceHomeserverService.exists(url)),
       syncMany:
         overrides.syncMany ??
         (async (listings) => {
-          const inventory = MarketplaceInventorySessionService.getActiveSession();
+          const inventory = MarketplaceInventorySessionService.getCoveringBearer(sellerPubky);
           if (!inventory) {
             return {
               ok: false,
@@ -297,7 +303,7 @@ export class CommerceInventoryImportApplication {
 
   async exportListingsCsv(): Promise<Uint8Array> {
     const rows: CanonicalCsvRow[] = [];
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(this.host.sellerPubky);
     if (!inventory) {
       const local = await LocalCommerceService.getListingsBySeller(this.host.sellerPubky);
       return MarketplaceShopClientService.exportListingsCsv(
@@ -333,7 +339,7 @@ export class CommerceInventoryImportApplication {
   }
 
   async exportOrdersJson(): Promise<string> {
-    const inventory = MarketplaceInventorySessionService.getActiveSession();
+    const inventory = MarketplaceInventorySessionService.getCoveringBearer(this.host.sellerPubky);
     if (!inventory) return '[]';
     const client = MarketplaceShopClientService.createInventoryClient(inventory.token);
     const collected: unknown[] = [];

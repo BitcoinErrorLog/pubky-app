@@ -673,8 +673,28 @@ export class HomeserverService {
    * grant-backed and never exported to JS-readable storage.
    */
   static async generateGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
+    return await this.startGrantAuthFlow(() => AuthFlowKind.signin(), 'generateGrantAuthUrl');
+  }
+
+  /**
+   * Starts a grant sign-up (`pubkyauth://signup_grant`) for signers that only
+   * accept grant URLs, such as Bitkit: the signer signs its key up on the
+   * configured homeserver with `inviteCode` (or keeps an account it already
+   * has there) and approves the same Shop grant as {@link generateGrantAuthUrl}.
+   */
+  static async generateGrantSignupAuthUrl(inviteCode: string): Promise<TGenerateAuthUrlResult> {
+    return await this.startGrantAuthFlow(
+      () => AuthFlowKind.signup(PublicKey.from(getHomeserver()), inviteCode),
+      'generateGrantSignupAuthUrl',
+    );
+  }
+
+  private static async startGrantAuthFlow(
+    kind: () => AuthFlowKind,
+    operation: string,
+  ): Promise<TGenerateAuthUrlResult> {
     try {
-      const flow = await GrantAuthFlow.startDelegated(CAPABILITIES, AuthFlowKind.signin(), {
+      const flow = await GrantAuthFlow.startDelegated(CAPABILITIES, kind(), {
         clientId: SHOP_GRANT_CLIENT_ID,
         relay: getDefaultHttpRelay(),
       });
@@ -685,7 +705,7 @@ export class HomeserverService {
         cancelAuthFlow: approval.cancel,
       };
     } catch (error) {
-      return handleError({ error, additionalContext: { operation: 'generateGrantAuthUrl' } });
+      return handleError({ error, additionalContext: { operation } });
     }
   }
 

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CommerceInventoryImportApplication,
@@ -6,6 +8,8 @@ import {
   IMPORT_PARSE_FAIL_COPY,
 } from '@/application/commerce/inventory-import';
 import { listingToCanonicalRows } from '@/application/commerce/inventory-listing-map';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
+import { UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/libs/commerce/unlimited-stock';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -41,17 +45,9 @@ vi.mock('@/services/marketplace/marketplace-session', () => ({
 
 vi.mock('@/services/marketplace/marketplace-inventory-session', () => ({
   MarketplaceInventorySessionService: {
-    getActiveSession: () => ({
-      token: 'inventory',
-      pubky: PUBKY,
-      capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
-      expiresAt: Date.now() + 60_000,
-    }),
+    getCoveringBearer: (sellerPubky: string) =>
+      sellerPubky === PUBKY ? { token: 'inventory', source: 'inventory' } : null,
   },
-}));
-
-vi.mock('@/services/marketplace/marketplace-inventory-grant', () => ({
-  inventoryCapabilityCovers: () => true,
 }));
 
 class MemoryImportStore implements InventoryManifestStore {
@@ -276,6 +272,24 @@ describe('CommerceInventoryImportApplication', () => {
     expect(store.manifests.size).toBe(0);
   });
 
+  it('plans a current Shopify product CSV without using inventory quantity as stock', async () => {
+    const bytes = new Uint8Array(
+      readFileSync(resolve(__dirname, '../../../test/fixtures/shopify/product-current.csv')),
+    );
+    const result = await app().planFile(new BytesFile(bytes, 'product-current.csv', 'text/csv'));
+    expect(result).toMatchObject({ status: 'planned', rowCount: 2 });
+    const payloads = [...store.payloads.values()].map(
+      (value) => JSON.parse(value) as { listingId: string; sku: string; variantQuantity: number; amountMinor: number },
+    );
+    expect(payloads).toHaveLength(2);
+    expect(payloads.every((row) => row.listingId === 'night-boots')).toBe(true);
+    expect(payloads.map((row) => row.sku).sort()).toEqual(['BOOT-L', 'BOOT-M']);
+    expect(payloads.map((row) => row.variantQuantity)).toEqual([0, 0]);
+    expect(payloads.every((row) => row.amountMinor === 12_500)).toBe(true);
+    expect(JSON.stringify(payloads)).not.toContain('draft-hat');
+    expect(puts).toEqual([]);
+  });
+
   it('rejects a formula_payload CSV and never PUTs', async () => {
     const header =
       'record_uri,seller_pubky,listing_id,source_listing_key,record_revision,variant_id,sku,state,title,description,taxonomy_json,category,condition,tags_json,amount_minor,currency,exponent,variant_quantity,variant_enabled,options_json,media_json,shipping_options_json,return_policy_json,sale_json,external_refs_json';
@@ -310,6 +324,50 @@ describe('CommerceInventoryImportApplication', () => {
     expect(puts).toEqual(['boots_01', 'hat_01']);
     expect(syncCalls.at(-1)).toEqual([{ seller_pubky: PUBKY, listing_id: 'hat_01' }]);
     expect(resumed.status).toBe('complete');
+  });
+
+  // Sol round 3: Inventory Studio publishes through its own path, so the
+  // shared stock rule must refuse the unlimited cap there too.
+  it.each(['record_json', 'fielded'] as const)(
+    'refuses a physical listing at the unlimited cap before any PUT or sync (%s row)',
+    async (shape) => {
+      const record = createCommerceListingFixture({ listingId: 'boots_01' });
+      record.variants = record.variants.map((variant) => ({ ...variant, quantity: COMMERCE_LISTING_MAX_QUANTITY }));
+      const rows = listingToCanonicalRows(record).map((row) =>
+        shape === 'record_json' ? row : { ...row, extraFields: { country_code: row.extraFields.country_code } },
+      );
+      const importer = app();
+      const planned = await importer.planFile(
+        new BytesFile(utf8(JSON.stringify(rows)), 'cap.json', 'application/json'),
+      );
+      expect(planned.status).toBe('planned');
+      if (planned.status !== 'planned') return;
+
+      const published = await importer.publish(planned.manifestId);
+
+      expect(published).toEqual({ status: 'error', message: UNLIMITED_STOCK_RESERVED_MESSAGE });
+      expect(puts).toEqual([]);
+      expect(syncCalls).toEqual([]);
+    },
+  );
+
+  it('publishes a digital-only listing at the cap, which is how Unlimited is stored', async () => {
+    const record = createCommerceListingFixture({
+      listingId: 'guide_01',
+      fulfillmentMethods: ['digital'],
+      package: undefined,
+      shippingOptions: [],
+    });
+    record.variants = record.variants.map((variant) => ({ ...variant, quantity: COMMERCE_LISTING_MAX_QUANTITY }));
+    const importer = app();
+    const planned = await importer.planFile(
+      new BytesFile(utf8(JSON.stringify(listingToCanonicalRows(record))), 'guide.json', 'application/json'),
+    );
+    if (planned.status !== 'planned') throw new Error(`not planned: ${planned.status}`);
+
+    await importer.publish(planned.manifestId);
+
+    expect(puts).toEqual(['guide_01']);
   });
 
   it('checkpoints conflict on CAS 409 and does not overwrite', async () => {

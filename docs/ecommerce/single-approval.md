@@ -179,6 +179,10 @@ Marketplace-first is worse: a 201 burns `auth_token_uses` before the cookie exis
 
 The interim dual-POST is accepted only alongside the §4.2 upstream asks (two tokens from one consent, or a homeserver-issued marketplace exchange) and the free service-side empty-string persist.
 
+### Connect-marketplace QR (2026-09-28)
+
+The Pubky Ring "Connect marketplace" QR is no longer an empty-capability token. It requests `/pub/pubky.app/marketplace-service/v1/:rw,/priv/pubky.app/:rw` so the resulting session qualifies for the `/priv` data key. Stolen in flight, those bytes can mint a homeserver session with inventory and private-data read and write inside the verifier window above. That is narrower than the sign-in token (no `/pub/pubky.app` root, no `/pub/paykit`) but no longer worthless. The Shop discloses the marketplace authority beside that QR, and beside the Ring sign-in and step-up QRs whenever this ceremony redeems their token at the marketplace (see [`step-up-approval.md`](step-up-approval.md), "Current state of the marketplace approval").
+
 ## 6. Bridged arrivals
 
 A bridged buyer has a homeserver cookie minted for pubky.app's grant (`/pub/pubky.app/:rw` only — `step-up-approval.md` Context). They have **not** approved Shop's `CAPABILITIES` and have **not** presented an AuthToken to the marketplace.

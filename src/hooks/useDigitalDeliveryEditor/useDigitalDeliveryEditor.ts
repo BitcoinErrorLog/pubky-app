@@ -18,6 +18,7 @@ import {
   type MarketplaceSellerDigitalDelivery,
 } from '@/libs/commerce/digital';
 import { isAppError } from '@/libs/error/error';
+import { ErrorService } from '@/libs/error/error.types';
 import { toast } from '@/molecules/Toaster/use-toast';
 import {
   type DigitalDeliveryFormData,
@@ -44,8 +45,16 @@ export interface UseDigitalDeliveryEditorResult {
 }
 
 /** Homeserver refusals of the upload itself: a full quota reads as "storage is full" (§2 "Size"). */
-function uploadFailureCopy(error: unknown): string {
-  const status = isAppError(error) ? error.context?.statusCode : undefined;
+/**
+ * Why a file set threw: the encryption on this device (nothing left it), the
+ * seller's homeserver refusing the ciphertext, or anything after the upload
+ * (the command itself), which is not the homeserver's doing.
+ */
+function fileSetFailureCopy(error: unknown): string {
+  if (!isAppError(error)) return DIGITAL_DELIVERY_SETUP_COPY.failed;
+  if (error.context?.refusal === 'encrypt_failed') return DIGITAL_DELIVERY_SETUP_COPY.encryptFailed;
+  if (error.service !== ErrorService.Homeserver) return DIGITAL_DELIVERY_SETUP_COPY.failed;
+  const status = error.context?.statusCode;
   return status === 413 || status === 507
     ? DIGITAL_DELIVERY_SETUP_COPY.uploadStorageFull
     : DIGITAL_DELIVERY_SETUP_COPY.uploadFailed;
@@ -152,7 +161,7 @@ export function useDigitalDeliveryEditor({
           delivery: input,
         });
       } catch (caught) {
-        setError(input.kind === 'file' ? uploadFailureCopy(caught) : DIGITAL_DELIVERY_SETUP_COPY.failed);
+        setError(input.kind === 'file' ? fileSetFailureCopy(caught) : DIGITAL_DELIVERY_SETUP_COPY.failed);
         return false;
       }
       if (!response.ok) {

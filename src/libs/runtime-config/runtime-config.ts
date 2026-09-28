@@ -205,6 +205,7 @@ export const getMarketplaceNexusUrl = (): string =>
   getRuntimeConfig().marketplaceNexusUrl ?? getRuntimeConfig().nexusUrl;
 export const getLocksUrl = (): string => getRuntimeConfig().locksUrl;
 export const getPaykitSetupUrl = (): string => getRuntimeConfig().paykitSetupUrl;
+export const getPaykitSetupCreatorParam = (): boolean => getRuntimeConfig().paykitSetupCreatorParam;
 export const getCommerceAdapterMode = (): CommerceAdapterMode => getRuntimeConfig().commerceAdapterMode;
 export const getCommercePollIntervalMs = (): number => getRuntimeConfig().commercePollIntervalMs;
 export const getSingleApprovalSignIn = (): boolean => getRuntimeConfig().singleApprovalSignIn;

@@ -41,6 +41,19 @@ describe('getMarketplaceNotificationActionText', () => {
     );
   });
 
+  it('words a digital delivery as a purchase to download, never as a parcel', () => {
+    expect(getMarketplaceNotificationActionText({ type: 'order_delivered', digitalDelivery: 'automatic' })).toBe(
+      'confirmed your payment. Your purchase is ready to download',
+    );
+    expect(
+      `PayPal ${getMarketplaceNotificationActionText({ type: 'order_delivered', digitalDelivery: 'automatic' })}`,
+    ).toBe('PayPal confirmed your payment. Your purchase is ready to download');
+    expect(getMarketplaceNotificationActionText({ type: 'order_delivered', digitalDelivery: 'manual' })).toBe(
+      'delivered your purchase',
+    );
+    expect(getMarketplaceNotificationActionText({ type: 'order_delivered' })).toBe('confirmed delivery of an order');
+  });
+
   it('renders the PayPal refund and reversal copy after the PayPal actor', () => {
     expect(getMarketplaceNotificationActionText({ type: 'refund_recorded' })).toBe('recorded a refund');
     expect(getMarketplaceNotificationActionText({ type: 'payment_reversal_cancelled' })).toBe(

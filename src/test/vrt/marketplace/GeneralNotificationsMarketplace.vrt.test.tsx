@@ -61,6 +61,17 @@ const fixtures = vi.hoisted(async () => {
       marketplaceItem('payment_confirmed', 1, false, '/marketplace/orders', BUYER_ACTOR),
       marketplaceItem('review_received', 3, false, '/marketplace/orders', SELLER_ACTOR),
     ],
+    // `order_delivered` on digital orders, as the normalizer marks them.
+    digitalDeliveredItems: [
+      {
+        ...marketplaceItem('order_delivered', 1, false, '/marketplace/orders', 'paypal-ipn'),
+        digitalDelivery: 'automatic',
+      },
+      {
+        ...marketplaceItem('order_delivered', 3, false, '/marketplace/orders', SELLER_ACTOR),
+        digitalDelivery: 'manual',
+      },
+    ],
   };
 });
 
@@ -170,6 +181,16 @@ describe('General notifications with marketplace rows — visual regression', ()
     const screen = await renderForVRT(<NotificationsContainer />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
       'general-notifications-marketplace-durable-desktop',
+    );
+  });
+
+  it('words digital deliveries as a purchase to download at desktop viewport', async () => {
+    const { digitalDeliveredItems } = await fixtures;
+    await setView({ marketplaceItems: digitalDeliveredItems });
+
+    const screen = await renderForVRT(<NotificationsContainer />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'general-notifications-digital-delivered-desktop',
     );
   });
 

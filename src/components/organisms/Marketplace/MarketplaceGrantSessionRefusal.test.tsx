@@ -39,6 +39,12 @@ vi.mock('@/hooks/useMarketplaceMessagingEnable/useMarketplaceMessagingEnable', (
   }),
 }));
 
+vi.mock('./MarketplaceSessionConnectDialog', () => ({
+  MarketplaceSessionConnectDialog: ({ triggerLabel }: { triggerLabel?: string }) => (
+    <div data-testid="purchase-session-connect">{triggerLabel}</div>
+  ),
+}));
+
 vi.mock('@/atoms/Dialog/Dialog', () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -48,20 +54,19 @@ vi.mock('@/atoms/Dialog/Dialog', () => ({
   DialogTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-describe('classic Pubky Ring approvals refuse a grant session', () => {
+describe('classic Pubky Ring approvals and a grant session', () => {
   beforeEach(() => {
     state.isGrantSession = true;
     state.inventoryStart.mockClear();
     state.messagingStart.mockClear();
   });
 
-  it('grant session sees inventory refusal', () => {
+  it('grant session re-approves its purchase session instead of a Ring-only inventory grant', () => {
     render(<MarketplaceInventoryGrantDialog autoOpen />);
 
-    expect(screen.getByTestId('grant-session-refusal')).toHaveTextContent(
-      'Inventory edits need a Pubky Ring sign-in for now.',
-    );
-    expect(screen.queryByTestId('qr-auth-url')).not.toBeInTheDocument();
+    expect(screen.getByTestId('purchase-session-connect')).toHaveTextContent('Approve in your Pubky signer');
+    expect(screen.queryByTestId('grant-session-refusal')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pubky Ring sign-in/)).not.toBeInTheDocument();
     expect(state.inventoryStart).not.toHaveBeenCalled();
   });
 

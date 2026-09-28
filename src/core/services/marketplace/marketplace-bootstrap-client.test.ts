@@ -5,11 +5,15 @@ import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import captured from '@/test/fixtures/auth/marketplace-bootstrap-url.staging.json';
+import parityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
+import { beginMarketplaceBootstrapFlow } from './marketplace-bootstrap-client';
 import {
-  beginMarketplaceBootstrapFlow,
-  bootstrapApprovalCaption,
-  MARKETPLACE_BOOTSTRAP_CAPABILITIES,
-} from './marketplace-bootstrap-client';
+  MARKETPLACE_DISCLOSURE_INVENTORY,
+  MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
+  MARKETPLACE_PREVIOUS_SESSION_GRANT,
+  MARKETPLACE_SESSION_GRANT,
+  marketplaceApprovalDisclosure,
+} from './marketplace-session-grant';
 
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: { request: vi.fn(), delete: vi.fn() },
@@ -152,7 +156,7 @@ describe('marketplace purchase bootstrap client', () => {
     ]);
   });
 
-  it('refuses and cancels a bootstrap QR that asks Bitkit for more than purchases', async () => {
+  it('refuses and cancels a bootstrap QR that asks Bitkit for more than the marketplace session grant', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(challenge(), 201))
       .mockResolvedValueOnce(
@@ -172,18 +176,22 @@ describe('marketplace purchase bootstrap client', () => {
     );
   });
 
-  it('bootstrap url matches captured fixture', async () => {
+  function capturedUrl(shape: { scheme: string; host: string; params: string[]; caps: string; cid: string }) {
     const values: Record<string, string> = {
-      caps: captured.caps,
+      caps: shape.caps,
       relay: 'https://relay.example/inbox',
       secret: 's',
-      cid: captured.cid,
+      cid: shape.cid,
       cpk: 'k',
     };
-    const url = `${captured.scheme}//${captured.host}?${captured.params
+    return `${shape.scheme}//${shape.host}?${shape.params
       .map((name) => `${name}=${encodeURIComponent(values[name])}`)
       .join('&')}`;
-    expect(captured.caps).toBe(MARKETPLACE_BOOTSTRAP_CAPABILITIES);
+  }
+
+  it('accepts the bootstrap url the service emitted before it requested /priv', async () => {
+    const url = capturedUrl(captured);
+    expect(captured.caps).toBe(MARKETPLACE_PREVIOUS_SESSION_GRANT);
     expect([...new URL(url).searchParams.keys()]).toEqual(captured.params);
 
     fetchMock
@@ -192,14 +200,20 @@ describe('marketplace purchase bootstrap client', () => {
     const flow = await beginMarketplaceBootstrapFlow({ pubky: PUBKY });
 
     expect(flow.authorizationUrl).toBe(url);
-    expect(bootstrapApprovalCaption(url)).toBe(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases only.',
-    );
+    expect(marketplaceApprovalDisclosure(url)).toBe(MARKETPLACE_DISCLOSURE_INVENTORY);
   });
 
-  it('shows no caption for a URL that names no client', () => {
-    expect(bootstrapApprovalCaption('pubkyauth://signin_grant?caps=x')).toBeNull();
-    expect(bootstrapApprovalCaption('not a url')).toBeNull();
+  it('accepts the /priv parity grant Bitkit approved on staging', async () => {
+    const url = capturedUrl(parityCapture.parity_request);
+    expect(parityCapture.parity_request.caps).toBe(MARKETPLACE_SESSION_GRANT);
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(challenge(), 201))
+      .mockResolvedValueOnce(jsonResponse({ ...verified, authorization_url: url }));
+    const flow = await beginMarketplaceBootstrapFlow({ pubky: PUBKY });
+
+    expect(flow.authorizationUrl).toBe(url);
+    expect(marketplaceApprovalDisclosure(url)).toBe(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
   });
 
   it('cancel posts to the bootstrap cancel route once', async () => {

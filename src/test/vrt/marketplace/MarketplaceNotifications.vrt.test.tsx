@@ -22,6 +22,26 @@ const fixtures = vi.hoisted(async () => {
       createNotificationFixture('offer_received', { readAt: '2026-08-19T18:00:00.000Z' }),
       createNotificationFixture('order_shipped', { readAt: '2026-08-19T18:30:00.000Z' }),
     ],
+    // `order_delivered` on a digital order: released at payment, then marked
+    // by the seller; beside it, the same type on a shipped order.
+    deliveredKinds: [
+      createNotificationFixture('order_delivered', {
+        id: '00000000-0000-4000-8000-000000000951',
+        actorPubky: 'system',
+        orderFulfillment: 'digital',
+        createdAt: '2026-08-19T12:03:00.000Z',
+      }),
+      createNotificationFixture('order_delivered', {
+        id: '00000000-0000-4000-8000-000000000952',
+        orderFulfillment: 'digital',
+        createdAt: '2026-08-19T12:02:00.000Z',
+      }),
+      createNotificationFixture('order_delivered', {
+        id: '00000000-0000-4000-8000-000000000953',
+        orderFulfillment: 'shipping',
+        createdAt: '2026-08-19T12:01:00.000Z',
+      }),
+    ],
   };
 });
 
@@ -197,6 +217,17 @@ describe('Marketplace notifications — visual regression', () => {
     const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
       'notifications-watch-alerts-desktop',
+      VRT_DENSE_CHROME_SCREENSHOT,
+    );
+  });
+
+  it('renders digital and shipped delivery notifications at desktop viewport', async () => {
+    const { deliveredKinds } = await fixtures;
+    await setView({ notifications: deliveredKinds, canMarkRead: false });
+
+    const screen = await renderForVRT(<MarketplaceNotifications />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'notifications-digital-delivered-desktop',
       VRT_DENSE_CHROME_SCREENSHOT,
     );
   });

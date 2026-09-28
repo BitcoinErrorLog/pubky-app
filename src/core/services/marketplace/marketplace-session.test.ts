@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CAPABILITIES } from '@/config/app';
 import type { AppError } from '@/libs/error/error';
 import { Logger } from '@/libs/logger/logger';
+import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import {
   MARKETPLACE_SESSION_STORAGE_KEY,
   MarketplaceSessionService,
   SESSION_FLOW_TIMEOUT_MS,
 } from './marketplace-session';
+import { MARKETPLACE_SESSION_GRANT } from './marketplace-session-grant';
 
 const PUBKY = 'y'.repeat(52);
 const TOKEN = 'A'.repeat(43);
@@ -28,20 +31,24 @@ vi.mock('@/config/commerce', async () => {
 const authTokenFlow = vi.hoisted(() => ({
   awaitToken: vi.fn(),
   cancelAuthFlow: vi.fn(),
+  requestedCapabilities: [] as Array<string | undefined>,
 }));
 
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
-    generateAuthTokenFlow: () => ({
-      authorizationUrl: 'pubkyauth:///?relay=http%3A%2F%2Flocalhost%2Finbox&secret=s',
-      awaitToken: authTokenFlow.awaitToken,
-      cancelAuthFlow: authTokenFlow.cancelAuthFlow,
-    }),
+    generateAuthTokenFlow: (capabilities?: string) => {
+      authTokenFlow.requestedCapabilities.push(capabilities);
+      return {
+        authorizationUrl: 'pubkyauth:///?relay=http%3A%2F%2Flocalhost%2Finbox&secret=s',
+        awaitToken: authTokenFlow.awaitToken,
+        cancelAuthFlow: authTokenFlow.cancelAuthFlow,
+      };
+    },
   },
 }));
 
-function sessionResponse(expiresAt: string, token = TOKEN): Response {
-  return new Response(JSON.stringify({ token, pubky: PUBKY, capabilities: '', expires_at: expiresAt }), {
+function sessionResponse(expiresAt: string, token = TOKEN, capabilities = ''): Response {
+  return new Response(JSON.stringify({ token, pubky: PUBKY, capabilities, expires_at: expiresAt }), {
     status: 201,
     headers: { 'content-type': 'application/json' },
   });
@@ -93,8 +100,16 @@ describe('MarketplaceSessionService', () => {
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
   });
 
+  it('asks the signer for the marketplace session grant', () => {
+    authTokenFlow.requestedCapabilities.length = 0;
+    const flow = MarketplaceSessionService.beginSessionFlow();
+    flow.cancel();
+
+    expect(authTokenFlow.requestedCapabilities).toEqual([MARKETPLACE_SESSION_GRANT]);
+  });
+
   it('never hands the bearer token to callers of the session flow', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, MARKETPLACE_SESSION_GRANT));
     authTokenFlow.awaitToken.mockResolvedValueOnce({
       toBytes: () => new Uint8Array([9, 9, 9]),
       publicKey: { z32: () => PUBKY },
@@ -124,7 +139,7 @@ describe('MarketplaceSessionService', () => {
   });
 
   it('restores a persisted session for the matching account across a simulated reload', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, MARKETPLACE_SESSION_GRANT));
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
 
     dropMemoryOnly();
@@ -220,7 +235,7 @@ describe('MarketplaceSessionService', () => {
 
   it('does not fire the timeout once the exchange already succeeded', async () => {
     vi.useFakeTimers();
-    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, MARKETPLACE_SESSION_GRANT));
     authTokenFlow.awaitToken.mockResolvedValueOnce({
       toBytes: () => new Uint8Array([7]),
       publicKey: { z32: () => PUBKY },
@@ -306,7 +321,7 @@ describe('MarketplaceSessionService', () => {
     vi.spyOn(await import('@/libs/utils/utils'), 'sleep').mockResolvedValue(undefined);
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
-      .mockResolvedValueOnce(sessionResponse(inOneDay()));
+      .mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, CAPABILITIES));
 
     const info = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(bytes, PUBKY, Date.now());
 
@@ -501,7 +516,7 @@ describe('MarketplaceSessionService', () => {
   it('establishes a claimed grant session for the signed-in account', () => {
     const expiresAt = inOneDay();
     const info = MarketplaceSessionService.establishClaimedGrantSession(
-      { token: TOKEN, pubky: PUBKY, capabilities: '', expiresAt },
+      { token: TOKEN, pubky: PUBKY, capabilities: MARKETPLACE_SESSION_GRANT, expiresAt },
       PUBKY,
     );
     expect(info).toMatchObject({ pubky: PUBKY, expiresAt });
@@ -518,5 +533,109 @@ describe('MarketplaceSessionService', () => {
     ).toThrow(expect.objectContaining({ code: 'FORBIDDEN' }));
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
     expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe('MarketplaceSessionService replacement guard (staging grant shapes)', () => {
+  const parity = captured.parity_request.homeserver_verified;
+  const previous = captured.previous_request.homeserver_verified;
+  const signIn = captured.shop_signin_request.homeserver_verified;
+
+  beforeEach(() => {
+    config.mode = 'transaction-service';
+    MarketplaceSessionService.clearSession();
+  });
+
+  async function holdWideSession(): Promise<string | null> {
+    MarketplaceSessionService.establishClaimedGrantSession(
+      { token: TOKEN, pubky: PUBKY, capabilities: parity, expiresAt: inOneDay() },
+      PUBKY,
+    );
+    return window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
+  }
+
+  function expectWideSessionKept(persisted: string | null) {
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, capabilities: parity });
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBe(persisted);
+  }
+
+  function ringApproval(bytes: number) {
+    authTokenFlow.awaitToken.mockResolvedValueOnce({
+      toBytes: () => new Uint8Array([bytes]),
+      publicKey: { z32: () => PUBKY },
+    });
+    return MarketplaceSessionService.beginSessionFlow().awaitSession();
+  }
+
+  it.each([
+    ['empty', ''],
+    ['inventory-only', previous],
+    ['private-data only', '/priv/pubky.app/:rw'],
+    ['extra paykit scope', `${parity},/pub/paykit/:rw`],
+    ['root', '/:rw'],
+    ['Shop sign-in grant', signIn],
+  ])('the Ring connect QR refuses a %s session and keeps the current one', async (_label, capabilities) => {
+    const persisted = await holdWideSession();
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, capabilities));
+
+    await expect(ringApproval(4)).rejects.toMatchObject({
+      category: 'validation',
+      context: { rejection: 'unexpected_capabilities' },
+    });
+    expectWideSessionKept(persisted);
+  });
+
+  it('the Ring connect QR installs the parity grant, in the normalized order the service stores', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, parity.split(',').reverse().join(',')));
+    await expect(ringApproval(5)).resolves.toMatchObject({ pubky: PUBKY });
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN_B });
+  });
+
+  it.each([
+    ['empty', ''],
+    ['parity grant', parity],
+    ['sign-in grant minus paykit', '/pub/pubky.app/:rw,/priv/pubky.app/:rw'],
+  ])('the sign-in redeem refuses a %s session and keeps the current one', async (_label, capabilities) => {
+    const persisted = await holdWideSession();
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, capabilities));
+
+    await expect(
+      MarketplaceSessionService.redeemAuthTokenAfterHomeserver(new Uint8Array([6]), PUBKY, Date.now()),
+    ).rejects.toMatchObject({ category: 'validation', context: { rejection: 'unexpected_capabilities' } });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expectWideSessionKept(persisted);
+  });
+
+  it('the sign-in redeem installs the Shop sign-in grant over a parity session', async () => {
+    await holdWideSession();
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, signIn));
+    await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(new Uint8Array([7]), PUBKY, Date.now());
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN_B, capabilities: signIn });
+  });
+
+  it.each([
+    ['empty', '', 'unexpected_capabilities'],
+    ['inventory-only over parity', previous, 'narrower_than_current'],
+    ['extra scope', `${parity},/pub/paykit/:rw`, 'unexpected_capabilities'],
+    ['duplicated entry', `${previous},${previous}`, 'unexpected_capabilities'],
+    ['malformed', 'garbage', 'unexpected_capabilities'],
+  ])('a claimed %s grant is refused and the current session kept', async (_label, capabilities, rejection) => {
+    const persisted = await holdWideSession();
+    expect(() =>
+      MarketplaceSessionService.establishClaimedGrantSession(
+        { token: TOKEN_C, pubky: PUBKY, capabilities, expiresAt: inOneDay() },
+        PUBKY,
+      ),
+    ).toThrow(expect.objectContaining({ category: 'validation', context: { rejection } }));
+    expectWideSessionKept(persisted);
+  });
+
+  it('a direct AuthToken exchange with no pinned grant still never downgrades', async () => {
+    const persisted = await holdWideSession();
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, ''));
+    await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([8]), PUBKY)).rejects.toMatchObject({
+      context: { rejection: 'narrower_than_current' },
+    });
+    expectWideSessionKept(persisted);
   });
 });

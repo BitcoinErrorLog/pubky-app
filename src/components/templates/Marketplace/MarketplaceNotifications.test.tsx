@@ -196,6 +196,32 @@ describe('MarketplaceNotifications', () => {
     );
   });
 
+  it('titles a digital delivery as a purchase, and a shipped one as before', () => {
+    const buyer = 'y'.repeat(52);
+    const seller = 's'.repeat(52);
+    const row = (id: string, actorPubky: string, orderFulfillment: string | null, createdAt: string) => ({
+      id,
+      recipientPubky: buyer,
+      actorPubky,
+      type: 'order_delivered',
+      aggregateId: 'order:018f47d2-6a27-7c23-a62f-000000000002',
+      createdAt,
+      readAt: null,
+      orderFulfillment,
+    });
+    marketplaceView.notifications = [
+      row('00000000-0000-4000-8000-000000000941', 'system', 'digital', '2026-09-27T07:03:00.000Z'),
+      row('00000000-0000-4000-8000-000000000942', seller, 'digital', '2026-09-27T07:02:00.000Z'),
+      row('00000000-0000-4000-8000-000000000943', buyer, 'shipping', '2026-09-27T07:01:00.000Z'),
+    ];
+
+    render(<MarketplaceNotifications />);
+
+    expect(screen.getByRole('link', { name: 'Purchase ready to download' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Purchase delivered' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Delivery confirmed' })).toBeInTheDocument();
+  });
+
   it('says what a return update was, in the order the events happened', () => {
     const orderId = '018f47d2-6a27-7c23-a62f-000000000001';
     ordersView.orders = [{ order: { id: orderId, returnRequest: { reason: 'mistake on my part' } } }];

@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
 import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { MarketplaceShopClientService, PubkyShopError } from '@/services/marketplace/marketplace-shop-client';
+import capturedParity from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import {
   classifySyncManyItem,
   CommerceInventoryApplication,
@@ -290,6 +292,59 @@ describe('CommerceInventoryApplication', () => {
     });
   });
 
+  function purchaseSessionOnly(capabilities: string) {
+    vi.spyOn(MarketplaceInventorySessionService, 'getActiveSession').mockReturnValue(null);
+    vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue({
+      token: TOKEN,
+      pubky: PUBKY,
+      capabilities,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      expiresAtMs: Date.parse('2099-01-01T00:00:00.000Z'),
+      issuedAt: '2026-09-21T00:00:00.000Z',
+    });
+  }
+
+  it('loads the board with a Bitkit purchase session that carries the inventory scope', async () => {
+    purchaseSessionOnly(capturedParity.parity_request.homeserver_verified);
+    vi.mocked(MarketplaceShopClientService.createInventoryClient).mockClear();
+    vi.mocked(MarketplaceShopClientService.listSellerListings).mockResolvedValue({
+      ok: true,
+      value: { listings: [], next_cursor: null },
+    } as never);
+
+    const result = await CommerceInventoryApplication.loadBoard(PUBKY);
+
+    expect(result.status).not.toBe('grant-needed');
+    expect(MarketplaceShopClientService.createInventoryClient).toHaveBeenCalledWith(TOKEN);
+  });
+
+  it('still needs the Studio grant when the purchase session is identity-only', async () => {
+    purchaseSessionOnly('');
+    await expect(CommerceInventoryApplication.loadBoard(PUBKY)).resolves.toEqual({ status: 'grant-needed' });
+    expect(MarketplaceShopClientService.listSellerListings).not.toHaveBeenCalled();
+  });
+
+  it('drops the purchase session, not the Studio slot, when the service rejects its bearer', async () => {
+    purchaseSessionOnly(capturedParity.parity_request.homeserver_verified);
+    const clearPurchase = vi.spyOn(MarketplaceSessionService, 'clearSession').mockImplementation(() => {});
+    const clearStudio = vi.spyOn(MarketplaceInventorySessionService, 'clearSession').mockImplementation(() => {});
+    vi.mocked(MarketplaceShopClientService.adjustInventory).mockResolvedValue({
+      ok: false,
+      error: new PubkyShopError('session_rejected', { status: 401 }),
+    });
+
+    const result = await CommerceInventoryApplication.setAvailable({
+      sellerPubky: PUBKY,
+      row: row(),
+      targetAvailable: 5,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(result.status).toBe('grant-needed');
+    expect(clearPurchase).toHaveBeenCalledWith('rejected');
+    expect(clearStudio).not.toHaveBeenCalled();
+  });
+
   it('does not treat 409 as a grant miss', async () => {
     vi.mocked(MarketplaceShopClientService.adjustInventory).mockResolvedValue({
       ok: false,
@@ -302,6 +357,66 @@ describe('CommerceInventoryApplication', () => {
       idempotencyKey: '11111111-1111-4111-8111-111111111111',
     });
     expect(result.status).not.toBe('grant-needed');
+  });
+
+  it('marks unlimited stock from a digital-only record even when a hold has lowered available', async () => {
+    const stock = {
+      authority: 'listing_total',
+      available: BigInt(4),
+      reserved: BigInt(1),
+      sold: BigInt(0),
+      total: BigInt(5),
+    };
+    vi.mocked(MarketplaceShopClientService.listSellerListings).mockResolvedValue({
+      ok: true,
+      value: {
+        kind: 'seller_listing_export',
+        listings: [
+          {
+            projection: { listing_id: 'guide', title: 'Guide', state: 'active', sale_format: 'fixed_price' },
+            record: {
+              fulfillmentMethods: ['digital'],
+              variants: [{ quantity: COMMERCE_LISTING_MAX_QUANTITY }],
+            },
+          },
+          {
+            projection: { listing_id: 'boots', title: 'Boots', state: 'active', sale_format: 'fixed_price' },
+            record: {
+              fulfillmentMethods: ['physical'],
+              variants: [{ quantity: COMMERCE_LISTING_MAX_QUANTITY }],
+            },
+          },
+          {
+            projection: { listing_id: 'locks', title: 'Locks', state: 'active', sale_format: 'fixed_price' },
+            record: {
+              fulfillmentMethods: ['digital'],
+              digitalLock: { policyUri: 'pubky://locks' },
+              variants: [{ quantity: COMMERCE_LISTING_MAX_QUANTITY }],
+            },
+          },
+        ],
+      },
+    });
+    vi.mocked(MarketplaceShopClientService.getInventoryProjection).mockResolvedValue({
+      ok: true,
+      value: {
+        schema_version: BigInt(1),
+        kind: 'inventory_projection',
+        aggregate_id: `listing:${PUBKY}_guide`,
+        seller_pubky: PUBKY,
+        listing_id: 'guide',
+        server_revision: BigInt(3),
+        stock,
+      },
+    } as Awaited<ReturnType<typeof MarketplaceShopClientService.getInventoryProjection>>);
+
+    const board = await CommerceInventoryApplication.loadBoard(PUBKY);
+    expect(board.status).toBe('ready');
+    if (board.status !== 'ready') return;
+    const byId = Object.fromEntries(board.rows.map((entry) => [entry.listingId, entry]));
+    expect(byId.guide).toMatchObject({ unlimited: true, available: 4 });
+    expect(byId.boots.unlimited).toBeUndefined();
+    expect(byId.locks.unlimited).toBeUndefined();
   });
 });
 

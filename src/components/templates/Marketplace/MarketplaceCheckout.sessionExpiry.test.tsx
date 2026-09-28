@@ -7,6 +7,7 @@ import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { MARKETPLACE_SESSION_STORAGE_KEY, MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { MARKETPLACE_SESSION_GRANT } from '@/services/marketplace/marketplace-session-grant';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { MarketplaceCheckout } from './MarketplaceCheckout';
@@ -153,7 +154,12 @@ describe('MarketplaceCheckout session expiry (real checkout hook)', () => {
     useAuthStore.setState({ currentUserPubky: BUYER });
     window.localStorage.setItem(
       MARKETPLACE_SESSION_STORAGE_KEY,
-      JSON.stringify({ token: SESSION_TOKEN, pubky: BUYER, capabilities: '', expiresAt: EXPIRES_AT }),
+      JSON.stringify({
+        token: SESSION_TOKEN,
+        pubky: BUYER,
+        capabilities: MARKETPLACE_SESSION_GRANT,
+        expiresAt: EXPIRES_AT,
+      }),
     );
     const restored = MarketplaceSessionService.restorePersistedSession(BUYER);
     useCommerceStore.getState().setMarketplaceSession(restored);
