@@ -194,6 +194,8 @@ describe('MarketplaceInventorySessionService', () => {
       ['a sibling tree', '/pub/pubky.app/marketplace-service/v2/:rw'],
       ['only /priv', '/priv/pubky.app/:rw'],
       ['a path without a trailing slash', '/pub/pubky.app/marketplace-service:rw'],
+      ['unknown actions', '/pub/pubky.app/marketplace-service/v1/:rwx'],
+      ['repeated actions', '/pub/pubky.app/marketplace-service/v1/:rrw'],
     ])('needs a Studio grant when the purchase session carries %s', async (_label, capabilities) => {
       await establishIdentity(capabilities);
 

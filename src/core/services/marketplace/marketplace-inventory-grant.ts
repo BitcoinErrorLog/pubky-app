@@ -32,6 +32,7 @@ export function inventoryCapabilityCovers(capabilities: string): boolean {
 }
 
 const INVENTORY_SCOPE = '/pub/pubky.app/marketplace-service/v1/';
+const READ_WRITE_ACTIONS = new Set(['rw', 'wr']);
 
 /**
  * True when some entry grants read and write over a directory that contains
@@ -46,7 +47,7 @@ export function capabilitiesCoverInventoryScope(capabilities: string): boolean {
     if (separator <= 0) return false;
     const scope = part.slice(0, separator);
     const actions = part.slice(separator + 1);
-    return scope.endsWith('/') && INVENTORY_SCOPE.startsWith(scope) && actions.includes('r') && actions.includes('w');
+    return scope.endsWith('/') && INVENTORY_SCOPE.startsWith(scope) && READ_WRITE_ACTIONS.has(actions);
   });
 }
 
