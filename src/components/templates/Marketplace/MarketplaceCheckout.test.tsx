@@ -269,6 +269,11 @@ vi.mock('@/hooks/useMarketplaceOfferCheckout/useMarketplaceOfferCheckout', () =>
   useMarketplaceOfferCheckout: () => ({ submit: offerState.submit, isSubmitting: false }),
 }));
 
+const approval = vi.hoisted(() => ({ signer: 'Pubky Ring' as 'Bitkit' | 'Pubky Ring' }));
+vi.mock('@/hooks/useMarketplaceApprovalSigner/useMarketplaceApprovalSigner', () => ({
+  useMarketplaceApprovalSigner: () => approval.signer,
+}));
+
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
     selector({ currentUserPubky: 'b'.repeat(52) }),
@@ -366,6 +371,20 @@ async function fillValidDelivery(user: ReturnType<typeof userEvent.setup>) {
 describe('MarketplaceCheckout', () => {
   beforeEach(() => {
     resetCheckoutView();
+    approval.signer = 'Pubky Ring';
+  });
+
+  it('names Bitkit as the approving signer for a Bitkit sign-in', () => {
+    seededCart();
+    view.adapterMode = 'transaction-service';
+    view.hasMarketplaceSession = true;
+    approval.signer = 'Bitkit';
+
+    render(<MarketplaceCheckout />);
+
+    expect(screen.getByRole('heading', { name: 'Approve in Bitkit' })).toBeInTheDocument();
+    expect(screen.getByText(/Purchases approved in Bitkit\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Pubky Ring/)).not.toBeInTheDocument();
   });
 
   it('never includes Stripe in the checkout rail list', async () => {

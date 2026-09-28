@@ -20,6 +20,7 @@ import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy'
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { isMarketplaceAwardCheckoutEligible } from '@/core/services/marketplace/marketplace-projections';
 import { useBuyerPaykitWallet } from '@/hooks/useBuyerPaykitWallet/useBuyerPaykitWallet';
+import { useMarketplaceApprovalSigner } from '@/hooks/useMarketplaceApprovalSigner/useMarketplaceApprovalSigner';
 import {
   groupMarketplaceCartItems,
   type MarketplaceCartGroup,
@@ -172,6 +173,7 @@ function MarketplaceCartCheckout() {
   const orders = useMarketplaceOrders();
   const adapterMode = getCommerceAdapterMode();
   const isSandbox = adapterMode === 'sandbox';
+  const approvalSigner = useMarketplaceApprovalSigner();
   const isStaging = getDeployEnv() === 'staging';
   const formValues = useWatch({ control: checkout.form.control });
   const formValid = marketplaceCheckoutSchema.safeParse(formValues).success;
@@ -651,9 +653,9 @@ function MarketplaceCartCheckout() {
 
               <Card className="h-fit border">
                 <CardContent className="grid gap-6 px-6">
-                  <section className="grid gap-3" aria-label="Approve in Pubky Ring">
+                  <section className="grid gap-3" aria-label={`Approve in ${approvalSigner}`}>
                     <Heading level={2} size="sm" className="text-xl font-semibold">
-                      Approve in Pubky Ring
+                      Approve in {approvalSigner}
                     </Heading>
                     {approvalNeeded ? (
                       <MarketplaceSessionRequiredCard />
@@ -662,8 +664,8 @@ function MarketplaceCartCheckout() {
                         <Check className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden />
                         <Typography as="p" className="text-sm text-muted-foreground">
                           {isSandbox
-                            ? 'Sandbox checkout does not need a Pubky Ring approval.'
-                            : 'Purchases approved in Pubky Ring. This session stays on this device until it expires or you sign out.'}
+                            ? `Sandbox checkout does not need a ${approvalSigner} approval.`
+                            : `Purchases approved in ${approvalSigner}. This session stays on this device until it expires or you sign out.`}
                         </Typography>
                       </div>
                     )}
