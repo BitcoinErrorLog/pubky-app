@@ -28,6 +28,8 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
  *      and read everything back.
  *   4. Undecryptable: tampered sealed entries are never overwritten and the
  *      plaintext an older build re-creates is kept.
+ *   4b. Privacy boundary: another identity's session is refused reading the
+ *      sealed watchlist and listing the owner's `/priv` tree.
  *   5. Cleanup: every `/priv` and public record the proof wrote is deleted,
  *      the listing is re-synced to its removed state, and every marketplace
  *      session the proof minted is revoked.
@@ -794,6 +796,28 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
     console.info(
       '[priv-live] 4. undecryptable: tampered entries untouched, plaintext kept, foreign checkpoint ignored, zero writes',
     );
+
+    // ── 4b. Privacy boundary: another identity reads nothing of the buyer's ──
+    // Sign the buyer's homeserver session out first: the process-wide cookie
+    // jar would otherwise carry the buyer's authentication into the probe.
+    await m.HomeserverService.logout({ session: buyer.session });
+    actAs(seller);
+    const refusal = async (probe: () => Promise<unknown>) =>
+      await probe().then(
+        () => 'served',
+        (error: { category?: string; context?: { statusCode?: number } }) =>
+          error.category === 'auth' || [401, 403].includes(error.context?.statusCode ?? 0) ? 'refused' : String(error),
+      );
+    expect(await refusal(() => m.CommerceHomeserverService.fetchJson(watchlistUrl))).toBe('refused');
+    expect(
+      await refusal(() =>
+        m.HomeserverService.list({ baseDirectory: `pubky://${buyer.pubky}/priv/pubky.app/marketplace/`, limit: 10 }),
+      ),
+    ).toBe('refused');
+    console.info("[priv-live] 4b. privacy: the seller's session is refused the buyer's sealed entry and /priv listing");
+    const buyerBack = await m.HomeserverService.signIn({ keypair: buyer.keypair });
+    if (!buyerBack) throw new Error('buyer sign-in for cleanup asked for a retry');
+    buyer.session = buyerBack.session;
 
     // ── 5. Cleanup ─────────────────────────────────────────────────────────
     for (const note of await cleanUp(seller, buyer, sellerSession, listingIds)) {
