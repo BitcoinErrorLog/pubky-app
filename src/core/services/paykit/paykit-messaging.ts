@@ -21,6 +21,7 @@ import {
   decodeDmMessage,
   type PubkyAppDmMessage,
 } from '@/libs/messaging/dm-contracts';
+import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 
@@ -93,16 +94,20 @@ export type MessagingEnabledInfo = {
  *   an inbound handshake is being answered and completion needs the
  *   initiator to come back online for the final round.
  * - `ready`: the link is established; sends/receives are live.
- * - `recovery-needed`: a persisted handshake cannot proceed — the
- *   counterparty's published key no longer matches it, or its snapshot
- *   failed to restore. Every local row and remote slot is kept and the
- *   handshake is retried unchanged on each poll; nothing is deleted or
- *   restarted.
+ * - `recovery-needed`: a persisted link cannot proceed — a pending
+ *   handshake is bound to a key the counterparty no longer publishes, or a
+ *   handshake or established snapshot failed to restore. Every local row and
+ *   remote slot is kept and the link is retried unchanged on an exponential,
+ *   jittered, capped schedule (`MESSAGING_RETRY_POLICY`); nothing is
+ *   deleted or restarted.
  */
 export type MessagingLinkState =
   | { status: 'not-enrolled' }
   | { status: 'handshaking'; role: 'initiator' | 'responder' }
-  | { status: 'recovery-needed'; reason: 'counterparty-key-changed' | 'handshake-restore-failed' }
+  | {
+      status: 'recovery-needed';
+      reason: 'counterparty-key-changed' | 'handshake-restore-failed' | 'link-restore-failed';
+    }
   | { status: 'ready' };
 
 /** Probe-only result: `none` means no local state and no inbound handshake — nothing was started. */
@@ -195,6 +200,11 @@ export class PaykitMessagingService {
   private static links = new Map<string, EncryptedLinkHandle>();
   private static handshakes = new Map<string, ActiveHandshake>();
   private static queues = new Map<string, Promise<unknown>>();
+  // Automatic retries are spaced by MESSAGING_RETRY_POLICY, never by the
+  // surfaces' poll cadence. Cleared with the session.
+  private static linkRetry = new RetryBackoff<MessagingProbeState>();
+  private static sessionRetry = new RetryBackoff<true>();
+  private static receiverRetry = new RetryBackoff<true>();
 
   /**
    * Starts the interactive enable flow: a fresh `pubkyauth://` URL for the
@@ -278,10 +288,17 @@ export class PaykitMessagingService {
       return true;
     }
     if (this.restoreInFlight?.pubky === expectedPubky) return await this.restoreInFlight.done;
+    // A failed silent resume is not retried on every status poll: until the
+    // next spaced attempt the answer stays "no session" (the enable flow and
+    // sign-out both reset the schedule).
+    if (this.sessionRetry.status(expectedPubky) === 'waiting') return false;
     const done = this.resumeSessionSilently(expectedPubky);
     this.restoreInFlight = { pubky: expectedPubky, done };
     try {
-      return await done;
+      const resumed = await done;
+      if (resumed) this.sessionRetry.succeed(expectedPubky);
+      else this.sessionRetry.fail(expectedPubky, true);
+      return resumed;
     } finally {
       this.restoreInFlight = null;
     }
@@ -342,20 +359,22 @@ export class PaykitMessagingService {
    * session: on the cookie-resume path there was never an enable flow, so
    * the receiver Noise key and the published marker may not exist yet. Runs
    * the same idempotent {@link provisionReceiver} the approval path runs; a
-   * transient publish failure is logged and retried on the next status
-   * poll (this method is on every resume path) instead of failing the
-   * session.
+   * transient publish failure is logged and retried on a spaced schedule
+   * (this method is on every resume path) instead of failing the session.
    */
   private static async ensureReceiverProvisioned(pubky: string): Promise<void> {
     if (this.session?.pubky !== pubky) return;
     const receiver = await LocalMessagingService.getReceiver(pubky);
     if (receiver?.marker_published) return;
+    if (this.receiverRetry.status(pubky) === 'waiting') return;
     try {
       const wasmModule = await loadPaykitWasm();
       await this.provisionReceiver(wasmModule, this.session.handle, pubky);
+      this.receiverRetry.succeed(pubky);
       Logger.info('Provisioned the messaging receiver automatically for the resumed session', { pubky });
     } catch (error) {
-      Logger.warn('Could not provision the messaging receiver for the resumed session; will retry on the next poll', {
+      this.receiverRetry.fail(pubky, true);
+      Logger.warn('Could not provision the messaging receiver for the resumed session; will retry later', {
         error,
       });
     }
@@ -435,6 +454,9 @@ export class PaykitMessagingService {
     this.links.clear();
     this.handshakes.clear();
     this.queues.clear();
+    this.linkRetry.clear();
+    this.sessionRetry.clear();
+    this.receiverRetry.clear();
     if (this.session) closeQuietly(() => this.session?.handle.free());
     this.session = null;
     // The client is stateless config; dropping it costs one lazy re-create
@@ -769,6 +791,37 @@ export class PaykitMessagingService {
 
     if (this.links.has(key)) return { status: 'ready' };
 
+    const waiting = this.linkRetry.waiting(key);
+    if (waiting) return waiting;
+
+    const state = await this.stepLink(wasmModule, session, ownerPubky, counterpartyPubky, allowInitiate);
+    if (!this.linkRetry.holds(key, state)) this.linkRetry.succeed(key);
+    return state;
+  }
+
+  /**
+   * Whether this pair has a failed link attempt on its retry schedule:
+   * `waiting` costs no network until it is `due`. Inbox sync uses it to keep
+   * retries out of the budget healthy links are probed from.
+   */
+  static linkRetryStatus(ownerPubky: string, counterpartyPubky: string): 'none' | 'waiting' | 'due' {
+    return this.linkRetry.status(this.linkKey(ownerPubky, counterpartyPubky));
+  }
+
+  /** Reports `state` until the pair's next backoff-spaced attempt is due. */
+  private static deferLink<T extends MessagingProbeState>(key: string, state: T): T {
+    this.linkRetry.fail(key, state);
+    return state;
+  }
+
+  private static async stepLink(
+    wasmModule: PaykitWasmModule,
+    session: ActiveSession,
+    ownerPubky: string,
+    counterpartyPubky: string,
+    allowInitiate: boolean,
+  ): Promise<MessagingProbeState> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
     const active = this.handshakes.get(key);
     if (active) {
       return await this.advanceHandshake(wasmModule, ownerPubky, counterpartyPubky, active);
@@ -778,17 +831,22 @@ export class PaykitMessagingService {
     const receiver = await this.requireReceiver(ownerPubky);
 
     if (stored?.status === 'established') {
-      const link = (await wasmModule.restoreEncryptedLink(
-        session.handle,
-        receiver.noise_secret,
-        counterpartyPubky,
-        stored.local_receiver_path,
-        stored.remote_receiver_path,
-        this.getClient(wasmModule),
-        stored.snapshot,
-      )) as EncryptedLinkHandle;
-      this.links.set(key, link);
-      return { status: 'ready' };
+      try {
+        const link = (await wasmModule.restoreEncryptedLink(
+          session.handle,
+          receiver.noise_secret,
+          counterpartyPubky,
+          stored.local_receiver_path,
+          stored.remote_receiver_path,
+          this.getClient(wasmModule),
+          stored.snapshot,
+        )) as EncryptedLinkHandle;
+        this.links.set(key, link);
+        return { status: 'ready' };
+      } catch (error) {
+        Logger.warn('Failed to restore an established link snapshot; keeping it for the next attempt', { error });
+        return this.deferLink(key, { status: 'recovery-needed', reason: 'link-restore-failed' });
+      }
     }
 
     if (stored?.status === 'handshaking') {
@@ -798,16 +856,10 @@ export class PaykitMessagingService {
       // dropping the row or clearing the outbox kills the pair for good. The
       // vendored binding has no per-counterparty recovery marker, so a
       // handshake that cannot proceed reports a fixed recovery state and is
-      // retried unchanged on every poll.
-      const currentMarker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
-      if (currentMarker && currentMarker.noisePublicKey !== stored.remote_noise_public_key) {
-        // Another device of the counterparty can publish over the same
-        // marker path, so a different key does not prove this handshake dead.
-        Logger.warn('The counterparty publishes a different messaging key than this handshake is bound to');
-        return { status: 'recovery-needed', reason: 'counterparty-key-changed' };
-      }
+      // retried unchanged on the pair's backoff schedule.
+      let handle: LinkHandshakeHandle;
       try {
-        const handle = (await wasmModule.restoreEncryptedLinkHandshake(
+        handle = (await wasmModule.restoreEncryptedLinkHandshake(
           session.handle,
           receiver.noise_secret,
           counterpartyPubky,
@@ -816,13 +868,26 @@ export class PaykitMessagingService {
           this.getClient(wasmModule),
           stored.snapshot,
         )) as LinkHandshakeHandle;
-        const handshake: ActiveHandshake = { handle, role: stored.role };
-        this.handshakes.set(key, handshake);
-        return await this.advanceHandshake(wasmModule, ownerPubky, counterpartyPubky, handshake);
       } catch (error) {
         Logger.warn('Failed to restore a mid-handshake snapshot; keeping it for the next attempt', { error });
-        return { status: 'recovery-needed', reason: 'handshake-restore-failed' };
+        return this.deferLink(key, { status: 'recovery-needed', reason: 'handshake-restore-failed' });
       }
+      const handshake: ActiveHandshake = { handle, role: stored.role };
+      this.handshakes.set(key, handshake);
+      const state = await this.advanceHandshake(wasmModule, ownerPubky, counterpartyPubky, handshake);
+      // Completed, failed its step, or switched to a crossed inbound handshake.
+      if (this.handshakes.get(key) !== handshake) return state;
+      // Another device of the counterparty can publish over the same marker
+      // path, so a different key does not prove this handshake dead: it was
+      // advanced first, and only a still-pending one is reported.
+      const currentMarker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky).catch(() => null);
+      if (currentMarker && currentMarker.noisePublicKey !== stored.remote_noise_public_key) {
+        Logger.warn('The counterparty publishes a different messaging key than this pending handshake is bound to');
+        this.handshakes.delete(key);
+        closeQuietly(() => handshake.handle.free());
+        return this.deferLink(key, { status: 'recovery-needed', reason: 'counterparty-key-changed' });
+      }
+      return state;
     }
 
     // No local state at all: discover the counterparty, prefer answering an
@@ -891,8 +956,8 @@ export class PaykitMessagingService {
    * One handshake step. On `pending`, persists the advanced snapshot so a
    * reload resumes instead of restarting. On error the in-memory handshake is
    * consumed (paykit-lib ownership model); the persisted snapshot restores it
-   * on the next poll. When our own initiated handshake stalls, the
-   * lexicographically smaller pubky additionally probes for a CROSSED inbound
+   * on the pair's next backoff-spaced attempt. When our own initiated
+   * handshake stalls, the lexicographically smaller pubky additionally probes for a CROSSED inbound
    * handshake (both sides initiated at once) and switches to answering it —
    * the deterministic tiebreak that keeps exactly one side switching.
    */
@@ -909,7 +974,7 @@ export class PaykitMessagingService {
     } catch (error) {
       this.handshakes.delete(key);
       Logger.warn('Encrypted link handshake step failed; will restore from the persisted snapshot', { error });
-      return { status: 'handshaking', role: handshake.role };
+      return this.deferLink(key, { status: 'handshaking', role: handshake.role });
     }
 
     if (result.status === 'complete' && result.link) {
@@ -1141,6 +1206,7 @@ export class PaykitMessagingService {
     if (this.session && this.session.pubky !== session.pubky) this.clearSession();
     else if (this.session) closeQuietly(() => this.session?.handle.free());
     this.session = session;
+    this.sessionRetry.succeed(session.pubky);
     this.writePersistedSession(session);
   }
 

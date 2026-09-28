@@ -6,8 +6,10 @@
 // Alice runs the app's full PaykitMessagingService stack; Bob is the
 // counterparty on the raw binding. Each row drives Alice into a recovery
 // branch and then proves that the peer's handshake still completes and that
-// a message Bob already sent is still delivered. Deleting Alice's handshake
-// row or her outbox slots during recovery fails both rows.
+// a message Bob sends is delivered. Deleting Alice's handshake row or her
+// outbox slots during recovery, or refusing to advance a handshake whose
+// counterparty key changed, fails these rows. Retries follow the service's
+// backoff, so each row polls for up to a minute.
 //
 // Requires a running local testnet on the stock ports (pkarr relay 15411,
 // homeserver 6286, admin 6288). Run with: npm run test:marketplace:messaging
@@ -204,16 +206,26 @@ describe('encrypted link recovery — live pair survival', () => {
     expect(received.map((message) => message.body)).toEqual([unread.message.body]);
   }, 180_000);
 
-  it('a counterparty key flip keeps the pair: the handshake completes once the original key is back', async () => {
+  it('a counterparty key flip keeps the pair: the original device still completes the handshake', async () => {
     setPaykitWasmModuleForTests(wasm);
     PaykitMessagingService.clearSession();
     const bob = await enrolledBob();
     const alice = await signup();
     const enabled = await PaykitMessagingService.enableWithSessionForTests(alice.session);
 
-    // Alice initiates toward Bob's first device; that device answers.
+    // Alice initiates toward Bob's first device.
     const first = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
     expect(first).toEqual({ status: 'handshaking', role: 'initiator' });
+
+    // Bob's second device publishes its own key over the shared marker path
+    // before the first device has answered; Alice reloads and sees it.
+    await publishBobKey(bob, wasm.generateNoiseSecretKey());
+    await reloadAlice(alice.pubky);
+    const flipped = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
+    expect.soft(flipped).toEqual({ status: 'recovery-needed', reason: 'counterparty-key-changed' });
+
+    // Bob's first device answers the handshake it can still read. The other
+    // key stays published throughout.
     const bobHandshake = wasm.acceptEncryptedLink(
       bob.session,
       bob.noiseSecret,
@@ -223,33 +235,12 @@ describe('encrypted link recovery — live pair survival', () => {
       RECEIVER_PATH,
       bob.client,
     );
-    const answerDeadline = Date.now() + 30_000;
-    let before = bobHandshake.snapshot();
-    let answered = false;
-    while (Date.now() < answerDeadline && !answered) {
-      await stepBob(bobHandshake);
-      const after = bobHandshake.snapshot();
-      answered = after.byteLength !== before.byteLength || after.some((byte, index) => byte !== before[index]);
-      before = after;
-      if (!answered) await sleep(STEP_MS);
-    }
-    expect(answered).toBe(true);
-
-    // Bob's second device publishes its own key over the shared marker path
-    // while Alice is away.
-    await publishBobKey(bob, wasm.generateNoiseSecretKey());
-    await reloadAlice(alice.pubky);
-    const flipped = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
-    expect.soft(flipped).toEqual({ status: 'recovery-needed', reason: 'counterparty-key-changed' });
-
-    // Bob's first device republishes its key and keeps driving its handshake.
-    await publishBobKey(bob, bob.noiseSecret);
     let bobLink: EncryptedLinkHandle | null = null;
     let aliceState: MessagingProbeState = flipped;
     const deadline = Date.now() + 60_000;
     while (Date.now() < deadline && (!bobLink || aliceState.status !== 'ready')) {
-      if (aliceState.status !== 'ready') aliceState = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
       if (!bobLink) bobLink = await stepBob(bobHandshake);
+      if (aliceState.status !== 'ready') aliceState = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
       if (!bobLink || aliceState.status !== 'ready') await sleep(STEP_MS);
     }
     expect(aliceState).toEqual({ status: 'ready' });
