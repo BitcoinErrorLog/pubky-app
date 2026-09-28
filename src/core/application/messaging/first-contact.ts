@@ -1,7 +1,7 @@
 import { followUriBuilder } from 'pubky-app-specs';
 import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
-import { privErrorSummary,type PrivKeyring } from '@/libs/commerce/priv-envelope';
+import { privErrorSummary, type PrivKeyring } from '@/libs/commerce/priv-envelope';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
