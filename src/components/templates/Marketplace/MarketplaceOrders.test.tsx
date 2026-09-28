@@ -21,14 +21,16 @@ const ordersState = vi.hoisted(() => ({
   currentUserPubky: 'b'.repeat(52),
   orders: [] as unknown[],
   adapterMode: 'sandbox' as string,
+  needsSession: false,
+  error: null as string | null,
 }));
 
 vi.mock('@/hooks/useMarketplaceOrders/useMarketplaceOrders', () => ({
   useMarketplaceOrders: () => ({
     orders: ordersState.orders,
     isLoading: false,
-    error: null,
-    needsSession: false,
+    error: ordersState.error,
+    needsSession: ordersState.needsSession,
     adapterMode: ordersState.adapterMode,
     refresh: vi.fn(),
     advancePayment: vi.fn(),
@@ -100,6 +102,10 @@ vi.mock('@/organisms/Marketplace/MarketplacePaymentStatusCard', () => ({
   MarketplacePaymentStatusCard: () => <div data-testid="payment-status" />,
 }));
 
+vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
+  MarketplaceSessionConnectDialog: ({ triggerLabel }: { triggerLabel: string }) => <button>{triggerLabel}</button>,
+}));
+
 vi.mock('@/organisms/Marketplace/MarketplaceMyReviews', () => ({
   MarketplaceMyReviews: () => <div data-testid="my-reviews" />,
 }));
@@ -157,6 +163,8 @@ describe('MarketplaceOrders tabs', () => {
     ordersState.currentUserPubky = CURRENT_USER;
     ordersState.orders = [];
     ordersState.adapterMode = 'sandbox';
+    ordersState.needsSession = false;
+    ordersState.error = null;
     useMarketplaceDisplayStore.setState({ showFxEstimate: false, measurementSystem: null });
   });
 
@@ -403,6 +411,65 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Sold paid bag/)).toBeInTheDocument();
   });
 
+  it('lists a bound Bitcoin payment in sales, and keeps an unbound hold as a reservation', async () => {
+    const user = userEvent.setup();
+    ordersState.orders = [
+      orderView(
+        'pending_payment',
+        'Sold bitcoin awaiting',
+        'seller',
+        { paymentMethod: 'bitcoin', paykitRequestState: 'pending', nextActor: 'buyer' },
+        'awaiting_entitlement',
+      ),
+      orderView(
+        'pending_payment',
+        'Sold bitcoin confirm',
+        'seller',
+        { paymentMethod: 'bitcoin', paykitRequestState: 'awaiting_seller_confirmation', nextActor: 'seller' },
+        'awaiting_entitlement',
+      ),
+      orderView(
+        'pending_payment',
+        'Sold bitcoin review',
+        'seller',
+        { paymentMethod: 'bitcoin', paykitRequestState: 'pending', nextActor: 'seller' },
+        'manual_review',
+      ),
+      orderView(
+        'pending_payment',
+        'Sold unbound hold',
+        'seller',
+        { paymentMethod: null, nextActor: 'buyer' },
+        'awaiting_entitlement',
+      ),
+    ];
+
+    render(<MarketplaceOrders />);
+
+    const reservations = screen.getByTestId('marketplace-reservations');
+    expect(within(reservations).getByText(/Sold unbound hold/)).toBeInTheDocument();
+    expect(within(reservations).queryByText(/Sold bitcoin/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /All/i }));
+    expect(screen.getByText(/Sold bitcoin awaiting/)).toBeInTheDocument();
+    expect(screen.getByText(/Sold bitcoin confirm/)).toBeInTheDocument();
+    expect(screen.getByText(/Sold bitcoin review/)).toBeInTheDocument();
+    expect(screen.getAllByText('You sold').length).toBe(3);
+    expect(screen.getAllByTestId('payment-status')).toHaveLength(3);
+  });
+
+  it('says why a seller approves the marketplace session to see sales', () => {
+    ordersState.needsSession = true;
+    ordersState.error = 'A marketplace session is required.';
+
+    render(<MarketplaceOrders />);
+
+    expect(
+      screen.getByText(
+        'Your sales use this same approval, because the marketplace lists them only for a session it can tie to you.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('shows reserved checkout copy on Continue checkout, not a payment deadline on Orders', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-15T10:00:00.000Z'));
     ordersState.orders = [
@@ -521,7 +588,9 @@ describe('MarketplaceOrders tabs', () => {
       ),
     ];
     render(<MarketplaceOrders />);
-    expect(screen.getAllByText('Payment seen')).toHaveLength(2);
+    expect(screen.queryByRole('heading', { name: 'Reservations' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Sold seen boots/)).toBeInTheDocument();
+    expect(screen.getByText('You sold')).toBeInTheDocument();
     expect(screen.getByTestId('payment-status')).toBeInTheDocument();
     expect(screen.queryByText(/restocks/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();

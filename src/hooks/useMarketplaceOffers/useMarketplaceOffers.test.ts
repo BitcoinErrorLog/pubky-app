@@ -4,6 +4,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { AppError } from '@/libs/error/error';
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { toast } from '@/molecules/Toaster/use-toast';
 import type { MarketplaceOffer } from '@/services/marketplace/marketplace';
 import { useMarketplaceOffers } from './useMarketplaceOffers';
 
@@ -79,6 +80,15 @@ describe('useMarketplaceOffers', () => {
         payload: { offerId: offer.id },
       }),
     );
+  });
+
+  it('confirms a decline in one line', async () => {
+    const { result } = renderHook(() => useMarketplaceOffers());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(() => result.current.act(offer, 'offer.reject'));
+
+    expect(toast).toHaveBeenCalledWith({ title: 'Offer declined.' });
   });
 
   it('submits revised private counteroffer terms', async () => {

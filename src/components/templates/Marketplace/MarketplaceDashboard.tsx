@@ -42,7 +42,10 @@ import { isListingRegistrationPending } from '@/models/commerce/commerce.schema'
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSessionConnectDialog } from '@/organisms/Marketplace/MarketplaceSessionConnectDialog';
-import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import {
+  MarketplaceSessionRequiredCard,
+  SALES_LIST_SESSION_NOTE,
+} from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
@@ -262,7 +265,9 @@ export function MarketplaceDashboard() {
                 come from the durable service — without a session the work
                 queues and revenue below would silently read as zero, so say
                 so and offer the connect affordance instead. */}
-            {dashboard.needsSession && dashboard.sessionError && <MarketplaceSessionRequiredCard />}
+            {dashboard.needsSession && dashboard.sessionError && (
+              <MarketplaceSessionRequiredCard note={SALES_LIST_SESSION_NOTE} />
+            )}
             {dashboard.actionNeeded.total > 0 && (
               <Card className="border border-brand/40 bg-brand/5">
                 <CardContent className="flex flex-col gap-4 px-5 lg:flex-row lg:items-center lg:justify-between">

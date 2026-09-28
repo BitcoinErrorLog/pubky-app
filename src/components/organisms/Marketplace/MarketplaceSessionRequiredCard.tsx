@@ -12,7 +12,21 @@ import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDial
  * (grant) sign-in that can bootstrap, Pubky Ring otherwise. Sandbox surfaces
  * never see this card because they do not use the durable transport.
  */
-export function MarketplaceSessionRequiredCard({ onConnected }: { onConnected?: () => void | Promise<void> }) {
+/**
+ * Orders and the seller dashboard read through the marketplace session.
+ * That session is the approval labeled for purchases. The service will not
+ * list sales without it.
+ */
+export const SALES_LIST_SESSION_NOTE =
+  'Your sales use this same approval, because the marketplace lists them only for a session it can tie to you.';
+
+export function MarketplaceSessionRequiredCard({
+  onConnected,
+  note,
+}: {
+  onConnected?: () => void | Promise<void>;
+  note?: string;
+}) {
   const signer = useMarketplaceApprovalSigner();
   return (
     <div
@@ -27,6 +41,11 @@ export function MarketplaceSessionRequiredCard({ onConnected }: { onConnected?: 
         <Typography as="p" className="mx-auto mt-2 max-w-lg text-sm text-muted-foreground">
           One approval lets you buy, bid, and make offers on this marketplace. Nothing is charged until you pay.
         </Typography>
+        {note ? (
+          <Typography as="p" className="mx-auto max-w-lg text-sm text-muted-foreground">
+            {note}
+          </Typography>
+        ) : null}
       </div>
       <MarketplaceSessionConnectDialog triggerLabel={`Approve in ${signer}`} onConnected={onConnected} />
     </div>

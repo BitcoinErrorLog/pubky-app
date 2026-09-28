@@ -137,7 +137,10 @@ export function MarketplaceOffers() {
                         isHydrating={isHydrating}
                       />
                       <Typography as="p" className="text-sm text-muted-foreground">
-                        Quantity {offer.quantity} · Expires {new Date(offer.expiresAt).toLocaleString('en-US')}
+                        Quantity {offer.quantity}
+                        {offerIsOpen(offer.state)
+                          ? ` · Expires ${new Date(offer.expiresAt).toLocaleString('en-US')}`
+                          : ''}
                       </Typography>
                       {offer.award && offer.state === 'accepted' && offer.buyerPubky === currentUserPubky && (
                         <Typography as="p" className="mt-2 text-sm text-brand">
@@ -316,7 +319,13 @@ export function MarketplaceOffers() {
   );
 }
 
+/** Open offers still have an expiry. Every other state is finished. */
+export function offerIsOpen(state: MarketplaceOffer['state']): boolean {
+  return state === 'pending' || state === 'countered';
+}
+
 export function offerStateLabel(state: MarketplaceOffer['state'], expiresAt: string, nowMs = Date.now()): string {
+  if (state === 'rejected') return 'Declined';
   return state === 'accepted' && Date.parse(expiresAt) <= nowMs ? 'Expired' : state;
 }
 
