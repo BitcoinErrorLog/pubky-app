@@ -112,6 +112,26 @@ export async function deleteBridge(config: MarketplaceGrantConfig, bridgeId: str
   await grantSql(config)`DELETE FROM shop_grant_bff.session_bridge WHERE bridge_id = ${bridgeId}`;
 }
 
+/**
+ * Deletes the bridge only while it still pairs `marketplaceSessionId`.
+ * Returns whether the cookie naming this bridge may be dropped: the row was
+ * deleted, or no row is left for it.
+ */
+export async function deleteBridgeForSession(
+  config: MarketplaceGrantConfig,
+  bridgeId: string,
+  marketplaceSessionId: string,
+): Promise<boolean> {
+  const db = grantSql(config);
+  const deleted = await db`
+    DELETE FROM shop_grant_bff.session_bridge
+    WHERE bridge_id = ${bridgeId} AND marketplace_session_id = ${marketplaceSessionId}
+  `;
+  if (deleted.count === 1) return true;
+  const remaining = await db`SELECT 1 FROM shop_grant_bff.session_bridge WHERE bridge_id = ${bridgeId}`;
+  return remaining.length === 0;
+}
+
 export async function insertCreatingFlow(
   config: MarketplaceGrantConfig,
   row: {

@@ -858,8 +858,8 @@ export class AuthController {
 
     // Reset singletons
     PubkySpecsSingleton.reset();
-    // The marketplace transaction-service bearer token lives in memory only; drop it with the user.
-    CommerceController.clearMarketplaceSession();
+    // No marketplace bearer may stay at rest for the user who is leaving.
+    CommerceController.clearMarketplaceSessionForSignOut();
     // Same rule for the encrypted-messaging homeserver session and its live link handles.
     MessagingApplication.clearMessagingSession();
     useMessagingStore.getState().clearMessagingEnabled();

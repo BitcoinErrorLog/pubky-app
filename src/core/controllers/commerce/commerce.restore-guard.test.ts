@@ -33,7 +33,7 @@ function otherTabPersists(capabilities: string): string {
 
 describe('purchase-session restore never downgrades memory or the store mirror', () => {
   beforeEach(() => {
-    MarketplaceSessionService.clearSession();
+    MarketplaceSessionService.clearForSignOut();
     useCommerceStore.getState().reset();
   });
 
@@ -97,5 +97,36 @@ describe('purchase-session restore never downgrades memory or the store mirror',
 
     expect(CommerceController.restorePersistedMarketplaceSession(PUBKY)?.capabilities).toBe(parity);
     expect(MarketplaceSessionService.getActiveSession()?.token).toBe(OTHER_TAB_TOKEN);
+  });
+});
+
+describe('clearing the purchase session from the controller', () => {
+  beforeEach(() => {
+    MarketplaceSessionService.clearForSignOut();
+    useCommerceStore.getState().reset();
+  });
+
+  function thisTabHoldsAndOtherTabPersistsNewer(): string {
+    const info = MarketplaceSessionService.establishClaimedGrantSession(
+      { token: WIDE_TOKEN, pubky: PUBKY, capabilities: parity, expiresAt: inOneDay() },
+      PUBKY,
+    );
+    CommerceController.writeMarketplaceSessionStore(info);
+    return otherTabPersists(parity);
+  }
+
+  it('a failed or losing sign-in clears only this tab’s bearer', () => {
+    const newer = thisTabHoldsAndOtherTabPersistsNewer();
+    CommerceController.clearMarketplaceSession();
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBe(newer);
+  });
+
+  it('sign-out leaves no purchase bearer at rest, whichever tab persisted it', () => {
+    thisTabHoldsAndOtherTabPersistsNewer();
+    CommerceController.clearMarketplaceSessionForSignOut();
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(useCommerceStore.getState().marketplaceSession).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
   });
 });
