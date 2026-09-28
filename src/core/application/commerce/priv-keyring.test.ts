@@ -3,6 +3,7 @@ import { privFamilyPath, type PrivKeyring, privKeyringRefusal } from '@/libs/com
 import type { MarketplacePrivKeysResult } from '@/libs/commerce/priv-keys';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { MARKETPLACE_SESSION_GRANT } from '@/services/marketplace/marketplace-session-grant';
 import { CommerceApplication } from './commerce';
 import { CommercePrivKeyringApplication } from './priv-keyring';
 
@@ -45,7 +46,7 @@ describe('CommercePrivKeyringApplication', () => {
             token: 't',
             sessionId: 's',
             pubky: session.pubky,
-            capabilities: '',
+            capabilities: MARKETPLACE_SESSION_GRANT,
             expiresAt: '',
             expiresAtMs: 0,
             issuedAt: '',
@@ -105,7 +106,7 @@ describe('CommercePrivKeyringApplication', () => {
       {
         token: 'A'.repeat(43),
         pubky: OWNER,
-        capabilities: '',
+        capabilities: MARKETPLACE_SESSION_GRANT,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
       },
       OWNER,
@@ -131,7 +132,7 @@ describe('CommercePrivKeyringApplication', () => {
         {
           token: 'A'.repeat(43),
           pubky,
-          capabilities: '',
+          capabilities: MARKETPLACE_SESSION_GRANT,
           expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         },
         pubky,
@@ -212,7 +213,7 @@ describe('CommercePrivKeyringApplication', () => {
           {
             token: 'A'.repeat(43),
             pubky,
-            capabilities: '',
+            capabilities: MARKETPLACE_SESSION_GRANT,
             expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
           },
           pubky,

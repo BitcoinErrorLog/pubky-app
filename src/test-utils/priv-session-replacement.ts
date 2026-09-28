@@ -3,6 +3,7 @@ import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyr
 import { decryptPrivRecord, type PrivFamily, privFamilyUrl, type PrivKeyring } from '@/libs/commerce/priv-envelope';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { MARKETPLACE_SESSION_GRANT } from '@/services/marketplace/marketplace-session-grant';
 import type { FakeHomeserver } from '@/test-utils/fake-homeserver';
 
 const FAMILIES: PrivFamily[] = ['watchlist', 'order_receipt', 'attention_seen/activity', 'attention_seen/orders'];
@@ -19,7 +20,12 @@ export function releasedKeyring(ownerPubky: string): PrivKeyring {
 /** Installs a marketplace session for `pubky`, replacing any live one. */
 export function establishMarketplaceSession(pubky: string): void {
   MarketplaceSessionService.establishClaimedGrantSession(
-    { token: 'A'.repeat(43), pubky, capabilities: '', expiresAt: new Date(Date.now() + 86_400_000).toISOString() },
+    {
+      token: 'A'.repeat(43),
+      pubky,
+      capabilities: MARKETPLACE_SESSION_GRANT,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    },
     pubky,
   );
 }
