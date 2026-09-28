@@ -293,9 +293,68 @@ describe('Marketplace payment status card — visual regression', () => {
         paykitRequestState: 'pending',
         holdExpiresAt: HOLD_DEADLINE,
         holdSource: 'bind',
+        paykitTotalSats: 1_255,
+        merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+        subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+        total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
       },
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-method-bitcoin-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders a seen Bitcoin payment without telling the buyer to pay again', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const deadline = '2026-09-29T10:56:41.980Z';
+    const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
+      deployEnv: 'staging',
+      orderOverrides: {
+        paymentMethod: 'bitcoin',
+        paykitRequestState: 'awaiting_seller_confirmation',
+        paykitDeliveryState: 'delivered',
+        paykitSellerConfirmationDeadline: deadline,
+        holdExpiresAt: deadline,
+        holdSource: 'bind',
+        paykitTotalSats: 1_303,
+        merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        bitcoinPayable: { amountMinor: 1_303, currency: 'SAT', exponent: 0 },
+        subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+        shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+        total: { amountMinor: 1_303, currency: 'BTC', exponent: 8 },
+      },
+    });
+    await expect.element(screen.getByText(/Payment seen/)).toBeInTheDocument();
+    await expect.element(screen.getByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-bitcoin-seen-desktop');
+    view.locks.enabled = true;
+  });
+
+  it('renders an unconfirmed Bitcoin manual review without calling it confirmed', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('manual_review', 'transaction-service', {
+      deployEnv: 'staging',
+      adapter: 'paykit',
+      isBuyer: true,
+      currentUserPubky: 'b'.repeat(52),
+      paymentOverrides: { confirmations: 0 },
+      orderOverrides: {
+        paymentMethod: 'bitcoin',
+        paykitRequestState: 'pending',
+        paykitDeliveryState: 'delivered',
+        holdExpiresAt: '2026-09-29T10:56:41.980Z',
+        holdSource: 'bind',
+      },
+    });
+    await expect.element(screen.getByText('Payment received — the seller is reviewing it.')).toBeInTheDocument();
+    await expect.element(screen.getByText(/confirmed on-chain/)).not.toBeInTheDocument();
+    await expect.element(screen.getByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    await expect.element(screen.getByText(/Pay by/)).not.toBeInTheDocument();
+    await expect.element(screen.getByText('Resolve Bitcoin payment review')).not.toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-bitcoin-review-unconfirmed-desktop',
+    );
     view.locks.enabled = true;
   });
 
@@ -387,7 +446,7 @@ describe('Marketplace payment status card — visual regression', () => {
 
   it('renders seller-observed Bitcoin facts and confirmation CTA', async () => {
     const screen = await renderCapturedCard('seller_awaiting_confirmation', false);
-    await expect.element(screen.getByText('Review Bitcoin payment')).toBeInTheDocument();
+    await expect.element(screen.getByText(/Confirm you received/)).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
       'payment-status-seller-awaiting-review-desktop',
     );

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import { INVENTORY_GRANT, INVENTORY_SESSION_STORAGE_KEY } from './marketplace-inventory-grant';
 import { MarketplaceInventorySessionService } from './marketplace-inventory-session';
@@ -99,6 +100,32 @@ describe('MarketplaceInventorySessionService', () => {
     expect(JSON.parse(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY) ?? '{}').capabilities).toBe(
       INVENTORY_GRANT,
     );
+  });
+
+  it('revert-fail: keeps a migration-0035 inventory session id through mint and restore', async () => {
+    const legacySessionId = 'c91ac604-4109-a63d-ab8b-327fc9decd05';
+    expect(z.uuid().safeParse(legacySessionId).success).toBe(false);
+    await establishIdentity();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          token: INVENTORY_TOKEN,
+          pubky: PUBKY,
+          capabilities: INVENTORY_GRANT,
+          expires_at: inOneDay(),
+          session_id: legacySessionId,
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    await MarketplaceInventorySessionService.mintInventorySession(new Uint8Array([1]), PUBKY);
+    expect(MarketplaceInventorySessionService.getActiveSession()?.sessionId).toBe(legacySessionId);
+
+    const persisted = window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY);
+    MarketplaceInventorySessionService.clearSession();
+    window.localStorage.setItem(INVENTORY_SESSION_STORAGE_KEY, persisted ?? '');
+    expect(MarketplaceInventorySessionService.restorePersistedSession(PUBKY)?.pubky).toBe(PUBKY);
+    expect(MarketplaceInventorySessionService.getActiveSession()?.sessionId).toBe(legacySessionId);
   });
 
   it('passes INVENTORY_GRANT into generateAuthTokenFlow', async () => {

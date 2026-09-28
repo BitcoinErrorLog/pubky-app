@@ -18,8 +18,8 @@ import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFe
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { activityRowHref } from '@/libs/commerce/activity-links';
+import { formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import { isBuyerCheckoutInProgress } from '@/libs/commerce/checkout-phase';
-import { formatCommerceMoney } from '@/libs/commerce/format';
 import { returnActivityTitles } from '@/libs/commerce/return-activity-titles';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -318,7 +318,7 @@ function NotificationCard({
               {label}
               {/* §8-permitted monetary context (offer amount, auction
                             visible price), formatted per BIP-177 for bitcoin. */}
-              {notification.amount ? ` · ${formatCommerceMoney(notification.amount)}` : ''}
+              {notification.amount ? ` · ${formatBitcoinAwareMoney(notification.amount)}` : ''}
             </Typography>
             <Typography as="p" className="truncate text-sm text-muted-foreground">
               From {notificationActorLabel(notification.actorPubky)}

@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Label } from '@/atoms/Label/Label';
 import { Textarea } from '@/atoms/Textarea/Textarea';
 import { usePackingSlipAddress } from '@/hooks/usePackingSlipAddress/usePackingSlipAddress';
+import { bitcoinPaymentBreakdown, formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { formatPublicKey } from '@/libs/utils/utils';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
@@ -43,6 +44,7 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
   // order never had an address, and the meeting point is only ever visible
   // to the buyer in the app.
   const isPickup = order.fulfillment === 'pickup';
+  const bitcoinBreakdown = bitcoinPaymentBreakdown(order);
 
   useEffect(() => {
     setOpen(false);
@@ -140,9 +142,20 @@ export function MarketplacePackingSlipDialog({ order }: { order: MarketplaceOrde
               </tbody>
             </table>
             <div className="mt-2 ml-auto w-fit text-right">
-              <p>Items {formatCommerceMoney(order.subtotal)}</p>
-              <p>Shipping {formatCommerceMoney(order.shipping)}</p>
-              <p className="font-bold">Total {formatCommerceMoney(order.total)}</p>
+              {bitcoinBreakdown ? (
+                <>
+                  <p>Items {formatBitcoinAwareMoney(bitcoinBreakdown.items)}</p>
+                  <p>Shipping {formatBitcoinAwareMoney(bitcoinBreakdown.shipping)}</p>
+                  <p>Payment code {formatBitcoinAwareMoney(bitcoinBreakdown.paymentCode)}</p>
+                  <p className="font-bold">Total {formatBitcoinAwareMoney(bitcoinBreakdown.payable)}</p>
+                </>
+              ) : (
+                <>
+                  <p>Items {formatCommerceMoney(order.subtotal)}</p>
+                  <p>Shipping {formatCommerceMoney(order.shipping)}</p>
+                  <p className="font-bold">Total {formatCommerceMoney(order.total)}</p>
+                </>
+              )}
             </div>
 
             {order.shipment && (

@@ -641,6 +641,11 @@ export const marketplaceOrderProjectionSchema = z
     paykitSellerConfirmationEnteredAt: z.string().nullable().optional(),
     paykitSellerConfirmationDeadline: z.string().nullable().optional(),
     paykitTotalSats: z.number().int().nonnegative().nullable().optional(),
+    // Merchandise before the per-invoice amount code, and the exact bitcoin
+    // amount the buyer pays. A malformed value is dropped so one bad money
+    // object cannot fail the order.
+    merchandiseTotal: marketplaceMoneySchema.nullish().catch(undefined),
+    bitcoinPayable: marketplaceMoneySchema.nullish().catch(undefined),
     /**
      * Seller-only interim projection: readable only by the order's seller
      * while the order is paid/processing and shipping; encryption to the

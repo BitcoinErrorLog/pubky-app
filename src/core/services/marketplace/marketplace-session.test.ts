@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { CAPABILITIES } from '@/config/app';
 import type { AppError } from '@/libs/error/error';
 import { Logger } from '@/libs/logger/logger';
@@ -47,12 +48,24 @@ vi.mock('@/services/homeserver/homeserver', () => ({
   },
 }));
 
-function sessionResponse(expiresAt: string, token = TOKEN, capabilities = ''): Response {
-  return new Response(JSON.stringify({ token, pubky: PUBKY, capabilities, expires_at: expiresAt }), {
-    status: 201,
-    headers: { 'content-type': 'application/json' },
-  });
+function sessionResponse(expiresAt: string, token = TOKEN, capabilities = '', sessionId?: string): Response {
+  return new Response(
+    JSON.stringify({
+      token,
+      pubky: PUBKY,
+      capabilities,
+      expires_at: expiresAt,
+      ...(sessionId === undefined ? {} : { session_id: sessionId }),
+    }),
+    {
+      status: 201,
+      headers: { 'content-type': 'application/json' },
+    },
+  );
 }
+
+/** md5(encode(token_hash, 'hex')) hyphenated, token hash 43. Version nibble `a`, the 17–20 Sep capture class. */
+const LEGACY_SESSION_ID = 'c91ac604-4109-a63d-ab8b-327fc9decd05';
 
 function inOneDay(): string {
   return new Date(Date.now() + 86_400_000).toISOString();
@@ -136,6 +149,54 @@ describe('MarketplaceSessionService', () => {
     expect(indexedDbOpenSpy).not.toHaveBeenCalled();
     sessionSetItemSpy.mockRestore();
     indexedDbOpenSpy.mockRestore();
+  });
+
+  it('revert-fail: keeps a migration-0035 session id through mint and restore', async () => {
+    expect(z.uuid().safeParse(LEGACY_SESSION_ID).success).toBe(false);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      sessionResponse(inOneDay(), TOKEN, MARKETPLACE_SESSION_GRANT, LEGACY_SESSION_ID),
+    );
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ sessionId: LEGACY_SESSION_ID });
+
+    dropMemoryOnly();
+    MarketplaceSessionService.restorePersistedSession(PUBKY);
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({
+      sessionId: LEGACY_SESSION_ID,
+      capabilities: MARKETPLACE_SESSION_GRANT,
+    });
+  });
+
+  it('revert-fail: keeps a migration-0035 session id through a claimed grant and restore', () => {
+    expect(z.uuid().safeParse(LEGACY_SESSION_ID).success).toBe(false);
+    MarketplaceSessionService.establishClaimedGrantSession(
+      {
+        token: TOKEN,
+        sessionId: LEGACY_SESSION_ID,
+        pubky: PUBKY,
+        capabilities: MARKETPLACE_SESSION_GRANT,
+        expiresAt: inOneDay(),
+      },
+      PUBKY,
+    );
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ sessionId: LEGACY_SESSION_ID });
+
+    dropMemoryOnly();
+    MarketplaceSessionService.restorePersistedSession(PUBKY);
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({
+      sessionId: LEGACY_SESSION_ID,
+      capabilities: MARKETPLACE_SESSION_GRANT,
+    });
+  });
+
+  it('rejects a minted session id that is empty, oversized, or a control character', async () => {
+    for (const sessionId of ['', 'a'.repeat(37), 'abc\n', 'ab\u0000c', 'ab\u007Fc']) {
+      vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, '', sessionId));
+      await expect(MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY)).rejects.toThrow(
+        /invalid session response/i,
+      );
+      expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    }
   });
 
   it('restores a persisted session for the matching account across a simulated reload', async () => {

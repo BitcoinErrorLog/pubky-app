@@ -292,6 +292,37 @@ describe('MarketplaceOrderActions refund reference labels', () => {
     expect(screen.getByLabelText(label)).toBeInTheDocument();
   });
 
+  it('labels a Bitcoin refund amount in satoshis and shows the payment-code equation', async () => {
+    const order = createOrderFixture('return_received', {
+      paymentMethod: 'bitcoin',
+      paykitTotalSats: 1_255,
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+      total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+    });
+    const actOnOrder = vi.fn(async () => true);
+    render(<MarketplaceOrderActions order={order} isBuyer={false} canEditReview={false} actOnOrder={actOnOrder} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Record refund' }));
+    expect(screen.getByLabelText('Amount (₿)')).toHaveValue('1255');
+    expect(screen.queryByLabelText('Amount (USD)')).not.toBeInTheDocument();
+    expect(screen.getByTestId('bitcoin-amount-breakdown')).toHaveTextContent(
+      'Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255',
+    );
+    await user.type(screen.getByLabelText('External Bitcoin transaction reference'), 'txid-canary-refund');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+
+    await waitFor(() =>
+      expect(actOnOrder).toHaveBeenCalledWith(order, 'refund.record_external', {
+        amountMinor: 1_255,
+        transactionId: 'txid-canary-refund',
+      }),
+    );
+  });
+
   it('tells a PayPal seller to refund in PayPal before recording the return', async () => {
     const order = createOrderFixture('return_received', { paymentMethod: 'paypal' });
     render(
