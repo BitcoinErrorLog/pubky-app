@@ -58,3 +58,30 @@ Sandbox-only-and-labelled remains the right posture — do **not** add plaintext
 | pubky-noise direct                       | Would require designing an unreviewed protocol layer (kinds, ordering, attachments, backup) that Paykit already provides — forbidden. Legacy `/Volumes` fork additionally deprecated/non-interoperable. |
 | Homeserver encrypted records             | Homeserver has no counterparty-readable private paths; every honest design reinvents pubky-noise; pubky-app-specs has no message model; browser cannot ECDH with the identity key. Blocked.             |
 | Anything else                            | Nothing found: Sealed Blob/atomicity is outside the audited upstream set; Locks has no messaging surface; Chatwoot is operator support chat; Pubky App has no DMs.                                      |
+
+## First contact, Requests and mutes
+
+The transport cannot list inbound handshakes, so a seller finds a new buyer through two public records the buyer writes on the first message in a listing thread:
+
+- a follow of the seller (`/pub/pubky.app/follows/{seller}`), which puts the buyer in the seller's followers; the dialog says so above Send: "Sending also follows this shop so they can see your message.";
+- a conversation request, one per listing, with no message in it:
+
+```
+pubky://{buyer}/pub/pubky.app/marketplace/v1/conversation-requests/{seller}/{listingId}
+
+{ "version": 1, "kind": "marketplace.conversation_request.v0",
+  "seller_pubky": "<seller>", "buyer_pubky": "<buyer>",
+  "listing_id": "<listingId>", "created_at": <buyer clock, Unix ms> }
+```
+
+Like the other `marketplace/v1/*` paths, this is a Shop convention and not part of `pubky-app-specs`. The record is public: anyone can read which seller and listing a buyer asked about. The buyer reads it first and writes it only when it is missing or invalid; a failed read writes nothing. Both sides of an order or offer already find each other, so a first message about one writes neither record.
+
+On each inbox sync the seller lists the request directory of up to 20 followers and adds one listing thread per valid request. Only the path is trusted: the homeserver lets nobody but the buyer write under the buyer's `/pub`, and every JSON field must repeat the path or the request is ignored. Messages are then accepted into a thread only when its id names both authenticated ends of the link.
+
+A thread with someone the account does not follow, shares no order or offer with, and has never written to lands in **Requests**. Requests never count as unread. Accept, a reply, a follow of the person or a shared order moves every thread with them into the inbox.
+
+Mutes are private. The list lives at `/priv/pubky.app/marketplace/v2/s/` under the family `messaging_mutes`, sealed with the same data keys and envelope as the watchlist (see `docs/ecommerce/priv-encryption-recovery.md`). A muted person is never probed, sent to or stored, and their threads are hidden. When the list cannot be read, the sync still advances handshakes and queued sends but stores nothing new; the messages wait on the homeserver for a later pass. Messages a muted person sent arrive after an unmute.
+
+Limits, on this device's clock (never a sender's `sent_at`): a buyer can message at most 5 new people per rolling hour, and at most 20 messages per minute from one person are stored. Both bind honest clients only; mute, Requests and the probe budget (10 of the 25 probes per sync kept for people with no local state) are the defences that hold against a modified client. Report copies the conversation id and the other account to the clipboard and builds no URL.
+
+This policy sits above the transport behind `MessagingIntakeGate` (`src/libs/messaging/intake-gate.ts`): the link runtime asks it once per inbound message before storing it.
