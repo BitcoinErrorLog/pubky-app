@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Key, Loader2, RefreshCw } from 'lucide-react';
 import { ONBOARDING_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
+import { Card } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { FooterLinks } from '@/atoms/FooterLinks/FooterLinks';
 import { Link } from '@/atoms/Link/Link';
@@ -13,6 +14,7 @@ import { PageHeader } from '@/atoms/PageHeader/PageHeader';
 import { PageSubtitle } from '@/atoms/PageSubtitle/PageSubtitle';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getPubkyCoreLink, getPubkyRingLink } from '@/config/externalLinks';
+import { useGrantSignInAvailable } from '@/hooks/useGrantSignInAvailable/useGrantSignInAvailable';
 import { useMobileAuth } from '@/hooks/useMobileAuth/useMobileAuth';
 import { Logger } from '@/libs/logger/logger';
 import { BalancedQrCard } from '@/molecules/BalancedQrCard/BalancedQrCard';
@@ -20,7 +22,73 @@ import { ButtonsNavigation } from '@/molecules/ButtonsNavigation/ButtonsNavigati
 import { ContentCard } from '@/molecules/Content/Content';
 import { PageTitle } from '@/molecules/Page/Page';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
+import {
+  BITKIT_IDENTITY_HINT,
+  SIGNER_AUTH_COPY,
+  SignerAuthOption,
+  SignerAuthorizeButton,
+} from '@/molecules/SignerAuthOption/SignerAuthOption';
+import type { SignerAuth } from '@/molecules/SignerAuthOption/SignerAuthOption.types';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
+
+async function copyWithToast(copy: () => Promise<void>) {
+  try {
+    await copy();
+    toast({ variant: 'info', title: 'Sign-up link copied' });
+  } catch (error) {
+    Logger.error('Failed to copy the sign-up link', { error });
+    toast({ variant: 'error', description: 'Could not copy to clipboard' });
+  }
+}
+
+/**
+ * Pubky Ring and Bitkit side by side. Ring scans the classic sign-up QR and
+ * creates a new key; Bitkit scans a `signup_grant` for the key it already
+ * holds. Both carry the same invite code; the first approval wins and the
+ * controller cancels the other flow.
+ */
+const ScanBothSigners = ({ ring, inviteCode }: { ring: SignerAuth; inviteCode: string }) => {
+  const bitkit = useMobileAuth({ type: 'signup-grant', inviteCode });
+  const copy = SIGNER_AUTH_COPY.signUp;
+  return (
+    <>
+      <Container size="container" className="hidden md:flex">
+        <ScanHeader isMobile={false} signer="both" />
+        <Card
+          data-testid="scan-qr-card"
+          className="w-full flex-row items-start justify-center gap-12 rounded-md p-6 lg:gap-24 lg:p-12"
+        >
+          <SignerAuthOption
+            copy={copy.ring}
+            auth={ring}
+            onCopied={() => copyWithToast(ring.copyAuthUrl)}
+            testId="sign-up-ring-option"
+          />
+          <SignerAuthOption
+            copy={copy.bitkit}
+            auth={bitkit}
+            onCopied={() => copyWithToast(bitkit.copyAuthUrl)}
+            testId="sign-up-bitkit-option"
+          />
+        </Card>
+      </Container>
+
+      <Container size="container" className="md:hidden">
+        <ScanHeader isMobile={true} signer="both" />
+        <ContentCard layout="column">
+          <Container className="flex-col items-center justify-center gap-4">
+            <SignerAuthorizeButton copy={copy.ring} auth={ring} testId="button" />
+            <SignerAuthorizeButton copy={copy.bitkit} auth={bitkit} testId="sign-up-grant-button" />
+            <Typography as="p" className="text-center text-sm text-muted-foreground">
+              {BITKIT_IDENTITY_HINT}
+            </Typography>
+          </Container>
+        </ContentCard>
+      </Container>
+    </>
+  );
+};
 
 export const ScanContent = () => {
   const router = useRouter();
@@ -32,7 +100,7 @@ export const ScanContent = () => {
       router.replace(ONBOARDING_ROUTES.HUMAN);
     }
   }, [hasInviteCode, router]);
-  const { url, isLoading, isExpired, fetchUrl, isOpeningRing, onAuthorizeClick } = useMobileAuth(
+  const ringAuth = useMobileAuth(
     hasInviteCode
       ? {
           type: 'signup',
@@ -42,7 +110,10 @@ export const ScanContent = () => {
           autoFetch: false,
         },
   );
+  const isGrantSignUpAvailable = useGrantSignInAvailable();
+  const { url, isLoading, isExpired, fetchUrl, isOpeningRing, onAuthorizeClick } = ringAuth;
   if (!hasInviteCode) return null;
+  if (isGrantSignUpAvailable) return <ScanBothSigners ring={ringAuth} inviteCode={inviteCode} />;
   const isMobileLaunching = isLoading || isOpeningRing;
   const mobileAuthorizeContent = isMobileLaunching ? (
     <>
@@ -129,7 +200,7 @@ export const ScanFooter = () => {
     </FooterLinks>
   );
 };
-export const ScanHeader = ({ isMobile }: { isMobile: boolean }) => {
+export const ScanHeader = ({ isMobile, signer = 'ring' }: { isMobile: boolean; signer?: 'ring' | 'both' }) => {
   return (
     <PageHeader>
       <PageTitle size="large">
@@ -146,9 +217,13 @@ export const ScanHeader = ({ isMobile }: { isMobile: boolean }) => {
         )}
       </PageTitle>
       <PageSubtitle>
-        {isMobile
-          ? 'Tap the button to open Pubky Ring, and authorize with your pubky.'
-          : "Open Pubky Ring, tap 'add pubky', and scan this QR."}
+        {signer === 'both'
+          ? isMobile
+            ? 'Tap Pubky Ring to create a new pubky, or Bitkit to use the pubky Bitkit already holds.'
+            : 'Scan with Pubky Ring to create a new pubky, or with Bitkit to use the pubky Bitkit already holds.'
+          : isMobile
+            ? 'Tap the button to open Pubky Ring, and authorize with your pubky.'
+            : "Open Pubky Ring, tap 'add pubky', and scan this QR."}
       </PageSubtitle>
     </PageHeader>
   );

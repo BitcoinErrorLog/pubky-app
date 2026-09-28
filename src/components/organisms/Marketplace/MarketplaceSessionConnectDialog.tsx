@@ -10,9 +10,10 @@ import { useMarketplaceSessionConnect } from '@/hooks/useMarketplaceSessionConne
 import { Logger } from '@/libs/logger/logger';
 import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
+import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
-import { bootstrapApprovalCaption } from '@/services/marketplace/marketplace-bootstrap-client';
+import { marketplaceApprovalDisclosure } from '@/services/marketplace/marketplace-session-grant';
 
 /**
  * The in-app UX for establishing a marketplace transaction-service session
@@ -81,8 +82,7 @@ export function MarketplaceSessionConnectDialog({
   const requestsFullGrant = session.requestsFullGrant;
   const requestsGrantReconnect = session.requestsGrantReconnect;
   const requestsGrantBootstrap = session.requestsGrantBootstrap;
-  const bootstrapCaption =
-    requestsGrantBootstrap && session.authorizationUrl ? bootstrapApprovalCaption(session.authorizationUrl) : null;
+  const approvalDisclosure = session.authorizationUrl ? marketplaceApprovalDisclosure(session.authorizationUrl) : null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -105,12 +105,12 @@ export function MarketplaceSessionConnectDialog({
 
         <Typography as="p" className="text-sm text-muted-foreground">
           {requestsGrantBootstrap
-            ? 'Approve with Bitkit to connect purchases for the identity signed in to Shop. Nothing is charged until you pay.'
+            ? 'Approve with Bitkit to connect the marketplace for the identity signed in to Shop. Nothing is charged until you pay.'
             : requestsGrantReconnect
               ? 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
               : requestsFullGrant && !grantFlowEnabled
                 ? 'Sign in to Pubky Shop.'
-                : 'Approve purchases for this device.'}
+                : 'Approve with Pubky Ring to connect the marketplace on this device.'}
         </Typography>
 
         {refusesGrantSession ? (
@@ -159,15 +159,7 @@ export function MarketplaceSessionConnectDialog({
               />
             </button>
 
-            {bootstrapCaption && (
-              <Typography
-                as="p"
-                data-testid="bootstrap-approval-caption"
-                className="max-w-xs text-center text-xs text-muted-foreground"
-              >
-                {bootstrapCaption}
-              </Typography>
-            )}
+            <MarketplaceApprovalDisclosure sentence={approvalDisclosure} />
 
             {session.status === 'awaiting' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">

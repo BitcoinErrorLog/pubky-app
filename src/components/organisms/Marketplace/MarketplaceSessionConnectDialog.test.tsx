@@ -1,6 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CAPABILITIES } from '@/config/app';
 import type { MarketplaceSessionConnectStatus } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect.types';
+import {
+  MARKETPLACE_DISCLOSURE_INVENTORY,
+  MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
+  MARKETPLACE_DISCLOSURE_SIGN_IN,
+  MARKETPLACE_SESSION_GRANT,
+} from '@/services/marketplace/marketplace-session-grant';
+import parityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
 
 /**
@@ -102,28 +110,86 @@ describe('MarketplaceSessionConnectDialog', () => {
     expect(screen.getByRole('heading', { name: 'Approve purchases in Bitkit' })).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Approve with Bitkit to connect purchases for the identity signed in to Shop. Nothing is charged until you pay.',
+        'Approve with Bitkit to connect the marketplace for the identity signed in to Shop. Nothing is charged until you pay.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open in Bitkit' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /open in pubky ring/i })).not.toBeInTheDocument();
     expect(screen.getByText('Waiting for approval in Bitkit…')).toBeInTheDocument();
-    expect(screen.queryByTestId('bootstrap-approval-caption')).not.toBeInTheDocument();
+    expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_INVENTORY);
   });
 
-  it('bootstrap QR carries the caption naming the client Bitkit will show', () => {
+  function grantUrl(caps: string): string {
+    return `pubkyauth://signin_grant?caps=${encodeURIComponent(caps)}&relay=r&secret=s&cid=${parityCapture.parity_request.cid}&cpk=k`;
+  }
+
+  function expectOneDisclosure(sentence: string) {
+    const disclosure = screen.getByTestId('session-approval-disclosure');
+    expect(disclosure).toHaveTextContent(sentence);
+    const content = screen.getByTestId('dialog-content').textContent ?? '';
+    expect(content).not.toMatch(/\/pub\/|\/priv\/|:rw|marketplace-service|shop\.pubky\.app/);
+    expect(content.split('private Shop data').length - 1).toBeLessThanOrEqual(1);
+  }
+
+  it('the Ring connect-marketplace QR discloses the private Shop data it hands over', () => {
     view.status = 'awaiting';
-    view.authorizationUrl =
-      'pubkyauth://signin_grant?caps=%2Fpub%2Fpubky.app%2Fmarketplace-service%2Fv1%2F%3Arw&relay=r&secret=s&cid=marketplace.staging.shop.pubky.app&cpk=k';
+    view.authorizationUrl = `pubkyauth://signin?caps=${encodeURIComponent(MARKETPLACE_SESSION_GRANT)}&relay=r&secret=s`;
+    view.requestsFullGrant = false;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
+    expect(screen.getByText('Approve with Pubky Ring to connect the marketplace on this device.')).toBeInTheDocument();
+    expectOneDisclosure(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
+  });
+
+  it('the grant reconnect QR discloses the private Shop data for either signer', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl = grantUrl(parityCapture.parity_request.caps);
+    view.requestsFullGrant = false;
+    view.requestsGrantReconnect = true;
+    view.grantEnabled = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expectOneDisclosure(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
+  });
+
+  it('the bridged full Shop sign-in QR discloses that the marketplace gets the same access', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl = `pubkyauth://signin?caps=${encodeURIComponent(CAPABILITIES)}&relay=r&secret=s`;
+    view.requestsFullGrant = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expectOneDisclosure(MARKETPLACE_DISCLOSURE_SIGN_IN);
+  });
+
+  it.each([
+    ['previous inventory-only', parityCapture.previous_request.caps, MARKETPLACE_DISCLOSURE_INVENTORY],
+    ['/priv parity', parityCapture.parity_request.caps, MARKETPLACE_DISCLOSURE_PRIVATE_DATA],
+  ])('bootstrap QR for the captured %s grant discloses it in one sentence', (_label, caps, sentence) => {
+    view.status = 'awaiting';
+    view.authorizationUrl = grantUrl(caps);
     view.isGrantSession = true;
     view.grantEnabled = true;
     view.requestsGrantBootstrap = true;
 
     render(<MarketplaceSessionConnectDialog />);
 
-    expect(screen.getByTestId('bootstrap-approval-caption')).toHaveTextContent(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases only.',
-    );
+    expectOneDisclosure(sentence);
+  });
+
+  it('a QR requesting anything else shows no disclosure', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl = grantUrl('/:rw');
+    view.requestsFullGrant = false;
+    view.requestsGrantReconnect = true;
+    view.grantEnabled = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.queryByTestId('session-approval-disclosure')).not.toBeInTheDocument();
   });
 
   it('bootstrap creating state confirms with the homeserver', () => {

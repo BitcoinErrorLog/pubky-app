@@ -1,11 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MarketplaceChatMessage } from '@/libs/commerce/messaging-contracts';
 import { MARKETPLACE_CHAT_MESSAGE_KIND } from '@/libs/commerce/messaging-contracts';
 import { PUBKY_APP_DM_KIND, type PubkyAppDmMessage } from '@/libs/messaging/dm-contracts';
+import { MESSAGING_RETRY_POLICY } from '@/libs/messaging/retry-backoff';
 import { CommerceMessagingConversationModel, CommerceMessagingOutboxModel } from '@/models/messaging/messaging.models';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { type MessagingLinkState, PaykitMessagingService } from '@/services/paykit/paykit-messaging';
-import { MessagingApplication } from './messaging';
+import {
+  MESSAGING_SYNC_MAX_COUNTERPARTIES,
+  MESSAGING_SYNC_MAX_RECOVERY_PROBES,
+  MessagingApplication,
+} from './messaging';
+
+const advanceClock = (ms: number) => vi.setSystemTime(Date.now() + ms);
 
 const OWNER = 'a'.repeat(52);
 const OTHER_OWNER = 'b'.repeat(52);
@@ -55,7 +62,13 @@ function mockDmSend() {
 describe('MessagingApplication queued-message outbox', () => {
   beforeEach(async () => {
     vi.restoreAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    MessagingApplication.clearMessagingSession();
     await Promise.all([CommerceMessagingOutboxModel.clear(), CommerceMessagingConversationModel.clear()]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('queues the message device-locally while the link is still handshaking (nothing is sent)', async () => {
@@ -173,7 +186,16 @@ describe('MessagingApplication queued-message outbox', () => {
     // The row behind the failure was never attempted — order is preserved.
     expect(remaining[1]).toMatchObject({ attempts: 0, last_error: null });
 
-    mockChatSend();
+    const resendSpy = mockChatSend();
+    const callsBefore = resendSpy.mock.calls.length;
+    advanceClock(2_000);
+    await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY)).resolves.toEqual({
+      delivered: 0,
+      remaining: 2,
+    });
+    expect(resendSpy.mock.calls.length).toBe(callsBefore);
+
+    advanceClock(MESSAGING_RETRY_POLICY.baseMs);
     const secondPass = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
     expect(secondPass).toEqual({ delivered: 2, remaining: 0 });
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
@@ -315,5 +337,71 @@ describe('MessagingApplication queued-message outbox', () => {
 
     expect(summary.lastMessage).toBeNull();
     expect(summary.lastQueued).toMatchObject({ body: 'newest and queued', kind: 'chat' });
+  });
+});
+
+describe('MessagingApplication retry spacing', () => {
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    MessagingApplication.clearMessagingSession();
+    await Promise.all([CommerceMessagingOutboxModel.clear(), CommerceMessagingConversationModel.clear()]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('retries a failing queued send on a capped exponential schedule, not on every 2 s poll', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    mockLinkState(HANDSHAKING);
+    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('keeps failing'));
+    const sendSpy = vi.spyOn(PaykitMessagingService, 'sendChatMessage').mockRejectedValue(new Error('write failed'));
+
+    for (let elapsed = 0; elapsed <= 30 * 60_000; elapsed += 2_000) {
+      await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+      advanceClock(2_000);
+    }
+
+    expect(sendSpy.mock.calls.length).toBeGreaterThanOrEqual(8);
+    expect(sendSpy.mock.calls.length).toBeLessThanOrEqual(12);
+    await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(1);
+  });
+
+  it("a failing pair never delays another pair's flush", async () => {
+    const HEALTHY = 'h'.repeat(52);
+    mockLinkState(HANDSHAKING);
+    await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'stuck');
+    await MessagingApplication.sendOrQueueDmMessage(OWNER, HEALTHY, 'fine');
+    vi.spyOn(PaykitMessagingService, 'sendDmMessage').mockImplementation(async (_owner, counterparty, input) => {
+      if (counterparty === COUNTERPARTY) throw new Error('write failed');
+      return dmMessage(input.body, input.eventId);
+    });
+
+    await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+    await expect(MessagingApplication.flushOutbox(OWNER, HEALTHY)).resolves.toEqual({ delivered: 1, remaining: 0 });
+  });
+
+  it('keeps retries out of the healthy sync budget and runs at most the capped number of due retries per pass', async () => {
+    const healthy = Array.from({ length: MESSAGING_SYNC_MAX_COUNTERPARTIES }, (_, index) =>
+      `h${String(index).padStart(2, '0')}`.padEnd(52, 'x'),
+    );
+    const due = Array.from({ length: 25 }, (_, index) => `d${String(index).padStart(2, '0')}`.padEnd(52, 'x'));
+    const waiting = Array.from({ length: 5 }, (_, index) => `w${String(index).padStart(2, '0')}`.padEnd(52, 'x'));
+    vi.spyOn(PaykitMessagingService, 'linkRetryStatus').mockImplementation((_owner, counterparty) => {
+      if (due.includes(counterparty)) return 'due';
+      if (waiting.includes(counterparty)) return 'waiting';
+      return 'none';
+    });
+    const probeSpy = vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue(READY);
+    const receiveSpy = vi.spyOn(PaykitMessagingService, 'receiveMessages').mockResolvedValue([]);
+
+    await MessagingApplication.syncCounterparties(OWNER, [...due, ...waiting, ...healthy]);
+
+    const probed = probeSpy.mock.calls.map(([, counterparty]) => counterparty);
+    expect(probed.slice(0, healthy.length)).toEqual(healthy);
+    expect(probed.slice(healthy.length)).toEqual(due.slice(0, MESSAGING_SYNC_MAX_RECOVERY_PROBES));
+    expect(probed.some((counterparty) => waiting.includes(counterparty))).toBe(false);
+    expect(receiveSpy.mock.calls.map(([, counterparty]) => counterparty).slice(0, healthy.length)).toEqual(healthy);
   });
 });

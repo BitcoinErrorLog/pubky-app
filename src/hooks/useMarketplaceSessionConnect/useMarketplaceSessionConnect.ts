@@ -10,6 +10,8 @@ import {
   marketplaceErrorCode,
   marketplaceFailureMessage,
 } from '@/libs/commerce/failure-messages';
+import { isAppError } from '@/libs/error/error';
+import { ErrorCategory } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { copyToClipboard } from '@/libs/utils/utils';
@@ -213,15 +215,23 @@ export function useMarketplaceSessionConnect(
               setStatus('mismatch');
               return;
             }
-            const session = MarketplaceSessionService.establishClaimedGrantSession(
-              {
-                token: result.token,
-                pubky: result.pubky,
-                capabilities: result.capabilities,
-                expiresAt: result.expires_at,
-              },
-              expectedPubky,
-            );
+            let session;
+            try {
+              session = MarketplaceSessionService.establishClaimedGrantSession(
+                {
+                  token: result.token,
+                  pubky: result.pubky,
+                  capabilities: result.capabilities,
+                  expiresAt: result.expires_at,
+                },
+                expectedPubky,
+              );
+            } catch (error) {
+              if (!isAppError(error) || error.category !== ErrorCategory.Validation) throw error;
+              setErrorMessage(error.message);
+              setStatus('error');
+              return;
+            }
             CommerceController.writeMarketplaceSessionStore(session);
             setStatus('connected');
             onConnectedRef.current?.(session);

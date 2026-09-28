@@ -13,6 +13,7 @@ const mockLoggerError = vi.fn();
 const mockCopyToClipboard = vi.fn().mockResolvedValue(undefined);
 const mockGetAuthUrl = vi.fn();
 const mockGetSignupAuthUrl = vi.fn();
+const mockGetSignupGrantAuthUrl = vi.fn();
 const mockInitializeAuthenticatedSession = vi.fn();
 const mockCancelActiveAuthFlow = vi.fn();
 vi.mock('@/molecules/Toaster/use-toast', () => {
@@ -43,6 +44,7 @@ vi.mock('@/controllers/auth/auth', () => ({
   AuthController: {
     getAuthUrl: (...args: unknown[]) => mockGetAuthUrl(...args),
     getSignupAuthUrl: (...args: unknown[]) => mockGetSignupAuthUrl(...args),
+    getSignupGrantAuthUrl: (...args: unknown[]) => mockGetSignupGrantAuthUrl(...args),
     initializeAuthenticatedSession: (...args: unknown[]) => mockInitializeAuthenticatedSession(...args),
     cancelActiveAuthFlow: (...args: unknown[]) => mockCancelActiveAuthFlow(...args),
   },
@@ -483,6 +485,26 @@ describe('useAuthUrl', () => {
     });
 
     expect(mockGetSignupAuthUrl).toHaveBeenCalledWith('A9KM-7MJP-ERM9');
+    expect(mockGetAuthUrl).not.toHaveBeenCalled();
+  });
+
+  it('calls AuthController.getSignupGrantAuthUrl when type is signup-grant with inviteCode', async () => {
+    const mockAuthUrl = 'pubkyauth://signup_grant?caps=x&relay=r&secret=s&hs=h&st=t&cid=shop.pubky.app&cpk=k';
+
+    mockGetSignupGrantAuthUrl.mockResolvedValue({
+      authorizationUrl: mockAuthUrl,
+      awaitApproval: new Promise<Session>(() => {}),
+      cancelAuthFlow: createCancelAuthFlow(),
+    });
+
+    const { result } = renderHook(() => useAuthUrl({ type: 'signup-grant', inviteCode: 'A9KM-7MJP-ERM9' }));
+
+    await waitFor(() => {
+      expect(result.current.url).toBe(mockAuthUrl);
+    });
+
+    expect(mockGetSignupGrantAuthUrl).toHaveBeenCalledWith('A9KM-7MJP-ERM9');
+    expect(mockGetSignupAuthUrl).not.toHaveBeenCalled();
     expect(mockGetAuthUrl).not.toHaveBeenCalled();
   });
 

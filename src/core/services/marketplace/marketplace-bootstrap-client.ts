@@ -9,6 +9,7 @@ import { getMarketplaceGrantPollMilliseconds } from '@/libs/runtime-config/runti
 import { sleep } from '@/libs/utils/utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { MarketplaceGrantFlow } from './marketplace-grant-client';
+import { isMarketplaceSessionGrantUrl } from './marketplace-session-grant';
 
 /**
  * Browser purchase bootstrap for a Bitkit (grant) sign-in. The grant session
@@ -39,23 +40,6 @@ const pollSchema = z.object({
   capabilities: z.string().optional(),
   expires_at: z.string().optional(),
 });
-
-/** The only capability the marketplace bootstrap grant may ask Bitkit for. */
-export const MARKETPLACE_BOOTSTRAP_CAPABILITIES = '/pub/pubky.app/marketplace-service/v1/:rw';
-
-/**
- * What Bitkit shows for the marketplace approval: the client id it names and
- * that the request covers purchases only. Null when the URL names no client.
- */
-export function bootstrapApprovalCaption(authorizationUrl: string): string | null {
-  let cid: string | null;
-  try {
-    cid = new URL(authorizationUrl).searchParams.get('cid');
-  } catch {
-    return null;
-  }
-  return cid ? `Bitkit shows this request from ${cid}, for marketplace purchases only.` : null;
-}
 
 function bootstrapFailure(code: string) {
   return Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, code, {
@@ -117,10 +101,8 @@ export async function beginMarketplaceBootstrapFlow({ pubky }: { pubky: string }
   const cancelFlow = async () => {
     await post(`/api/marketplace/bootstrap-flows/${verified.state_id}/cancel`, {}).catch(() => undefined);
   };
-  // Never show Bitkit a QR that asks for more than purchases.
-  if (
-    new URL(verified.authorization_url).searchParams.getAll('caps').join(',') !== MARKETPLACE_BOOTSTRAP_CAPABILITIES
-  ) {
+  // Never show Bitkit a QR that asks for more than the marketplace session grant.
+  if (!isMarketplaceSessionGrantUrl(verified.authorization_url)) {
     await cancelFlow();
     throw bootstrapFailure('result_denied');
   }

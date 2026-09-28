@@ -29,6 +29,12 @@ import type {
  *                             final round needs the initiator online again.
  *                             The composer stays open with the same honest
  *                             queue-until-ready behavior.
+ * - `recovery-needed`       — the persisted handshake cannot proceed (the
+ *                             counterparty's published key changed, or the
+ *                             snapshot failed to restore). History, the link
+ *                             state, and every remote slot are kept; nothing
+ *                             is restarted. Composed messages stay queued on
+ *                             this device.
  * - `ready`                 — the Encrypted Link is established; sending and
  *                             receiving are live.
  * - `error`                 — a real transport failure, with its message.
@@ -39,6 +45,7 @@ export type EncryptedConversationStatus =
   | 'not-enrolled'
   | 'handshaking-initiator'
   | 'handshaking-responder'
+  | 'recovery-needed'
   | 'ready'
   | 'error';
 

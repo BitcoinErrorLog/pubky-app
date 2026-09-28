@@ -1,8 +1,16 @@
 import { z } from 'zod';
+import { CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
+import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode, TimeoutErrorCode } from '@/libs/error/error.codes';
+import {
+  AuthErrorCode,
+  ClientErrorCode,
+  ServerErrorCode,
+  TimeoutErrorCode,
+  ValidationErrorCode,
+} from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
@@ -13,6 +21,21 @@ import { sleep } from '@/libs/utils/utils';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { clearMarketplaceBffSession, pairMarketplaceBffSession } from './marketplace-grant-client';
 import { resetMarketplaceNotificationDiagnostics } from './marketplace-notification-diagnostics';
+import {
+  MARKETPLACE_CLAIMABLE_GRANTS,
+  MARKETPLACE_PREVIOUS_SESSION_GRANT,
+  MARKETPLACE_SESSION_GRANT,
+  type SessionReplacementRejection,
+  sessionReplacementRejection,
+} from './marketplace-session-grant';
+import { marketplaceSessionIdSchema } from './marketplace-session-id';
+
+/** Every grant a purchase-session writer may have persisted. */
+const MARKETPLACE_RESTORABLE_GRANTS = [
+  MARKETPLACE_SESSION_GRANT,
+  MARKETPLACE_PREVIOUS_SESSION_GRANT,
+  CAPABILITIES,
+] as const;
 
 /**
  * Treat a session as expired slightly before the server does, so a request
@@ -45,7 +68,7 @@ const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 const sessionResponseSchema = z.object({
   token: z.string().regex(SESSION_TOKEN_PATTERN),
-  sessionId: z.uuid().optional(),
+  sessionId: marketplaceSessionIdSchema.optional(),
   pubky: commercePubkySchema,
   capabilities: z.string(),
   expiresAt: z.iso.datetime({ offset: true }),
@@ -134,19 +157,24 @@ export class MarketplaceSessionService {
   /**
    * Starts the interactive session flow. Returns the authorization URL to show
    * on the user's signer (QR/deeplink) and a lazy `awaitSession` that resolves
-   * once the user approves and the transaction service issues a session.
+   * once the user approves and the transaction service issues a session. The
+   * request is a `pubkyauth://signin` AuthToken for
+   * {@link MARKETPLACE_SESSION_GRANT}, the scope the grant flow asks for, so
+   * the session qualifies for the `/priv` data key.
    * `awaitSession` rejects with a retryable timeout error after
    * {@link SESSION_FLOW_TIMEOUT_MS} so an abandoned or dead-relay flow can
    * never hold the UI in an awaiting state forever.
    */
   static beginSessionFlow(): MarketplaceSessionFlow {
     this.assertTransactionServiceMode('beginSessionFlow');
-    const flow = HomeserverService.generateAuthTokenFlow();
+    const flow = HomeserverService.generateAuthTokenFlow(MARKETPLACE_SESSION_GRANT);
     return {
       authorizationUrl: flow.authorizationUrl,
       awaitSession: async () => {
         const authToken = await this.withFlowTimeout(flow.awaitToken(), flow.cancelAuthFlow);
-        return await this.establishWithAuthToken(authToken.toBytes(), authToken.publicKey.z32());
+        return await this.establishWithAuthToken(authToken.toBytes(), authToken.publicKey.z32(), [
+          MARKETPLACE_SESSION_GRANT,
+        ]);
       },
       cancel: flow.cancelAuthFlow,
     };
@@ -183,11 +211,14 @@ export class MarketplaceSessionService {
    * Exchanges signed AuthToken bytes for a transaction-service session and
    * stores it in memory, replacing any previous session. `expectedPubky` is
    * the requesting account (the AuthToken signer); a response for any other
-   * pubky is rejected.
+   * pubky is rejected. `acceptedCapabilities` pins the grant the caller
+   * requested; the minted session is refused, and the current one kept, when
+   * it carries anything else or drops a scope the current session covers.
    */
   static async establishWithAuthToken(
     authTokenBytes: Uint8Array,
     expectedPubky: string,
+    acceptedCapabilities: readonly string[] | null = null,
   ): Promise<MarketplaceSessionInfo> {
     this.assertTransactionServiceMode('establishWithAuthToken');
     const url = `${getMarketplaceUrl()}/v1/auth/sessions`;
@@ -229,6 +260,7 @@ export class MarketplaceSessionService {
       });
     }
     const { token, sessionId, pubky, capabilities, expiresAt } = parsed.data;
+    this.assertMayReplace(pubky, capabilities, acceptedCapabilities, 'establishWithAuthToken');
     const issuedAt = new Date().toISOString();
     resetMarketplaceNotificationDiagnostics();
     this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs: Date.parse(expiresAt), issuedAt };
@@ -256,7 +288,7 @@ export class MarketplaceSessionService {
     const deadline = tokenResolvedAtMs + MARKETPLACE_TOKEN_RETRY_DEADLINE_MS;
     for (;;) {
       try {
-        return await this.establishWithAuthToken(authTokenBytes, expectedPubky);
+        return await this.establishWithAuthToken(authTokenBytes, expectedPubky, [CAPABILITIES]);
       } catch (error) {
         if (this.isAuthTokenAlreadyUsedError(error)) {
           const existing = this.bearerForPubky(expectedPubky);
@@ -297,10 +329,16 @@ export class MarketplaceSessionService {
   /**
    * Restores a persisted session from `localStorage` for the given account.
    * Called once the app's own session restore has identified who is signed in
-   * (`AuthController.restorePersistedSession`). Anything that does not
-   * validate — malformed blob, wrong account, already past the expiry margin,
-   * non-durable mode — removes the stored value and returns null, so a stale
+   * (`AuthController.restorePersistedSession`), and again by Seller Studio and
+   * own-drop loads. Anything that does not validate — malformed blob, wrong
+   * account, already past the expiry margin, non-durable mode, a grant no
+   * writer may store — removes the stored value and returns null, so a stale
    * token can never outlive its checks.
+   *
+   * `localStorage` is shared across tabs, so the slot can hold another tab's
+   * narrower session. A restore never replaces a wider in-memory session for
+   * the same pubky: it keeps memory, leaves the other tab's blob alone, and
+   * returns the in-memory facts so the store mirror stays on the wider one.
    */
   static restorePersistedSession(expectedPubky: string): MarketplaceSessionInfo | null {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return null;
@@ -317,6 +355,21 @@ export class MarketplaceSessionService {
     if (Date.now() >= expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
       this.removePersistedSession();
       return null;
+    }
+    const rejection = this.replacementRejection(
+      pubky,
+      capabilities,
+      MARKETPLACE_RESTORABLE_GRANTS,
+      'restorePersistedSession',
+    );
+    if (rejection === 'unexpected_capabilities') {
+      this.removePersistedSession();
+      const current = this.getActiveSession();
+      return current?.pubky === expectedPubky ? this.toPublicInfo(current) : null;
+    }
+    if (rejection === 'narrower_than_current') {
+      const current = this.getActiveSession();
+      return current ? this.toPublicInfo(current) : null;
     }
 
     const issuedAt = new Date().toISOString();
@@ -366,6 +419,7 @@ export class MarketplaceSessionService {
   static establishClaimedGrantSession(
     input: {
       token: string;
+      sessionId?: string;
       pubky: string;
       capabilities: string;
       expiresAt: string;
@@ -379,6 +433,12 @@ export class MarketplaceSessionService {
         operation: 'establishClaimedGrantSession',
       });
     }
+    this.assertMayReplace(
+      parsed.pubky,
+      parsed.capabilities,
+      MARKETPLACE_CLAIMABLE_GRANTS,
+      'establishClaimedGrantSession',
+    );
     const issuedAt = new Date().toISOString();
     this.session = {
       ...parsed,
@@ -388,6 +448,41 @@ export class MarketplaceSessionService {
     this.writePersistedSession(parsed);
     resetMarketplaceNotificationDiagnostics();
     return this.toPublicInfo(this.session);
+  }
+
+  /**
+   * The one check every path that puts a purchase session into memory or
+   * storage runs first: the establish writers through {@link assertMayReplace},
+   * the persisted restore directly.
+   */
+  private static replacementRejection(
+    pubky: string,
+    capabilities: string,
+    accepted: readonly string[] | null,
+    operation: string,
+  ): SessionReplacementRejection | null {
+    const rejection = sessionReplacementRejection(capabilities, accepted, this.getActiveSession(), pubky);
+    if (rejection) {
+      Logger.warn('Refused a marketplace session that would replace the current one', { rejection, operation });
+    }
+    return rejection;
+  }
+
+  private static assertMayReplace(
+    pubky: string,
+    capabilities: string,
+    accepted: readonly string[] | null,
+    operation: string,
+  ): void {
+    const rejection = this.replacementRejection(pubky, capabilities, accepted, operation);
+    if (!rejection) return;
+    throw Err.validation(
+      ValidationErrorCode.INVALID_INPUT,
+      rejection === 'narrower_than_current'
+        ? MARKETPLACE_FAILURE_MESSAGES.sessionGrantNarrower
+        : MARKETPLACE_FAILURE_MESSAGES.sessionGrantUnexpected,
+      { service: ErrorService.Marketplace, operation, context: { rejection } },
+    );
   }
 
   private static notifySessionEnded(event: MarketplaceSessionEndedEvent): void {

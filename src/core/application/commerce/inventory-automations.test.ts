@@ -4,6 +4,7 @@ import { MarketplaceInventorySessionService } from '@/services/marketplace/marke
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { MarketplaceShopClientService, PubkyShopError } from '@/services/marketplace/marketplace-shop-client';
 import { DexieWebhookStore } from '@/services/marketplace/marketplace-webhook-store';
+import bitkitParityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import {
   classifySessionKind,
   CommerceInventoryAutomationsApplication,
@@ -67,6 +68,16 @@ describe('classifySessionKind', () => {
     expect(classifySessionKind('/:rw')).toBe('cli');
     expect(classifySessionKind(`${INVENTORY_GRANT},/:rw`)).toBe('cli');
     expect(classifySessionKind('/pub/other/:rw')).toBe('cli');
+  });
+
+  it('labels the marketplace session grant and the Shop sign-in grant Purchase in any order', () => {
+    const captured = bitkitParityCapture.parity_request.homeserver_verified;
+    expect(classifySessionKind(captured)).toBe('purchase');
+    expect(classifySessionKind(captured.split(',').reverse().join(','))).toBe('purchase');
+    expect(classifySessionKind('/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw')).toBe('purchase');
+    expect(classifySessionKind('/priv/pubky.app/:rw,/pub/paykit/:rw,/pub/pubky.app/:rw')).toBe('purchase');
+    expect(classifySessionKind(`${captured},/pub/paykit/:rw`)).toBe('cli');
+    expect(classifySessionKind('/priv/pubky.app/:rw')).toBe('cli');
   });
 });
 

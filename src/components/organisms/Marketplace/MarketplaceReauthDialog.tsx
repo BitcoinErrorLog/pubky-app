@@ -5,15 +5,45 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useStepUpReauth } from '@/hooks/useStepUpReauth/useStepUpReauth';
 import { Logger } from '@/libs/logger/logger';
+import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { signInApprovalDisclosure } from '@/services/marketplace/marketplace-session-grant';
+import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
+
+type MarketplaceReauthDialogProps = {
+  triggerLabel: string;
+  onReauthenticated?: () => void | Promise<void>;
+};
 
 /**
  * The shared step-up re-approval affordance (docs/ecommerce/step-up-approval.md,
  * Option C) for scope-gated features — watchlist sync and portable receipts
- * today. Mirrors the sign-in / session-connect precedent: the `pubkyauth://`
+ * today.
+ *
+ * It routes on who raised the refusal. On this release every producer of
+ * the watchlist and receipt `needs_reauth` states is a homeserver refusal,
+ * so a cookie sign-in gets the Pubky Ring step-up below, which is the only
+ * approval that repairs it (and, under single approval, also mints a
+ * covering purchase session). A Bitkit (grant) sign-in cannot run the Ring
+ * step-up (`AuthController.getStepUpAuthUrl` refuses it), so it gets the
+ * marketplace session approval in Bitkit or Pubky Ring instead. A refusal
+ * raised by the purchase session itself arrives with the private-data key
+ * release and must route on that source, not on session facts.
+ */
+export function MarketplaceReauthDialog({ triggerLabel, onReauthenticated }: MarketplaceReauthDialogProps) {
+  const isGrantSession = useIsGrantSession();
+  if (isGrantSession) {
+    return <MarketplaceSessionConnectDialog triggerLabel={triggerLabel} onConnected={onReauthenticated} />;
+  }
+  return <HomeserverStepUpDialog triggerLabel={triggerLabel} onReauthenticated={onReauthenticated} />;
+}
+
+/**
+ * Mirrors the sign-in / session-connect precedent: the `pubkyauth://`
  * authorization URL renders as a QR for a cross-device Pubky Ring scan, and
  * as a deeplink/copy affordance for same-device Ring.
  *
@@ -23,13 +53,7 @@ import { toast } from '@/molecules/Toaster/use-toast';
  * (superset-grant) one, which is what makes watchlist sync, receipts, and
  * messaging cookie-resume capable without a reload.
  */
-export function MarketplaceReauthDialog({
-  triggerLabel,
-  onReauthenticated,
-}: {
-  triggerLabel: string;
-  onReauthenticated?: () => void | Promise<void>;
-}) {
+function HomeserverStepUpDialog({ triggerLabel, onReauthenticated }: MarketplaceReauthDialogProps) {
   const [open, setOpen] = useState(false);
   const reauth = useStepUpReauth({
     onReauthenticated: async () => {
@@ -52,6 +76,8 @@ export function MarketplaceReauthDialog({
     }
     cancel();
   }, [open, start, cancel]);
+
+  const approvalDisclosure = reauth.authorizationUrl ? signInApprovalDisclosure(reauth.authorizationUrl) : null;
 
   const copyUrl = async () => {
     try {
@@ -108,6 +134,8 @@ export function MarketplaceReauthDialog({
                 activeQrHasHoverEffect
               />
             </button>
+
+            <MarketplaceApprovalDisclosure sentence={approvalDisclosure} />
 
             {reauth.status === 'awaiting' && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">

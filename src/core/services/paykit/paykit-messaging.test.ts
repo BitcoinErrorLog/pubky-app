@@ -11,12 +11,14 @@
 // browser e2e at the pinned commit.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MessagingApplication } from '@/application/messaging/messaging';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
 import { resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
 import { WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
+import { MESSAGING_RETRY_POLICY } from '@/libs/messaging/retry-backoff';
 import { CommerceMessagingLinkModel, CommerceMessagingMessageModel } from '@/models/messaging/messaging.models';
 import {
   CommerceMessagingConversationModel,
@@ -25,6 +27,9 @@ import {
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { PaykitMessagingService, setPaykitWasmModuleForTests } from './paykit-messaging';
+
+const advanceClock = (ms: number) => vi.setSystemTime(Date.now() + ms);
+const POLL_MS = 2_000;
 
 const OWNER = 'a'.repeat(52);
 const COUNTERPARTY = 'z'.repeat(52);
@@ -61,7 +66,7 @@ function createFakeWorld() {
     receiverTrees: new Map<string, Map<string, { capabilities: Record<string, boolean> }>>(),
     receiverListFails: false,
     inboundFrom: new Set<string>(),
-    advanceScript: [] as ('pending' | 'complete')[],
+    advanceScript: [] as ('pending' | 'complete' | 'error')[],
     calls: [] as string[],
     lastPublishedMarker: null as null | { path: string; noisePublicKey: string; capabilities: boolean[] },
     links: [] as FakeLink[],
@@ -78,6 +83,10 @@ function createFakeWorld() {
     cookieResumePubkyOverride: null as string | null,
     // Scripted marker-publish failures (consumed one per publish attempt).
     publishMarkerFailures: 0,
+    // Scripted `restoreEncryptedLinkHandshake` rejections (consumed one per call).
+    restoreHandshakeFailures: 0,
+    // Scripted `restoreEncryptedLink` rejections (consumed one per call).
+    restoreLinkFailures: 0,
   };
 
   let keyCounter = 0;
@@ -135,6 +144,7 @@ function createFakeWorld() {
         return { status: 'pending' };
       }
       const outcome = world.advanceScript.shift() ?? 'pending';
+      if (outcome === 'error') throw new Error('handshake step failed (scripted transient homeserver error)');
       if (outcome === 'complete') return { status: 'complete', link: new FakeLink(this.counterparty) };
       return { status: 'pending' };
     }
@@ -184,6 +194,7 @@ function createFakeWorld() {
   const fakeModule = {
     PubkyClient: FakePubkyClient,
     generateNoiseSecretKey: () => {
+      world.calls.push('generateNoiseSecretKey');
       keyCounter += 1;
       return new Uint8Array(32).fill(keyCounter);
     },
@@ -211,7 +222,9 @@ function createFakeWorld() {
       if (world.receiverListFails) throw new Error('homeserver unreachable (scripted)');
       return [...(world.receiverTrees.get(ownerPubky)?.keys() ?? [])].sort();
     },
-    removeReceiverMarker: async () => {},
+    removeReceiverMarker: async () => {
+      world.calls.push('removeReceiverMarker');
+    },
     initiateEncryptedLink: (...args: unknown[]) => {
       world.calls.push('initiateEncryptedLink');
       const counterparty = args[2] as string;
@@ -224,11 +237,19 @@ function createFakeWorld() {
     },
     restoreEncryptedLink: async (...args: unknown[]) => {
       world.calls.push('restoreEncryptedLink');
+      if (world.restoreLinkFailures > 0) {
+        world.restoreLinkFailures -= 1;
+        throw new Error('link restore failed (scripted transient homeserver error)');
+      }
       const counterparty = args[2] as string;
       return new FakeLink(counterparty);
     },
     restoreEncryptedLinkHandshake: async (...args: unknown[]) => {
       world.calls.push('restoreEncryptedLinkHandshake');
+      if (world.restoreHandshakeFailures > 0) {
+        world.restoreHandshakeFailures -= 1;
+        throw new Error('handshake restore failed (scripted transient homeserver error)');
+      }
       const counterparty = args[2] as string;
       return new FakeHandshake('initiator', counterparty);
     },
@@ -253,6 +274,7 @@ describe('PaykitMessagingService', () => {
   let world: ReturnType<typeof createFakeWorld>['world'];
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     const fake = createFakeWorld();
     world = fake.world;
     setPaykitWasmModuleForTests(fake.module);
@@ -269,6 +291,7 @@ describe('PaykitMessagingService', () => {
   afterEach(() => {
     PaykitMessagingService.clearSession();
     setPaykitWasmModuleForTests(null);
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -446,23 +469,269 @@ describe('PaykitMessagingService', () => {
       expect(world.calls).not.toContain('clearEncryptedLinkOutbox');
     });
 
-    it('discards a mid-handshake snapshot bound to a rotated counterparty key and starts over', async () => {
-      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
-      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+    describe('recovery never deletes link state', () => {
+      const P_KEY = 'p'.repeat(52);
+      const Q_KEY = 'q'.repeat(52);
 
-      // The counterparty reinstalls and publishes a marker with a NEW key; the
-      // persisted snapshot can never complete against it (advance() would
-      // report pending forever).
-      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'q'.repeat(52) });
-      PaykitMessagingService.clearSession();
-      await enableMessaging(world);
-      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      async function reloadMidHandshake() {
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        const before = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
+        PaykitMessagingService.clearSession();
+        await enableMessaging(world);
+        world.calls = [];
+        return before!;
+      }
 
-      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
-      expect(world.calls).not.toContain('restoreEncryptedLinkHandshake');
-      expect(world.calls).toContain('clearEncryptedLinkOutbox');
-      const row = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
-      expect(row?.remote_noise_public_key).toBe('q'.repeat(52));
+      async function expectRowKept(before: NonNullable<Awaited<ReturnType<typeof LocalMessagingService.getLink>>>) {
+        const row = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
+        expect(row).toMatchObject({
+          role: before.role,
+          status: before.status,
+          local_receiver_path: before.local_receiver_path,
+          remote_receiver_path: before.remote_receiver_path,
+          remote_noise_public_key: before.remote_noise_public_key,
+        });
+        expect([...(row?.snapshot ?? [])]).toEqual([...before.snapshot]);
+      }
+
+      function expectNothingDestroyed() {
+        for (const call of [
+          'clearEncryptedLinkOutbox',
+          'initiateEncryptedLink',
+          'generateNoiseSecretKey',
+          'publishReceiverMarker',
+          'removeReceiverMarker',
+        ]) {
+          expect(world.calls).not.toContain(call);
+        }
+      }
+
+      it('advances the kept handshake first, then reports a changed counterparty key without deleting anything', async () => {
+        const before = await reloadMidHandshake();
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY });
+
+        const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+        expect(state).toEqual({ status: 'recovery-needed', reason: 'counterparty-key-changed' });
+        expect(world.calls.indexOf('restoreEncryptedLinkHandshake')).toBeGreaterThanOrEqual(0);
+        expect(world.calls.indexOf('handshake.advance:initiator')).toBeGreaterThan(
+          world.calls.indexOf('restoreEncryptedLinkHandshake'),
+        );
+        expectNothingDestroyed();
+        await expectRowKept(before);
+      });
+
+      it('completes a kept handshake the original peer device answers, even while another key is published', async () => {
+        await reloadMidHandshake();
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY });
+        world.advanceScript.push('complete');
+
+        const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+        expect(state).toEqual({ status: 'ready' });
+        await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          status: 'established',
+        });
+        expectNothingDestroyed();
+      });
+
+      it('inbox sync reports the same recovery state and starts nothing', async () => {
+        const before = await reloadMidHandshake();
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY });
+
+        const state = await PaykitMessagingService.probeCounterparty(OWNER, COUNTERPARTY);
+
+        expect(state).toEqual({ status: 'recovery-needed', reason: 'counterparty-key-changed' });
+        expectNothingDestroyed();
+        await expectRowKept(before);
+      });
+
+      it('resumes the kept handshake on its next spaced attempt once it can complete', async () => {
+        await reloadMidHandshake();
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY });
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+        world.advanceScript.push('complete');
+        advanceClock(MESSAGING_RETRY_POLICY.baseMs);
+        const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+        expect(state).toEqual({ status: 'ready' });
+        expect(world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake')).toHaveLength(2);
+        expectNothingDestroyed();
+      });
+
+      it('keeps the handshake row and the remote outbox when a snapshot restore fails, then retries it once due', async () => {
+        const before = await reloadMidHandshake();
+        world.restoreHandshakeFailures = 1;
+
+        const failed = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+        expect(failed).toEqual({ status: 'recovery-needed', reason: 'handshake-restore-failed' });
+        expectNothingDestroyed();
+        await expectRowKept(before);
+
+        advanceClock(POLL_MS);
+        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual(failed);
+        expect(world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake')).toHaveLength(1);
+
+        advanceClock(MESSAGING_RETRY_POLICY.baseMs);
+        const retried = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+        expect(retried).toEqual({ status: 'handshaking', role: 'initiator' });
+        expect(world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake')).toHaveLength(2);
+        expectNothingDestroyed();
+      });
+
+      it('keeps an established link row whose snapshot fails to restore, and retries it on the backoff', async () => {
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        world.advanceScript.push('complete');
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        const before = await reloadMidHandshake().then(() => LocalMessagingService.getLink(OWNER, COUNTERPARTY));
+        world.restoreLinkFailures = 1;
+
+        const failed = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        advanceClock(POLL_MS);
+        const waiting = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        advanceClock(MESSAGING_RETRY_POLICY.baseMs);
+        const restored = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+        expect(failed).toEqual({ status: 'recovery-needed', reason: 'link-restore-failed' });
+        expect(waiting).toEqual(failed);
+        expect(restored).toEqual({ status: 'ready' });
+        expect(world.calls.filter((call) => call === 'restoreEncryptedLink')).toHaveLength(2);
+        await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          status: 'established',
+          snapshot: before!.snapshot,
+        });
+        expectNothingDestroyed();
+      });
+
+      it('spaces a failed handshake step instead of re-restoring it on every poll', async () => {
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        world.advanceScript.push('error');
+        world.calls = [];
+
+        const failed = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        advanceClock(POLL_MS);
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+        expect(failed).toEqual({ status: 'handshaking', role: 'initiator' });
+        expect(world.calls.filter((call) => call.startsWith('handshake.advance'))).toHaveLength(1);
+        expect(world.calls).not.toContain('restoreEncryptedLinkHandshake');
+
+        advanceClock(MESSAGING_RETRY_POLICY.baseMs);
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        expect(world.calls).toContain('restoreEncryptedLinkHandshake');
+      });
+    });
+
+    describe('recovery retries are spaced, capped, and never crowd out healthy links', () => {
+      const P_KEY = 'p'.repeat(52);
+      const Q_KEY = 'q'.repeat(52);
+      const THIRTY_MINUTES = 30 * 60_000;
+      // Worst case with the minimum jitter: attempts at 0, 2.5 s, 7.5 s, ... then
+      // every 300 s once the 600 s ceiling applies — 12 inside 30 minutes.
+      const MAX_ATTEMPTS_IN_THIRTY_MINUTES = 12;
+
+      function attemptTimes(times: number[]) {
+        return times.slice(1).map((time, index) => time - times[index]);
+      }
+
+      it.each([
+        [
+          'counterparty-key-changed',
+          () => world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY }),
+        ],
+        ['handshake-restore-failed', () => (world.restoreHandshakeFailures = Number.POSITIVE_INFINITY)],
+      ] as const)(
+        'an open conversation polled every 2 s retries a %s link on a capped exponential schedule',
+        async (reason, breakLink) => {
+          vi.spyOn(Math, 'random').mockReturnValue(0);
+          world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+          await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+          PaykitMessagingService.clearSession();
+          await enableMessaging(world);
+          breakLink();
+          world.calls = [];
+
+          const start = Date.now();
+          const attempts: number[] = [];
+          for (let elapsed = 0; elapsed <= THIRTY_MINUTES; elapsed += POLL_MS) {
+            const before = world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length;
+            const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+            expect(state).toEqual({ status: 'recovery-needed', reason });
+            if (world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length > before) {
+              attempts.push(Date.now() - start);
+            }
+            advanceClock(POLL_MS);
+          }
+
+          expect(attempts.length).toBeGreaterThanOrEqual(8);
+          expect(attempts.length).toBeLessThanOrEqual(MAX_ATTEMPTS_IN_THIRTY_MINUTES);
+          const gaps = attemptTimes(attempts);
+          for (const [index, gap] of gaps.entries()) {
+            expect(gap).toBeGreaterThanOrEqual(MESSAGING_RETRY_POLICY.baseMs / 2);
+            expect(gap).toBeLessThanOrEqual(MESSAGING_RETRY_POLICY.maxMs + POLL_MS);
+            if (index > 0) expect(gap).toBeGreaterThanOrEqual(gaps[index - 1]);
+          }
+          const markerReads = world.calls.filter((call) => call.startsWith('getReceiverMarker')).length;
+          expect(markerReads).toBeLessThanOrEqual(2 * MAX_ATTEMPTS_IN_THIRTY_MINUTES);
+        },
+      );
+
+      it('inbox sync over 25 recovering pairs runs at most 3 due retries per pass and still drains a healthy link every pass', async () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const recovering = Array.from({ length: 25 }, (_, index) =>
+          `r${String(index).padStart(2, '0')}`.padEnd(52, 'x'),
+        );
+        const HEALTHY = 'h'.repeat(52);
+        for (const counterparty of [...recovering, HEALTHY]) {
+          world.markers.set(counterparty, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+          await PaykitMessagingService.ensureLink(OWNER, counterparty);
+        }
+        world.advanceScript.push('complete');
+        await PaykitMessagingService.ensureLink(OWNER, HEALTHY);
+        PaykitMessagingService.clearSession();
+        await enableMessaging(world);
+        for (const counterparty of recovering) {
+          world.markers.set(counterparty, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY });
+        }
+        world.calls = [];
+
+        const FIVE_MINUTES = 5 * 60_000;
+        const restoresPerPass: number[] = [];
+        const markerReadsPerPass: number[] = [];
+        const receivesPerPass: number[] = [];
+        const recoveringMarkerReads = () => world.calls.filter((call) => call.startsWith('getReceiverMarker:r')).length;
+        for (let elapsed = 0; elapsed <= FIVE_MINUTES; elapsed += POLL_MS) {
+          const restoresBefore = world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length;
+          const receivesBefore = world.calls.filter((call) => call === 'link.receive').length;
+          const markerReadsBefore = recoveringMarkerReads();
+          await MessagingApplication.syncCounterparties(OWNER, [...recovering, HEALTHY]);
+          restoresPerPass.push(
+            world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length - restoresBefore,
+          );
+          markerReadsPerPass.push(recoveringMarkerReads() - markerReadsBefore);
+          receivesPerPass.push(world.calls.filter((call) => call === 'link.receive').length - receivesBefore);
+          advanceClock(POLL_MS);
+        }
+
+        // The first pass after a reload knows no failures yet, so recovering pairs
+        // share the healthy budget once — behind the established link.
+        expect(restoresPerPass[0]).toBeLessThanOrEqual(25);
+        expect(Math.max(...restoresPerPass.slice(1))).toBeLessThanOrEqual(3);
+        // Each retry reads the counterparty marker at most twice (crossed-handshake probe, key check).
+        expect(Math.max(...markerReadsPerPass.slice(1))).toBeLessThanOrEqual(2 * 3);
+        // At most 7 spaced attempts per pair fit in 5 minutes (0, 4, 10, 20, 40, 80, 160 s).
+        expect(markerReadsPerPass.reduce((sum, count) => sum + count, 0)).toBeLessThanOrEqual(2 * 25 * 7);
+        const total = restoresPerPass.reduce((sum, count) => sum + count, 0);
+        expect(total).toBeLessThanOrEqual(25 * 7);
+        expect(receivesPerPass.every((count) => count === 1)).toBe(true);
+      }, 60_000);
     });
 
     it('restores an established link from the persisted snapshot after a reload', async () => {
@@ -1151,6 +1420,22 @@ describe('PaykitMessagingService', () => {
       );
     });
 
+    it('spaces failed silent resumes instead of retrying on every status poll, and sign-out resets them', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      world.cookieResume = 'unauthorized';
+
+      for (let elapsed = 0; elapsed <= 60_000; elapsed += POLL_MS) {
+        await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+        advanceClock(POLL_MS);
+      }
+      // Attempts at 0, 4, 10, 20 and 40 s with the minimum jitter.
+      expect(world.calls.filter((call) => call === 'resumeSessionFromCookie')).toHaveLength(5);
+
+      PaykitMessagingService.clearSession();
+      world.cookieResume = 'success';
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+    });
+
     it('reports no session when the homeserver holds nothing behind the cookies (SessionResumeUnauthorized)', async () => {
       world.cookieResume = 'unauthorized';
 
@@ -1182,7 +1467,7 @@ describe('PaykitMessagingService', () => {
       expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
     });
 
-    it('keeps the session when receiver provisioning fails transiently and retries on the next status poll', async () => {
+    it('keeps the session when receiver provisioning fails transiently and retries on a spaced schedule', async () => {
       world.cookieResume = 'success';
       world.publishMarkerFailures = 1;
 
@@ -1190,9 +1475,15 @@ describe('PaykitMessagingService', () => {
       expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
       await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(false);
 
-      // Next poll (the scripted failure is consumed): provisioning heals
+      // The next status poll is too soon: no second publish.
+      advanceClock(POLL_MS / 2);
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(1);
+
+      // Once due (the scripted failure is consumed): provisioning heals
       // without any signer involvement, reusing the already-generated key.
       const before = await LocalMessagingService.getReceiver(OWNER);
+      advanceClock(MESSAGING_RETRY_POLICY.baseMs);
       await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
       await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(true);
       const after = await LocalMessagingService.getReceiver(OWNER);

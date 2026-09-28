@@ -45,17 +45,9 @@ vi.mock('@/services/marketplace/marketplace-session', () => ({
 
 vi.mock('@/services/marketplace/marketplace-inventory-session', () => ({
   MarketplaceInventorySessionService: {
-    getActiveSession: () => ({
-      token: 'inventory',
-      pubky: PUBKY,
-      capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
-      expiresAt: Date.now() + 60_000,
-    }),
+    getCoveringBearer: (sellerPubky: string) =>
+      sellerPubky === PUBKY ? { token: 'inventory', source: 'inventory' } : null,
   },
-}));
-
-vi.mock('@/services/marketplace/marketplace-inventory-grant', () => ({
-  inventoryCapabilityCovers: () => true,
 }));
 
 class MemoryImportStore implements InventoryManifestStore {

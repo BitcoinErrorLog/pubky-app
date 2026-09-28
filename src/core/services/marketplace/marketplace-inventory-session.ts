@@ -9,6 +9,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import {
+  capabilitiesCoverInventoryScope,
   clampInventoryPersistedCapabilities,
   INVENTORY_GRANT,
   INVENTORY_SESSION_STORAGE_KEY,
@@ -23,12 +24,16 @@ import {
   MarketplaceSessionService,
   SESSION_FLOW_TIMEOUT_MS,
 } from './marketplace-session';
+import { marketplaceSessionIdSchema } from './marketplace-session-id';
 
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
+/** A bearer for inventory calls and the session it came from. */
+export type InventoryBearer = { token: string; source: 'inventory' | 'purchase' };
+
 const sessionResponseSchema = z.object({
   token: z.string().regex(SESSION_TOKEN_PATTERN),
-  sessionId: z.uuid().optional(),
+  sessionId: marketplaceSessionIdSchema.optional(),
   pubky: commercePubkySchema,
   capabilities: z.string(),
   expiresAt: z.iso.datetime({ offset: true }),
@@ -218,6 +223,34 @@ export class MarketplaceInventorySessionService {
   static hasCoveringGrant(): boolean {
     const session = this.getActiveSession();
     return session !== null && inventoryCapabilityCovers(session.capabilities);
+  }
+
+  /**
+   * The bearer Studio calls for `sellerPubky` use: the Studio inventory
+   * session when it covers the grant, else the purchase session when its own
+   * grant already covers the inventory scope (a Bitkit or Ring marketplace
+   * session grant, the Ring sign-in grant). Either must belong to
+   * `sellerPubky`. Null means Studio needs its own approval.
+   */
+  static getCoveringBearer(sellerPubky: string): InventoryBearer | null {
+    const inventory = this.getActiveSession();
+    if (inventory && inventory.pubky === sellerPubky && inventoryCapabilityCovers(inventory.capabilities)) {
+      return { token: inventory.token, source: 'inventory' };
+    }
+    const purchase = MarketplaceSessionService.getActiveSession();
+    if (purchase && purchase.pubky === sellerPubky && capabilitiesCoverInventoryScope(purchase.capabilities)) {
+      return { token: purchase.token, source: 'purchase' };
+    }
+    return null;
+  }
+
+  /** Drops the session behind a bearer the service refused. */
+  static clearRejectedBearer(bearer: InventoryBearer): void {
+    if (bearer.source === 'purchase') {
+      MarketplaceSessionService.clearSession('rejected');
+      return;
+    }
+    this.clearSession('rejected');
   }
 
   static clearSession(reason: MarketplaceSessionEndedReason = 'cleared'): void {

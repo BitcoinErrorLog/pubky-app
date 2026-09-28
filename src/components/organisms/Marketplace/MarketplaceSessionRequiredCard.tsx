@@ -3,8 +3,7 @@
 import { KeyRound } from 'lucide-react';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Typography } from '@/atoms/Typography/Typography';
-import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
-import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
+import { useMarketplaceApprovalSigner } from '@/hooks/useMarketplaceApprovalSigner/useMarketplaceApprovalSigner';
 import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
 
 /**
@@ -14,7 +13,7 @@ import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDial
  * never see this card because they do not use the durable transport.
  */
 export function MarketplaceSessionRequiredCard({ onConnected }: { onConnected?: () => void | Promise<void> }) {
-  const signer = useIsGrantSession() && getMarketplaceGrantFlowEnabled() ? 'Bitkit' : 'Pubky Ring';
+  const signer = useMarketplaceApprovalSigner();
   return (
     <div
       role="alert"

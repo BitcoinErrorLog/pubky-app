@@ -281,8 +281,6 @@ describe('LocalMessagingService', () => {
     const link = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
     expect(link).toMatchObject({ status: 'established', updated_at: 2 });
     expect([...(link?.snapshot ?? [])]).toEqual([3, 4]);
-    await LocalMessagingService.deleteLink(OWNER, COUNTERPARTY);
-    await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toBeNull();
   });
 
   describe('at-rest wrapping of key material', () => {
