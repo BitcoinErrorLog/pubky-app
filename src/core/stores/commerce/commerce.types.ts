@@ -19,9 +19,21 @@ export interface CommerceMarketplaceSession {
  * controller after each sync round. `idle` = no sync attempted yet (or not
  * applicable: sandbox mode, signed out); `needs_reauth` = the session's grant
  * cannot write `/priv/pubky.app/` (legacy approval) OR an actual write was
- * refused with 401/403 — the honest "re-approve to enable sync" state.
+ * refused with 401/403 — the honest "re-approve to enable sync" state;
+ * `needs_marketplace_approval` = the marketplace refused to release the data
+ * key to the current purchase session, so the fix is a marketplace session
+ * approval, whichever signer the user signed in with;
+ * `unavailable` = the marketplace cannot release the data key that encrypts
+ * the synced copy right now, so nothing was written.
  */
-export type CommerceWatchlistSyncUiStatus = 'idle' | 'synced' | 'needs_reauth' | 'error';
+export type CommerceWatchlistSyncUiStatus =
+  | 'idle'
+  | 'synced'
+  | 'needs_reauth'
+  | 'needs_marketplace_approval'
+  | 'unavailable'
+  | 'unsupported'
+  | 'error';
 
 /**
  * Portable order-receipt publication state for UI surfaces, written by the
@@ -30,11 +42,18 @@ export type CommerceWatchlistSyncUiStatus = 'idle' | 'synced' | 'needs_reauth' |
  * order's receipt is confirmed on the owner's homeserver; `needs_reauth` =
  * the session's grant cannot write `/priv/pubky.app/` (a bridged or legacy
  * approval) OR the private read/write was refused with 401/403 — the honest
- * "reconnect to save it" state; `unavailable` = this deployment issued no
- * attestation, or a transient failure left a receipt unpublished (it retries
- * on the next orders-surface load).
+ * "reconnect to save it" state; `needs_marketplace_approval` = the
+ * marketplace refused to release the data key to the current purchase
+ * session; `unavailable` = this deployment issued no attestation, or a
+ * transient failure left a receipt unpublished (it retries on the next
+ * orders-surface load).
  */
-export type CommerceReceiptPublicationUiStatus = 'idle' | 'published' | 'needs_reauth' | 'unavailable';
+export type CommerceReceiptPublicationUiStatus =
+  | 'idle'
+  | 'published'
+  | 'needs_reauth'
+  | 'needs_marketplace_approval'
+  | 'unavailable';
 
 export type CommerceConditionFilter = 'new' | 'like_new' | 'excellent' | 'good' | 'fair' | 'for_parts';
 export type CommerceSort = 'recommended' | 'newest' | 'price_low' | 'price_high' | 'ending_soon';

@@ -104,6 +104,10 @@ Local-first throughout: Dexie stays the source of immediate truth, every toggle 
 - **Per visit**: the watchlist page triggers a round on load; overlapping triggers share one round-trip (single-flight per owner).
 - Reads/writes go through the app's homeserver session (`HomeserverService.request` now resolves owned `/priv/*` paths alongside `/pub/*`).
 
+### Encrypted storage (2026-09-28)
+
+The synced document is now sealed in the browser before it reaches the homeserver. It lives at one opaque entry under `/priv/pubky.app/marketplace/v2/s/`, encrypted with XChaCha20-Poly1305 under a per-user data key the marketplace service releases only to a session whose grant covers `/priv/pubky.app/` with read and write (`GET /v1/me/priv-keys`). The plaintext is the same `PubkyAppWatchlist` document. A round reads the sealed entry and any plaintext v1 `watchlist.json`, merges both with local state, writes and reads back the sealed entry, and only then deletes v1. The homeserver has no conditional write, so rounds for one account hold a Web Lock shared by every tab of the Shop, and a round completes the outbox job only if no change was staged after it read the local state. Without a released key nothing is written: `needs_reauth` shows the re-approval notice, and `unavailable` says private sync is off while the list keeps working on this device. The envelope, paths and offline recipe are in [`priv-encryption-recovery.md`](priv-encryption-recovery.md).
+
 ### Capability gating (the honesty contract)
 
 Whether sync can work is decided from **session facts** — `session.info.capabilities`, the homeserver's own statement of the grant — never by probing and swallowing 403s (`capabilitiesGrantWrite` in `homeserver.utils.ts`). Three states:
@@ -112,9 +116,13 @@ Whether sync can work is decided from **session facts** — `session.info.capabi
 - **needs_reauth**: a live legacy session whose grant predates the `/priv` scope. The watchlist keeps working locally, and the watchlist page shows ONE non-blocking notice: "Sync across devices needs a fresh sign-in approval." An actual 401/403 on a real read or write ALSO flips to this state. Never a silent no-op.
 - **no_session / sandbox**: sync is skipped and nothing is claimed.
 
-### Live proof (2026-08-22, staging)
+### Live proof (2026-09-28, staging, encrypted storage)
 
-`npm run test:marketplace:watchlist` (vitest browser mode, real staging homeserver over the public pkarr relays, nothing mocked) proves in one journey: device 1 of identity A watches → the private document is live at the `/priv` URI; a wiped-DB fresh sign-in (device 2) pulls the watch; device 2 unwatches → pushed as a tombstone with the revision advanced; device 3 sees the item absent and the tombstone present; identity B's read AND directory listing of A's document are both refused — verbatim: `401 Unauthorized - Authentication required to read private storage`. Result recorded in the proof ledger in [`status.md`](status.md). The legacy-session `needs_reauth` half is covered by unit tests (`commerce.watchlist.test.ts`) because a machine cannot honestly approve a narrow-scope Ring flow.
+`npm run test:marketplace:priv` (Node, the deployed staging homeserver and marketplace service, nothing mocked) proves the encrypted watchlist together with receipts and badge checkpoints: under an identity-only session the key is refused and nothing is written; under the Shop grant the plaintext v1 document is sealed, read back and deleted in that order on the wire; a fresh device with an empty IndexedDB restores the watch from the sealed entry; a tampered entry is never overwritten; another identity is refused the sealed entry and the `/priv` listing. It replaces the browser-mode proof below, which predates encryption: the staging service does not answer CORS for a localhost test origin, so a browser harness cannot obtain the key.
+
+### Live proof (2026-08-22, staging, plaintext v1; retired)
+
+The former `npm run test:marketplace:watchlist` (vitest browser mode, real staging homeserver over the public pkarr relays, nothing mocked) proves in one journey: device 1 of identity A watches → the private document is live at the `/priv` URI; a wiped-DB fresh sign-in (device 2) pulls the watch; device 2 unwatches → pushed as a tombstone with the revision advanced; device 3 sees the item absent and the tombstone present; identity B's read AND directory listing of A's document are both refused — verbatim: `401 Unauthorized - Authentication required to read private storage`. Result recorded in the proof ledger in [`status.md`](status.md). The legacy-session `needs_reauth` half is covered by unit tests (`commerce.watchlist.test.ts`) because a machine cannot honestly approve a narrow-scope Ring flow.
 
 ### Known limits, stated
 

@@ -49,11 +49,36 @@ if [ -L "$ROOT/node_modules" ]; then
   mkdir "$ROOT/node_modules"
 fi
 restore_nm() {
-  rm -rf "$ROOT/.vitest-attachments"
-  if [ -n "$NM_LINK" ]; then
-    rm -rf "$ROOT/node_modules"
-    ln -s "$NM_LINK" "$ROOT/node_modules"
+  # Preserve a failing test status. Bash uses the EXIT trap's status as the
+  # script status, so a successful restore must not turn a red suite green.
+  local status=$?
+  local attempt
+  rm -rf "$ROOT/.vitest-attachments" || true
+  if [ -z "$NM_LINK" ]; then
+    return "$status"
   fi
+  # Docker Desktop releases the nested volume mount after the container
+  # exits. rm of that mountpoint returns "Permission denied" until the
+  # share is gone, and a single attempt then fails the gate after the
+  # tests have already passed.
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if [ ! -e "$ROOT/node_modules" ] && [ ! -L "$ROOT/node_modules" ]; then
+      break
+    fi
+    rm -rf "$ROOT/node_modules" 2>/dev/null || true
+    if [ -d "$ROOT/node_modules" ] && [ ! -L "$ROOT/node_modules" ]; then
+      rmdir "$ROOT/node_modules" 2>/dev/null || true
+    fi
+    if [ -e "$ROOT/node_modules" ] || [ -L "$ROOT/node_modules" ]; then
+      sleep 1
+    fi
+  done
+  if [ -e "$ROOT/node_modules" ] || [ -L "$ROOT/node_modules" ]; then
+    echo "vrt-linux: could not remove the node_modules mountpoint" >&2
+    return 1
+  fi
+  ln -s "$NM_LINK" "$ROOT/node_modules"
+  return "$status"
 }
 trap restore_nm EXIT
 

@@ -989,27 +989,29 @@ export class HomeserverService {
     cursor,
     reverse = false,
     limit = LIST_DEFAULT_LIMIT,
+    logUrl,
   }: THomeserverListParams): Promise<string[]> {
     const pubkySdk = this.getPubkySdk();
+    const contextUrl = logUrl ?? baseDirectory;
     try {
       const owned = this.resolveOwnedSessionPath(baseDirectory);
       if (owned) {
         const dirPath = owned.path.endsWith('/') ? owned.path : (`${owned.path}/` as TOwnedSessionPath['path']);
         const files = await owned.session.storage.list(toSdkPath(dirPath), cursor ?? null, reverse, limit, false);
-        Logger.debug('List successful', { baseDirectory, filesCount: files.length });
+        Logger.debug('List successful', { baseDirectory: contextUrl, filesCount: files.length });
         return files;
       }
 
       const files = await pubkySdk.publicStorage.list(baseDirectory as Address, cursor ?? null, reverse, limit, false);
-      Logger.debug('List successful', { baseDirectory, filesCount: files.length });
+      Logger.debug('List successful', { baseDirectory: contextUrl, filesCount: files.length });
       return files;
     } catch (error) {
       // 404 here is not an error: missing directory means empty list. Bypass handleError to avoid Sentry capture.
       if (extractStatusCode(error) === HttpStatusCode.NOT_FOUND) {
-        Logger.warn('[homeserver:list]', { outcome: 'fallback', reason: 'not_found', baseDirectory });
+        Logger.warn('[homeserver:list]', { outcome: 'fallback', reason: 'not_found', baseDirectory: contextUrl });
         return [];
       }
-      return handleError({ error, additionalContext: { url: baseDirectory, baseDirectory } });
+      return handleError({ error, additionalContext: { url: contextUrl, baseDirectory: contextUrl } });
     }
   }
 

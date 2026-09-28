@@ -5,8 +5,8 @@ import { HomeserverService } from '@/services/homeserver/homeserver';
 export class CommerceHomeserverService {
   private constructor() {}
 
-  static async fetchJson(url: string): Promise<unknown> {
-    return await HomeserverService.request<unknown>({ method: HttpMethod.GET, url });
+  static async fetchJson(url: string, logUrl?: string): Promise<unknown> {
+    return await HomeserverService.request<unknown>({ method: HttpMethod.GET, url, logUrl });
   }
 
   static async putJson(url: string, bodyJson: Record<string, unknown>): Promise<void> {
@@ -17,8 +17,8 @@ export class CommerceHomeserverService {
     await HomeserverService.putBlob({ url, blob: bytes });
   }
 
-  static async delete(url: string): Promise<void> {
-    await HomeserverService.request({ method: HttpMethod.DELETE, url });
+  static async delete(url: string, logUrl?: string): Promise<void> {
+    await HomeserverService.request({ method: HttpMethod.DELETE, url, logUrl });
   }
 
   /**
@@ -42,8 +42,8 @@ export class CommerceHomeserverService {
     return await HomeserverService.getBlob({ url, logUrl: DIGITAL_DELIVERABLE_LOG_PATH, maxBytes });
   }
 
-  static async list(directoryUrl: string, limit: number): Promise<string[]> {
-    return await HomeserverService.list({ baseDirectory: directoryUrl, limit });
+  static async list(directoryUrl: string, limit: number, logUrl?: string): Promise<string[]> {
+    return await HomeserverService.list({ baseDirectory: directoryUrl, limit, logUrl });
   }
 
   static async exists(url: string): Promise<boolean> {
