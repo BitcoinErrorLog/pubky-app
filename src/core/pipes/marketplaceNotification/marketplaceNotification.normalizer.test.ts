@@ -3,6 +3,7 @@ import { getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
 import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH } from '@/services/marketplace/marketplace-projections';
 import { createNotificationFixture, NOTIFICATION_TYPES } from '@/test/fixtures/commerce/notifications';
+import { asInvalid } from '@/test-utils/type-assertions';
 import { MarketplaceNotificationNormalizer } from './marketplaceNotification.normalizer';
 import { MARKETPLACE_FEED_NOTIFICATION_KEYS } from './marketplaceNotification.types';
 
@@ -160,10 +161,10 @@ describe('MarketplaceNotificationNormalizer.toFeedNotification', () => {
     const copied = MarketplaceNotificationNormalizer.toFeedNotification(known, 'transaction-service');
     expect('reviewReason' in copied ? copied.reviewReason : undefined).toBe('seller_response_overdue');
 
-    const unknown = {
+    const unknown = asInvalid<MarketplaceNotification>({
       ...createNotificationFixture('bitcoin_manual_review', { actorPubky: 'system' }),
       reviewReason: 'refund_required',
-    } as unknown as MarketplaceNotification;
+    });
     const dropped = MarketplaceNotificationNormalizer.toFeedNotification(unknown, 'transaction-service');
     expect('reviewReason' in dropped).toBe(false);
     for (const key of Object.keys(dropped)) {
