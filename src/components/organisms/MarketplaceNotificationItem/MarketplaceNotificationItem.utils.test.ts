@@ -54,6 +54,24 @@ describe('getMarketplaceNotificationActionText', () => {
     expect(getMarketplaceNotificationActionText({ type: 'order_delivered' })).toBe('confirmed delivery of an order');
   });
 
+  it('states each Bitcoin review reason after the system actor', () => {
+    expect(getMarketplaceNotificationActionText({ type: 'bitcoin_payment_seen' })).toBe(
+      'saw a Bitcoin payment waiting for your confirmation',
+    );
+    expect(
+      getMarketplaceNotificationActionText({ type: 'bitcoin_manual_review', reviewReason: 'late_settlement' }),
+    ).toBe('flagged a late Bitcoin payment for your decision');
+    expect(
+      getMarketplaceNotificationActionText({ type: 'bitcoin_manual_review', reviewReason: 'seller_response_overdue' }),
+    ).toBe('flagged a Bitcoin payment that has waited two business days');
+    expect(getMarketplaceNotificationActionText({ type: 'bitcoin_manual_review' })).toBe(
+      'flagged a bitcoin payment for a decision',
+    );
+    expect(
+      getMarketplaceNotificationActionText({ type: 'bitcoin_manual_review', reviewReason: 'refund_required' }),
+    ).toBe('flagged a bitcoin payment for a decision');
+  });
+
   it('renders the PayPal refund and reversal copy after the PayPal actor', () => {
     expect(getMarketplaceNotificationActionText({ type: 'refund_recorded' })).toBe('recorded a refund');
     expect(getMarketplaceNotificationActionText({ type: 'payment_reversal_cancelled' })).toBe(

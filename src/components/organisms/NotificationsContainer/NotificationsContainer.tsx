@@ -53,6 +53,7 @@ const MARKETPLACE_TAB_NOTIFICATION_TYPES = {
   fiat_payment_reported: true,
   payment_confirmed: true,
   bitcoin_manual_review: true,
+  bitcoin_payment_seen: true,
   bitcoin_prepare_voided: true,
   order_cancelled: true,
   order_cancelled_terms_change: true,

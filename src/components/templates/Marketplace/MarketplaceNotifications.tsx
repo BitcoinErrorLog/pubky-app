@@ -31,6 +31,7 @@ import {
 } from '@/organisms/MarketplaceWatchAlertItem/MarketplaceWatchAlertItem.utils';
 import type { MarketplaceNotification } from '@/services/marketplace/marketplace';
 import {
+  bitcoinNotificationCopy,
   DIGITAL_DELIVERED_COPY,
   digitalDeliveryNotice,
   isIntegrityGapActivityType,
@@ -383,7 +384,9 @@ function NotificationIcon({ type }: { type: MarketplaceNotification['type'] }) {
 
 function notificationLabel(notification: MarketplaceNotification): string {
   const digital = digitalDeliveryNotice(notification);
-  return digital ? DIGITAL_DELIVERED_COPY[digital].label : MARKETPLACE_ACTIVITY_LABELS[notification.type];
+  if (digital) return DIGITAL_DELIVERED_COPY[digital].label;
+  const bitcoin = bitcoinNotificationCopy(notification);
+  return bitcoin ? bitcoin.label : MARKETPLACE_ACTIVITY_LABELS[notification.type];
 }
 
 function notificationActorLabel(actorPubky: string): string {

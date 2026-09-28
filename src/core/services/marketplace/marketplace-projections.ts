@@ -252,6 +252,19 @@ export const marketplaceBidHistorySchema = z.object({
 
 export type MarketplaceBidHistory = z.infer<typeof marketplaceBidHistorySchema>;
 
+/**
+ * Why a `bitcoin_manual_review` notification was sent (`notifications.review_reason`,
+ * migration 0047). NULL on every other type. An unknown value is dropped so a
+ * future reason cannot quarantine a row the Shop already understands.
+ */
+export const marketplaceNotificationReviewReasonSchema = z.enum([
+  'late_settlement',
+  'amount_mismatch',
+  'confirmation_failed',
+  'seller_confirmation_window_elapsed',
+  'seller_response_overdue',
+]);
+
 export const marketplaceNotificationSchema = z
   .object({
     id: z.uuid(),
@@ -278,6 +291,7 @@ export const marketplaceNotificationSchema = z
       'fiat_payment_reported',
       'payment_confirmed',
       'bitcoin_manual_review',
+      'bitcoin_payment_seen',
       'bitcoin_prepare_voided',
       'order_cancelled',
       'order_shipped',
@@ -316,6 +330,10 @@ export const marketplaceNotificationSchema = z
     // the sandbox and from services that predate it; kept as a string so a
     // new method never makes a row unreadable.
     orderFulfillment: z.string().nullish(),
+    // Present on `bitcoin_manual_review`. Null on every other type, including
+    // `bitcoin_payment_seen`. An unknown reason becomes null rather than
+    // failing the row.
+    reviewReason: marketplaceNotificationReviewReasonSchema.nullable().optional().catch(null),
   })
   .passthrough();
 

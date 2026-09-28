@@ -23,6 +23,7 @@ const NOTIFICATION_TYPE_UNREAD = {
   fiat_payment_reported: false,
   payment_confirmed: true,
   bitcoin_manual_review: false,
+  bitcoin_payment_seen: true,
   bitcoin_prepare_voided: false,
   order_cancelled: false,
   order_cancelled_terms_change: true,

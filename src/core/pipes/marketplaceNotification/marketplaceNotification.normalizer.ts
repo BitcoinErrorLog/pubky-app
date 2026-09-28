@@ -1,7 +1,7 @@
 import { APP_ROUTES, getMarketplaceListingRoute, MARKETPLACE_ROUTES } from '@/app/routes';
 import type { CommerceAdapterMode } from '@/config/commerce';
 import type { MarketplaceNotification, MarketplaceNotificationEntry } from '@/services/marketplace/marketplace';
-import { digitalDeliveryNotice } from '@/services/marketplace/marketplace-activity-copy';
+import { bitcoinReviewReason, digitalDeliveryNotice } from '@/services/marketplace/marketplace-activity-copy';
 import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH } from '@/services/marketplace/marketplace-projections';
 import type { MarketplaceFeedNotification } from './marketplaceNotification.types';
 
@@ -15,8 +15,9 @@ export class MarketplaceNotificationNormalizer {
    * projection are dropped here — the general surface can only render a
    * type, an actor, an aggregate reference, a timestamp, (where §8 permits)
    * a monetary amount the recipient already sees in a role-scoped
-   * projection (ADR-0019 §8), and, on a digital `order_delivered`, whether it
-   * was delivered automatically or by the seller.
+   * projection (ADR-0019 §8), on a digital `order_delivered`, whether it
+   * was delivered automatically or by the seller, and on
+   * `bitcoin_manual_review` the closed review reason.
    *
    * `isUnread` is honest per adapter mode: the sandbox stores `readAt` and
    * accepts `notification.mark_read`, so its null `readAt` means unread; the
@@ -44,6 +45,7 @@ export class MarketplaceNotificationNormalizer {
     }
 
     const digitalDelivery = digitalDeliveryNotice(notification);
+    const reviewReason = bitcoinReviewReason(notification.reviewReason);
     return {
       id: `marketplace:${notification.id}`,
       source: 'marketplace',
@@ -65,6 +67,7 @@ export class MarketplaceNotificationNormalizer {
           }
         : {}),
       ...(digitalDelivery ? { digitalDelivery } : {}),
+      ...(reviewReason ? { reviewReason } : {}),
     };
   }
 
@@ -97,6 +100,7 @@ export class MarketplaceNotificationNormalizer {
       case 'fiat_payment_reported':
       case 'payment_confirmed':
       case 'bitcoin_manual_review':
+      case 'bitcoin_payment_seen':
       case 'bitcoin_prepare_voided':
       case 'order_cancelled':
       case 'order_cancelled_terms_change':
