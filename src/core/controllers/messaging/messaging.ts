@@ -376,8 +376,8 @@ export class MessagingController {
   static async getConversations() {
     const ownerPubky = this.getCurrentUserPubky();
     const conversations = await MessagingApplication.getConversations(ownerPubky);
-    const mutes = FirstContactApplication.getCachedMutes(ownerPubky);
-    if (mutes?.kind !== 'ready') return conversations;
+    const mutes = await this.currentMutes(ownerPubky);
+    if (mutes.kind !== 'ready') return conversations;
     return conversations.filter((conversation) => !mutes.muted.has(conversation.counterparty_pubky));
   }
 
@@ -404,6 +404,8 @@ export class MessagingController {
       useMessagingStore.getState().setUnreadConversations(0);
       return 0;
     }
+    // The badge path never reads the network: the list read by the last
+    // sync or mute change is used, and nothing muted is stored after a mute.
     const mutes = FirstContactApplication.getCachedMutes(ownerPubky);
     const count = await MessagingApplication.getUnreadConversationCount(
       ownerPubky,
