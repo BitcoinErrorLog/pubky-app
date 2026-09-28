@@ -154,8 +154,15 @@ describe('FirstContactApplication mutes', () => {
     const loading = FirstContactApplication.loadMutes(OWNER);
     await heal.reached;
     const muting = FirstContactApplication.setMuted(OWNER, 'z'.repeat(52), true);
+    // Give the mute every chance to run while the write-back is parked.
+    const first = await Promise.race([
+      muting.then(() => 'mute finished'),
+      new Promise((resolve) => setTimeout(() => resolve('mute waiting'), 100)),
+    ]);
     heal.release();
     await Promise.all([loading, muting]);
+
+    expect(first).toBe('mute waiting');
 
     expect(Object.keys(storedMuteList(homeserver)?.entries ?? {}).sort()).toEqual([A, B, 'z'.repeat(52)].sort());
   });
