@@ -56,8 +56,15 @@ export async function pairMarketplaceBffSession(session: {
   if (!response.ok) throw new Error('marketplace_session_pair_failed');
 }
 
-export async function clearMarketplaceBffSession(): Promise<void> {
-  await fetch('/api/marketplace/session', {
+/**
+ * Unpairs the BFF session. With `ownedSessionId` the BFF unpairs only when
+ * its bridge still holds that marketplace session: the cookie is shared
+ * across tabs, and another tab may have paired a newer one. Without it (sign-
+ * out) the bridge is removed whatever it holds.
+ */
+export async function clearMarketplaceBffSession(ownedSessionId?: string): Promise<void> {
+  const query = ownedSessionId === undefined ? '' : `?session_id=${encodeURIComponent(ownedSessionId)}`;
+  await fetch(`/api/marketplace/session${query}`, {
     method: 'DELETE',
     credentials: 'same-origin',
   }).catch(() => undefined);

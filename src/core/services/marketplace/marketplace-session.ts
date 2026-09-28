@@ -363,18 +363,21 @@ export class MarketplaceSessionService {
    */
   static restorePersistedSession(expectedPubky: string): MarketplaceSessionInfo | null {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return null;
+    // Expire memory before reading the slot, so the expiry cleanup runs
+    // against the old bearer and never against the candidate read below.
+    this.getActiveSession();
     const raw = this.readStorage();
     if (raw === null) return null;
 
     const parsed = sessionResponseSchema.safeParse(this.parseJson(raw));
     if (!parsed.success || parsed.data.pubky !== expectedPubky) {
-      this.removePersistedSession();
+      this.removePersistedRecordIfUnchanged(raw);
       return null;
     }
     const { token, sessionId, pubky, capabilities, expiresAt } = parsed.data;
     const expiresAtMs = Date.parse(expiresAt);
     if (Date.now() >= expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
-      this.removePersistedSession();
+      this.removePersistedRecordIfUnchanged(raw);
       return null;
     }
     const rejection = this.replacementRejection(
@@ -384,7 +387,7 @@ export class MarketplaceSessionService {
       'restorePersistedSession',
     );
     if (rejection === 'unexpected_capabilities') {
-      this.removePersistedSession();
+      this.removePersistedRecordIfUnchanged(raw);
       const current = this.getActiveSession();
       return current?.pubky === expectedPubky ? this.toPublicInfo(current) : null;
     }
@@ -417,15 +420,46 @@ export class MarketplaceSessionService {
     return this.session;
   }
 
-  /** Drops the session from memory AND storage. Called on sign-out and on server-side 401. */
+  /**
+   * Drops the in-memory session (TTL margin, revocation, a refused bearer)
+   * and only the persisted record and BFF pairing that belong to it.
+   * `localStorage` and the BFF cookie are shared across tabs: another tab may
+   * already hold a newer bearer there, and it must survive this tab's expiry.
+   * Sign-out and account switch use {@link clearForSignOut} instead.
+   */
   static clearSession(reason: MarketplaceSessionEndedReason = 'cleared'): void {
+    const ended = this.session;
+    this.session = null;
+    resetMarketplaceNotificationDiagnostics();
+    if (!ended) return;
+    this.removePersistedSessionIfOwned(ended.token);
+    if (getMarketplaceGrantFlowEnabled() && ended.sessionId) void clearMarketplaceBffSession(ended.sessionId);
+    this.notifySessionEnded({ reason, issuedAt: ended.issuedAt });
+  }
+
+  /**
+   * Drops the session only when `token` is still the in-memory bearer. A
+   * 401 answers the bearer a request carried; if the session was replaced
+   * while the request was in flight, the newer one stays.
+   */
+  static clearSessionIfBearer(token: string, reason: MarketplaceSessionEndedReason): void {
+    if (this.session?.token !== token) return;
+    this.clearSession(reason);
+  }
+
+  /**
+   * Sign-out and account switch: the user leaves, so no purchase bearer may
+   * stay at rest for this browser, whichever tab persisted it. The only path
+   * that removes a record it did not write.
+   */
+  static clearForSignOut(): void {
     const ended = this.session;
     this.session = null;
     resetMarketplaceNotificationDiagnostics();
     this.removePersistedSession();
     if (getMarketplaceGrantFlowEnabled()) void clearMarketplaceBffSession();
     if (!ended) return;
-    this.notifySessionEnded({ reason, issuedAt: ended.issuedAt });
+    this.notifySessionEnded({ reason: 'cleared', issuedAt: ended.issuedAt });
   }
 
   private static toPublicInfo(session: StoredMarketplaceSession): MarketplaceSessionInfo {
@@ -524,13 +558,47 @@ export class MarketplaceSessionService {
   // localStorage access is wrapped because browsers can refuse it (disabled
   // storage, private-mode quirks); a session that cannot persist is still a
   // working in-memory session, so persistence failures only log.
+  /**
+   * Persists a freshly minted session unless the slot already holds a
+   * different bearer that outlives it: another tab minted after this tab's
+   * request left, and its newer record must not be overwritten.
+   */
   private static writePersistedSession(session: z.infer<typeof sessionResponseSchema>): void {
     if (typeof window === 'undefined') return;
+    const stored = this.persistedBearer();
+    if (stored && stored.token !== session.token && stored.expiresAtMs > Date.parse(session.expiresAt)) {
+      Logger.warn('Kept a newer marketplace session another tab persisted.');
+      return;
+    }
     try {
       window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, JSON.stringify(session));
     } catch {
       Logger.warn('Could not persist the marketplace session; it will last until the next reload only.');
     }
+  }
+
+  /** The bearer and expiry of the persisted record, or null when there is none to compare. */
+  private static persistedBearer(): { token: string; expiresAtMs: number } | null {
+    const raw = this.readStorage();
+    if (raw === null) return null;
+    const value = this.parseJson(raw);
+    if (typeof value !== 'object' || value === null) return null;
+    const { token, expiresAt } = value as { token?: unknown; expiresAt?: unknown };
+    if (typeof token !== 'string') return null;
+    const expiresAtMs = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
+    return { token, expiresAtMs: Number.isNaN(expiresAtMs) ? 0 : expiresAtMs };
+  }
+
+  /** Removes the persisted record only when it still carries `token`. */
+  private static removePersistedSessionIfOwned(token: string): void {
+    if (this.persistedBearer()?.token !== token) return;
+    this.removePersistedSession();
+  }
+
+  /** Removes the persisted record only when it is still exactly `raw`. */
+  private static removePersistedRecordIfUnchanged(raw: string): void {
+    if (this.readStorage() !== raw) return;
+    this.removePersistedSession();
   }
 
   private static removePersistedSession(): void {

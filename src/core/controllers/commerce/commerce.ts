@@ -266,14 +266,23 @@ export class CommerceController {
   }
 
   /**
-   * Drops the purchase bearer, the inventory bearer, and both store mirrors.
-   * Sign-out and failed sign-in go through here. Identity 401 uses
+   * Drops the purchase bearer this tab holds (only its own persisted
+   * record), the inventory bearer, and both store mirrors. A failed or losing
+   * sign-in goes through here; sign-out uses
+   * {@link clearMarketplaceSessionForSignOut}. Identity 401 uses
    * `onMarketplaceSessionEnded` and must not reach this. Checkout TTL uses
    * `clearIdentitySession` so a hold expiry cannot log the seller out of
    * Inventory Studio.
    */
   static clearMarketplaceSession(): void {
     CommerceApplication.clearMarketplaceSession();
+    this.clearMarketplaceSessionStore();
+    this.clearInventorySession();
+  }
+
+  /** Sign-out and account switch (`AuthController` local-state cleanup). */
+  static clearMarketplaceSessionForSignOut(): void {
+    CommerceApplication.clearMarketplaceSessionForSignOut();
     this.clearMarketplaceSessionStore();
     this.clearInventorySession();
   }
