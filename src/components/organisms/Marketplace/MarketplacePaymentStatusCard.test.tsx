@@ -102,8 +102,35 @@ describe('MarketplacePaymentStatusCard', () => {
       />,
     );
 
-    expect(screen.getByText('Review Bitcoin payment')).toBeInTheDocument();
+    expect(screen.getByTestId('seller-bitcoin-confirm-prompt')).toHaveTextContent(/^Confirm you received /);
     expect(screen.getAllByText('Not provided')).toHaveLength(7);
+  });
+
+  it('prompts the seller with the exact bitcoin amount once a payment is seen', () => {
+    const payment = createPaymentFixture('awaiting_entitlement', { adapter: 'paykit' });
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', {
+          paymentId: payment.id,
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'awaiting_seller_confirmation',
+          paykitTotalSats: 1_303,
+          merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          bitcoinPayable: { amountMinor: 1_303, currency: 'SAT', exponent: 0 },
+          subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+          total: { amountMinor: 1_303, currency: 'BTC', exponent: 8 },
+        })}
+        payment={payment}
+        isBuyer={false}
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('seller-bitcoin-confirm-prompt')).toHaveTextContent('Confirm you received ₿1,303');
+    expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
   });
 
   it('focuses the confirmation reason after static validation fails', async () => {
@@ -418,6 +445,96 @@ describe('MarketplacePaymentStatusCard', () => {
     unmount();
   });
 
+  it('stops telling the buyer to pay once the payment has been seen', () => {
+    const deadline = '2026-09-29T10:56:41.980Z';
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', {
+          holdExpiresAt: deadline,
+          holdSource: 'bind',
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'awaiting_seller_confirmation',
+          paykitDeliveryState: 'delivered',
+          paykitSellerConfirmationDeadline: deadline,
+          paykitTotalSats: 1_303,
+          merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          bitcoinPayable: { amountMinor: 1_303, currency: 'SAT', exponent: 0 },
+          subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+          total: { amountMinor: 1_303, currency: 'BTC', exponent: 8 },
+        })}
+        payment={createPaymentFixture('awaiting_entitlement', { adapter: 'paykit' })}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('bitcoin-payment-seen')).toHaveTextContent(
+      "Payment seen — waiting for confirmation. You don't need to do anything else.",
+    );
+    expect(screen.getByTestId('bitcoin-seller-confirms-by')).toHaveTextContent(
+      'Seller confirms by Sep 29, 2026, 10:56 AM UTC.',
+    );
+    expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay exactly/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
+  });
+
+  it('tells the buyer a confirmed payment in review is with the seller', () => {
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', {
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'confirmed',
+          paykitDeliveryState: 'delivered',
+        })}
+        payment={createPaymentFixture('manual_review', { adapter: 'paykit', reviewReason: 'late_settlement' })}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('payment-manual-review-copy')).toHaveTextContent(
+      'Payment confirmed on-chain. The seller is reviewing it.',
+    );
+    expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay exactly/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+  });
+
+  it('does not call an unconfirmed manual review a chain confirmation', () => {
+    auth.currentUserPubky = 'b'.repeat(52);
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', {
+          holdExpiresAt: '2026-09-29T10:56:41.980Z',
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          paykitDeliveryState: 'delivered',
+        })}
+        payment={createPaymentFixture('manual_review', { adapter: 'paykit', confirmations: 0 })}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('payment-manual-review-copy')).toHaveTextContent(
+      'Payment received — the seller is reviewing it.',
+    );
+    expect(screen.queryByText(/confirmed on-chain/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Resolve Bitcoin payment review')).not.toBeInTheDocument();
+  });
+
   it('tells the buyer to add the seller as a Bitkit contact when delivery failed', () => {
     render(
       <MarketplacePaymentStatusCard
@@ -562,6 +679,35 @@ describe('MarketplacePaymentStatusCard', () => {
     expect(screen.getByLabelText('Outcome')).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Paid' })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Refunded' })).toBeInTheDocument();
+  });
+
+  it('shows the exact bitcoin amount as items + shipping + payment code', () => {
+    const payment = createPaymentFixture('awaiting_entitlement', { adapter: 'paykit' });
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', {
+          paymentId: payment.id,
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          paykitTotalSats: 1_255,
+          merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          bitcoinPayable: { amountMinor: 1_255, currency: 'SAT', exponent: 0 },
+          subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+          shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+          total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
+        })}
+        payment={payment}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('bitcoin-amount-due')).toHaveTextContent('Pay exactly ₿1,255');
+    expect(screen.getByTestId('bitcoin-amount-breakdown')).toHaveTextContent(
+      'Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255',
+    );
   });
 
   it('renders elapsed copy instead of the generic expired explanation', () => {

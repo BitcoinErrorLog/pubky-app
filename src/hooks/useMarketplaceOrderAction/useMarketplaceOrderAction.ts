@@ -2,6 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
+import { orderAmountEntry } from '@/libs/commerce/bitcoin-payment-code';
 import { getCarrierById, OTHER_CARRIER_ID } from '@/libs/commerce/carriers';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import {
@@ -18,8 +19,11 @@ export function useMarketplaceOrderAction(
   actOnOrder: (order: MarketplaceOrder, kind: string, payload: Record<string, unknown>) => Promise<boolean>,
 ) {
   const refundedMinor = paypalRefundedMinor(order);
+  const entry = orderAmountEntry(order);
   const form = useForm<MarketplaceOrderActionData>({
-    resolver: zodResolver(marketplaceOrderActionSchemaFor(order.total, refundedMinor)),
+    resolver: zodResolver(
+      marketplaceOrderActionSchemaFor(entry, refundedMinor, order.paymentMethod === 'paypal' ? 'paypal' : 'other'),
+    ),
     defaultValues: marketplaceOrderActionDefaults,
     mode: 'onChange',
   });
@@ -34,10 +38,10 @@ export function useMarketplaceOrderAction(
       amount:
         action === 'refund'
           ? formatOrderMajor({
-              amountMinor: Math.max(0, order.total.amountMinor - refundedMinor),
-              exponent: order.total.exponent,
+              amountMinor: Math.max(0, entry.amountMinor - refundedMinor),
+              exponent: entry.exponent,
             })
-          : formatOrderMajor(order.total),
+          : formatOrderMajor(entry),
       ...overrides,
     });
   };
@@ -65,14 +69,14 @@ export function useMarketplaceOrderAction(
         case 'return':
           succeeded = await actOnOrder(order, 'return.request', {
             reason: data.reason,
-            requestedAmountMinor: majorToMinor(data.amount, order.total.exponent),
+            requestedAmountMinor: majorToMinor(data.amount, entry.exponent),
           });
           break;
         case 'refund':
           // The record replaces PayPal's running sum, so it carries the
           // recorded total, never below what PayPal already refunded.
           succeeded = await actOnOrder(order, 'refund.record_external', {
-            amountMinor: refundedMinor + majorToMinor(data.amount, order.total.exponent),
+            amountMinor: refundedMinor + majorToMinor(data.amount, entry.exponent),
             transactionId: data.transactionId,
           });
           break;

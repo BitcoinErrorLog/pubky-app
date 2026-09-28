@@ -93,6 +93,18 @@ describe('getMarketplaceNotificationActionText', () => {
     });
     expect(text).toBe('sent you an offer of ₿15,000');
     expect(text).not.toContain('sats');
+    expect(
+      getMarketplaceNotificationActionText({
+        type: 'offer_received',
+        amount: { amountMinor: 1_303, currency: 'SAT', exponent: 0 },
+      }),
+    ).toBe('sent you an offer of ₿1,303');
+    expect(
+      getMarketplaceNotificationActionText({
+        type: 'refund_recorded',
+        amount: { amountMinor: 1_303, currency: 'SAT', exponent: 0 },
+      }),
+    ).toBe('recorded a refund');
   });
 
   it('falls back to the base text for types that never carry amounts', () => {

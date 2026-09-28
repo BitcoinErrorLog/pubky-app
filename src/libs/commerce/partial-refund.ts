@@ -1,4 +1,4 @@
-import { formatCommerceMoney } from '@/libs/commerce/format';
+import { formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import { type CommerceMoney, PARTIAL_REFUND_ORDER_STATE } from '@/libs/commerce/transaction-contracts';
 
 export { PARTIAL_REFUND_ORDER_STATE };
@@ -15,8 +15,8 @@ export function partialRefundLabel(order: RefundOrder | null | undefined): strin
   if (!order || !refund) return null;
   const partial = order.state === PARTIAL_REFUND_ORDER_STATE || refund.amountMinor < order.total.amountMinor;
   if (!partial) return null;
-  const refunded = formatCommerceMoney({ ...order.total, amountMinor: refund.amountMinor });
-  const total = formatCommerceMoney(order.total);
+  const refunded = formatBitcoinAwareMoney({ ...order.total, amountMinor: refund.amountMinor });
+  const total = formatBitcoinAwareMoney(order.total);
   return `Refunded ${refunded} of ${total}`;
 }
 

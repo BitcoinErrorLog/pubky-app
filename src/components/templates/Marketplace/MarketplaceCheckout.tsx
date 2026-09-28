@@ -35,13 +35,13 @@ import { useMarketplaceOfferCheckout } from '@/hooks/useMarketplaceOfferCheckout
 import { useMarketplaceOffers } from '@/hooks/useMarketplaceOffers/useMarketplaceOffers';
 import { useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarketplaceSellerSummary } from '@/hooks/useMarketplaceSellerSummary/useMarketplaceSellerSummary';
+import { buyerCheckoutProgressCopy } from '@/libs/commerce/bitcoin-buyer-status';
+import { BITCOIN_PAYMENT_CODE_CHECKOUT_NOTE } from '@/libs/commerce/bitcoin-payment-code';
 import {
-  buyerCheckoutStateLabel,
   getMarketplaceCheckoutRoute,
   intersectPaymentMethods,
   isPaidOrLaterState,
   readCheckoutHashOrderId,
-  reservedWhileYouPayCopy,
 } from '@/libs/commerce/checkout-phase';
 import { DELIVERY_EMAIL_MAX_CHARS, DIGITAL_CHECKOUT_COPY, digitalCheckoutLineLabel } from '@/libs/commerce/digital';
 import { marketplaceOfferCheckoutFailureMessage } from '@/libs/commerce/failure-messages';
@@ -282,13 +282,9 @@ function MarketplaceCartCheckout() {
   const targetPayingIds = [...new Set([...payingOrderIds, ...(hashOrderId ? [hashOrderId] : [])])];
   const focusedPaying = orders.orders.filter((view) => targetPayingIds.includes(view.order.id));
   const showPaying = targetPayingIds.length > 0;
-  const payingOrder = focusedPaying[0]?.order;
-  const holdCopy =
-    payingOrder && payingOrder.paymentMethod
-      ? reservedWhileYouPayCopy(payingOrder.holdExpiresAt, nowMs)
-      : payingOrder
-        ? buyerCheckoutStateLabel(payingOrder)
-        : null;
+  const payingView = focusedPaying[0];
+  const payingOrder = payingView?.order;
+  const holdCopy = payingOrder ? buyerCheckoutProgressCopy(payingOrder, payingView.payment, nowMs) : null;
 
   useEffect(() => {
     if (!showPaying) return;
@@ -881,6 +877,15 @@ function MarketplaceCartCheckout() {
                           </Button>
                         ))}
                       </div>
+                    )}
+                    {bitcoinSelected && (
+                      <Typography
+                        as="p"
+                        className="text-xs text-muted-foreground"
+                        data-testid="marketplace-checkout-bitcoin-amount-note"
+                      >
+                        {BITCOIN_PAYMENT_CODE_CHECKOUT_NOTE}
+                      </Typography>
                     )}
                     {buyerWalletChecking && (
                       <Typography as="p" aria-live="polite" className="text-xs text-muted-foreground">

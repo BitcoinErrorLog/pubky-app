@@ -127,9 +127,12 @@ export function formatRemainingMmSs(holdExpiresAt: string | null | undefined, no
   if (!Number.isFinite(expires)) return null;
   const remainingMs = Math.max(0, expires - nowMs);
   const totalSeconds = Math.floor(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  const ss = seconds.toString().padStart(2, '0');
+  if (hours > 0) return `${hours}:${minutes.toString().padStart(2, '0')}:${ss}`;
+  return `${minutes}:${ss}`;
 }
 
 export function reservedWhileYouPayCopy(holdExpiresAt: string | null | undefined, nowMs = Date.now()): string {

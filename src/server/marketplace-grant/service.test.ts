@@ -1,7 +1,28 @@
 /** @vitest-environment node */
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z, ZodError } from 'zod';
 import type { MarketplaceGrantConfig } from './config';
 import { claimGrantResult, getGrantStatus, GrantServiceError, verifyMarketplaceSession } from './service';
+
+/**
+ * `GET /v1/auth/sessions` ids created 17–20 Sep 2026. Captured in
+ * `.evidence/release-2026-09-28-shop-v0.6.33/DECISIONS-2026-09-28.md` item 2
+ * and `staging/diag-sessions-schema.mjs`: the example `20ef0b02-b05d-aee7-…`
+ * fails RFC 4122 because the version nibble is `a`. The full values were
+ * truncated in that note. These are the same text migration 0035 stored:
+ * `md5(encode(token_hash, 'hex'))` hyphenated as a PostgreSQL uuid.
+ */
+function migration0035SessionId(tokenHashHex: string): string {
+  const hex = createHash('md5').update(tokenHashHex).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+const legacySessionIds = {
+  zeroTokenHash: migration0035SessionId('0'.repeat(64)),
+  ffTokenHash: migration0035SessionId('f'.repeat(64)),
+  versionNibbleA: migration0035SessionId((43).toString(16).padStart(64, '0')),
+} as const;
 
 const config: MarketplaceGrantConfig = {
   allowedOrigins: ['https://shop.example'],
@@ -59,6 +80,108 @@ describe('marketplace service session pairing', () => {
     await expect(verifyMarketplaceSession(config, bearer, pubky, sessionId)).rejects.toEqual(
       new GrantServiceError(403, 'invalid_session_pair'),
     );
+  });
+
+  it('pairs a session list that contains migration-0035 ids', async () => {
+    expect(legacySessionIds.zeroTokenHash).toBe('10eab600-8d56-42cf-42ab-d2aa41f847cb');
+    expect(legacySessionIds.ffTokenHash).toBe('baf13e8b-16d8-c063-24d7-c9ab32cb7ff0');
+    expect(legacySessionIds.versionNibbleA).toBe('c91ac604-4109-a63d-ab8b-327fc9decd05');
+    expect(legacySessionIds.versionNibbleA[14]).toBe('a');
+
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(
+        Response.json({
+          schema_version: 1,
+          sessions: [
+            {
+              id: legacySessionIds.versionNibbleA,
+              expires_at: '2099-01-01T00:00:00Z',
+              revoked_at: null,
+              created_at: '2026-09-18T12:00:00Z',
+            },
+            {
+              id: sessionId,
+              expires_at: '2099-01-01T00:00:00Z',
+              revoked_at: null,
+            },
+            {
+              id: legacySessionIds.zeroTokenHash,
+              expires_at: '2099-01-01T00:00:00Z',
+              revoked_at: null,
+            },
+            {
+              id: legacySessionIds.ffTokenHash,
+              expires_at: '2099-01-01T00:00:00Z',
+              revoked_at: '2026-09-20T16:00:00Z',
+            },
+          ],
+        }),
+      );
+    await expect(verifyMarketplaceSession(config, bearer, pubky, sessionId)).resolves.toEqual(
+      new Date('2099-01-01T00:00:00Z'),
+    );
+  });
+
+  it('revert-fail: session list pairs when the live id itself is a migration-0035 id', async () => {
+    expect(z.uuid().safeParse(legacySessionIds.versionNibbleA).success).toBe(false);
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(
+        Response.json({
+          schema_version: 1,
+          sessions: [
+            {
+              id: legacySessionIds.versionNibbleA,
+              expires_at: '2099-06-01T00:00:00Z',
+              revoked_at: null,
+            },
+          ],
+        }),
+      );
+    await expect(verifyMarketplaceSession(config, bearer, pubky, legacySessionIds.versionNibbleA)).resolves.toEqual(
+      new Date('2099-06-01T00:00:00Z'),
+    );
+  });
+
+  it('still requires exact equality after a legacy id has parsed', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(
+        Response.json({
+          schema_version: 1,
+          sessions: [
+            {
+              id: legacySessionIds.zeroTokenHash,
+              expires_at: '2099-01-01T00:00:00Z',
+              revoked_at: null,
+            },
+          ],
+        }),
+      );
+    await expect(verifyMarketplaceSession(config, bearer, pubky, sessionId)).rejects.toEqual(
+      new GrantServiceError(401, 'invalid_session_pair'),
+    );
+  });
+
+  it.each([
+    ['plain string', 'shop-session-id-plain-string-1234567'],
+    ['uppercase', 'C91AC604-4109-A63D-AB8B-327FC9DECD05'],
+    ['without hyphens', 'c91ac6044109a63dab8b327fc9decd05'],
+    ['empty', ''],
+    ['newline', 'abc\n'],
+    ['nul', 'ab\u0000c'],
+    ['del', 'ab\u007Fc'],
+  ])('rejects a session id that is %s', async (_label, id) => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(
+        Response.json({
+          schema_version: 1,
+          sessions: [{ id, expires_at: '2099-01-01T00:00:00Z', revoked_at: null }],
+        }),
+      );
+    await expect(verifyMarketplaceSession(config, bearer, pubky, sessionId)).rejects.toBeInstanceOf(ZodError);
   });
 
   it('rejects a revoked service session even when the seller probe passes', async () => {
