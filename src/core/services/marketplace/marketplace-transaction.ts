@@ -213,7 +213,7 @@ export class MarketplaceTransactionService {
       ErrorService.Marketplace,
       'execute',
     );
-    this.throwIfSessionRejected(response.status, 'execute');
+    this.throwIfSessionRejected(response.status, 'execute', session.token);
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'execute', url);
     const parsed = marketplaceCommandResponseSchema.safeParse(toCamelCaseWire(raw));
     if (!parsed.success) {
@@ -541,7 +541,7 @@ export class MarketplaceTransactionService {
       ErrorService.Marketplace,
       operation,
     );
-    this.throwIfSessionRejected(response.status, operation);
+    this.throwIfSessionRejected(response.status, operation, session.token);
     if (!response.ok) {
       throw await this.digitalReadRefusal(response, operation);
     }
@@ -649,7 +649,7 @@ export class MarketplaceTransactionService {
       ErrorService.Marketplace,
       operation,
     );
-    this.throwIfSessionRejected(response.status, operation);
+    this.throwIfSessionRejected(response.status, operation, session.token);
     if (!response.ok) {
       await this.throwPickupRefusal(response, operation);
     }
@@ -814,7 +814,7 @@ export class MarketplaceTransactionService {
       ErrorService.Marketplace,
       operation,
     );
-    this.throwIfSessionRejected(response.status, operation);
+    this.throwIfSessionRejected(response.status, operation, session.token);
     if (response.status === HttpStatusCode.FORBIDDEN || response.status === HttpStatusCode.SERVICE_UNAVAILABLE) {
       const code = await response
         .json()
@@ -1247,7 +1247,7 @@ export class MarketplaceTransactionService {
       ErrorService.Marketplace,
       operation,
     );
-    this.throwIfSessionRejected(response.status, operation);
+    this.throwIfSessionRejected(response.status, operation, session.token);
     if (operation === 'confirmBitcoinPayment' || operation === 'resolveBitcoinPayment') {
       await this.throwSellerPaymentReviewError(response, operation);
     } else {
@@ -1368,7 +1368,7 @@ export class MarketplaceTransactionService {
       ErrorService.Marketplace,
       operation,
     );
-    this.throwIfSessionRejected(response.status, operation);
+    this.throwIfSessionRejected(response.status, operation, session.token);
     if (options.nullOnNotFound && response.status === HttpStatusCode.NOT_FOUND) return null;
     if (options.nullOnForbidden && response.status === HttpStatusCode.FORBIDDEN) return null;
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
@@ -1402,7 +1402,7 @@ export class MarketplaceTransactionService {
     }
     if (session.pubky !== actor) {
       // A session minted for another key must never act for the current user.
-      MarketplaceSessionService.clearSession('rejected');
+      MarketplaceSessionService.clearSessionIfBearer(session.token, 'rejected');
       throw Err.auth(AuthErrorCode.FORBIDDEN, 'The marketplace session belongs to a different pubky.', {
         service: ErrorService.Marketplace,
         operation,
@@ -1415,9 +1415,9 @@ export class MarketplaceTransactionService {
    * Only the auth middleware answers 401 (command failures map to 403/404/409/422),
    * so a 401 always means the session is gone server-side — drop the local copy.
    */
-  private static throwIfSessionRejected(statusCode: number, operation: string): void {
+  private static throwIfSessionRejected(statusCode: number, operation: string, token: string): void {
     if (statusCode !== HttpStatusCode.UNAUTHORIZED) return;
-    MarketplaceSessionService.clearSession('rejected');
+    MarketplaceSessionService.clearSessionIfBearer(token, 'rejected');
     throw Err.auth(
       AuthErrorCode.SESSION_EXPIRED,
       'The marketplace session expired. Approve the marketplace connection on your signer and try again.',

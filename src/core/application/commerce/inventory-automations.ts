@@ -355,7 +355,7 @@ export class CommerceInventoryAutomationsApplication {
     }
     const identity = MarketplaceSessionService.getActiveSession();
     if (identity && (identity.sessionId === id || (kind === 'purchase' && !identity.sessionId))) {
-      MarketplaceSessionService.clearSession('cleared');
+      MarketplaceSessionService.clearSessionIfBearer(identity.token, 'cleared');
     }
   }
 }

@@ -121,6 +121,13 @@ The sections above describe the service token as empty-capability. That is no lo
 
   A refused establish is never stored; the current session stays and the dialog shows why.
 
+- **Clearing and overwriting the persisted session.** `localStorage` and the BFF session cookie are shared across tabs, so another tab may hold a newer bearer there. Every path that removes or overwrites the record touches only what it owns:
+  - `clearSession` (TTL margin in `getActiveSession`, revocation in Inventory automations, checkout hold expiry, a losing or failed sign-in, a step-up for another identity) removes the persisted record only when it still carries the in-memory bearer, and asks the BFF to unpair only that session's `session_id` (`DELETE /api/marketplace/session?session_id=…`, which deletes the bridge only while it pairs that session and keeps the shared cookie otherwise). With nothing in memory it removes nothing.
+  - A 401 (`MarketplaceTransactionService`, Inventory Studio's purchase bearer) and a session minted for another pubky clear through `clearSessionIfBearer`, only while the bearer the request carried is still the in-memory one.
+  - `restorePersistedSession` expires memory before reading the slot, and removes a malformed, other-account, expired or unexpected record only while the slot still holds exactly the record it read.
+  - `writePersistedSession` (both establish writers) does not overwrite a different bearer that expires later: another tab minted after this tab's request left.
+  - Sign-out and account switch (`AuthController` local-state cleanup) call `clearForSignOut`, the one path that removes a record it did not write and unpairs the cookie unscoped, because no purchase bearer may stay at rest for the user who is leaving.
+
 ## Re-approval routing for Bitkit and Pubky Ring sign-ins
 
 A Bitkit sign-in (`pubkyauth://signin_grant`) requests exactly `CAPABILITIES`, and the Shop refuses anything else: `AuthApplication.assertFullGrantSession` signs out and rejects an approved grant session whose `info.capabilities` do not match `capabilitiesMatchFullGrant`, and a stored grant session that restores narrower is signed out and its record removed. Every live grant session therefore already holds `/priv/pubky.app/:rw`, so `canCurrentSessionWrite(PRIVATE_APP_DATA_PATH)` is true and the homeserver-capability `needs_reauth` state cannot occur for it.

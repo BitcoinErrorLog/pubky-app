@@ -19,11 +19,13 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    await clearSession(request, request.cookies.get(SESSION_COOKIE)?.value);
+    const cleared = await clearSession(request, request.cookies.get(SESSION_COOKIE)?.value);
     const response = new NextResponse(null, { status: 204 });
     response.headers.set('cache-control', 'no-store, private');
-    response.cookies.delete(SESSION_COOKIE);
-    response.cookies.delete(FLOW_COOKIE);
+    if (cleared) {
+      response.cookies.delete(SESSION_COOKIE);
+      response.cookies.delete(FLOW_COOKIE);
+    }
     return response;
   } catch (error) {
     return grantError(error);
