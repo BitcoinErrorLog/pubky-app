@@ -5,6 +5,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { PRIV_KEYS_WIRE_NEEDS_REAUTH, PRIV_KEYS_WIRE_OK } from '@/test/fixtures/commerce/priv-keys.wire';
+import { installWebLocks, removeWebLocks } from '@/test-utils/web-locks';
 
 /**
  * LIVE STAGING PROOF for encrypted `/priv` (priv-encryption-plan.md Phase 2
@@ -20,7 +21,7 @@ import { PRIV_KEYS_WIRE_NEEDS_REAUTH, PRIV_KEYS_WIRE_OK } from '@/test/fixtures/
  *      "Connect marketplace" QR shape) gets `needs_reauth`; nothing is
  *      written and the plaintext stays.
  *   2. Full grant: a session minted from the Shop-grant AuthToken gets the
- *      key; every plaintext record is sealed, read back, and only then
+ *      key; without Web Locks the watchlist sync refuses to run; every plaintext record is sealed, read back, and only then
  *      deleted, in that order on the wire; a second paid order's receipt is
  *      written sealed from its attestation; the released keys match the
  *      pinned wire fixture's shape; the exported recovery key alone opens
@@ -564,6 +565,8 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
     if (health.priv_keys_available !== true) throw new Error(`${SERVICE_URL} does not release priv data keys`);
     m = await loadModules();
     installWireLog();
+    // Node has no Web Locks; this one process is a single tab.
+    installWebLocks();
   }, 120_000);
 
   it('moves plaintext to sealed entries only with a full grant, reads back everywhere, and never overwrites what it cannot open', async () => {
@@ -687,6 +690,15 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
     const keyId = keyring.currentKeyId;
     const watchlistUrl = m.envelopeLib.privEntryUrl(keyring, 'watchlist', 'watchlist');
     const receiptUrl = (id: string) => m.envelopeLib.privEntryUrl(keyring, 'order_receipt', id);
+
+    removeWebLocks();
+    mark = wire.length;
+    await m.CommerceController.syncWatchlist();
+    expect(m.useCommerceStore.getState().watchlistSyncStatus).toBe('unsupported');
+    expect(wire.slice(mark)).toEqual([]);
+    expect(await exists(legacyWatchlistUrl)).toBe(true);
+    installWebLocks();
+    console.info('[priv-live] 2. without Web Locks: watchlist sync unsupported, zero requests, plaintext kept');
 
     mark = wire.length;
     await m.CommerceController.syncWatchlist();

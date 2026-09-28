@@ -138,6 +138,20 @@ export function MarketplaceWatchlist() {
           </Card>
         )}
 
+        {isSignedIn && watchlistSyncStatus === 'unsupported' && (
+          <Card className="border border-muted-foreground/30" data-cy="watchlist-sync-unsupported-notice">
+            <CardContent className="flex flex-col gap-1 py-4">
+              <Typography as="p" className="font-medium">
+                This browser cannot sync your watchlist
+              </Typography>
+              <Typography as="p" className="text-sm text-muted-foreground">
+                Your watchlist keeps working on this device. Syncing it across devices needs a browser that can
+                coordinate its open tabs, so no change is lost. Update this browser or use a current one to sync.
+              </Typography>
+            </CardContent>
+          </Card>
+        )}
+
         {!isSignedIn ? (
           <Card className="border py-10">
             <CardContent className="flex flex-col items-center gap-3 text-center">

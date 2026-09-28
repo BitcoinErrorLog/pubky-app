@@ -70,7 +70,14 @@ import {
   pickupRefusalFailureMessage,
   resolveCheckoutFulfillment,
 } from '@/libs/commerce/pickup';
-import { PRIV_V1_LOG_PATH, privEntryUrl, privErrorSummary, type PrivKeyring } from '@/libs/commerce/priv-envelope';
+import {
+  assertPrivKeyringLive,
+  isPrivKeyringRevoked,
+  PRIV_V1_LOG_PATH,
+  privEntryUrl,
+  privErrorSummary,
+  type PrivKeyring,
+} from '@/libs/commerce/priv-envelope';
 import type { MarketplacePrivKeysResult } from '@/libs/commerce/priv-keys';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
@@ -226,7 +233,13 @@ export type CommerceWatchlistSyncCapability = 'capable' | 'needs_reauth' | 'no_s
  * or the marketplace refusing to release the data key); `unavailable` means
  * the marketplace cannot release the key right now, so nothing is written.
  */
-export type CommerceWatchlistSyncStatus = 'synced' | 'needs_reauth' | 'unavailable' | 'skipped' | 'error';
+export type CommerceWatchlistSyncStatus =
+  | 'synced'
+  | 'needs_reauth'
+  | 'unavailable'
+  | 'unsupported'
+  | 'skipped'
+  | 'error';
 
 /** The logical id of the one encrypted watchlist entry. */
 const WATCHLIST_PRIV_ENTRY_ID = 'watchlist';
@@ -1684,7 +1697,9 @@ export class CommerceApplication {
    *
    * Honesty contract: capability is decided from session facts up front, and
    * a 401/403 on the actual read or write ALSO returns `needs_reauth` — the
-   * caller (controller) surfaces that state; nothing silently no-ops.
+   * caller (controller) surfaces that state; nothing silently no-ops. A
+   * browser without the Web Locks API gets `unsupported` and a refused lock
+   * gets `error`; neither touches the homeserver.
    */
   static async syncWatchlist(ownerPubky: string): Promise<CommerceWatchlistSyncStatus> {
     if (getCommerceAdapterMode() === 'sandbox') return 'skipped';
@@ -1696,9 +1711,22 @@ export class CommerceApplication {
     const inFlight = this.watchlistSyncInFlight.get(ownerPubky);
     if (inFlight) return await inFlight;
 
-    const run = this.withPrivLock(ownerPubky, 'watchlist', () => this.runWatchlistSync(ownerPubky)).finally(() => {
-      this.watchlistSyncInFlight.delete(ownerPubky);
-    });
+    // Without a lock every tab shares, two rounds can interleave their
+    // read-merge-write and one tab's change is lost. No lock, no remote work:
+    // the list keeps working on this device and the outbox job stays.
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+    if (typeof locks?.request !== 'function') return 'unsupported';
+
+    const run = (async (): Promise<CommerceWatchlistSyncStatus> => {
+      try {
+        return await locks.request(`pubky-priv|watchlist|${ownerPubky}`, () => this.runWatchlistSync(ownerPubky));
+      } catch (error) {
+        Logger.warn('The watchlist sync lock was refused; the outbox job stays pending', privErrorSummary(error));
+        return 'error';
+      } finally {
+        this.watchlistSyncInFlight.delete(ownerPubky);
+      }
+    })();
     this.watchlistSyncInFlight.set(ownerPubky, run);
     return await run;
   }
@@ -1706,19 +1734,6 @@ export class CommerceApplication {
   /** Test support: forgets in-flight rounds, as a second tab of the same origin would not see them. */
   static resetWatchlistSyncInFlight(): void {
     this.watchlistSyncInFlight.clear();
-  }
-
-  /**
-   * Runs `run` holding the owner's Web Lock for `scope`, which every tab of
-   * this origin shares, so two tabs never interleave the read-merge-write of
-   * one private document. The homeserver has no conditional write to fall
-   * back on. Without the Web Locks API (server rendering) the round runs
-   * unserialized.
-   */
-  private static async withPrivLock<T>(ownerPubky: string, scope: string, run: () => Promise<T>): Promise<T> {
-    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
-    if (!locks) return await run();
-    return await locks.request(`pubky-priv|${scope}|${ownerPubky}`, run);
   }
 
   /**
@@ -1802,7 +1817,10 @@ export class CommerceApplication {
         }
       }
       // v2 now holds a state that includes every v1 entry and tombstone.
-      if (legacy) await CommerceHomeserverService.delete(legacyUrl, PRIV_V1_LOG_PATH);
+      if (legacy) {
+        assertPrivKeyringLive(keyring);
+        await CommerceHomeserverService.delete(legacyUrl, PRIV_V1_LOG_PATH);
+      }
 
       await LocalCommerceService.completeSyncJobIfUnchanged(jobId, stagedAt);
       return 'synced';
@@ -1874,6 +1892,7 @@ export class CommerceApplication {
     for (const url of urls) {
       const receiptId = url.slice(url.lastIndexOf('/') + 1);
       try {
+        const sealedUrl = privEntryUrl(keyring, 'order_receipt', receiptId);
         const legacy = CommerceRecordNormalizer.orderReceiptRecord(
           await CommerceHomeserverService.fetchJson(url, PRIV_V1_LOG_PATH),
         );
@@ -1889,12 +1908,14 @@ export class CommerceApplication {
           incomplete = true;
           continue;
         }
+        assertPrivKeyringLive(keyring);
         await CommerceHomeserverService.delete(url, PRIV_V1_LOG_PATH);
         if (this.verifiedSealedReceipt(sealed ?? legacy, ownerPubky, receiptId) !== null) {
-          this.publishedReceiptUrls.add(privEntryUrl(keyring, 'order_receipt', receiptId));
+          this.publishedReceiptUrls.add(sealedUrl);
         }
       } catch (error) {
         if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
+        if (isPrivKeyringRevoked(error)) return 'incomplete';
         Logger.warn(
           'Moving a plaintext order receipt failed; it retries on the next orders load',
           privErrorSummary(error),
@@ -1989,9 +2010,23 @@ export class CommerceApplication {
         typeof order.receiptId === 'string' && (order.buyerPubky === ownerPubky || order.sellerPubky === ownerPubky),
     );
 
+    // Derived now, while the keyring is known live; a revoked keyring stops here.
+    let entryUrls: Map<string, string>;
+    try {
+      entryUrls = new Map(
+        eligible.map((order) => [
+          order.receiptId as string,
+          privEntryUrl(keyring, 'order_receipt', order.receiptId as string),
+        ]),
+      );
+    } catch (error) {
+      if (isPrivKeyringRevoked(error)) return 'unavailable';
+      throw error;
+    }
+
     for (const order of eligible) {
       const receiptId = order.receiptId as string;
-      const url = privEntryUrl(keyring, 'order_receipt', receiptId);
+      const url = entryUrls.get(receiptId) as string;
       if (this.publishedReceiptUrls.has(url)) continue;
       try {
         let sealed: unknown;
@@ -2126,6 +2161,7 @@ export class CommerceApplication {
         }
         this.publishedReceiptUrls.add(url);
       } catch (error) {
+        if (isPrivKeyringRevoked(error)) return 'unavailable';
         Logger.warn('Order receipt publication failed; it will retry on the next orders load', privErrorSummary(error));
       }
     }
@@ -2133,9 +2169,7 @@ export class CommerceApplication {
     // A receipt that failed mid-flight (logged above), or a plaintext receipt
     // still waiting to move, retries on the next orders-surface load; report
     // that honestly instead of claiming done.
-    const hasUnpublished = eligible.some(
-      (order) => !this.publishedReceiptUrls.has(privEntryUrl(keyring, 'order_receipt', order.receiptId as string)),
-    );
+    const hasUnpublished = [...entryUrls.values()].some((url) => !this.publishedReceiptUrls.has(url));
     return hasUnpublished || migration === 'incomplete' ? 'unavailable' : 'published';
   }
 

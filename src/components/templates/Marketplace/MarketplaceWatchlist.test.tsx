@@ -148,9 +148,20 @@ describe('MarketplaceWatchlist', () => {
     expect(screen.getByText('Proof of Film')).toBeInTheDocument();
   });
 
+  it('says this browser cannot sync, and keeps the list, without the Web Locks API', () => {
+    view.watchlistSyncStatus = 'unsupported';
+
+    render(<MarketplaceWatchlist />);
+
+    expect(screen.getByText('This browser cannot sync your watchlist')).toBeInTheDocument();
+    expect(screen.queryByText('Private sync is unavailable right now')).not.toBeInTheDocument();
+    expect(screen.getByText('Proof of Film')).toBeInTheDocument();
+  });
+
   it('shows no unavailable notice once sync succeeds', () => {
     render(<MarketplaceWatchlist />);
 
     expect(screen.queryByText('Private sync is unavailable right now')).not.toBeInTheDocument();
+    expect(screen.queryByText('This browser cannot sync your watchlist')).not.toBeInTheDocument();
   });
 });

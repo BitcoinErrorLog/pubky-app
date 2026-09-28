@@ -9,6 +9,7 @@ import {
   bytesToBase64Url,
   decryptPrivRecord,
   encryptPrivRecord,
+  isPrivKeyringRevoked,
   PRIV_ENVELOPE_ENC,
   PRIV_V2_BASE_PATH,
   privAad,
@@ -19,6 +20,9 @@ import {
   privErrorSummary,
   privFamilyPath,
   type PrivKeyring,
+  privKeyringRefusal,
+  privListedEntryPath,
+  revokePrivKeyring,
 } from './priv-envelope';
 
 const OWNER = 'o'.repeat(52);
@@ -238,5 +242,52 @@ describe('privErrorSummary', () => {
     expect(privErrorSummary(rejection)).toMatchObject({ reason: 'malformed' });
     expect(privErrorSummary(new TypeError(`fetch failed for ${url}`))).toEqual({ error: 'TypeError' });
     expect(privErrorSummary('boom')).toEqual({ error: 'string' });
+  });
+});
+
+describe('keyring revocation', () => {
+  const refusals = (held: PrivKeyring, envelope: unknown) => [
+    () => privFamilyPath(held, 'watchlist'),
+    () => privEntryPath(held, 'order_receipt', 'r1'),
+    () => privListedEntryPath(held, 'attention_seen/orders', 'a'.repeat(32)),
+    () => encryptPrivRecord({ keyring: held, family: 'watchlist', name: 'n', record: {} }),
+    () => decryptPrivRecord({ keyring: held, family: 'watchlist', name: 'n', envelope }),
+  ];
+
+  it('refuses every path, encrypt and decrypt derivation once a keyring is revoked, and zeroes it', () => {
+    const held = keyring({ keys: [{ keyId: KID_A, key: KEY_A.slice() }] });
+    const envelope = encryptPrivRecord({ keyring: held, family: 'watchlist', name: 'n', record: {} });
+
+    revokePrivKeyring(held);
+
+    expect(held.keys.every(({ key }) => key.every((byte) => byte === 0))).toBe(true);
+    for (const derive of refusals(held, envelope)) {
+      let caught: unknown;
+      try {
+        derive();
+      } catch (error) {
+        caught = error;
+      }
+      expect(isPrivKeyringRevoked(caught)).toBe(true);
+      expect(privKeyringRefusal(caught)).toBe('revoked');
+      expect(privErrorSummary(caught)).toMatchObject({ reason: 'revoked' });
+      expect(privEnvelopeRejection(caught)).toBeNull();
+    }
+  });
+
+  it('refuses a keyring with no keys or a key wiped to zero, even when not revoked', () => {
+    const wiped = keyring({ keys: [{ keyId: KID_A, key: new Uint8Array(32) }] });
+    const empty = keyring({ keys: [] });
+    for (const held of [wiped, empty]) {
+      for (const derive of refusals(held, {})) {
+        let caught: unknown;
+        try {
+          derive();
+        } catch (error) {
+          caught = error;
+        }
+        expect(privKeyringRefusal(caught)).toBe('wiped');
+      }
+    }
   });
 });

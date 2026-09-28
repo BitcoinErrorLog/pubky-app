@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PrivKeyring } from '@/libs/commerce/priv-envelope';
+import { privFamilyPath, type PrivKeyring, privKeyringRefusal } from '@/libs/commerce/priv-envelope';
 import type { MarketplacePrivKeysResult } from '@/libs/commerce/priv-keys';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
@@ -73,6 +73,14 @@ describe('CommercePrivKeyringApplication', () => {
     CommerceApplication.clearMarketplaceSession();
 
     expect(Array.from(held.keys[0].key).every((byte) => byte === 0)).toBe(true);
+    // Revoked, not merely wiped: an operation still holding the object is refused as revoked.
+    let refusal: unknown;
+    try {
+      privFamilyPath(held, 'watchlist');
+    } catch (error) {
+      refusal = error;
+    }
+    expect(privKeyringRefusal(refusal)).toBe('revoked');
     session.pubky = OWNER;
     read.mockResolvedValue({ kind: 'keys', keyring: keyring() });
     await CommercePrivKeyringApplication.get(OWNER);

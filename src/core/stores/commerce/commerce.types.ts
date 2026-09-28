@@ -23,7 +23,13 @@ export interface CommerceMarketplaceSession {
  * `unavailable` = the marketplace cannot release the data key that encrypts
  * the synced copy right now, so nothing was written.
  */
-export type CommerceWatchlistSyncUiStatus = 'idle' | 'synced' | 'needs_reauth' | 'unavailable' | 'error';
+export type CommerceWatchlistSyncUiStatus =
+  | 'idle'
+  | 'synced'
+  | 'needs_reauth'
+  | 'unavailable'
+  | 'unsupported'
+  | 'error';
 
 /**
  * Portable order-receipt publication state for UI surfaces, written by the

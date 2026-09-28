@@ -1,4 +1,4 @@
-import { bytesToBase64Url, PRIV_ENVELOPE_ENC, type PrivKeyring } from './priv-envelope';
+import { assertPrivKeyringLive, bytesToBase64Url, PRIV_ENVELOPE_ENC, type PrivKeyring } from './priv-envelope';
 
 /**
  * The downloadable recovery key: every data key the owner holds, enough to
@@ -18,6 +18,7 @@ export type PrivRecoveryKeyExport =
   | { kind: 'unavailable' };
 
 export function buildPrivRecoveryKeyFile(keyring: PrivKeyring): PrivRecoveryKeyFile {
+  assertPrivKeyringLive(keyring);
   const document = {
     format: PRIV_RECOVERY_KEY_FORMAT,
     enc: PRIV_ENVELOPE_ENC,

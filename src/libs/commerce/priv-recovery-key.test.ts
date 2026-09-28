@@ -9,6 +9,7 @@ import {
   encryptPrivRecord,
   privFamilyPath,
   type PrivKeyring,
+  revokePrivKeyring,
 } from './priv-envelope';
 import { buildPrivRecoveryKeyFile, PRIV_RECOVERY_KEY_FORMAT } from './priv-recovery-key';
 
@@ -23,6 +24,12 @@ const KEYRING: PrivKeyring = {
 };
 
 describe('buildPrivRecoveryKeyFile', () => {
+  it('refuses to export a revoked keyring', () => {
+    const held: PrivKeyring = { ...KEYRING, keys: KEYRING.keys.map(({ keyId, key }) => ({ keyId, key: key.slice() })) };
+    revokePrivKeyring(held);
+    expect(() => buildPrivRecoveryKeyFile(held)).toThrow('The private data keys were revoked.');
+  });
+
   it('carries every key, oldest first, with the owner and the envelope format', () => {
     const file = buildPrivRecoveryKeyFile(KEYRING);
     const document = JSON.parse(file.contents);

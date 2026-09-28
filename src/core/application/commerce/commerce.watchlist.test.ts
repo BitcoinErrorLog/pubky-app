@@ -17,10 +17,19 @@ import {
   CommerceWatchTombstoneModel,
 } from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { capabilitiesGrantWrite } from '@/services/homeserver/homeserver.utils';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
+import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
 import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';
+import {
+  establishMarketplaceSession,
+  expectSafeAtEverySessionReplacement,
+  releasedKeyring,
+} from '@/test-utils/priv-session-replacement';
+import { installRefusingWebLocks, installWebLocks, removeWebLocks } from '@/test-utils/web-locks';
 import { CommerceApplication } from './commerce';
 import { CommercePrivKeyringApplication } from './priv-keyring';
 
@@ -107,6 +116,11 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
       vi.spyOn(LocalCommerceService, 'getSyncJob').mockResolvedValue({ updated_at: 7 } as never);
       vi.spyOn(LocalCommerceService, 'completeSyncJobIfUnchanged').mockResolvedValue(true);
       homeserver = installFakeHomeserver();
+      installWebLocks();
+    });
+
+    afterEach(() => {
+      removeWebLocks();
     });
 
     const stored = () =>
@@ -296,27 +310,6 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
   });
 });
 
-/** Web Locks shared by every "tab" in the test: one exclusive holder per name, FIFO. */
-function installWebLocks(): void {
-  const tails = new Map<string, Promise<void>>();
-  const request = async <T>(name: string, callback: () => Promise<T>): Promise<T> => {
-    const previous = tails.get(name) ?? Promise.resolve();
-    let release = () => {};
-    const next = new Promise<void>((resolve) => (release = resolve));
-    tails.set(
-      name,
-      previous.then(() => next),
-    );
-    await previous;
-    try {
-      return await callback();
-    } finally {
-      release();
-    }
-  };
-  Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true });
-}
-
 describe('CommerceApplication.syncWatchlist across tabs', () => {
   const JOB_ID = `watchlist|${OWNER}`;
   let homeserver: FakeHomeserver;
@@ -350,7 +343,7 @@ describe('CommerceApplication.syncWatchlist across tabs', () => {
   });
 
   afterEach(() => {
-    Reflect.deleteProperty(navigator, 'locks');
+    removeWebLocks();
     CommerceApplication.resetWatchlistSyncInFlight();
     vi.restoreAllMocks();
   });
@@ -417,6 +410,44 @@ describe('CommerceApplication.syncWatchlist across tabs', () => {
     expect(await LocalCommerceService.getSyncJob(JOB_ID)).toBeNull();
   });
 
+  it('does no remote work without the Web Locks API, and keeps the outbox job and v1', async () => {
+    removeWebLocks();
+    homeserver.files.set(WATCHLIST_URL, v1Record(2, [['boots_v1', 100]]));
+    await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_a`);
+    homeserver.log.length = 0;
+
+    // Two tabs, the sequence that loses a change when rounds interleave.
+    const tabA = CommerceApplication.syncWatchlist(OWNER);
+    const tabB = inTabB(async () => {
+      await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_b`);
+      return await CommerceApplication.syncWatchlist(OWNER);
+    });
+
+    await expect(tabA).resolves.toBe('unsupported');
+    await expect(tabB).resolves.toBe('unsupported');
+    expect(homeserver.log).toEqual([]);
+    expect(CommercePrivKeyringApplication.get).not.toHaveBeenCalled();
+    expect(await LocalCommerceService.getSyncJob(JOB_ID)).not.toBeNull();
+    expect(homeserver.files.has(WATCHLIST_URL)).toBe(true);
+    expect(await LocalCommerceService.getFavorites(OWNER)).toHaveLength(2);
+  });
+
+  it('reports error, touches nothing and keeps the outbox job when the lock is refused', async () => {
+    installRefusingWebLocks(new DOMException(`denied for ${OWNER}`, 'SecurityError'));
+    homeserver.files.set(WATCHLIST_URL, v1Record(2, [['boots_v1', 100]]));
+    await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_a`);
+    homeserver.log.length = 0;
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(CommerceApplication.syncWatchlist(OWNER)).resolves.toBe('error');
+
+    expect(homeserver.log).toEqual([]);
+    expect(await LocalCommerceService.getSyncJob(JOB_ID)).not.toBeNull();
+    expect(homeserver.files.has(WATCHLIST_URL)).toBe(true);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(OWNER);
+  });
+
   it('bumps the staged generation even for two changes in the same millisecond', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(1_000);
     await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_a`);
@@ -426,5 +457,80 @@ describe('CommerceApplication.syncWatchlist across tabs', () => {
 
     expect(first).toBe(1_000);
     expect(second).toBeGreaterThan(first as number);
+  });
+});
+
+describe('CommerceApplication.syncWatchlist when the marketplace session is replaced mid-round', () => {
+  let homeserver: FakeHomeserver;
+
+  beforeEach(() => {
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
+    vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(true);
+    vi.spyOn(HomeserverService, 'isCurrentSessionGrant').mockReturnValue(false);
+    vi.spyOn(LocalCommerceService, 'getFavorites').mockResolvedValue([]);
+    vi.spyOn(LocalCommerceService, 'getWatchTombstones').mockResolvedValue([]);
+    vi.spyOn(LocalCommerceService, 'applyWatchlistState').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'getSyncJob').mockResolvedValue({ updated_at: 7 } as never);
+    vi.spyOn(LocalCommerceService, 'completeSyncJobIfUnchanged').mockResolvedValue(true);
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    homeserver = installFakeHomeserver();
+    installWebLocks();
+  });
+
+  afterEach(() => {
+    removeWebLocks();
+    CommerceApplication.resetWatchlistSyncInFlight();
+    vi.restoreAllMocks();
+  });
+
+  it('never seals, places or deletes anything under revoked keys at any request boundary', async () => {
+    const real = releasedKeyring(OWNER);
+    const sealedUrl = privEntryUrl(real, 'watchlist', 'watchlist');
+    const requests = await expectSafeAtEverySessionReplacement({
+      homeserver,
+      ownerPubky: OWNER,
+      otherPubky: 'q'.repeat(52),
+      plant: () => {
+        homeserver.files.set(WATCHLIST_URL, v1Record(2, [['boots_01', 100]]));
+      },
+      flow: async () => {
+        CommerceApplication.resetWatchlistSyncInFlight();
+        return await CommerceApplication.syncWatchlist(OWNER);
+      },
+      check: () => {
+        if (homeserver.files.has(WATCHLIST_URL)) return;
+        const sealed = decryptPrivRecord({
+          keyring: real,
+          family: 'watchlist',
+          name: privEntryName(real, 'watchlist', 'watchlist'),
+          envelope: homeserver.files.get(sealedUrl),
+        });
+        expect(sealed).toMatchObject({ items: [{ listingId: 'boots_01' }] });
+      },
+    });
+    expect(requests).toBeGreaterThanOrEqual(4);
+  });
+
+  it('keeps v1 when the session is replaced after the sealed write resolves and before v1 is deleted', async () => {
+    vi.spyOn(MarketplaceGatewayService, 'getPrivKeys').mockImplementation(async (owner: string) => ({
+      kind: 'keys',
+      keyring: releasedKeyring(owner),
+    }));
+    CommercePrivKeyringApplication.clear();
+    establishMarketplaceSession(OWNER);
+    homeserver.files.set(WATCHLIST_URL, v1Record(2, [['boots_01', 100]]));
+    const write = CommercePrivStoreService.write.bind(CommercePrivStoreService);
+    vi.spyOn(CommercePrivStoreService, 'write').mockImplementation(async (...args) => {
+      await write(...args);
+      establishMarketplaceSession(OWNER);
+    });
+
+    await expect(CommerceApplication.syncWatchlist(OWNER)).resolves.toBe('error');
+
+    expect(homeserver.files.has(WATCHLIST_URL)).toBe(true);
+    expect(homeserver.log.some((entry) => entry.startsWith('DELETE '))).toBe(false);
+    MarketplaceSessionService.clearSession();
+    CommercePrivKeyringApplication.clear();
   });
 });

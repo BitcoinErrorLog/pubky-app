@@ -37,8 +37,9 @@ import { ErrorService } from '@/libs/error/error.types';
 // derives the name it was read from.
 //
 // Paths always use the owner's FIRST (oldest) key so they stay put when a new
-// key becomes current. Pure functions: nothing here stores, logs or caches a
-// key or plaintext.
+// key becomes current. Nothing here stores, logs or caches a key or
+// plaintext; derived subkeys are zeroed after use. A revoked keyring (see
+// revokePrivKeyring) is refused by every derivation.
 // -----------------------------------------------------------------------------
 
 export const PRIV_ENVELOPE_ENC = 'pubky-priv-aead/v1';
@@ -111,9 +112,21 @@ export function privErrorSummary(error: unknown): Record<string, string | number
   if (error.code !== undefined) summary.code = error.code;
   const statusCode = error.context?.statusCode;
   if (typeof statusCode === 'number') summary.statusCode = statusCode;
-  const reason = privEnvelopeRejection(error);
+  const reason = privEnvelopeRejection(error) ?? privKeyringRefusal(error);
   if (reason !== null) summary.reason = reason;
   return summary;
+}
+
+/** Why a keyring was refused ({@link assertPrivKeyringLive}), or null for any other error. */
+export function privKeyringRefusal(error: unknown): 'revoked' | 'wiped' | null {
+  if (!isAppError(error) || error.operation !== 'privKeyring') return null;
+  const reason = error.context?.reason;
+  return reason === 'revoked' || reason === 'wiped' ? reason : null;
+}
+
+/** Whether `error` is the refusal of a revoked, empty or wiped keyring. */
+export function isPrivKeyringRevoked(error: unknown): boolean {
+  return privKeyringRefusal(error) !== null;
 }
 
 export function isPrivKeyId(value: string): boolean {
@@ -141,6 +154,34 @@ function subkey(dataKey: Uint8Array, info: 'record' | 'path'): Uint8Array {
   return hkdf(sha256, dataKey, HKDF_SALT, new TextEncoder().encode(info), PRIV_DATA_KEY_BYTES);
 }
 
+const revokedKeyrings = new WeakSet<PrivKeyring>();
+
+/**
+ * Revokes a released keyring, then zeroes its key bytes. Operations still
+ * holding the object afterwards get an error from every derivation instead
+ * of encrypting or deriving paths under the zeroed bytes.
+ */
+export function revokePrivKeyring(keyring: PrivKeyring): void {
+  revokedKeyrings.add(keyring);
+  for (const { key } of keyring.keys) key.fill(0);
+}
+
+/**
+ * Throws unless `keyring` is live: not revoked, holding at least one key,
+ * and no key wiped to zero. Every path, encrypt and decrypt derivation runs
+ * this, and so must a caller right before deleting a plaintext copy.
+ */
+export function assertPrivKeyringLive(keyring: PrivKeyring): void {
+  const wiped = keyring.keys.length === 0 || keyring.keys.some(({ key }) => key.every((byte) => byte === 0));
+  if (revokedKeyrings.has(keyring) || wiped) {
+    throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'The private data keys were revoked.', {
+      service: ErrorService.Local,
+      operation: 'privKeyring',
+      context: { reason: revokedKeyrings.has(keyring) ? 'revoked' : 'wiped' },
+    });
+  }
+}
+
 function assertField(value: string): void {
   if (value.length === 0 || value.includes('|')) throw rejected('malformed');
 }
@@ -150,25 +191,26 @@ export function privAad(ownerPubky: string, family: PrivFamily, name: string, ke
   return new TextEncoder().encode(`${ownerPubky}|${family}|${name}|${keyId}`);
 }
 
-function pathKey(keyring: PrivKeyring): Uint8Array {
-  const first = keyring.keys[0];
-  if (!first) throw rejected('unknown_key');
-  return subkey(first.key, 'path');
-}
-
-function segment(key: Uint8Array, input: string): string {
-  return bytesToBase64Url(hmac(sha256, key, new TextEncoder().encode(input)));
+/** HMAC of `input` under the keyring's path key (from its FIRST key), base64url. */
+function segment(keyring: PrivKeyring, input: string): string {
+  assertPrivKeyringLive(keyring);
+  const key = subkey(keyring.keys[0].key, 'path');
+  try {
+    return bytesToBase64Url(hmac(sha256, key, new TextEncoder().encode(input)));
+  } finally {
+    key.fill(0);
+  }
 }
 
 /** `/priv/pubky.app/marketplace/v2/s/{family}/` for one family. */
 export function privFamilyPath(keyring: PrivKeyring, family: PrivFamily): string {
-  return `${PRIV_V2_BASE_PATH}${segment(pathKey(keyring), `family|${family}`)}/`;
+  return `${PRIV_V2_BASE_PATH}${segment(keyring, `family|${family}`)}/`;
 }
 
 /** The opaque name of a derived entry: the HMAC of its family and id under the path key. */
 export function privEntryName(keyring: PrivKeyring, family: PrivFamily, id: string): string {
   assertField(id);
-  return segment(pathKey(keyring), `id|${family}|${id}`);
+  return segment(keyring, `id|${family}|${id}`);
 }
 
 /** The opaque path of one derived entry. */
@@ -215,16 +257,21 @@ export function encryptPrivRecord(input: {
   record: unknown;
 }): PrivEnvelope {
   const { keyring, family, name, record } = input;
+  assertPrivKeyringLive(keyring);
   const current = keyring.keys.find((key) => key.keyId === keyring.currentKeyId);
   if (!current) throw rejected('unknown_key');
   const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
   const plaintext = new TextEncoder().encode(JSON.stringify(record));
-  const ct = xchacha20poly1305(
-    subkey(current.key, 'record'),
-    nonce,
-    privAad(keyring.ownerPubky, family, name, current.keyId),
-  ).encrypt(plaintext);
-  plaintext.fill(0);
+  const recordKey = subkey(current.key, 'record');
+  let ct: Uint8Array;
+  try {
+    ct = xchacha20poly1305(recordKey, nonce, privAad(keyring.ownerPubky, family, name, current.keyId)).encrypt(
+      plaintext,
+    );
+  } finally {
+    recordKey.fill(0);
+    plaintext.fill(0);
+  }
   return { enc: PRIV_ENVELOPE_ENC, kid: current.keyId, nonce: bytesToBase64Url(nonce), ct: bytesToBase64Url(ct) };
 }
 
@@ -241,6 +288,7 @@ export function decryptPrivRecord(input: {
   envelope: unknown;
 }): unknown {
   const { keyring, family, name } = input;
+  assertPrivKeyringLive(keyring);
   const parsed = privEnvelopeSchema.safeParse(input.envelope);
   if (!parsed.success) throw rejected('malformed');
   const envelope = parsed.data;
@@ -249,15 +297,16 @@ export function decryptPrivRecord(input: {
   const nonce = base64UrlToBytes(envelope.nonce);
   if (nonce.length !== NONCE_BYTES) throw rejected('malformed');
   let plaintext: Uint8Array;
+  const recordKey = subkey(key.key, 'record');
   try {
-    plaintext = xchacha20poly1305(
-      subkey(key.key, 'record'),
-      nonce,
-      privAad(keyring.ownerPubky, family, name, envelope.kid),
-    ).decrypt(base64UrlToBytes(envelope.ct));
+    plaintext = xchacha20poly1305(recordKey, nonce, privAad(keyring.ownerPubky, family, name, envelope.kid)).decrypt(
+      base64UrlToBytes(envelope.ct),
+    );
   } catch (error) {
     if (privEnvelopeRejection(error) !== null) throw error;
     throw rejected('unauthenticated');
+  } finally {
+    recordKey.fill(0);
   }
   try {
     return JSON.parse(new TextDecoder().decode(plaintext));

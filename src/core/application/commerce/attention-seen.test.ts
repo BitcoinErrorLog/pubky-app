@@ -16,6 +16,7 @@ import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';
+import { expectSafeAtEverySessionReplacement, releasedKeyring } from '@/test-utils/priv-session-replacement';
 import { ATTENTION_SEEN_WRITE_DEBOUNCE_MS, CommerceAttentionSeenApplication } from './attention-seen';
 import { CommercePrivKeyringApplication } from './priv-keyring';
 
@@ -408,5 +409,90 @@ describe('CommerceAttentionSeenApplication moving plaintext checkpoints', () => 
     await CommerceAttentionSeenApplication.pull(OWNER);
 
     expect(homeserver.files.has(legacyEntry('activity', T0))).toBe(true);
+  });
+});
+
+describe('CommerceAttentionSeenApplication when the marketplace session is replaced mid-pass', () => {
+  beforeEach(async () => {
+    state.mode = 'transaction-service';
+    useAuthStore.setState({ currentUserPubky: OWNER });
+    vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
+    vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(true);
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    homeserver = installFakeHomeserver();
+    await switchToFreshBrowser();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('never seals, places or deletes anything under revoked keys while carrying and pruning checkpoints', async () => {
+    const real = releasedKeyring(OWNER);
+    const olderName = newPrivEntryName();
+    const olderUrl = privListedEntryUrl(real, FAMILY.orders, olderName);
+    const realEntries = () => {
+      const directory = privFamilyUrl(real, FAMILY.orders);
+      return [...homeserver.files.entries()]
+        .filter(([url]) => url.startsWith(directory))
+        .map(
+          ([url, envelope]) =>
+            (
+              decryptPrivRecord({
+                keyring: real,
+                family: FAMILY.orders,
+                name: url.slice(url.lastIndexOf('/') + 1),
+                envelope,
+              }) as { seenAt: number }
+            ).seenAt,
+        );
+    };
+
+    const requests = await expectSafeAtEverySessionReplacement({
+      homeserver,
+      ownerPubky: OWNER,
+      otherPubky: OTHER,
+      plant: async () => {
+        await switchToFreshBrowser();
+        homeserver.files.set(
+          olderUrl,
+          encryptPrivRecord({
+            keyring: real,
+            family: FAMILY.orders,
+            name: olderName,
+            record: { version: 1, seenAt: T0 - 1_000 },
+          }),
+        );
+        homeserver.files.set(legacyEntry('orders', T0), { version: 1, seenAt: T0 });
+      },
+      flow: () => CommerceAttentionSeenApplication.pull(OWNER),
+      check: () => {
+        const newest = Math.max(0, ...realEntries());
+        // The checkpoint never moves backward, and the plaintext goes only once a sealed entry covers it.
+        expect(Math.max(newest, homeserver.files.has(legacyEntry('orders', T0)) ? T0 : 0)).toBe(T0);
+        if (!homeserver.files.has(legacyEntry('orders', T0))) expect(newest).toBe(T0);
+      },
+    });
+    expect(requests).toBeGreaterThanOrEqual(6);
+  });
+
+  it('ignores a checkpoint that is not exactly { version: 1, seenAt: <positive integer> }', async () => {
+    vi.spyOn(CommercePrivKeyringApplication, 'get').mockResolvedValue({ kind: 'keys', keyring: KEYRING });
+    for (const record of [
+      { seenAt: T0 + 9_000 },
+      { version: 2, seenAt: T0 + 9_000 },
+      { version: 1, seenAt: T0 + 9_000.5 },
+    ]) {
+      const name = newPrivEntryName();
+      homeserver.files.set(
+        privListedEntryUrl(KEYRING, FAMILY.orders, name),
+        encryptPrivRecord({ keyring: KEYRING, family: FAMILY.orders, name, record }),
+      );
+    }
+    seal('orders', T0);
+
+    await CommerceAttentionSeenApplication.pull(OWNER);
+
+    expect(readOrdersSeenAt(OWNER, window.localStorage)).toBe(T0);
   });
 });

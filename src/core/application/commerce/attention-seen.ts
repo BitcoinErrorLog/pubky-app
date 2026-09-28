@@ -2,6 +2,7 @@ import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyr
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { raiseLocalOrdersSeenAt, readLocalOrdersSeenAt } from '@/libs/commerce/marketplace-attention';
 import {
+  assertPrivKeyringLive,
   newPrivEntryName,
   PRIV_V1_LOG_PATH,
   privEnvelopeRejection,
@@ -166,9 +167,14 @@ export class CommerceAttentionSeenApplication {
       newest = value;
     }
     const covered = listing.legacy.filter(({ at }) => at <= newest);
+    // A session replacement may have revoked the keyring while the write
+    // above was in flight; plaintext is deleted only under a live keyring.
     await Promise.allSettled([
       ...stale.map(({ name }) => CommercePrivStoreService.deleteListed(keyring, FAMILY[side], name)),
-      ...covered.map(({ url }) => CommerceHomeserverService.delete(url, PRIV_V1_LOG_PATH)),
+      ...covered.map(async ({ url }) => {
+        assertPrivKeyringLive(keyring);
+        await CommerceHomeserverService.delete(url, PRIV_V1_LOG_PATH);
+      }),
     ]);
   }
 
@@ -228,7 +234,7 @@ export class CommerceAttentionSeenApplication {
     return { kind: 'entries', sealed, legacy };
   }
 
-  /** The entry's `seenAt`, or null when it does not open or holds no valid value. Other failures throw. */
+  /** The entry's `seenAt`, or null when it does not open or is not `{ version: 1, seenAt: <positive integer> }`. Other failures throw. */
   private static async readSealed(
     keyring: PrivKeyring,
     side: MarketplaceAttentionSide,
@@ -242,8 +248,11 @@ export class CommerceAttentionSeenApplication {
       Logger.warn('Ignoring a marketplace badge checkpoint that does not decrypt', privErrorSummary(error));
       return null;
     }
-    const seenAt = (record as { seenAt?: unknown } | null)?.seenAt;
-    return typeof seenAt === 'number' && Number.isFinite(seenAt) && seenAt > 0 ? seenAt : null;
+    const checkpoint = record as { version?: unknown; seenAt?: unknown } | null;
+    const seenAt = checkpoint?.seenAt;
+    return checkpoint?.version === 1 && Number.isSafeInteger(seenAt) && (seenAt as number) > 0
+      ? (seenAt as number)
+      : null;
   }
 
   private static async keyring(ownerPubky: string): Promise<PrivKeyring | null> {

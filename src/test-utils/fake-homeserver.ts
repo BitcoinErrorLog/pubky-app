@@ -37,6 +37,12 @@ export type FakeHomeserver = {
    * effect. `reached` resolves when it arrives; `release` lets it proceed.
    */
   holdNext: (method: HttpMethod, url: string | RegExp) => { reached: Promise<void>; release: () => void };
+  /**
+   * Called before each request or list takes effect and again after it has
+   * settled (resolved or thrown), with the `METHOD url` entry. Tests use it to change state at every await
+   * boundary of a flow.
+   */
+  onRequest: ((event: { entry: string; phase: 'before' | 'after' }) => void) | null;
   /** Parks every list call (after it has read the directory) until {@link releaseLists}. */
   holdLists: () => void;
   releaseLists: () => void;
@@ -58,7 +64,20 @@ export function installFakeHomeserver(): FakeHomeserver {
   const matches = (pattern: string | RegExp, url: string) =>
     typeof pattern === 'string' ? pattern === url : pattern.test(url);
 
+  const fake = {} as FakeHomeserver;
+  const notify = (entry: string, phase: 'before' | 'after') => fake.onRequest?.({ entry, phase });
+
   vi.spyOn(HomeserverService, 'request').mockImplementation(async (params: THomeserverRequestParams) => {
+    const entry = `${params.method} ${params.url}`;
+    notify(entry, 'before');
+    try {
+      return (await perform(params)) as never;
+    } finally {
+      notify(entry, 'after');
+    }
+  });
+
+  const perform = async (params: THomeserverRequestParams): Promise<unknown> => {
     const { method, url, bodyJson, logUrl } = params;
     log.push(`${method} ${url}`);
     if (url.includes('/priv/') && logUrl === undefined) unredacted.push(`${method} ${url}`);
@@ -75,22 +94,31 @@ export function installFakeHomeserver(): FakeHomeserver {
     }
     if (method === HttpMethod.GET) {
       if (!files.has(url)) throw homeserverHttpError(404);
-      return structuredClone(files.get(url)) as never;
+      return structuredClone(files.get(url));
     }
     if (method === HttpMethod.PUT) {
       const corruption = corruptions.findIndex((entry) => matches(entry.url, url));
       const body = structuredClone(bodyJson);
       files.set(url, corruption >= 0 ? corruptions.splice(corruption, 1)[0].transform(body) : body);
-      return undefined as never;
+      return undefined;
     }
     if (method === HttpMethod.DELETE) {
       files.delete(url);
-      return undefined as never;
+      return undefined;
     }
     throw homeserverHttpError(405);
-  });
+  };
 
   vi.spyOn(HomeserverService, 'list').mockImplementation(async (params: THomeserverListParams) => {
+    notify(`LIST ${params.baseDirectory}`, 'before');
+    try {
+      return await performList(params);
+    } finally {
+      notify(`LIST ${params.baseDirectory}`, 'after');
+    }
+  });
+
+  const performList = async (params: THomeserverListParams): Promise<string[]> => {
     const { baseDirectory, limit, logUrl } = params;
     log.push(`LIST ${baseDirectory}`);
     if (baseDirectory.includes('/priv/') && logUrl === undefined) unredacted.push(`LIST ${baseDirectory}`);
@@ -102,9 +130,10 @@ export function installFakeHomeserver(): FakeHomeserver {
     const result = [...files.keys()].filter((url) => url.startsWith(baseDirectory)).slice(0, limit);
     if (held) await new Promise<void>((release) => held?.push(release));
     return result;
-  });
+  };
 
-  return {
+  const api: FakeHomeserver = {
+    onRequest: null,
     files,
     log,
     unredacted,
@@ -127,4 +156,5 @@ export function installFakeHomeserver(): FakeHomeserver {
       for (const release of waiting) release();
     },
   };
+  return Object.assign(fake, api);
 }

@@ -1,5 +1,5 @@
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
-import type { PrivKeyring } from '@/libs/commerce/priv-envelope';
+import { type PrivKeyring, revokePrivKeyring } from '@/libs/commerce/priv-envelope';
 import type { MarketplacePrivKeysResult } from '@/libs/commerce/priv-keys';
 import { buildPrivRecoveryKeyFile, type PrivRecoveryKeyExport } from '@/libs/commerce/priv-recovery-key';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
@@ -49,7 +49,7 @@ export class CommercePrivKeyringApplication {
         // Signed out, or another account took over, while the read was in flight.
         const stillOwner = MarketplaceSessionService.getActiveSession()?.pubky === ownerPubky;
         if (generation !== this.generation || !stillOwner) {
-          zero(result.keyring);
+          revokePrivKeyring(result.keyring);
           return { kind: 'needs_reauth' } as const;
         }
         this.ready.set(ownerPubky, result.keyring);
@@ -76,7 +76,7 @@ export class CommercePrivKeyringApplication {
   /** Drops and zeroes every held key. Part of sign-out and session teardown. */
   static clear(): void {
     this.generation += 1;
-    for (const keyring of this.ready.values()) zero(keyring);
+    for (const keyring of this.ready.values()) revokePrivKeyring(keyring);
     this.ready.clear();
     this.inFlight.clear();
   }
@@ -88,8 +88,4 @@ export class CommercePrivKeyringApplication {
       MarketplaceSessionService.onSessionReplaced(() => this.clear()),
     ];
   }
-}
-
-function zero(keyring: PrivKeyring): void {
-  for (const { key } of keyring.keys) key.fill(0);
 }

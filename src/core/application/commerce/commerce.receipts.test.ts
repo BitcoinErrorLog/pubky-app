@@ -9,11 +9,13 @@ import {
   privEntryName,
   privEntryUrl,
   type PrivKeyring,
+  revokePrivKeyring,
 } from '@/libs/commerce/priv-envelope';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
+import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
@@ -21,6 +23,11 @@ import receiptAttestationV1 from '@/test/fixtures/commerce/receipt-attestation-v
 import receiptAttestationV2Bitcoin from '@/test/fixtures/commerce/receipt-attestation-v2-bitcoin.json';
 import receiptAttestationV2SameCurrency from '@/test/fixtures/commerce/receipt-attestation-v2-same-currency.json';
 import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';
+import {
+  establishMarketplaceSession,
+  expectSafeAtEverySessionReplacement,
+  releasedKeyring,
+} from '@/test-utils/priv-session-replacement';
 import { CommerceApplication } from './commerce';
 import { CommercePrivKeyringApplication } from './priv-keyring';
 
@@ -709,4 +716,143 @@ describe('CommerceApplication.publishOrderReceipts publication status (step-up O
 
     await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('unavailable');
   });
+});
+
+describe('CommerceApplication.publishOrderReceipts when the marketplace session is replaced mid-pass', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    CommerceApplication.resetReceiptPublicationMemo();
+  });
+
+  const realSealed = (receiptId: string) => {
+    const real = releasedKeyring(BUYER);
+    const url = privEntryUrl(real, 'order_receipt', receiptId);
+    if (!homeserver.files.has(url)) return null;
+    return decryptPrivRecord({
+      keyring: real,
+      family: 'order_receipt',
+      name: privEntryName(real, 'order_receipt', receiptId),
+      envelope: homeserver.files.get(url),
+    });
+  };
+
+  it('never seals, places or deletes anything under revoked keys while moving or publishing', async () => {
+    const record = await publishedRecord();
+    vi.mocked(CommercePrivKeyringApplication.get).mockRestore();
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    const flow = async (orders: never[]) => {
+      CommerceApplication.resetReceiptPublicationMemo();
+      return await CommerceApplication.publishOrderReceipts(BUYER, orders);
+    };
+
+    const moving = await expectSafeAtEverySessionReplacement({
+      homeserver,
+      ownerPubky: BUYER,
+      otherPubky: SELLER,
+      plant: () => {
+        homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+      },
+      flow: () => flow([]),
+      check: () => {
+        if (!homeserver.files.has(legacyUrl(BUYER, RECEIPT_ID))) expect(realSealed(RECEIPT_ID)).toEqual(record);
+      },
+    });
+    const publishing = await expectSafeAtEverySessionReplacement({
+      homeserver,
+      ownerPubky: BUYER,
+      otherPubky: SELLER,
+      plant: () => {},
+      flow: () => flow([paidOrder()]),
+      check: () => {
+        const sealed = realSealed(RECEIPT_ID);
+        if (sealed !== null) expect(sealed).toEqual(record);
+      },
+    });
+    expect(moving).toBeGreaterThanOrEqual(5);
+    expect(publishing).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(['write', 'read'] as const)(
+    'keeps the plaintext receipt when the session is replaced after the sealed %s resolves and before it is deleted',
+    async (step) => {
+      const record = await publishedRecord();
+      vi.mocked(CommercePrivKeyringApplication.get).mockRestore();
+      vi.spyOn(MarketplaceGatewayService, 'getPrivKeys').mockImplementation(async (owner: string) => ({
+        kind: 'keys',
+        keyring: releasedKeyring(owner),
+      }));
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      CommerceApplication.resetReceiptPublicationMemo();
+      homeserver.files.clear();
+      CommercePrivKeyringApplication.clear();
+      establishMarketplaceSession(BUYER);
+      homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+      if (step === 'read') {
+        const real = releasedKeyring(BUYER);
+        homeserver.files.set(
+          privEntryUrl(real, 'order_receipt', RECEIPT_ID),
+          encryptPrivRecord({
+            keyring: real,
+            family: 'order_receipt',
+            name: privEntryName(real, 'order_receipt', RECEIPT_ID),
+            record,
+          }),
+        );
+      }
+      const original = CommercePrivStoreService[step].bind(CommercePrivStoreService) as (
+        ...args: unknown[]
+      ) => Promise<unknown>;
+      vi.spyOn(CommercePrivStoreService, step).mockImplementation((async (...args: unknown[]) => {
+        const result = await original(...args);
+        establishMarketplaceSession(BUYER);
+        return result;
+      }) as never);
+      homeserver.log.length = 0;
+
+      await expect(CommerceApplication.publishOrderReceipts(BUYER, [])).resolves.toBe('unavailable');
+
+      expect(homeserver.files.get(legacyUrl(BUYER, RECEIPT_ID))).toEqual(record);
+      expect(homeserver.log.some((entry) => entry.startsWith('DELETE '))).toBe(false);
+      MarketplaceSessionService.clearSession();
+      CommercePrivKeyringApplication.clear();
+    },
+  );
+
+  it.each(['moving', 'publishing'] as const)(
+    'stops the whole pass, without trying the next receipt, once the keyring is revoked while %s',
+    async (pass) => {
+      const record = await publishedRecord();
+      CommerceApplication.resetReceiptPublicationMemo();
+      homeserver.files.clear();
+      const held = keyringFor(BUYER);
+      vi.mocked(CommercePrivKeyringApplication.get).mockResolvedValue({ kind: 'keys', keyring: held });
+      const fetchAttestation = vi.mocked(MarketplaceGatewayService.getReceiptAttestation);
+      fetchAttestation.mockClear();
+      const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      if (pass === 'moving') {
+        homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+        homeserver.files.set(legacyUrl(BUYER, OTHER_RECEIPT), { ...record, receiptId: OTHER_RECEIPT });
+      } else {
+        sealReceipt(BUYER, RECEIPT_ID, record);
+      }
+      const firstRead =
+        pass === 'moving' ? `GET ${legacyUrl(BUYER, RECEIPT_ID)}` : `GET ${sealedUrl(BUYER, RECEIPT_ID)}`;
+      homeserver.onRequest = ({ entry, phase }) => {
+        if (phase === 'after' && entry === firstRead) revokePrivKeyring(held);
+      };
+      homeserver.log.length = 0;
+
+      const orders = pass === 'moving' ? [] : [paidOrder(RECEIPT_ID), paidOrder(OTHER_RECEIPT)];
+      await expect(CommerceApplication.publishOrderReceipts(BUYER, orders)).resolves.toBe('unavailable');
+
+      homeserver.onRequest = null;
+      expect(homeserver.log).toEqual([expect.stringMatching(/^LIST /), firstRead]);
+      expect(fetchAttestation).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+      if (pass === 'moving') {
+        expect(homeserver.files.get(legacyUrl(BUYER, RECEIPT_ID))).toEqual(record);
+        expect(homeserver.files.has(legacyUrl(BUYER, OTHER_RECEIPT))).toBe(true);
+      }
+    },
+  );
 });

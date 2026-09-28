@@ -95,10 +95,15 @@ function open(envelope, family, name) {
 const watchlistPath = `${familyPath('watchlist')}${segment('id|watchlist|watchlist')}`;
 
 // Receipts: `names` is the listing of familyPath('order_receipt') on your homeserver.
+// An entry that does not open, or whose receipt id does not derive its name, is skipped.
 function openReceipts(names, readEnvelope) {
   return names.flatMap((name) => {
-    const receipt = open(readEnvelope(name), 'order_receipt', name);
-    return segment(`id|order_receipt|${receipt.receiptId}`) === name ? [receipt] : [];
+    try {
+      const receipt = open(readEnvelope(name), 'order_receipt', name);
+      return segment(`id|order_receipt|${receipt.receiptId}`) === name ? [receipt] : [];
+    } catch {
+      return [];
+    }
   });
 }
 ```
