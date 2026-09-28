@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { CAPABILITIES } from '@/config/app';
+import { MARKETPLACE_SESSION_GRANT } from '@/services/marketplace/marketplace-session-grant';
 import captured from '@/test/fixtures/auth/ring-signin-url.sdk-0.8.0.json';
 import { HomeserverService } from './homeserver';
 
@@ -17,6 +18,20 @@ describe('Ring sign-in QR on @synonymdev/pubky 0.11 (real SDK)', () => {
       expect([...url.searchParams.keys()]).toEqual(captured.params);
       expect(url.searchParams.get('caps')).toBe(captured.caps);
       expect(url.searchParams.get('caps')).toBe(CAPABILITIES);
+    } finally {
+      cancelAuthFlow();
+    }
+  });
+
+  it('connect-marketplace qr requests the marketplace session grant on the same ring url shape', () => {
+    const { authorizationUrl, cancelAuthFlow } = HomeserverService.generateAuthTokenFlow(MARKETPLACE_SESSION_GRANT);
+    try {
+      const url = new URL(authorizationUrl);
+
+      expect(url.protocol).toBe(captured.scheme);
+      expect(url.host).toBe(captured.host);
+      expect([...url.searchParams.keys()]).toEqual(captured.params);
+      expect(url.searchParams.get('caps')).toBe(MARKETPLACE_SESSION_GRANT);
     } finally {
       cancelAuthFlow();
     }

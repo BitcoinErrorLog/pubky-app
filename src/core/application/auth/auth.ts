@@ -379,6 +379,11 @@ export class AuthApplication {
     return await HomeserverService.generateGrantAuthUrl();
   }
 
+  /** Grant sign-up URL (`pubkyauth://signup_grant`) for signers such as Bitkit. */
+  static async generateGrantSignupAuthUrl(inviteCode: string): Promise<TGenerateAuthUrlResult> {
+    return await HomeserverService.generateGrantSignupAuthUrl(inviteCode);
+  }
+
   static isGrantSignInAvailable(): boolean {
     return HomeserverService.isGrantSignInAvailable();
   }
