@@ -331,6 +331,33 @@ describe('Marketplace payment status card — visual regression', () => {
     view.locks.enabled = true;
   });
 
+  it('renders an unconfirmed Bitcoin manual review without calling it confirmed', async () => {
+    view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
+    const screen = await renderCard('manual_review', 'transaction-service', {
+      deployEnv: 'staging',
+      adapter: 'paykit',
+      isBuyer: true,
+      currentUserPubky: 'b'.repeat(52),
+      paymentOverrides: { confirmations: 0 },
+      orderOverrides: {
+        paymentMethod: 'bitcoin',
+        paykitRequestState: 'pending',
+        paykitDeliveryState: 'delivered',
+        holdExpiresAt: '2026-09-29T10:56:41.980Z',
+        holdSource: 'bind',
+      },
+    });
+    await expect.element(screen.getByText('Payment received — the seller is reviewing it.')).toBeInTheDocument();
+    await expect.element(screen.getByText(/confirmed on-chain/)).not.toBeInTheDocument();
+    await expect.element(screen.getByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    await expect.element(screen.getByText(/Pay by/)).not.toBeInTheDocument();
+    await expect.element(screen.getByText('Resolve Bitcoin payment review')).not.toBeInTheDocument();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot(
+      'payment-status-bitcoin-review-unconfirmed-desktop',
+    );
+    view.locks.enabled = true;
+  });
+
   it('renders a bound card order without offering card checkout at desktop viewport', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {

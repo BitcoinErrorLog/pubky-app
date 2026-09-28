@@ -280,8 +280,9 @@ function MarketplaceCartCheckout() {
   const targetPayingIds = [...new Set([...payingOrderIds, ...(hashOrderId ? [hashOrderId] : [])])];
   const focusedPaying = orders.orders.filter((view) => targetPayingIds.includes(view.order.id));
   const showPaying = targetPayingIds.length > 0;
-  const payingOrder = focusedPaying[0]?.order;
-  const holdCopy = payingOrder ? buyerCheckoutProgressCopy(payingOrder, nowMs) : null;
+  const payingView = focusedPaying[0];
+  const payingOrder = payingView?.order;
+  const holdCopy = payingOrder ? buyerCheckoutProgressCopy(payingOrder, payingView.payment, nowMs) : null;
 
   useEffect(() => {
     if (!showPaying) return;

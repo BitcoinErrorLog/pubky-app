@@ -30,9 +30,8 @@ import {
 import {
   BITCOIN_WALLET_DELIVERED_COPY,
   BITCOIN_WALLET_WAITING_COPY,
+  buyerBitcoinReviewCopy,
   buyerBitcoinWalletCopy,
-  PAYMENT_CONFIRMED_REVIEW_COPY,
-  PAYMENT_SEEN_WAITING_COPY,
   sellerBitcoinConfirmPrompt,
   sellerConfirmsByCopy,
 } from '@/libs/commerce/bitcoin-buyer-status';
@@ -280,7 +279,7 @@ export function MarketplacePaymentStatusCard({
       {visibleStatus === 'manual_review' && !refundRequired && (
         <Typography as="p" className="text-sm text-muted-foreground" data-testid="payment-manual-review-copy">
           {isBuyer && order.paymentMethod === 'bitcoin'
-            ? PAYMENT_CONFIRMED_REVIEW_COPY
+            ? buyerBitcoinReviewCopy(order, payment)
             : 'A verified event arrived outside the normal flow (for example after the payment window expired), so the seller must resolve this order manually. No funds are held by this marketplace.'}
         </Typography>
       )}
@@ -628,21 +627,20 @@ export function MarketplacePaymentStatusCard({
 
 function BuyerBitcoinPaymentProgress({ order, payment }: { order: MarketplaceOrder; payment: MarketplacePayment }) {
   const progress = buyerBitcoinWalletCopy(order, payment);
-  if (progress.kind === 'review') {
-    return (
-      <Typography as="p" className="text-sm text-muted-foreground" data-testid="bitcoin-payment-review-status">
-        {progress.text}
-      </Typography>
-    );
-  }
+  // Manual review and refund copy are rendered by the card paragraphs above.
+  if (progress.kind === 'refund' || progress.kind === 'review') return null;
   if (progress.kind === 'seen') {
+    const awaitingSeller =
+      order.paykitRequestState === 'detected' || order.paykitRequestState === 'awaiting_seller_confirmation';
     return (
       <div className="grid gap-2" data-testid="bitcoin-payment-seen">
-        <Typography as="p" className="text-sm text-muted-foreground" data-testid="bitcoin-seller-confirms-by">
-          {sellerConfirmsByCopy(order.paykitSellerConfirmationDeadline ?? order.holdExpiresAt)}
-        </Typography>
+        {awaitingSeller && (
+          <Typography as="p" className="text-sm text-muted-foreground" data-testid="bitcoin-seller-confirms-by">
+            {sellerConfirmsByCopy(order.paykitSellerConfirmationDeadline ?? order.holdExpiresAt)}
+          </Typography>
+        )}
         <Typography as="p" className="text-sm text-muted-foreground">
-          {PAYMENT_SEEN_WAITING_COPY}
+          {progress.text}
         </Typography>
       </div>
     );

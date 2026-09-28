@@ -507,6 +507,34 @@ describe('MarketplacePaymentStatusCard', () => {
     expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
   });
 
+  it('does not call an unconfirmed manual review a chain confirmation', () => {
+    auth.currentUserPubky = 'b'.repeat(52);
+    render(
+      <MarketplacePaymentStatusCard
+        order={createOrderFixture('pending_payment', {
+          holdExpiresAt: '2026-09-29T10:56:41.980Z',
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          paykitDeliveryState: 'delivered',
+        })}
+        payment={createPaymentFixture('manual_review', { adapter: 'paykit', confirmations: 0 })}
+        isBuyer
+        adapterMode="transaction-service"
+        advancePayment={async () => false}
+        onPaymentChanged={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('payment-manual-review-copy')).toHaveTextContent(
+      'Payment received — the seller is reviewing it.',
+    );
+    expect(screen.queryByText(/confirmed on-chain/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Resolve Bitcoin payment review')).not.toBeInTheDocument();
+  });
+
   it('tells the buyer to add the seller as a Bitkit contact when delivery failed', () => {
     render(
       <MarketplacePaymentStatusCard

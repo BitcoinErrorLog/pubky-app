@@ -257,7 +257,7 @@ export function MarketplaceOrders() {
                 <Heading level={2} size="sm" className="text-xl font-semibold">
                   Checkout in progress
                 </Heading>
-                {buyerCheckouts.map(({ order }) => (
+                {buyerCheckouts.map(({ order, payment }) => (
                   <Card key={order.id} className="border py-4">
                     <CardContent className="flex flex-wrap items-center justify-between gap-3 px-5">
                       <div>
@@ -265,13 +265,13 @@ export function MarketplaceOrders() {
                           {order.lines.map((line) => line.title).join(', ')}
                         </Typography>
                         <Typography as="p" className="text-sm text-muted-foreground">
-                          {buyerCheckoutProgressCopy(order)}
+                          {buyerCheckoutProgressCopy(order, payment)}
                         </Typography>
                         <MarketplaceOrderReference order={order} isBuyer />
                       </div>
                       <Button asChild className="rounded-full">
                         <Link href={getMarketplaceCheckoutRoute(order.id)} overrideDefaults>
-                          {bitcoinPaymentHasBeenSeen(order) ? 'View payment' : 'Continue checkout'}
+                          {bitcoinPaymentHasBeenSeen(order, payment) ? 'View payment' : 'Continue checkout'}
                         </Link>
                       </Button>
                     </CardContent>
@@ -365,7 +365,7 @@ export function MarketplaceOrders() {
                               <Badge variant="secondary">
                                 {isPendingPaymentState(order.state)
                                   ? isBuyer
-                                    ? buyerCheckoutBadgeLabel(order)
+                                    ? buyerCheckoutBadgeLabel(order, payment)
                                     : 'Held'
                                   : orderStateLabel(order)}
                               </Badge>
@@ -412,7 +412,7 @@ export function MarketplaceOrders() {
                             {order.state === 'pending_payment' && order.holdExpiresAt && (
                               <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                                 {isBuyer
-                                  ? buyerCheckoutProgressCopy(order)
+                                  ? buyerCheckoutProgressCopy(order, payment)
                                   : sellerReservationCopy(order.holdExpiresAt)}
                               </Typography>
                             )}

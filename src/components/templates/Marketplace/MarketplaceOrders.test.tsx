@@ -406,11 +406,18 @@ describe('MarketplaceOrders tabs', () => {
   it('shows reserved checkout copy on Continue checkout, not a payment deadline on Orders', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-15T10:00:00.000Z'));
     ordersState.orders = [
-      orderView('pending_payment', 'Bought deadline boots', 'buyer', {
-        holdExpiresAt: '2026-09-15T10:05:00.000Z',
-        paymentMethod: 'bitcoin',
-        nextActor: 'buyer',
-      }),
+      orderView(
+        'pending_payment',
+        'Bought deadline boots',
+        'buyer',
+        {
+          holdExpiresAt: '2026-09-15T10:05:00.000Z',
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          nextActor: 'buyer',
+        },
+        'awaiting_entitlement',
+      ),
     ];
     const { rerender } = render(<MarketplaceOrders />);
     expect(screen.getByRole('link', { name: 'Continue checkout' })).toBeInTheDocument();
@@ -427,11 +434,18 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByTestId('marketplace-continue-checkout')).toHaveTextContent('Checkout in progress');
 
     ordersState.orders = [
-      orderView('pending_payment', 'Bought expired boots', 'buyer', {
-        holdExpiresAt: '2026-09-15T09:59:59.000Z',
-        paymentMethod: 'bitcoin',
-        nextActor: 'buyer',
-      }),
+      orderView(
+        'pending_payment',
+        'Bought expired boots',
+        'buyer',
+        {
+          holdExpiresAt: '2026-09-15T09:59:59.000Z',
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          nextActor: 'buyer',
+        },
+        'awaiting_entitlement',
+      ),
     ];
     rerender(<MarketplaceOrders />);
     expect(screen.getByText(/Reserved while you pay · 0:00/)).toBeInTheDocument();
@@ -439,19 +453,48 @@ describe('MarketplaceOrders tabs', () => {
 
   it('replaces the pay-by line with the seller confirm-by time after a Bitcoin payment is seen', () => {
     ordersState.orders = [
-      orderView('pending_payment', 'Bought seen boots', 'buyer', {
-        paymentMethod: 'bitcoin',
-        paykitRequestState: 'awaiting_seller_confirmation',
-        paykitSellerConfirmationDeadline: '2026-09-29T10:56:41.980Z',
-        holdExpiresAt: '2026-09-29T10:56:41.980Z',
-        nextActor: 'buyer',
-      }),
+      orderView(
+        'pending_payment',
+        'Bought seen boots',
+        'buyer',
+        {
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'awaiting_seller_confirmation',
+          paykitSellerConfirmationDeadline: '2026-09-29T10:56:41.980Z',
+          holdExpiresAt: '2026-09-29T10:56:41.980Z',
+          nextActor: 'buyer',
+        },
+        'awaiting_entitlement',
+      ),
     ];
     render(<MarketplaceOrders />);
     expect(screen.getByText('Seller confirms by Sep 29, 2026, 10:56 AM UTC.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View payment' })).toBeInTheDocument();
     expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+  });
+
+  it('does not tell a buyer in unconfirmed manual review to pay again', () => {
+    ordersState.orders = [
+      orderView(
+        'pending_payment',
+        'Bought review boots',
+        'buyer',
+        {
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'pending',
+          holdExpiresAt: '2026-09-29T10:56:41.980Z',
+          nextActor: 'buyer',
+        },
+        'manual_review',
+      ),
+    ];
+    render(<MarketplaceOrders />);
+    expect(screen.getByText('Payment received — the seller is reviewing it.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View payment' })).toBeInTheDocument();
+    expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/confirmed on-chain/)).not.toBeInTheDocument();
   });
 
   it('prompts the seller to confirm a seen Bitcoin payment', () => {
