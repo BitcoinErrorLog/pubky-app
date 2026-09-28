@@ -48,9 +48,9 @@ describe('refund copy', () => {
       total: { amountMinor: 1_255, currency: 'BTC', exponent: 8 },
     };
     const equation = 'Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255';
-    expect(
-      refundRecordLine({ state: 'refunded_external', ...bitcoin, externalRefund: refund(1_255) }),
-    ).toBe(`Refunded in full (${equation}). Reference: 9RF12345AB678901C`);
+    expect(refundRecordLine({ state: 'refunded_external', ...bitcoin, externalRefund: refund(1_255) })).toBe(
+      `Refunded in full (${equation}). Reference: 9RF12345AB678901C`,
+    );
     expect(refundRecordLine({ state: 'paid', ...bitcoin, externalRefund: refund(500) })).toBe(
       `Refunded ₿500 of ₿1,255. ${equation}. Reference: 9RF12345AB678901C`,
     );
