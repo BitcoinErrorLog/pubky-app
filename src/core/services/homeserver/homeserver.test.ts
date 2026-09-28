@@ -1493,6 +1493,30 @@ describe('HomeserverService', () => {
 
         expect(result).toEqual([]);
       });
+
+      it('records the redacted logUrl, never the listed directory, when an owned list fails', async () => {
+        mockState.currentSession = createMockSession();
+        const directory = 'pubky://user/priv/pubky.app/marketplace/v1/receipts/';
+        const logUrl = '/priv/pubky.app/marketplace/v1/<entry>';
+        mockState.sessionStorageList.mockRejectedValue(new Error('List failed'));
+        const debug = vi.spyOn(Logger, 'debug');
+        const warn = vi.spyOn(Logger, 'warn');
+
+        const error = (await HomeserverService.list({ baseDirectory: directory, logUrl }).catch(
+          (caught: unknown) => caught,
+        )) as AppError;
+
+        expect(error.context).toMatchObject({ endpoint: logUrl });
+        expect(JSON.stringify(error.context)).not.toContain('receipts');
+
+        mockState.sessionStorageList.mockResolvedValue([`${directory}r1`]);
+        await HomeserverService.list({ baseDirectory: directory, logUrl });
+        mockState.sessionStorageList.mockRejectedValue({ data: { statusCode: 404 } });
+        await HomeserverService.list({ baseDirectory: directory, logUrl });
+        const logged = JSON.stringify([...debug.mock.calls, ...warn.mock.calls]);
+        expect(logged).toContain(logUrl);
+        expect(logged).not.toContain('receipts');
+      });
     });
 
     describe('listAll', () => {

@@ -80,7 +80,7 @@ describe('MarketplaceReauthDialog', () => {
   it('the Ring step-up QR discloses the marketplace access its single approval also grants', async () => {
     reauth.status = 'awaiting';
     reauth.authorizationUrl = RING_STEP_UP_URL;
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+    render(<MarketplaceReauthDialog refusal="homeserver" triggerLabel="Sign in again" />);
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
@@ -96,7 +96,7 @@ describe('MarketplaceReauthDialog', () => {
     config.mode = mode;
     reauth.status = 'awaiting';
     reauth.authorizationUrl = RING_STEP_UP_URL;
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+    render(<MarketplaceReauthDialog refusal="homeserver" triggerLabel="Sign in again" />);
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
@@ -104,7 +104,7 @@ describe('MarketplaceReauthDialog', () => {
   });
 
   it('opening starts a fresh step-up flow and shows its QR', async () => {
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+    render(<MarketplaceReauthDialog refusal="homeserver" triggerLabel="Sign in again" />);
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
@@ -114,7 +114,7 @@ describe('MarketplaceReauthDialog', () => {
   });
 
   it('asks for a sign-in in product language and does not print capability paths', async () => {
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+    render(<MarketplaceReauthDialog refusal="homeserver" triggerLabel="Sign in again" />);
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
@@ -127,7 +127,7 @@ describe('MarketplaceReauthDialog', () => {
 
   it('re-approves a Bitkit sign-in through the marketplace grant any Pubky signer can approve', async () => {
     signIn.isGrantSession = true;
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+    render(<MarketplaceReauthDialog refusal="homeserver" triggerLabel="Sign in again" />);
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
@@ -146,7 +146,7 @@ describe('MarketplaceReauthDialog', () => {
   it('offers Bitkit to a Bitkit sign-in that has no marketplace session yet', async () => {
     signIn.isGrantSession = true;
     connect.bootstrap = true;
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+    render(<MarketplaceReauthDialog refusal="homeserver" triggerLabel="Sign in again" />);
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
@@ -154,4 +154,21 @@ describe('MarketplaceReauthDialog', () => {
     expect(screen.getByRole('button', { name: 'Open in Bitkit' })).toBeInTheDocument();
     expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
   });
+
+  it.each([
+    ['a Pubky Ring sign-in', false],
+    ['a Bitkit sign-in', true],
+  ])(
+    'sends %s refused the private data key to the marketplace approval, never the homeserver step-up',
+    async (_label, isGrantSession) => {
+      signIn.isGrantSession = isGrantSession;
+      render(<MarketplaceReauthDialog refusal="purchase_session" triggerLabel="Approve private sync" />);
+
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Approve private sync' }));
+
+      expect(reauth.start).not.toHaveBeenCalled();
+      expect(connect.start).toHaveBeenCalledOnce();
+      expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
+    },
+  );
 });

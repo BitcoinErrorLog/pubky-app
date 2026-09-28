@@ -1,12 +1,21 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Privacy } from './Privacy';
+
+vi.mock('@/organisms/Settings/MarketplaceRecoveryKey/MarketplaceRecoveryKey', () => ({
+  MarketplaceRecoveryKey: () => <section data-testid="marketplace-recovery-key" />,
+}));
 
 describe('Privacy', () => {
   it('renders privacy content', () => {
     render(<Privacy />);
     expect(screen.getByText('Privacy and Safety')).toBeInTheDocument();
+  });
+
+  it('offers the marketplace recovery key export', () => {
+    render(<Privacy />);
+    expect(screen.getByTestId('marketplace-recovery-key')).toBeInTheDocument();
   });
 
   it('renders privacy switches', () => {
