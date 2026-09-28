@@ -53,6 +53,7 @@ import {
   commerceListingFulfillmentMethods,
   type CommerceListingRecord,
   commerceListingShippingMinor,
+  type CommerceOrderReceiptRecord,
   commerceReviewRecordSchema,
   type CommerceShopRecord,
   type CommerceWatchlistRecord,
@@ -69,7 +70,7 @@ import {
   pickupRefusalFailureMessage,
   resolveCheckoutFulfillment,
 } from '@/libs/commerce/pickup';
-import { privEntryUrl, type PrivKeyring } from '@/libs/commerce/priv-envelope';
+import { PRIV_V1_LOG_PATH, privEntryUrl, privErrorSummary, type PrivKeyring } from '@/libs/commerce/priv-envelope';
 import type { MarketplacePrivKeysResult } from '@/libs/commerce/priv-keys';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
 import type { ShipFromAddress, ShippingParcel } from '@/libs/commerce/shipping';
@@ -1643,7 +1644,7 @@ export class CommerceApplication {
   private static async stageWatchlistPush(ownerPubky: string): Promise<void> {
     if (getCommerceAdapterMode() === 'sandbox') return;
     const now = Date.now();
-    await LocalCommerceService.upsertSyncJob({
+    await LocalCommerceService.restageSyncJob({
       id: this.watchlistSyncJobId(ownerPubky),
       owner_id: ownerPubky,
       entity_type: 'watchlist',
@@ -1695,11 +1696,29 @@ export class CommerceApplication {
     const inFlight = this.watchlistSyncInFlight.get(ownerPubky);
     if (inFlight) return await inFlight;
 
-    const run = this.runWatchlistSync(ownerPubky).finally(() => {
+    const run = this.withPrivLock(ownerPubky, 'watchlist', () => this.runWatchlistSync(ownerPubky)).finally(() => {
       this.watchlistSyncInFlight.delete(ownerPubky);
     });
     this.watchlistSyncInFlight.set(ownerPubky, run);
     return await run;
+  }
+
+  /** Test support: forgets in-flight rounds, as a second tab of the same origin would not see them. */
+  static resetWatchlistSyncInFlight(): void {
+    this.watchlistSyncInFlight.clear();
+  }
+
+  /**
+   * Runs `run` holding the owner's Web Lock for `scope`, which every tab of
+   * this origin shares, so two tabs never interleave the read-merge-write of
+   * one private document. The homeserver has no conditional write to fall
+   * back on. Without the Web Locks API (server rendering) the round runs
+   * unserialized.
+   */
+  private static async withPrivLock<T>(ownerPubky: string, scope: string, run: () => Promise<T>): Promise<T> {
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+    if (!locks) return await run();
+    return await locks.request(`pubky-priv|${scope}|${ownerPubky}`, run);
   }
 
   /**
@@ -1708,10 +1727,15 @@ export class CommerceApplication {
    * older build) is merged in, the merged state is written to v2 and read
    * back, and only then is v1 deleted. Without a key nothing is written:
    * no plaintext fallback and no empty overwrite.
+   *
+   * The outbox job is completed only if no change was staged after this
+   * round read the local state; a later change keeps it pending.
    */
   private static async runWatchlistSync(ownerPubky: string): Promise<CommerceWatchlistSyncStatus> {
     const legacyUrl = CommerceRecordNormalizer.watchlistUri(ownerPubky);
+    const jobId = this.watchlistSyncJobId(ownerPubky);
     try {
+      const stagedAt = (await LocalCommerceService.getSyncJob(jobId))?.updated_at ?? null;
       const keys = await CommercePrivKeyringApplication.get(ownerPubky);
       if (keys.kind !== 'keys') return keys.kind;
       const { keyring } = keys;
@@ -1726,7 +1750,9 @@ export class CommerceApplication {
       }
       let legacy: CommerceWatchlistRecord | null = null;
       try {
-        legacy = CommerceRecordNormalizer.watchlistRecord(await CommerceHomeserverService.fetchJson(legacyUrl));
+        legacy = CommerceRecordNormalizer.watchlistRecord(
+          await CommerceHomeserverService.fetchJson(legacyUrl, PRIV_V1_LOG_PATH),
+        );
       } catch (error) {
         if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
         if (!(isAppError(error) && isNotFound(error))) throw error;
@@ -1776,12 +1802,12 @@ export class CommerceApplication {
         }
       }
       // v2 now holds a state that includes every v1 entry and tombstone.
-      if (legacy) await CommerceHomeserverService.delete(legacyUrl);
+      if (legacy) await CommerceHomeserverService.delete(legacyUrl, PRIV_V1_LOG_PATH);
 
-      await LocalCommerceService.completeSyncJob(this.watchlistSyncJobId(ownerPubky));
+      await LocalCommerceService.completeSyncJobIfUnchanged(jobId, stagedAt);
       return 'synced';
     } catch (error) {
-      Logger.warn('Watchlist sync failed; the outbox job stays pending', { error });
+      Logger.warn('Watchlist sync failed; the outbox job stays pending', privErrorSummary(error));
       return 'error';
     }
   }
@@ -1817,10 +1843,13 @@ export class CommerceApplication {
 
   /**
    * Moves plaintext v1 receipts (`/priv/pubky.app/marketplace/v1/receipts/`)
-   * into encrypted entries: each one is parsed, written sealed and read back
-   * (or found already sealed), and only then deleted. One bounded batch per
-   * call; a file that does not parse, or names another receipt than its
-   * path, stays in place and leaves the pass incomplete.
+   * into encrypted entries. Each one is parsed; when no sealed entry exists
+   * it is written sealed and read back, and when one exists it must open to
+   * exactly the same record. Only then is the plaintext deleted. A sealed
+   * entry that differs, fails validation or does not open is never
+   * overwritten, and both copies stay. One bounded batch per call; a file
+   * that does not parse, or names another receipt than its path, stays in
+   * place and leaves the pass incomplete.
    */
   private static async migratePlaintextReceipts(
     ownerPubky: string,
@@ -1831,32 +1860,79 @@ export class CommerceApplication {
       urls = await CommerceHomeserverService.list(
         CommerceRecordNormalizer.orderReceiptDirectoryUri(ownerPubky),
         RECEIPT_MIGRATION_BATCH,
+        PRIV_V1_LOG_PATH,
       );
     } catch (error) {
       if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
-      Logger.warn('Listing plaintext order receipts failed; the move retries on the next orders load', { error });
+      Logger.warn(
+        'Listing plaintext order receipts failed; the move retries on the next orders load',
+        privErrorSummary(error),
+      );
       return 'incomplete';
     }
     let incomplete = urls.length >= RECEIPT_MIGRATION_BATCH;
     for (const url of urls) {
       const receiptId = url.slice(url.lastIndexOf('/') + 1);
       try {
-        const legacy = CommerceRecordNormalizer.orderReceiptRecord(await CommerceHomeserverService.fetchJson(url));
-        if (legacy.receiptId !== receiptId) {
+        const legacy = CommerceRecordNormalizer.orderReceiptRecord(
+          await CommerceHomeserverService.fetchJson(url, PRIV_V1_LOG_PATH),
+        );
+        if (legacy.receiptId !== receiptId || legacy.ownerPubky !== ownerPubky) {
           incomplete = true;
           continue;
         }
         const sealed = await CommercePrivStoreService.read(keyring, 'order_receipt', receiptId);
-        if (sealed === null) await CommercePrivStoreService.write(keyring, 'order_receipt', receiptId, { ...legacy });
-        await CommerceHomeserverService.delete(url);
-        this.publishedReceiptUrls.add(privEntryUrl(keyring, 'order_receipt', receiptId));
+        if (sealed === null) {
+          await CommercePrivStoreService.write(keyring, 'order_receipt', receiptId, { ...legacy });
+        } else if (!this.isSameReceipt(sealed, legacy)) {
+          Logger.warn('A sealed order receipt differs from its plaintext copy; both are kept');
+          incomplete = true;
+          continue;
+        }
+        await CommerceHomeserverService.delete(url, PRIV_V1_LOG_PATH);
+        if (this.verifiedSealedReceipt(sealed ?? legacy, ownerPubky, receiptId) !== null) {
+          this.publishedReceiptUrls.add(privEntryUrl(keyring, 'order_receipt', receiptId));
+        }
       } catch (error) {
         if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
-        Logger.warn('Moving a plaintext order receipt failed; it retries on the next orders load', { error });
+        Logger.warn(
+          'Moving a plaintext order receipt failed; it retries on the next orders load',
+          privErrorSummary(error),
+        );
         incomplete = true;
       }
     }
     return incomplete ? 'incomplete' : 'done';
+  }
+
+  /** Whether a decrypted sealed receipt is exactly the validated plaintext one. */
+  private static isSameReceipt(sealed: unknown, legacy: CommerceOrderReceiptRecord): boolean {
+    try {
+      return JSON.stringify(CommerceRecordNormalizer.orderReceiptRecord(sealed)) === JSON.stringify(legacy);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * A decrypted receipt counts as published only when it is a valid order
+   * receipt of this owner, for this receipt id, whose attestations verify.
+   */
+  private static verifiedSealedReceipt(
+    sealed: unknown,
+    ownerPubky: string,
+    receiptId: string,
+  ): CommerceOrderReceiptRecord | null {
+    let record: CommerceOrderReceiptRecord;
+    try {
+      record = CommerceRecordNormalizer.orderReceiptRecord(sealed);
+    } catch {
+      return null;
+    }
+    if (record.receiptId !== receiptId || record.ownerPubky !== ownerPubky) return null;
+    if (verifyOwnOrderReceipt({ ...record }) === null) return null;
+    if (record.editionAttestation !== undefined && verifyOwnDropEdition({ ...record }) === null) return null;
+    return record;
   }
 
   /**
@@ -1897,7 +1973,10 @@ export class CommerceApplication {
     try {
       keys = await CommercePrivKeyringApplication.get(ownerPubky);
     } catch (error) {
-      Logger.warn('The private data key could not be read; receipts retry on the next orders load', { error });
+      Logger.warn(
+        'The private data key could not be read; receipts retry on the next orders load',
+        privErrorSummary(error),
+      );
       return 'unavailable';
     }
     if (keys.kind !== 'keys') return keys.kind;
@@ -1915,14 +1994,20 @@ export class CommerceApplication {
       const url = privEntryUrl(keyring, 'order_receipt', receiptId);
       if (this.publishedReceiptUrls.has(url)) continue;
       try {
+        let sealed: unknown;
         try {
-          if ((await CommercePrivStoreService.read(keyring, 'order_receipt', receiptId)) !== null) {
-            this.publishedReceiptUrls.add(url);
-            continue;
-          }
+          sealed = await CommercePrivStoreService.read(keyring, 'order_receipt', receiptId);
         } catch (error) {
           if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
           throw error;
+        }
+        if (sealed !== null) {
+          if (this.verifiedSealedReceipt(sealed, ownerPubky, receiptId) !== null) {
+            this.publishedReceiptUrls.add(url);
+          } else {
+            Logger.warn('A sealed order receipt opens but does not verify; it is kept and not overwritten');
+          }
+          continue;
         }
 
         const attestation = await MarketplaceGatewayService.getReceiptAttestation(ownerPubky, receiptId);
@@ -2041,7 +2126,7 @@ export class CommerceApplication {
         }
         this.publishedReceiptUrls.add(url);
       } catch (error) {
-        Logger.warn('Order receipt publication failed; it will retry on the next orders load', { error });
+        Logger.warn('Order receipt publication failed; it will retry on the next orders load', privErrorSummary(error));
       }
     }
 

@@ -6,6 +6,7 @@ import {
   bytesToBase64Url,
   decryptPrivRecord,
   encryptPrivRecord,
+  privEntryName,
   privEntryUrl,
   type PrivKeyring,
 } from '@/libs/commerce/priv-envelope';
@@ -31,6 +32,7 @@ const BUYER = 'operrr8wsbpr3ue9d4qj41ge1kcc6r7fdiy6o3ugjrrhi4y77rdo';
 const SELLER = 'pxnu33x7jtpx9ar1ytsi4yxbp6a5o36gwhffs8zoxmbuptici1jy';
 const ORDER_ID = '018f47d2-6a27-7c23-a49d-6b21bb770200';
 const RECEIPT_ID = '018f47d2-6a27-7c23-a49d-6b21bb770201';
+const OTHER_RECEIPT = '018f47d2-6a27-7c23-a49d-6b21bb770299';
 const JWS =
   'eyJhbGciOiJFZERTQSIsInR5cCI6InB1Ymt5LW9yZGVyLXJlY2VpcHQrdjEifQ.eyJ2IjoxLCJpc3MiOiI3amZnYWE5bnV0anlpeHppa2I3dGdtc2Y5Z2t3cTdpcXo0OTh6cjFuZDVpZzFmbmc0ZXN5IiwiYnV5ZXIiOiJvcGVycnI4d3NicHIzdWU5ZDRxajQxZ2Uxa2NjNnI3ZmRpeTZvM3VnanJyaGk0eTc3cmRvIiwic2VsbGVyIjoicHhudTMzeDdqdHB4OWFyMXl0c2k0eXhicDZhNW8zNmd3aGZmczh6b3htYnVwdGljaTFqeSIsIm9yZGVyIjoiMDE4ZjQ3ZDItNmEyNy03YzIzLWE0OWQtNmIyMWJiNzcwMjAwIiwicmVjZWlwdCI6IjAxOGY0N2QyLTZhMjctN2MyMy1hNDlkLTZiMjFiYjc3MDIwMSIsInRvdGFsX21pbm9yIjoxNDc5NiwiY3VycmVuY3kiOiJVU0QiLCJleHBvbmVudCI6MiwicGFpZF9hdCI6IjIwMjYtMDgtMTlUMjI6MDA6MDAuMDAwWiIsImlhdCI6MTc4NzE3NjgwMH0.2zDQZwDYjVsxfppJMZanH9WR04bW8IkqbwHvVY49a72SFqpLDnZN_YYeYHYex5mujtXMp6fLwqhzG8vMZRMFAA';
 
@@ -114,7 +116,7 @@ function storedReceipt(owner: string, receiptId: string): Record<string, unknown
   return decryptPrivRecord({
     keyring: keyringFor(owner),
     family: 'order_receipt',
-    id: receiptId,
+    name: privEntryName(keyringFor(owner), 'order_receipt', receiptId),
     envelope: homeserver.files.get(sealedUrl(owner, receiptId)),
   }) as Record<string, unknown>;
 }
@@ -122,7 +124,12 @@ function storedReceipt(owner: string, receiptId: string): Record<string, unknown
 function sealReceipt(owner: string, receiptId: string, record: Record<string, unknown>) {
   homeserver.files.set(
     sealedUrl(owner, receiptId),
-    encryptPrivRecord({ keyring: keyringFor(owner), family: 'order_receipt', id: receiptId, record }),
+    encryptPrivRecord({
+      keyring: keyringFor(owner),
+      family: 'order_receipt',
+      name: privEntryName(keyringFor(owner), 'order_receipt', receiptId),
+      record,
+    }),
   );
 }
 
@@ -279,15 +286,38 @@ describe('CommerceApplication.publishOrderReceipts', () => {
     expect(writes()).toEqual([]);
   });
 
-  it('skips publication when the sealed receipt already exists on the homeserver', async () => {
-    grantCapableSession();
-    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770202';
-    sealReceipt(BUYER, receiptId, { recordType: 'order_receipt' });
-    const fetchAttestation = vi.spyOn(MarketplaceGatewayService, 'getReceiptAttestation');
+  it('skips publication when a verified sealed receipt already exists on the homeserver', async () => {
+    await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    homeserver.log.length = 0;
+    const fetchAttestation = vi.mocked(MarketplaceGatewayService.getReceiptAttestation);
+    fetchAttestation.mockClear();
 
-    await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)]);
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('published');
 
     expect(fetchAttestation).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
+  });
+
+  it.each([
+    ['is not an order receipt', () => ({})],
+    ['names another receipt', (record: Record<string, unknown>) => ({ ...record, receiptId: OTHER_RECEIPT })],
+    ['belongs to another owner', (record: Record<string, unknown>) => ({ ...record, ownerPubky: SELLER })],
+    [
+      'carries an attestation that does not verify',
+      (record: Record<string, unknown>) => ({ ...record, total: { amountMinor: 1, currency: 'USD', exponent: 2 } }),
+    ],
+  ])('does not count a sealed receipt that opens but %s as published, and never overwrites it', async (_name, make) => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    sealReceipt(BUYER, RECEIPT_ID, make(record));
+    const sealedBefore = homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID));
+    homeserver.log.length = 0;
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('unavailable');
+
+    expect(homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID))).toEqual(sealedBefore);
     expect(writes()).toEqual([]);
   });
 
@@ -418,6 +448,90 @@ describe('CommerceApplication.publishOrderReceipts moving plaintext receipts', (
     expect(homeserver.files.has(legacyUrl(BUYER, '018f47d2-6a27-7c23-a49d-6b21bb770232'))).toBe(true);
   });
 
+  it('keeps the plaintext and the sealed entry when the sealed entry opens to an invalid receipt', async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    sealReceipt(BUYER, RECEIPT_ID, {});
+    const sealedBefore = homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID));
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+    homeserver.log.length = 0;
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('unavailable');
+
+    expect(homeserver.files.get(legacyUrl(BUYER, RECEIPT_ID))).toEqual(record);
+    expect(homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID))).toEqual(sealedBefore);
+    expect(writes()).toEqual([]);
+  });
+
+  it('keeps both copies when the sealed receipt differs from the plaintext one', async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    const plaintext = { ...record, revision: 2, updatedAt: '2026-08-20T00:00:00.000Z' };
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), plaintext);
+    const sealedBefore = homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID));
+    homeserver.log.length = 0;
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('unavailable');
+
+    expect(homeserver.files.get(legacyUrl(BUYER, RECEIPT_ID))).toEqual(plaintext);
+    expect(homeserver.files.get(sealedUrl(BUYER, RECEIPT_ID))).toEqual(sealedBefore);
+    expect(writes()).toEqual([]);
+  });
+
+  it('keeps a plaintext receipt of another owner', async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    homeserver.files.clear();
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), { ...record, ownerPubky: SELLER, role: 'seller' });
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [])).resolves.toBe('unavailable');
+
+    expect(homeserver.files.has(legacyUrl(BUYER, RECEIPT_ID))).toBe(true);
+    expect(homeserver.files.has(sealedUrl(BUYER, RECEIPT_ID))).toBe(false);
+  });
+
+  it('logs no receipt id, private path or record content when a move or publication fails', async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    homeserver.files.clear();
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    homeserver.files.set(legacyUrl(BUYER, RECEIPT_ID), record);
+
+    homeserver.failNext(HttpMethod.GET, /\/v1\/receipts\/$/, 500);
+    await CommerceApplication.publishOrderReceipts(BUYER, []);
+    homeserver.failNext(HttpMethod.GET, legacyUrl(BUYER, RECEIPT_ID), 500);
+    await CommerceApplication.publishOrderReceipts(BUYER, []);
+    homeserver.failNext(HttpMethod.GET, sealedUrl(BUYER, RECEIPT_ID), 500);
+    await CommerceApplication.publishOrderReceipts(BUYER, []);
+    homeserver.failNext(HttpMethod.PUT, sealedUrl(BUYER, RECEIPT_ID), 500);
+    await CommerceApplication.publishOrderReceipts(BUYER, []);
+    homeserver.failNext(HttpMethod.DELETE, legacyUrl(BUYER, RECEIPT_ID), 500);
+    await CommerceApplication.publishOrderReceipts(BUYER, []);
+    homeserver.files.clear();
+    homeserver.failNext(HttpMethod.PUT, sealedUrl(BUYER, RECEIPT_ID), 500);
+    await CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()]);
+
+    expect(warn).toHaveBeenCalledTimes(6);
+    const logged = JSON.stringify(warn.mock.calls);
+    const entry = sealedUrl(BUYER, RECEIPT_ID).split('/');
+    for (const secret of [
+      RECEIPT_ID,
+      ORDER_ID,
+      SELLER,
+      '/v1/receipts',
+      '/v2/s/',
+      entry.at(-1),
+      entry.at(-2),
+      JWS.slice(0, 40),
+    ]) {
+      expect(logged).not.toContain(secret);
+    }
+    expect(homeserver.unredacted).toEqual([]);
+  });
+
   it('keeps the plaintext when the sealed write does not read back', async () => {
     const record = await publishedRecord();
     CommerceApplication.resetReceiptPublicationMemo();
@@ -513,19 +627,36 @@ describe('CommerceApplication.publishOrderReceipts publication status (step-up O
     expect(homeserver.files.has(sealedUrl(BUYER, receiptId))).toBe(true);
   });
 
-  it('reports published when every eligible receipt is already sealed on the homeserver', async () => {
-    grantCapableSession();
-    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770213';
-    sealReceipt(BUYER, receiptId, { recordType: 'order_receipt' });
+  it("does not count another receipt's valid record, sealed at this receipt's entry, as published", async () => {
+    const record = await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+    sealReceipt(BUYER, OTHER_RECEIPT, record);
+    const sealedBefore = homeserver.files.get(sealedUrl(BUYER, OTHER_RECEIPT));
+    homeserver.log.length = 0;
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
 
-    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(OTHER_RECEIPT)])).resolves.toBe(
+      'unavailable',
+    );
+
+    expect(homeserver.files.get(sealedUrl(BUYER, OTHER_RECEIPT))).toEqual(sealedBefore);
+    expect(writes()).toEqual([]);
+  });
+
+  it('reports published when every eligible receipt is already sealed on the homeserver', async () => {
+    await publishedRecord();
+    CommerceApplication.resetReceiptPublicationMemo();
+
+    await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder()])).resolves.toBe('published');
   });
 
   it('re-reads a published receipt after clearMarketplaceSession instead of trusting the memo', async () => {
     grantCapableSession();
     vi.spyOn(MarketplaceSessionService, 'clearSession').mockImplementation(() => {});
-    const receiptId = '018f47d2-6a27-7c23-a49d-6b21bb770217';
-    sealReceipt(BUYER, receiptId, { recordType: 'order_receipt' });
+    const receiptId = RECEIPT_ID;
+    sealReceipt(BUYER, receiptId, await publishedRecord());
+    CommerceApplication.resetReceiptPublicationMemo();
+    homeserver.log.length = 0;
     const reads = () => homeserver.log.filter((entry) => entry === `GET ${sealedUrl(BUYER, receiptId)}`).length;
 
     await expect(CommerceApplication.publishOrderReceipts(BUYER, [paidOrder(receiptId)])).resolves.toBe('published');

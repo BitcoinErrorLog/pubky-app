@@ -3,6 +3,7 @@ import {
   encryptPrivRecord,
   isPrivEntryName,
   PRIV_V2_LOG_PATH,
+  privEntryName,
   privEntryUrl,
   type PrivFamily,
   privFamilyUrl,
@@ -26,10 +27,10 @@ export class CommercePrivStoreService {
 
   /** The decrypted record, or null when the entry does not exist. */
   static async read(keyring: PrivKeyring, family: PrivFamily, id: string): Promise<unknown | null> {
-    return await this.readAt(keyring, family, id, privEntryUrl(keyring, family, id));
+    return await this.readAt(keyring, family, privEntryName(keyring, family, id), privEntryUrl(keyring, family, id));
   }
 
-  /** {@link read} for an entry found by listing its family, named by its id. */
+  /** {@link read} for an entry found by listing its family. */
   static async readListed(keyring: PrivKeyring, family: PrivFamily, name: string): Promise<unknown | null> {
     return await this.readAt(keyring, family, name, privListedEntryUrl(keyring, family, name));
   }
@@ -40,7 +41,7 @@ export class CommercePrivStoreService {
    * plaintext it replaces.
    */
   static async write(keyring: PrivKeyring, family: PrivFamily, id: string, record: unknown): Promise<void> {
-    await this.writeAt(keyring, family, id, privEntryUrl(keyring, family, id), record);
+    await this.writeAt(keyring, family, privEntryName(keyring, family, id), privEntryUrl(keyring, family, id), record);
   }
 
   /** {@link write} for an entry readers find by listing its family. */
@@ -48,7 +49,7 @@ export class CommercePrivStoreService {
     await this.writeAt(keyring, family, name, privListedEntryUrl(keyring, family, name), record);
   }
 
-  private static async readAt(keyring: PrivKeyring, family: PrivFamily, id: string, url: string): Promise<unknown> {
+  private static async readAt(keyring: PrivKeyring, family: PrivFamily, name: string, url: string): Promise<unknown> {
     let envelope: unknown;
     try {
       envelope = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url, logUrl: PRIV_V2_LOG_PATH });
@@ -56,24 +57,23 @@ export class CommercePrivStoreService {
       if (isAppError(error) && isNotFound(error)) return null;
       throw error;
     }
-    return decryptPrivRecord({ keyring, family, id, envelope });
+    return decryptPrivRecord({ keyring, family, name, envelope });
   }
 
   private static async writeAt(
     keyring: PrivKeyring,
     family: PrivFamily,
-    id: string,
+    name: string,
     url: string,
     record: unknown,
   ): Promise<void> {
-    const envelope = encryptPrivRecord({ keyring, family, id, record });
+    const envelope = encryptPrivRecord({ keyring, family, name, record });
     await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson: envelope, logUrl: PRIV_V2_LOG_PATH });
-    const stored = await this.readAt(keyring, family, id, url);
+    const stored = await this.readAt(keyring, family, name, url);
     if (JSON.stringify(stored) !== JSON.stringify(record)) {
       throw Err.client(ClientErrorCode.CONFLICT, 'The encrypted private record did not read back as written.', {
         service: ErrorService.Homeserver,
         operation: 'writePrivRecord',
-        context: { family },
       });
     }
   }
@@ -88,7 +88,11 @@ export class CommercePrivStoreService {
 
   /** The names of the family's listed entries; anything else in the directory is skipped. */
   static async listNames(keyring: PrivKeyring, family: PrivFamily, limit: number): Promise<string[]> {
-    const urls = await HomeserverService.list({ baseDirectory: privFamilyUrl(keyring, family), limit });
+    const urls = await HomeserverService.list({
+      baseDirectory: privFamilyUrl(keyring, family),
+      limit,
+      logUrl: PRIV_V2_LOG_PATH,
+    });
     return urls.map((url) => url.slice(url.lastIndexOf('/') + 1)).filter(isPrivEntryName);
   }
 }

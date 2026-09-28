@@ -11,7 +11,8 @@ import { MarketplaceSessionService } from '@/services/marketplace/marketplace-se
  * Keys come from the marketplace service (`GET /v1/me/priv-keys`) on first
  * use and are never written to localStorage, IndexedDB or any cache. A
  * released keyring is kept for its owner until the marketplace session ends
- * or the user signs out, at which point every key byte is zeroed.
+ * or is replaced, or the user signs out, at which point every key byte is
+ * zeroed.
  * `needs_reauth` and `unavailable` are not cached, so a re-approval or a
  * service recovery is picked up on the next call.
  */
@@ -21,7 +22,7 @@ export class CommercePrivKeyringApplication {
   private static ready = new Map<string, PrivKeyring>();
   private static inFlight = new Map<string, Promise<MarketplacePrivKeysResult>>();
   private static generation = 0;
-  private static unsubscribe: (() => void) | null = null;
+  private static unsubscribe: (() => void)[] | null = null;
 
   /**
    * The owner's keyring, or why there is none. Only the owner of the active
@@ -82,7 +83,10 @@ export class CommercePrivKeyringApplication {
 
   private static subscribeToSessionEnd(): void {
     if (this.unsubscribe) return;
-    this.unsubscribe = MarketplaceSessionService.onSessionEnded(() => this.clear());
+    this.unsubscribe = [
+      MarketplaceSessionService.onSessionEnded(() => this.clear()),
+      MarketplaceSessionService.onSessionReplaced(() => this.clear()),
+    ];
   }
 }
 

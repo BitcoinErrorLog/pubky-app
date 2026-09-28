@@ -6,14 +6,18 @@ import { HttpMethod } from '@/libs/http/http.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import type { THomeserverListParams, THomeserverRequestParams } from '@/services/homeserver/homeserver.types';
 
-export function homeserverHttpError(statusCode: number): AppError {
+/**
+ * An HTTP failure shaped like the real client's: the message may echo the
+ * request path, and the context carries `endpoint` (the log URL when given).
+ */
+export function homeserverHttpError(statusCode: number, url?: string, logUrl?: string): AppError {
   return new AppError({
     category: ErrorCategory.Client,
     code: statusCode === 404 ? ClientErrorCode.NOT_FOUND : ClientErrorCode.BAD_REQUEST,
-    message: `HTTP ${statusCode}`,
+    message: url === undefined ? `HTTP ${statusCode}` : `HTTP ${statusCode} for ${url}`,
     service: ErrorService.Homeserver,
     operation: 'test',
-    context: { statusCode },
+    context: { statusCode, ...(url === undefined ? {} : { endpoint: logUrl ?? url }) },
   });
 }
 
@@ -22,10 +26,17 @@ export type FakeHomeserver = {
   files: Map<string, unknown>;
   /** Every request in order, as `METHOD url`. */
   log: string[];
+  /** Requests to a `/priv/` path made without a redacted `logUrl`, as `METHOD url`. */
+  unredacted: string[];
   /** Makes the next request matching `method` and `url` fail with `statusCode`. */
   failNext: (method: HttpMethod, url: string | RegExp, statusCode: number) => void;
   /** Stores `transform(body)` instead of the body for the next PUT to a matching URL. */
   corruptNextPut: (url: string | RegExp, transform: (body: unknown) => unknown) => void;
+  /**
+   * Parks the next request matching `method` and `url` before it takes
+   * effect. `reached` resolves when it arrives; `release` lets it proceed.
+   */
+  holdNext: (method: HttpMethod, url: string | RegExp) => { reached: Promise<void>; release: () => void };
   /** Parks every list call (after it has read the directory) until {@link releaseLists}. */
   holdLists: () => void;
   releaseLists: () => void;
@@ -39,19 +50,28 @@ export type FakeHomeserver = {
 export function installFakeHomeserver(): FakeHomeserver {
   const files = new Map<string, unknown>();
   const log: string[] = [];
+  const unredacted: string[] = [];
   const failures: { method: HttpMethod; url: string | RegExp; statusCode: number }[] = [];
   const corruptions: { url: string | RegExp; transform: (body: unknown) => unknown }[] = [];
+  const holds: { method: HttpMethod; url: string | RegExp; arrive: () => void; proceed: Promise<void> }[] = [];
   let held: (() => void)[] | null = null;
   const matches = (pattern: string | RegExp, url: string) =>
     typeof pattern === 'string' ? pattern === url : pattern.test(url);
 
   vi.spyOn(HomeserverService, 'request').mockImplementation(async (params: THomeserverRequestParams) => {
-    const { method, url, bodyJson } = params;
+    const { method, url, bodyJson, logUrl } = params;
     log.push(`${method} ${url}`);
+    if (url.includes('/priv/') && logUrl === undefined) unredacted.push(`${method} ${url}`);
     const failure = failures.findIndex((entry) => entry.method === method && matches(entry.url, url));
     if (failure >= 0) {
       const [{ statusCode }] = failures.splice(failure, 1);
-      throw homeserverHttpError(statusCode);
+      throw homeserverHttpError(statusCode, url, logUrl);
+    }
+    const hold = holds.findIndex((entry) => entry.method === method && matches(entry.url, url));
+    if (hold >= 0) {
+      const [{ arrive, proceed }] = holds.splice(hold, 1);
+      arrive();
+      await proceed;
     }
     if (method === HttpMethod.GET) {
       if (!files.has(url)) throw homeserverHttpError(404);
@@ -70,12 +90,14 @@ export function installFakeHomeserver(): FakeHomeserver {
     throw homeserverHttpError(405);
   });
 
-  vi.spyOn(HomeserverService, 'list').mockImplementation(async ({ baseDirectory, limit }: THomeserverListParams) => {
+  vi.spyOn(HomeserverService, 'list').mockImplementation(async (params: THomeserverListParams) => {
+    const { baseDirectory, limit, logUrl } = params;
     log.push(`LIST ${baseDirectory}`);
+    if (baseDirectory.includes('/priv/') && logUrl === undefined) unredacted.push(`LIST ${baseDirectory}`);
     const failure = failures.findIndex((entry) => entry.method === HttpMethod.GET && matches(entry.url, baseDirectory));
     if (failure >= 0) {
       const [{ statusCode }] = failures.splice(failure, 1);
-      throw homeserverHttpError(statusCode);
+      throw homeserverHttpError(statusCode, baseDirectory, logUrl);
     }
     const result = [...files.keys()].filter((url) => url.startsWith(baseDirectory)).slice(0, limit);
     if (held) await new Promise<void>((release) => held?.push(release));
@@ -85,8 +107,17 @@ export function installFakeHomeserver(): FakeHomeserver {
   return {
     files,
     log,
+    unredacted,
     failNext: (method, url, statusCode) => failures.push({ method, url, statusCode }),
     corruptNextPut: (url, transform) => corruptions.push({ url, transform }),
+    holdNext: (method, url) => {
+      let arrive = () => {};
+      let release = () => {};
+      const reached = new Promise<void>((resolve) => (arrive = resolve));
+      const proceed = new Promise<void>((resolve) => (release = resolve));
+      holds.push({ method, url, arrive, proceed });
+      return { reached, release };
+    },
     holdLists: () => {
       held = [];
     },

@@ -101,6 +101,36 @@ describe('CommercePrivKeyringApplication', () => {
     expect(Array.from(held.keys[0].key).every((byte) => byte === 0)).toBe(true);
   });
 
+  it.each([
+    ['another account', OTHER],
+    ['the same account', OWNER],
+  ])('zeroes the keys before a new session for %s replaces the live one', async (_name, next) => {
+    const held = keyring();
+    const read = vi.spyOn(MarketplaceGatewayService, 'getPrivKeys').mockResolvedValue({ kind: 'keys', keyring: held });
+    vi.mocked(MarketplaceSessionService.getActiveSession).mockRestore();
+    const establish = (pubky: string) =>
+      MarketplaceSessionService.establishClaimedGrantSession(
+        {
+          token: 'A'.repeat(43),
+          pubky,
+          capabilities: '',
+          expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        },
+        pubky,
+      );
+    establish(OWNER);
+    await CommercePrivKeyringApplication.get(OWNER);
+    expect(Array.from(held.keys[0].key).every((byte) => byte === 5)).toBe(true);
+
+    establish(next);
+
+    expect(Array.from(held.keys[0].key).every((byte) => byte === 0)).toBe(true);
+    read.mockResolvedValue({ kind: 'keys', keyring: keyring(next) });
+    await CommercePrivKeyringApplication.get(next);
+    expect(read).toHaveBeenCalledTimes(2);
+    MarketplaceSessionService.clearSession();
+  });
+
   it('holds no keys for anyone but the marketplace session owner', async () => {
     const held = keyring();
     const read = vi.spyOn(MarketplaceGatewayService, 'getPrivKeys').mockResolvedValue({ kind: 'keys', keyring: held });

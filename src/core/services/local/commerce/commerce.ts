@@ -908,6 +908,37 @@ export class LocalCommerceService {
     await CommerceSyncJobModel.deleteById(id);
   }
 
+  /**
+   * Upserts a coalescing job whose `updated_at` strictly increases on every
+   * re-stage, even within one millisecond, so it can serve as the
+   * generation {@link completeSyncJobIfUnchanged} compares.
+   */
+  static async restageSyncJob(job: CommerceSyncJobModelSchema): Promise<void> {
+    await db.transaction('rw', CommerceSyncJobModel.table, async () => {
+      const current = await CommerceSyncJobModel.findById(job.id);
+      await CommerceSyncJobModel.upsert({
+        ...job,
+        created_at: current?.created_at ?? job.created_at,
+        updated_at: Math.max(job.updated_at, (current?.updated_at ?? 0) + 1),
+      });
+    });
+  }
+
+  /**
+   * Completes a job only if nobody re-staged it since `stagedAt` (its
+   * `updated_at` when the caller's round began, or null when there was no
+   * job). A change staged by another tab mid-round keeps the job pending.
+   */
+  static async completeSyncJobIfUnchanged(id: string, stagedAt: number | null): Promise<boolean> {
+    return await db.transaction('rw', CommerceSyncJobModel.table, async () => {
+      const current = await CommerceSyncJobModel.findById(id);
+      if (!current) return true;
+      if (stagedAt === null || current.updated_at !== stagedAt) return false;
+      await CommerceSyncJobModel.deleteById(id);
+      return true;
+    });
+  }
+
   private static toListingModel(
     record: CommerceListingRecord,
     syncStatus: CommerceCacheStatus,

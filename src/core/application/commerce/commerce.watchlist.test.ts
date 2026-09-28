@@ -1,12 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as commerceConfig from '@/config/commerce';
+import { db } from '@/database/franky/franky';
 import {
   base64UrlToBytes,
   bytesToBase64Url,
   decryptPrivRecord,
+  privEntryName,
   privEntryUrl,
   type PrivKeyring,
 } from '@/libs/commerce/priv-envelope';
 import { HttpMethod } from '@/libs/http/http.types';
+import { Logger } from '@/libs/logger/logger';
+import {
+  CommerceFavoriteModel,
+  CommerceSyncJobModel,
+  CommerceWatchTombstoneModel,
+} from '@/models/commerce/commerce.models';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { capabilitiesGrantWrite } from '@/services/homeserver/homeserver.utils';
@@ -95,7 +104,8 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
       vi.spyOn(LocalCommerceService, 'getFavorites').mockResolvedValue([]);
       vi.spyOn(LocalCommerceService, 'getWatchTombstones').mockResolvedValue([]);
       vi.spyOn(LocalCommerceService, 'applyWatchlistState').mockResolvedValue(undefined);
-      vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
+      vi.spyOn(LocalCommerceService, 'getSyncJob').mockResolvedValue({ updated_at: 7 } as never);
+      vi.spyOn(LocalCommerceService, 'completeSyncJobIfUnchanged').mockResolvedValue(true);
       homeserver = installFakeHomeserver();
     });
 
@@ -103,7 +113,7 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
       decryptPrivRecord({
         keyring: KEYRING,
         family: 'watchlist',
-        id: 'watchlist',
+        name: privEntryName(KEYRING, 'watchlist', 'watchlist'),
         envelope: homeserver.files.get(V2_URL),
       });
     const writes = () => homeserver.log.filter((entry) => !entry.startsWith('GET ') && !entry.startsWith('LIST '));
@@ -116,7 +126,7 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
       expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('unavailable');
       expect(homeserver.log).toEqual([]);
       expect(homeserver.files.has(WATCHLIST_URL)).toBe(true);
-      expect(LocalCommerceService.completeSyncJob).not.toHaveBeenCalled();
+      expect(LocalCommerceService.completeSyncJobIfUnchanged).not.toHaveBeenCalled();
     });
 
     it('moves a plaintext v1 watchlist into the encrypted entry, verifies it, then deletes v1', async () => {
@@ -144,7 +154,7 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
       expect(put).toBeGreaterThanOrEqual(0);
       expect(verify).toBeGreaterThan(put);
       expect(remove).toBeGreaterThan(verify);
-      expect(LocalCommerceService.completeSyncJob).toHaveBeenCalledWith(`watchlist|${OWNER}`);
+      expect(LocalCommerceService.completeSyncJobIfUnchanged).toHaveBeenCalledWith(`watchlist|${OWNER}`, 7);
     });
 
     it('leaves an encrypted entry that already matches untouched', async () => {
@@ -217,7 +227,7 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
 
       expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('error');
       expect(homeserver.files.has(WATCHLIST_URL)).toBe(true);
-      expect(LocalCommerceService.completeSyncJob).not.toHaveBeenCalled();
+      expect(LocalCommerceService.completeSyncJobIfUnchanged).not.toHaveBeenCalled();
     });
 
     it('flips to needs_reauth when the encrypted write is refused, and keeps v1', async () => {
@@ -234,7 +244,7 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
       homeserver.failNext(HttpMethod.GET, V2_URL, 403);
 
       expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('error');
-      expect(LocalCommerceService.completeSyncJob).not.toHaveBeenCalled();
+      expect(LocalCommerceService.completeSyncJobIfUnchanged).not.toHaveBeenCalled();
     });
 
     it('publishes nothing when there is no document anywhere and nothing local', async () => {
@@ -258,7 +268,163 @@ describe('CommerceApplication.syncWatchlist capability gating', () => {
       homeserver.failNext(HttpMethod.GET, WATCHLIST_URL, 500);
 
       expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('error');
-      expect(LocalCommerceService.completeSyncJob).not.toHaveBeenCalled();
+      expect(LocalCommerceService.completeSyncJobIfUnchanged).not.toHaveBeenCalled();
     });
+
+    it('logs no private path, listing id or record content when a round fails', async () => {
+      homeserver.files.set(WATCHLIST_URL, v1Record(2, [['boots_01', 100]]));
+      const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      homeserver.failNext(HttpMethod.DELETE, WATCHLIST_URL, 500);
+      expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('error');
+      homeserver.failNext(HttpMethod.GET, V2_URL, 500);
+      expect(await CommerceApplication.syncWatchlist(OWNER)).toBe('error');
+
+      expect(warn).toHaveBeenCalledTimes(2);
+      const logged = JSON.stringify(warn.mock.calls);
+      for (const secret of [
+        'watchlist.json',
+        '/v1/',
+        '/v2/s/',
+        V2_URL.split('/').pop() as string,
+        'boots_01',
+        SELLER,
+      ]) {
+        expect(logged).not.toContain(secret);
+      }
+      expect(homeserver.unredacted).toEqual([]);
+    });
+  });
+});
+
+/** Web Locks shared by every "tab" in the test: one exclusive holder per name, FIFO. */
+function installWebLocks(): void {
+  const tails = new Map<string, Promise<void>>();
+  const request = async <T>(name: string, callback: () => Promise<T>): Promise<T> => {
+    const previous = tails.get(name) ?? Promise.resolve();
+    let release = () => {};
+    const next = new Promise<void>((resolve) => (release = resolve));
+    tails.set(
+      name,
+      previous.then(() => next),
+    );
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      release();
+    }
+  };
+  Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true });
+}
+
+describe('CommerceApplication.syncWatchlist across tabs', () => {
+  const JOB_ID = `watchlist|${OWNER}`;
+  let homeserver: FakeHomeserver;
+
+  const storedItems = () =>
+    (
+      decryptPrivRecord({
+        keyring: KEYRING,
+        family: 'watchlist',
+        name: privEntryName(KEYRING, 'watchlist', 'watchlist'),
+        envelope: homeserver.files.get(V2_URL),
+      }) as { items: { listingId: string }[] }
+    ).items
+      .map(({ listingId }) => listingId)
+      .sort();
+
+  beforeEach(async () => {
+    await db.initialize();
+    await Promise.all([
+      CommerceFavoriteModel.table.clear(),
+      CommerceWatchTombstoneModel.table.clear(),
+      CommerceSyncJobModel.table.clear(),
+    ]);
+    vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+    vi.spyOn(HomeserverService, 'hasActiveSession').mockReturnValue(true);
+    vi.spyOn(HomeserverService, 'canCurrentSessionWrite').mockReturnValue(true);
+    vi.spyOn(HomeserverService, 'isCurrentSessionGrant').mockReturnValue(false);
+    vi.spyOn(CommercePrivKeyringApplication, 'get').mockResolvedValue({ kind: 'keys', keyring: KEYRING });
+    homeserver = installFakeHomeserver();
+    installWebLocks();
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'locks');
+    CommerceApplication.resetWatchlistSyncInFlight();
+    vi.restoreAllMocks();
+  });
+
+  /** Tab B shares Dexie and the Web Locks with tab A, but not A's in-memory round. */
+  const inTabB = async <T>(run: () => Promise<T>): Promise<T> => {
+    CommerceApplication.resetWatchlistSyncInFlight();
+    return await run();
+  };
+
+  it('lets a second tab neither overwrite nor be overwritten by a round already in flight', async () => {
+    await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_a`);
+    const put = homeserver.holdNext(HttpMethod.PUT, V2_URL);
+    const tabA = CommerceApplication.syncWatchlist(OWNER);
+    await put.reached;
+
+    const tabB = inTabB(async () => {
+      await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_b`);
+      return await CommerceApplication.syncWatchlist(OWNER);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    put.release();
+
+    await expect(tabA).resolves.toBe('synced');
+    await expect(tabB).resolves.toBe('synced');
+    expect(storedItems()).toEqual(['boots_a', 'boots_b']);
+    expect(await LocalCommerceService.getSyncJob(JOB_ID)).toBeNull();
+  });
+
+  it('keeps the outbox job when a change is staged while a round is in flight', async () => {
+    await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_a`);
+    const put = homeserver.holdNext(HttpMethod.PUT, V2_URL);
+    const round = CommerceApplication.syncWatchlist(OWNER);
+    await put.reached;
+    await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_b`);
+    put.release();
+
+    await expect(round).resolves.toBe('synced');
+    expect(storedItems()).toEqual(['boots_a']);
+    expect(await LocalCommerceService.getSyncJob(JOB_ID)).not.toBeNull();
+
+    await expect(CommerceApplication.syncWatchlist(OWNER)).resolves.toBe('synced');
+    expect(storedItems()).toEqual(['boots_a', 'boots_b']);
+    expect(await LocalCommerceService.getSyncJob(JOB_ID)).toBeNull();
+  });
+
+  it('keeps the outbox job when a tab stops right after its write, so the next round carries it', async () => {
+    homeserver.files.set(WATCHLIST_URL, v1Record(2, [['boots_v1', 100]]));
+    await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_a`);
+    const put = homeserver.holdNext(HttpMethod.PUT, V2_URL);
+    const tabA = CommerceApplication.syncWatchlist(OWNER);
+    await put.reached;
+    await inTabB(() => CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_b`));
+    vi.spyOn(LocalCommerceService, 'completeSyncJobIfUnchanged').mockRejectedValueOnce(new Error('tab closed'));
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    put.release();
+
+    await expect(tabA).resolves.toBe('error');
+    expect(await LocalCommerceService.getSyncJob(JOB_ID)).not.toBeNull();
+    expect(homeserver.files.has(WATCHLIST_URL)).toBe(false);
+
+    await expect(inTabB(() => CommerceApplication.syncWatchlist(OWNER))).resolves.toBe('synced');
+    expect(storedItems()).toEqual(['boots_a', 'boots_b', 'boots_v1']);
+    expect(await LocalCommerceService.getSyncJob(JOB_ID)).toBeNull();
+  });
+
+  it('bumps the staged generation even for two changes in the same millisecond', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_a`);
+    const first = (await LocalCommerceService.getSyncJob(JOB_ID))?.updated_at;
+    await CommerceApplication.commitCreateFavorite(OWNER, `${SELLER}:boots_b`);
+    const second = (await LocalCommerceService.getSyncJob(JOB_ID))?.updated_at;
+
+    expect(first).toBe(1_000);
+    expect(second).toBeGreaterThan(first as number);
   });
 });

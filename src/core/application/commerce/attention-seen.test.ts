@@ -10,6 +10,7 @@ import {
   privListedEntryUrl,
 } from '@/libs/commerce/priv-envelope';
 import { HttpMethod } from '@/libs/http/http.types';
+import { Logger } from '@/libs/logger/logger';
 import { CommerceActivityCheckpointModel } from '@/models/commerce/commerce.models';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalCommerceService } from '@/services/local/commerce/commerce';
@@ -48,7 +49,7 @@ function seal(side: Side, at: number): string {
   const url = privListedEntryUrl(KEYRING, FAMILY[side], name);
   homeserver.files.set(
     url,
-    encryptPrivRecord({ keyring: KEYRING, family: FAMILY[side], id: name, record: { version: 1, seenAt: at } }),
+    encryptPrivRecord({ keyring: KEYRING, family: FAMILY[side], name, record: { version: 1, seenAt: at } }),
   );
   return url;
 }
@@ -61,7 +62,7 @@ function sealedEntries(side: Side): { url: string; at: number }[] {
       const record = decryptPrivRecord({
         keyring: KEYRING,
         family: FAMILY[side],
-        id: url.slice(url.lastIndexOf('/') + 1),
+        name: url.slice(url.lastIndexOf('/') + 1),
         envelope,
       }) as { seenAt: number };
       return { url, at: record.seenAt };
@@ -239,6 +240,54 @@ describe('CommerceAttentionSeenApplication (per-account badge checkpoints)', () 
 
     expect(puts()).toEqual([]);
     expect(readOrdersSeenAt(OWNER, window.localStorage)).toBe(T0);
+  });
+
+  it('writes nothing when reading an entry is refused, instead of skipping it as undecryptable', async () => {
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    const newest = seal('orders', T0 + 5_000);
+    homeserver.failNext(HttpMethod.GET, newest, 403);
+    homeserver.log.length = 0;
+
+    const write = CommerceAttentionSeenApplication.markSeen(OWNER, 'orders', T0 + 1_000);
+    await settleDebounce();
+    await write;
+
+    expect(puts()).toEqual([]);
+    expect(homeserver.files.has(newest)).toBe(true);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('does not decrypt');
+  });
+
+  it('logs no side, checkpoint time or private path when a checkpoint read or write fails', async () => {
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    homeserver.files.set(legacyEntry('orders', T0), { version: 1, seenAt: T0 });
+    const sealed = seal('orders', T0 - 1_000);
+
+    homeserver.failNext(HttpMethod.GET, LEGACY_DIR.orders, 500);
+    await CommerceAttentionSeenApplication.pull(OWNER);
+    homeserver.failNext(HttpMethod.GET, privFamilyUrl(KEYRING, FAMILY.orders), 500);
+    await CommerceAttentionSeenApplication.pull(OWNER);
+    homeserver.failNext(HttpMethod.GET, sealed, 500);
+    await CommerceAttentionSeenApplication.pull(OWNER);
+    homeserver.failNext(HttpMethod.PUT, /\/v2\/s\//, 500);
+    const write = CommerceAttentionSeenApplication.markSeen(OWNER, 'orders', T0 + 2_000);
+    await settleDebounce();
+    await write;
+
+    expect(warn).toHaveBeenCalledTimes(4);
+    const logged = JSON.stringify(warn.mock.calls);
+    const family = privFamilyUrl(KEYRING, FAMILY.orders).split('/').at(-2) as string;
+    for (const secret of [
+      'attention_seen',
+      'orders',
+      String(T0),
+      String(T0 - 1_000),
+      '/v2/s/',
+      family,
+      sealed.slice(sealed.lastIndexOf('/') + 1),
+    ]) {
+      expect(logged).not.toContain(secret);
+    }
+    expect(homeserver.unredacted).toEqual([]);
   });
 
   it('keeps the checkpoint in this browser only without a released data key', async () => {

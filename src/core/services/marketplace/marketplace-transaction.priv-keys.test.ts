@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AppError } from '@/libs/error/error';
 import {
   PRIV_KEYS_WIRE_KEY_ID,
   PRIV_KEYS_WIRE_NEEDS_REAUTH,
@@ -75,13 +76,17 @@ describe('MarketplaceTransactionService.getPrivKeys', () => {
     expect(await MarketplaceTransactionService.getPrivKeys(ACTOR)).toEqual({ kind: 'unavailable' });
   });
 
-  it('throws on any other refusal instead of treating it as a state', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(403, { error: { code: 'capability_required' } }));
-    await expect(MarketplaceTransactionService.getPrivKeys(ACTOR)).rejects.toThrow();
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(503, { status: 'unavailable' }));
-    await expect(MarketplaceTransactionService.getPrivKeys(ACTOR)).rejects.toThrow();
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(500, { error: { code: 'internal' } }));
-    await expect(MarketplaceTransactionService.getPrivKeys(ACTOR)).rejects.toThrow();
+  it('throws a typed HTTP error on any other refusal instead of treating it as a state', async () => {
+    for (const [status, body] of [
+      [403, { error: { code: 'capability_required' } }],
+      [503, { status: 'unavailable' }],
+      [500, { error: { code: 'internal' } }],
+    ] as const) {
+      vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(status, body));
+      const error = await MarketplaceTransactionService.getPrivKeys(ACTOR).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).context).toMatchObject({ statusCode: status });
+    }
   });
 
   it('refuses keys for another owner, wrong-length keys, duplicate ids and a missing current key', async () => {

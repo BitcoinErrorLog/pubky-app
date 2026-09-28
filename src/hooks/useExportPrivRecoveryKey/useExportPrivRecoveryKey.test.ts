@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
-import { useExportPrivRecoveryKey } from './useExportPrivRecoveryKey';
+import { RECOVERY_KEY_URL_LIFETIME_MS, useExportPrivRecoveryKey } from './useExportPrivRecoveryKey';
 
 const config = vi.hoisted(() => ({ mode: 'transaction-service' as string }));
 vi.mock('@/config/commerce', async () => {
@@ -28,10 +28,12 @@ describe('useExportPrivRecoveryKey', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('downloads the recovery key file and revokes the blob URL', async () => {
+  it('downloads the recovery key file and revokes the blob URL after the download is handed off', async () => {
+    vi.useFakeTimers();
     vi.spyOn(CommerceController, 'exportPrivRecoveryKey').mockResolvedValue({ kind: 'file', file: FILE });
     const { result } = renderHook(() => useExportPrivRecoveryKey());
 
@@ -49,6 +51,25 @@ describe('useExportPrivRecoveryKey', () => {
     const blob = createObjectURL.mock.calls[0][0] as Blob;
     expect(blob.type).toBe('application/json');
     expect(await blob.text()).toBe(FILE.contents);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(RECOVERY_KEY_URL_LIFETIME_MS - 1);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:recovery');
+  });
+
+  it('revokes the blob URL at once when the download cannot be started', async () => {
+    vi.spyOn(CommerceController, 'exportPrivRecoveryKey').mockResolvedValue({ kind: 'file', file: FILE });
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const { result } = renderHook(() => useExportPrivRecoveryKey());
+
+    await act(async () => {
+      expect(await result.current.exportKey()).toBe(false);
+    });
+
+    expect(result.current.status).toBe('error');
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:recovery');
   });
 

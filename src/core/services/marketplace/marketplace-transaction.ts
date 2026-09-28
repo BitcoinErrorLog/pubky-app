@@ -67,7 +67,7 @@ import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { toCamelCaseWire, toSnakeCaseWire } from '@/libs/commerce/wire-casing';
 import { AuthErrorCode, ClientErrorCode, RateLimitErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
-import { safeFetch } from '@/libs/error/error.http';
+import { httpResponseToError, safeFetch } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { PARSE_JSON_WITH_BODY_EXCERPT, parseResponseOrThrow } from '@/libs/http/response.utils';
@@ -825,6 +825,7 @@ export class MarketplaceTransactionService {
         return { kind: 'unavailable' };
       }
     }
+    if (!response.ok) throw httpResponseToError(response, ErrorService.Marketplace, operation, url);
     const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, operation, url);
     const parsed = this.parseProjection(
       operation,

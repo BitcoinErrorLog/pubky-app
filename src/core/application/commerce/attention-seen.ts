@@ -1,7 +1,14 @@
 import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { raiseLocalOrdersSeenAt, readLocalOrdersSeenAt } from '@/libs/commerce/marketplace-attention';
-import { newPrivEntryName, type PrivFamily, type PrivKeyring } from '@/libs/commerce/priv-envelope';
+import {
+  newPrivEntryName,
+  PRIV_V1_LOG_PATH,
+  privEnvelopeRejection,
+  privErrorSummary,
+  type PrivFamily,
+  type PrivKeyring,
+} from '@/libs/commerce/priv-envelope';
 import { hasHttpStatus } from '@/libs/error/error.utils';
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
@@ -135,7 +142,7 @@ export class CommerceAttentionSeenApplication {
       if (listing.kind === 'unavailable') return;
       await this.store(keyring, side, listing, value);
     } catch (error) {
-      Logger.warn('Failed to save the marketplace badge checkpoint', { error });
+      Logger.warn('Failed to save the marketplace badge checkpoint', privErrorSummary(error));
     }
   }
 
@@ -161,7 +168,7 @@ export class CommerceAttentionSeenApplication {
     const covered = listing.legacy.filter(({ at }) => at <= newest);
     await Promise.allSettled([
       ...stale.map(({ name }) => CommercePrivStoreService.deleteListed(keyring, FAMILY[side], name)),
-      ...covered.map(({ url }) => CommerceHomeserverService.delete(url)),
+      ...covered.map(({ url }) => CommerceHomeserverService.delete(url, PRIV_V1_LOG_PATH)),
     ]);
   }
 
@@ -178,7 +185,7 @@ export class CommerceAttentionSeenApplication {
         if (listing.legacy.length > 0) await this.store(keyring, side, listing, newest);
       }
     } catch (error) {
-      Logger.warn('Failed to load the marketplace badge checkpoint', { error });
+      Logger.warn('Failed to load the marketplace badge checkpoint', privErrorSummary(error));
     }
   }
 
@@ -195,17 +202,22 @@ export class CommerceAttentionSeenApplication {
         CommerceHomeserverService.list(
           CommerceRecordNormalizer.attentionSeenDirectoryUri(ownerPubky, side),
           ENTRY_LIST_LIMIT,
+          PRIV_V1_LOG_PATH,
         ),
       ]);
     } catch (error) {
-      if (hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED)) {
-        return { kind: 'unavailable' };
-      }
+      if (isAccessDenied(error)) return { kind: 'unavailable' };
       throw error;
     }
     const sealed: SealedEntry[] = [];
     for (const name of names) {
-      const at = await this.readSealed(keyring, side, name);
+      let at: number | null;
+      try {
+        at = await this.readSealed(keyring, side, name);
+      } catch (error) {
+        if (isAccessDenied(error)) return { kind: 'unavailable' };
+        throw error;
+      }
       if (at !== null) sealed.push({ name, at });
     }
     const legacy: LegacyEntry[] = [];
@@ -216,19 +228,22 @@ export class CommerceAttentionSeenApplication {
     return { kind: 'entries', sealed, legacy };
   }
 
+  /** The entry's `seenAt`, or null when it does not open or holds no valid value. Other failures throw. */
   private static async readSealed(
     keyring: PrivKeyring,
     side: MarketplaceAttentionSide,
     name: string,
   ): Promise<number | null> {
+    let record: unknown;
     try {
-      const record = await CommercePrivStoreService.readListed(keyring, FAMILY[side], name);
-      const seenAt = (record as { seenAt?: unknown } | null)?.seenAt;
-      return typeof seenAt === 'number' && Number.isFinite(seenAt) && seenAt > 0 ? seenAt : null;
+      record = await CommercePrivStoreService.readListed(keyring, FAMILY[side], name);
     } catch (error) {
-      Logger.warn('Ignoring a marketplace badge checkpoint that does not decrypt', { error });
+      if (privEnvelopeRejection(error) === null) throw error;
+      Logger.warn('Ignoring a marketplace badge checkpoint that does not decrypt', privErrorSummary(error));
       return null;
     }
+    const seenAt = (record as { seenAt?: unknown } | null)?.seenAt;
+    return typeof seenAt === 'number' && Number.isFinite(seenAt) && seenAt > 0 ? seenAt : null;
   }
 
   private static async keyring(ownerPubky: string): Promise<PrivKeyring | null> {
@@ -250,6 +265,10 @@ export class CommerceAttentionSeenApplication {
     if (useAuthStore.getState().currentUserPubky !== ownerPubky) return false;
     return HomeserverService.hasActiveSession() && HomeserverService.canCurrentSessionWrite(PRIVATE_APP_DATA_PATH);
   }
+}
+
+function isAccessDenied(error: unknown): boolean {
+  return hasHttpStatus(error, HttpStatusCode.FORBIDDEN) || hasHttpStatus(error, HttpStatusCode.UNAUTHORIZED);
 }
 
 function latestSealed(listing: Extract<Listing, { kind: 'entries' }>): number {

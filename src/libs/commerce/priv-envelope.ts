@@ -20,15 +20,21 @@ import { ErrorService } from '@/libs/error/error.types';
 //
 // A record is the UTF-8 JSON of the plaintext document, sealed with
 // XChaCha20-Poly1305 under the record key with a fresh 24-byte nonce and
-// associated data `{owner}|{family}|{id}|{kid}`, so a ciphertext moved to
-// another owner, family, entry or key id does not open. The stored document
-// is the envelope `{ enc, kid, nonce, ct }` with base64url (no padding)
-// nonce and ciphertext.
+// associated data `{owner}|{family}|{name}|{kid}`, where `name` is the
+// entry's own path segment, so a ciphertext moved to another owner, family,
+// entry or key id does not open. The stored document is the envelope
+// `{ enc, kid, nonce, ct }` with base64url (no padding) nonce and ciphertext.
 //
-// The path hides the family and entry names from the homeserver:
+// The path hides the family and entry ids from the homeserver:
 //
-//   /priv/pubky.app/marketplace/v2/s/{b64url(HMAC(path key, "family|" + family))}/
-//                                    {b64url(HMAC(path key, "id|" + family + "|" + id))}
+//   /priv/pubky.app/marketplace/v2/s/{b64url(HMAC(path key, "family|" + family))}/{name}
+//
+// A derived entry (watchlist, receipt) is named
+// `b64url(HMAC(path key, "id|" + family + "|" + id))`; a listed entry
+// (badge checkpoint) by a random 32-hex name. Because the associated data
+// binds the name rather than the id, a reader holding only the keys can
+// list a family and open every entry, then check that the record's id
+// derives the name it was read from.
 //
 // Paths always use the owner's FIRST (oldest) key so they stay put when a new
 // key becomes current. Pure functions: nothing here stores, logs or caches a
@@ -39,6 +45,8 @@ export const PRIV_ENVELOPE_ENC = 'pubky-priv-aead/v1';
 export const PRIV_V2_BASE_PATH = '/priv/pubky.app/marketplace/v2/s/';
 /** Logged instead of an opaque v2 path. */
 export const PRIV_V2_LOG_PATH = `${PRIV_V2_BASE_PATH}<entry>`;
+/** Logged instead of a plaintext v1 path, whose names carry receipt ids and checkpoint times. */
+export const PRIV_V1_LOG_PATH = '/priv/pubky.app/marketplace/v1/<entry>';
 
 export const PRIV_DATA_KEY_BYTES = 32;
 const NONCE_BYTES = 24;
@@ -91,6 +99,23 @@ export function privEnvelopeRejection(error: unknown): PrivEnvelopeRejection | n
   return reason === 'malformed' || reason === 'unknown_key' || reason === 'unauthenticated' ? reason : null;
 }
 
+/**
+ * What a log may record about a failed private-record operation: the error's
+ * kind, status and rejection reason. Messages and context are dropped, since
+ * homeserver errors carry the request path in both.
+ */
+export function privErrorSummary(error: unknown): Record<string, string | number> {
+  if (!isAppError(error)) return { error: error instanceof Error ? error.name : typeof error };
+  const summary: Record<string, string | number> = {};
+  if (error.category !== undefined) summary.category = error.category;
+  if (error.code !== undefined) summary.code = error.code;
+  const statusCode = error.context?.statusCode;
+  if (typeof statusCode === 'number') summary.statusCode = statusCode;
+  const reason = privEnvelopeRejection(error);
+  if (reason !== null) summary.reason = reason;
+  return summary;
+}
+
 export function isPrivKeyId(value: string): boolean {
   return KEY_ID.test(value);
 }
@@ -120,9 +145,9 @@ function assertField(value: string): void {
   if (value.length === 0 || value.includes('|')) throw rejected('malformed');
 }
 
-export function privAad(ownerPubky: string, family: PrivFamily, id: string, keyId: string): Uint8Array {
-  for (const field of [ownerPubky, family, id, keyId]) assertField(field);
-  return new TextEncoder().encode(`${ownerPubky}|${family}|${id}|${keyId}`);
+export function privAad(ownerPubky: string, family: PrivFamily, name: string, keyId: string): Uint8Array {
+  for (const field of [ownerPubky, family, name, keyId]) assertField(field);
+  return new TextEncoder().encode(`${ownerPubky}|${family}|${name}|${keyId}`);
 }
 
 function pathKey(keyring: PrivKeyring): Uint8Array {
@@ -140,16 +165,20 @@ export function privFamilyPath(keyring: PrivKeyring, family: PrivFamily): string
   return `${PRIV_V2_BASE_PATH}${segment(pathKey(keyring), `family|${family}`)}/`;
 }
 
-/** The opaque path of one entry. */
-export function privEntryPath(keyring: PrivKeyring, family: PrivFamily, id: string): string {
+/** The opaque name of a derived entry: the HMAC of its family and id under the path key. */
+export function privEntryName(keyring: PrivKeyring, family: PrivFamily, id: string): string {
   assertField(id);
-  return `${privFamilyPath(keyring, family)}${segment(pathKey(keyring), `id|${family}|${id}`)}`;
+  return segment(pathKey(keyring), `id|${family}|${id}`);
+}
+
+/** The opaque path of one derived entry. */
+export function privEntryPath(keyring: PrivKeyring, family: PrivFamily, id: string): string {
+  return `${privFamilyPath(keyring, family)}${privEntryName(keyring, family, id)}`;
 }
 
 /**
  * A listed entry: its name is a random 32-hex id (see {@link newPrivEntryName})
- * rather than an HMAC, because readers find it by listing the family, and
- * the name doubles as the entry id in the associated data.
+ * rather than an HMAC, because readers find it by listing the family.
  */
 export function privListedEntryPath(keyring: PrivKeyring, family: PrivFamily, name: string): string {
   if (!isPrivEntryName(name)) throw rejected('malformed');
@@ -178,14 +207,14 @@ export function privFamilyUrl(keyring: PrivKeyring, family: PrivFamily): string 
   return `pubky://${keyring.ownerPubky}${privFamilyPath(keyring, family)}`;
 }
 
-/** Seals `record` under the keyring's current key. */
+/** Seals `record` for the entry `name` under the keyring's current key. */
 export function encryptPrivRecord(input: {
   keyring: PrivKeyring;
   family: PrivFamily;
-  id: string;
+  name: string;
   record: unknown;
 }): PrivEnvelope {
-  const { keyring, family, id, record } = input;
+  const { keyring, family, name, record } = input;
   const current = keyring.keys.find((key) => key.keyId === keyring.currentKeyId);
   if (!current) throw rejected('unknown_key');
   const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
@@ -193,24 +222,25 @@ export function encryptPrivRecord(input: {
   const ct = xchacha20poly1305(
     subkey(current.key, 'record'),
     nonce,
-    privAad(keyring.ownerPubky, family, id, current.keyId),
+    privAad(keyring.ownerPubky, family, name, current.keyId),
   ).encrypt(plaintext);
   plaintext.fill(0);
   return { enc: PRIV_ENVELOPE_ENC, kid: current.keyId, nonce: bytesToBase64Url(nonce), ct: bytesToBase64Url(ct) };
 }
 
 /**
- * Opens an envelope read from `family`/`id`. Throws a rejection (see
- * {@link privEnvelopeRejection}) when it is not an envelope, names a key the keyring does not hold, or does
- * not authenticate for this owner, family, entry and key id.
+ * Opens an envelope read from the entry `name` in `family`. Throws a
+ * rejection (see {@link privEnvelopeRejection}) when it is not an envelope,
+ * names a key the keyring does not hold, or does not authenticate for this
+ * owner, family, entry name and key id.
  */
 export function decryptPrivRecord(input: {
   keyring: PrivKeyring;
   family: PrivFamily;
-  id: string;
+  name: string;
   envelope: unknown;
 }): unknown {
-  const { keyring, family, id } = input;
+  const { keyring, family, name } = input;
   const parsed = privEnvelopeSchema.safeParse(input.envelope);
   if (!parsed.success) throw rejected('malformed');
   const envelope = parsed.data;
@@ -223,7 +253,7 @@ export function decryptPrivRecord(input: {
     plaintext = xchacha20poly1305(
       subkey(key.key, 'record'),
       nonce,
-      privAad(keyring.ownerPubky, family, id, envelope.kid),
+      privAad(keyring.ownerPubky, family, name, envelope.kid),
     ).decrypt(base64UrlToBytes(envelope.ct));
   } catch (error) {
     if (privEnvelopeRejection(error) !== null) throw error;
