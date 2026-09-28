@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { ServerErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { getMarketplaceGrantPollMilliseconds } from '@/libs/runtime-config/runtime-config';
 import { sleep } from '@/libs/utils/utils';
 import { isMarketplaceSessionGrantUrl } from './marketplace-session-grant';
@@ -85,7 +88,10 @@ export async function beginMarketplaceGrantFlow(): Promise<MarketplaceGrantFlow>
   // Never show a signer a QR that asks for more than the marketplace session grant.
   if (!isMarketplaceSessionGrantUrl(created.authorization_url)) {
     await cancel();
-    throw new Error('result_denied');
+    throw Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, 'result_denied', {
+      service: ErrorService.Marketplace,
+      operation: 'marketplaceGrantReconnect',
+    });
   }
   return {
     authorizationUrl: created.authorization_url,
