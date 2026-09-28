@@ -822,7 +822,9 @@ describe('MarketplaceListing', () => {
     expect(screen.getByRole('button', { name: 'Approve in Pubky Ring' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Approve in Pubky Ring' }));
-    expect(screen.getByText('Approve purchases for this device.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Approve purchases, stock edits, and your private Shop data for this device.'),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/permission list/i)).not.toBeInTheDocument();
     expect(screen.queryByText(CAPABILITIES)).not.toBeInTheDocument();
   });

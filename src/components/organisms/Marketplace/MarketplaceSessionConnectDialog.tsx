@@ -81,10 +81,14 @@ export function MarketplaceSessionConnectDialog({
   const requestsFullGrant = session.requestsFullGrant;
   const requestsGrantReconnect = session.requestsGrantReconnect;
   const requestsGrantBootstrap = session.requestsGrantBootstrap;
-  const bootstrapCaption =
-    requestsGrantBootstrap && session.authorizationUrl
-      ? sessionGrantApprovalCaption(session.authorizationUrl, 'Bitkit')
-      : null;
+  // Every marketplace session QR hands over purchases, stock edits and private
+  // Shop data; say so beside the QR, whichever signer scans it.
+  const approvalCaption = session.authorizationUrl
+    ? sessionGrantApprovalCaption(
+        session.authorizationUrl,
+        requestsGrantBootstrap ? 'Bitkit' : requestsGrantReconnect ? 'Your signer' : 'Pubky Ring',
+      )
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -112,7 +116,7 @@ export function MarketplaceSessionConnectDialog({
               ? 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
               : requestsFullGrant && !grantFlowEnabled
                 ? 'Sign in to Pubky Shop.'
-                : 'Approve purchases for this device.'}
+                : 'Approve purchases, stock edits, and your private Shop data for this device.'}
         </Typography>
 
         {refusesGrantSession ? (
@@ -161,13 +165,13 @@ export function MarketplaceSessionConnectDialog({
               />
             </button>
 
-            {bootstrapCaption && (
+            {approvalCaption && (
               <Typography
                 as="p"
-                data-testid="bootstrap-approval-caption"
+                data-testid="session-approval-caption"
                 className="max-w-xs text-center text-xs text-muted-foreground"
               >
-                {bootstrapCaption}
+                {approvalCaption}
               </Typography>
             )}
 

@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MarketplaceSessionConnectStatus } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect.types';
+import { MARKETPLACE_SESSION_GRANT } from '@/services/marketplace/marketplace-session-grant';
 import { MarketplaceSessionConnectDialog } from './MarketplaceSessionConnectDialog';
 
 /**
@@ -108,7 +109,49 @@ describe('MarketplaceSessionConnectDialog', () => {
     expect(screen.getByRole('button', { name: 'Open in Bitkit' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /open in pubky ring/i })).not.toBeInTheDocument();
     expect(screen.getByText('Waiting for approval in Bitkit…')).toBeInTheDocument();
-    expect(screen.queryByTestId('bootstrap-approval-caption')).not.toBeInTheDocument();
+    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
+      'Bitkit shows this request for marketplace purchases and stock edits.',
+    );
+  });
+
+  it('the Ring connect-marketplace QR discloses the private Shop data it hands over', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl = `pubkyauth://signin?caps=${encodeURIComponent(MARKETPLACE_SESSION_GRANT)}&relay=r&secret=s`;
+    view.requestsFullGrant = false;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Ring' })).toBeInTheDocument();
+    expect(
+      screen.getByText('Approve purchases, stock edits, and your private Shop data for this device.'),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
+      'Pubky Ring shows this request for marketplace purchases, stock edits, and reading and writing your private Shop data.',
+    );
+  });
+
+  it('the grant reconnect QR discloses the private Shop data for either signer', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl = `pubkyauth://signin_grant?caps=${encodeURIComponent(MARKETPLACE_SESSION_GRANT)}&relay=r&secret=s&cid=marketplace.staging.shop.pubky.app&cpk=k`;
+    view.requestsFullGrant = false;
+    view.requestsGrantReconnect = true;
+    view.grantEnabled = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
+      'Your signer shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases, stock edits, and reading and writing your private Shop data.',
+    );
+  });
+
+  it('the full Shop sign-in QR shows no marketplace caption', () => {
+    view.status = 'awaiting';
+    view.authorizationUrl = `pubkyauth://signin?caps=${encodeURIComponent('/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw')}&relay=r&secret=s`;
+    view.requestsFullGrant = true;
+
+    render(<MarketplaceSessionConnectDialog />);
+
+    expect(screen.queryByTestId('session-approval-caption')).not.toBeInTheDocument();
   });
 
   it('bootstrap QR carries the caption naming the client Bitkit will show', () => {
@@ -121,8 +164,8 @@ describe('MarketplaceSessionConnectDialog', () => {
 
     render(<MarketplaceSessionConnectDialog />);
 
-    expect(screen.getByTestId('bootstrap-approval-caption')).toHaveTextContent(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases only.',
+    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases and stock edits.',
     );
   });
 
@@ -136,8 +179,8 @@ describe('MarketplaceSessionConnectDialog', () => {
 
     render(<MarketplaceSessionConnectDialog />);
 
-    expect(screen.getByTestId('bootstrap-approval-caption')).toHaveTextContent(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases and your private Shop data.',
+    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases, stock edits, and reading and writing your private Shop data.',
     );
   });
 

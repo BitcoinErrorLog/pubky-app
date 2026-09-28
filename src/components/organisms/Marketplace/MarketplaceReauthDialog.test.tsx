@@ -110,8 +110,8 @@ describe('MarketplaceReauthDialog', () => {
 
     expect(reauth.start).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Open in Bitkit' })).toBeInTheDocument();
-    expect(screen.getByTestId('bootstrap-approval-caption')).toHaveTextContent(
-      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases and your private Shop data.',
+    expect(screen.getByTestId('session-approval-caption')).toHaveTextContent(
+      'Bitkit shows this request from marketplace.staging.shop.pubky.app, for marketplace purchases, stock edits, and reading and writing your private Shop data.',
     );
   });
 });
