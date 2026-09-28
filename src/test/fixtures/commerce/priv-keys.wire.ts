@@ -1,8 +1,9 @@
 /**
  * `GET /v1/me/priv-keys` wire bodies as `crates/service/src/priv_keys.rs`
- * (BitcoinErrorLog/pubky-marketplace-service `bb509068`) writes them. Not a
- * live capture: the endpoint is not deployed yet. Replace with a minimized
- * staging capture once it is. Key bytes are placeholders.
+ * (BitcoinErrorLog/pubky-marketplace-service `bb509068`) writes them. The
+ * staging proof (`src/test/live/priv-encryption.live.ts`) asserts that the
+ * deployed service's 200 and 403 bodies have exactly these members and
+ * member types. Owner, key id and key bytes are placeholders.
  */
 export const PRIV_KEYS_WIRE_OWNER = 'y'.repeat(52);
 export const PRIV_KEYS_WIRE_KEY_ID = '0123456789abcdef0123456789abcdef';

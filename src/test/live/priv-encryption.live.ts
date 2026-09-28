@@ -1,9 +1,10 @@
 // @vitest-environment node
 import 'fake-indexeddb/auto';
 import { createHmac, hkdfSync } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { PRIV_KEYS_WIRE_NEEDS_REAUTH, PRIV_KEYS_WIRE_OK } from '@/test/fixtures/commerce/priv-keys.wire';
 
 /**
  * LIVE STAGING PROOF for encrypted `/priv` (priv-encryption-plan.md Phase 2
@@ -21,13 +22,16 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
  *   2. Full grant: a session minted from the Shop-grant AuthToken gets the
  *      key; every plaintext record is sealed, read back, and only then
  *      deleted, in that order on the wire; a second paid order's receipt is
- *      written sealed from its attestation; the exported recovery key opens
- *      every entry with an independent node:crypto implementation of the
- *      documented recipe.
+ *      written sealed from its attestation; the released keys match the
+ *      pinned wire fixture's shape; the exported recovery key alone opens
+ *      every entry, receipts found only by listing their family, with an
+ *      independent node:crypto implementation of the documented recipe.
  *   3. Fresh device: an empty IndexedDB and a new session get the same key
  *      and read everything back.
  *   4. Undecryptable: tampered sealed entries are never overwritten and the
- *      plaintext an older build re-creates is kept.
+ *      plaintext an older build re-creates is kept. A sealed receipt that
+ *      opens but is not a valid receipt is neither published nor
+ *      overwritten, and its plaintext is kept.
  *   4b. Privacy boundary: another identity's session is refused reading the
  *      sealed watchlist and listing the owner's `/priv` tree.
  *   5. Cleanup: every `/priv` and public record the proof wrote is deleted,
@@ -172,6 +176,8 @@ function persist(identities: Identity[], listingIds: string[]): void {
   if (!IDENTITIES_FILE) return;
   const body = { ...Object.fromEntries(identities.map(({ label, secretHex }) => [label, secretHex])), listingIds };
   writeFileSync(IDENTITIES_FILE, `${JSON.stringify(body, null, 2)}\n`, { mode: 0o600 });
+  // `mode` applies only when the file is created; an existing file keeps its permissions.
+  chmodSync(IDENTITIES_FILE, 0o600);
 }
 
 function actAs(identity: Identity): void {
@@ -430,12 +436,14 @@ function recipe(file: RecoveryFile) {
   const familyPath = (family: string) => `/priv/pubky.app/marketplace/v2/s/${segment(`family|${family}`)}/`;
   return {
     familyUrl: (family: string) => `pubky://${file.owner}${familyPath(family)}`,
+    entryName: (family: string, id: string) => segment(`id|${family}|${id}`),
     entryUrl: (family: string, id: string) =>
       `pubky://${file.owner}${familyPath(family)}${segment(`id|${family}|${id}`)}`,
-    open(envelope: { kid: string; nonce: string; ct: string }, family: string, id: string): unknown {
+    /** Opens the envelope read from the entry `name` (its last path segment). */
+    open(envelope: { kid: string; nonce: string; ct: string }, family: string, name: string): unknown {
       const entry = file.keys.find(({ keyId }) => keyId === envelope.kid);
       if (!entry) throw new Error('recovery file lacks the envelope key');
-      const aad = new TextEncoder().encode(`${file.owner}|${family}|${id}|${envelope.kid}`);
+      const aad = new TextEncoder().encode(`${file.owner}|${family}|${name}|${envelope.kid}`);
       const plaintext = xchacha20poly1305(
         subkey(entry.key, 'record'),
         Uint8Array.from(Buffer.from(envelope.nonce, 'base64url')),
@@ -525,6 +533,19 @@ async function cleanUp(
 async function listingTemplate(sellerPubky: string): Promise<Record<string, unknown>> {
   const { record } = listingBody(sellerPubky, new Date().toISOString());
   return new m.specs.PubkySpecsBuilder(sellerPubky).createListing(record).listing.toJson() as Record<string, unknown>;
+}
+
+/** Types in place of values, keys sorted: what a wire fixture must share with the live body. */
+function wireShape(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(wireShape);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, member]) => [key, wireShape(member)]),
+    );
+  }
+  return typeof value;
 }
 
 function flipFirstByte(envelope: { ct: string }): Record<string, unknown> {
@@ -618,7 +639,9 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
       headers: { authorization: `Bearer ${m.MarketplaceSessionService.getActiveSession()!.token}` },
     });
     expect(refused.status).toBe(403);
-    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('needs_reauth');
+    const refusedBody = (await refused.json()) as { error: { code: string } };
+    expect(refusedBody.error.code).toBe('needs_reauth');
+    expect(wireShape(refusedBody)).toEqual(wireShape(PRIV_KEYS_WIRE_NEEDS_REAUTH));
     let mark = wire.length;
     await m.CommerceController.syncWatchlist();
     expect(m.useCommerceStore.getState().watchlistSyncStatus).toBe('needs_reauth');
@@ -637,6 +660,27 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
     // ── 2. Full grant: seal, read back, then delete ───────────────────────
     activate(buyerFullGrant);
     m.CommercePrivKeyringApplication.clear();
+    const rawKeys = await fetch(`${SERVICE_URL}/v1/me/priv-keys`, {
+      headers: { authorization: `Bearer ${buyerFullGrant.token}` },
+      cache: 'no-store',
+    });
+    expect(rawKeys.status).toBe(200);
+    const rawKeysBody = (await rawKeys.json()) as {
+      owner: string;
+      current_key_id: string;
+      keys: { key_id: string; key: string; created_at: string }[];
+    };
+    expect(wireShape({ ...rawKeysBody, keys: rawKeysBody.keys.slice(0, 1) })).toEqual(wireShape(PRIV_KEYS_WIRE_OK));
+    expect(rawKeysBody.owner).toBe(buyer.pubky);
+    for (const key of rawKeysBody.keys) {
+      expect(key.key_id).toMatch(/^[0-9a-f]{32}$/);
+      expect(Buffer.from(key.key, 'base64url')).toHaveLength(32);
+      expect(Number.isNaN(Date.parse(key.created_at))).toBe(false);
+    }
+    expect(rawKeysBody.keys.some(({ key_id }) => key_id === rawKeysBody.current_key_id)).toBe(true);
+    console.info(
+      `[priv-live] 2. released keys: ${rawKeysBody.keys.length} key(s); body shape matches the pinned wire fixture`,
+    );
     const released = await m.MarketplaceGatewayService.getPrivKeys(buyer.pubky);
     if (released.kind !== 'keys') throw new Error(`full-grant session refused: ${released.kind}`);
     const keyring = released.keyring;
@@ -720,15 +764,32 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
     const recovery = recipe(JSON.parse(exported.file.contents) as RecoveryFile);
     expect(recovery.entryUrl('watchlist', 'watchlist')).toBe(watchlistUrl);
     expect(
-      recovery.open((await m.CommerceHomeserverService.fetchJson(watchlistUrl)) as never, 'watchlist', 'watchlist'),
-    ).toEqual(sealedWatchlist);
-    expect(
       recovery.open(
-        (await m.CommerceHomeserverService.fetchJson(receiptUrl(firstReceiptId))) as never,
-        'order_receipt',
-        firstReceiptId,
+        (await m.CommerceHomeserverService.fetchJson(watchlistUrl)) as never,
+        'watchlist',
+        recovery.entryName('watchlist', 'watchlist'),
       ),
-    ).toEqual(legacyReceipt);
+    ).toEqual(sealedWatchlist);
+    // Receipts: no receipt id is known up front. List the family, open each
+    // entry by its own name, then check the id inside derives that name.
+    const receiptEntries = await m.HomeserverService.list({
+      baseDirectory: recovery.familyUrl('order_receipt'),
+      limit: 100,
+    });
+    const recovered = new Map<string, Record<string, unknown>>();
+    for (const url of receiptEntries) {
+      const name = url.slice(url.lastIndexOf('/') + 1);
+      const record = recovery.open(
+        (await m.CommerceHomeserverService.fetchJson(url)) as never,
+        'order_receipt',
+        name,
+      ) as Record<string, unknown>;
+      expect(recovery.entryName('order_receipt', String(record.receiptId))).toBe(name);
+      recovered.set(String(record.receiptId), record);
+    }
+    expect([...recovered.keys()].sort()).toEqual([firstReceiptId, secondReceiptId].sort());
+    expect(recovered.get(firstReceiptId)).toEqual(legacyReceipt);
+    expect(recovered.get(secondReceiptId)).toEqual(secondRecord);
     const [activityName] = activityAfterSeen.names;
     expect(
       recovery.open(
@@ -740,7 +801,7 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
       ),
     ).toMatchObject({ version: 1, seenAt: activityAfterSeen.max });
     console.info(
-      '[priv-live] 2d. exported recovery key opens watchlist, receipt and checkpoint with node:crypto alone',
+      '[priv-live] 2d. exported recovery key alone opens the watchlist, both receipts found by listing (no receipt ids), and a checkpoint, with node:crypto',
     );
 
     // ── 3. Fresh device: empty IndexedDB, new session, same key ────────────
@@ -795,6 +856,23 @@ describe('encrypted /priv — LIVE proof on the deployed staging stack', () => {
     expect(await exists(foreignCheckpoint)).toBe(true);
     console.info(
       '[priv-live] 4. undecryptable: tampered entries untouched, plaintext kept, foreign checkpoint ignored, zero writes',
+    );
+
+    const invalidReceipt = m.envelopeLib.encryptPrivRecord({
+      keyring,
+      family: 'order_receipt',
+      name: m.envelopeLib.privEntryName(keyring, 'order_receipt', firstReceiptId),
+      record: {},
+    });
+    await m.CommerceHomeserverService.putJson(receiptUrl(firstReceiptId), invalidReceipt);
+    mark = wire.length;
+    m.CommerceApplication.resetReceiptPublicationMemo();
+    expect(await m.CommerceApplication.publishOrderReceipts(buyer.pubky, [firstOrder])).toBe('unavailable');
+    expect(writesSince(mark)).toEqual([]);
+    expect(await m.CommerceHomeserverService.fetchJson(receiptUrl(firstReceiptId))).toEqual(invalidReceipt);
+    expect(await m.CommerceHomeserverService.fetchJson(legacyReceiptUrl)).toEqual(legacyReceipt);
+    console.info(
+      '[priv-live] 4c. a sealed receipt that opens to an invalid record: not published, not overwritten, plaintext kept, zero writes',
     );
 
     // ── 4b. Privacy boundary: another identity reads nothing of the buyer's ──
