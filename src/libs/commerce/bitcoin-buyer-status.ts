@@ -1,8 +1,8 @@
 import {
   bitcoinPaymentBreakdown,
+  type BitcoinPaymentOrder,
   formatBitcoinAwareMoney,
   satoshiCount,
-  type BitcoinPaymentOrder,
 } from '@/libs/commerce/bitcoin-payment-code';
 import { formatHoldDeadline } from '@/libs/commerce/checkout-hold';
 import { buyerCheckoutStateLabel, reservedWhileYouPayCopy } from '@/libs/commerce/checkout-phase';

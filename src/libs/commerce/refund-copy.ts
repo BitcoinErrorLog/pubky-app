@@ -1,8 +1,8 @@
 import {
   bitcoinPaymentBreakdown,
+  type BitcoinPaymentOrder,
   formatBitcoinAmountBreakdown,
   formatBitcoinAwareMoney,
-  type BitcoinPaymentOrder,
 } from '@/libs/commerce/bitcoin-payment-code';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { partialRefundLabel } from '@/libs/commerce/partial-refund';

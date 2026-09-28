@@ -18,8 +18,8 @@ import { useMarketplaceWatchAlertFeed } from '@/hooks/useMarketplaceWatchAlertFe
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { activityRowHref } from '@/libs/commerce/activity-links';
-import { isBuyerCheckoutInProgress } from '@/libs/commerce/checkout-phase';
 import { formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
+import { isBuyerCheckoutInProgress } from '@/libs/commerce/checkout-phase';
 import { returnActivityTitles } from '@/libs/commerce/return-activity-titles';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';

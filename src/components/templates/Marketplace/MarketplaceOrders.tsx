@@ -16,7 +16,6 @@ import { type CommerceAdapterMode, isDurableCommerceMode, isTransactionalCommerc
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarkMarketplaceOrdersSeen } from '@/hooks/useMarkMarketplaceOrdersSeen/useMarkMarketplaceOrdersSeen';
 import { orderAnchorId, readOrderAnchorId } from '@/libs/commerce/activity-links';
-import { bitcoinPaymentBreakdown, formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import {
   bitcoinPaymentHasBeenSeen,
   buyerCheckoutBadgeLabel,
@@ -24,6 +23,7 @@ import {
   PAYMENT_SEEN_LABEL,
   sellerBitcoinDecision,
 } from '@/libs/commerce/bitcoin-buyer-status';
+import { bitcoinPaymentBreakdown, formatBitcoinAwareMoney } from '@/libs/commerce/bitcoin-payment-code';
 import { buildCarrierTrackingUrl } from '@/libs/commerce/carriers';
 import { CHECKOUT_HOLD_COPY, isHoldExpiredNoLateMoney } from '@/libs/commerce/checkout-hold';
 import {
