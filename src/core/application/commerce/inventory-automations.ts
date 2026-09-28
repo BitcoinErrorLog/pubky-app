@@ -1,7 +1,9 @@
+import { CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { INVENTORY_GRANT, inventoryCapabilityCovers } from '@/services/marketplace/marketplace-inventory-grant';
 import { MarketplaceInventorySessionService } from '@/services/marketplace/marketplace-inventory-session';
 import { MarketplaceSessionService } from '@/services/marketplace/marketplace-session';
+import { MARKETPLACE_SESSION_GRANT } from '@/services/marketplace/marketplace-session-grant';
 import {
   MarketplaceShopClientService,
   PubkyShopError,
@@ -132,8 +134,12 @@ export function isPublicHttpsWebhookUrl(value: string): boolean {
   return true;
 }
 
+const PURCHASE_GRANTS: readonly string[] = [MARKETPLACE_SESSION_GRANT, CAPABILITIES];
+
 /**
- * Empty caps → Purchase. Exact Studio inventory grant → Inventory.
+ * Purchase: empty caps (bridged or legacy identity session), the marketplace
+ * session grant (Bitkit or Ring grant flow, Ring QR), or the Shop sign-in
+ * grant a Ring sign-in redeems. Exact Studio inventory grant → Inventory.
  * Root `/:rw` and every other grant string → CLI (not Studio).
  */
 export function classifySessionKind(capabilities: string): InventorySessionKind {
@@ -143,6 +149,8 @@ export function classifySessionKind(capabilities: string): InventorySessionKind 
     .filter((part) => part.length > 0);
   if (parts.length === 0) return 'purchase';
   if (parts.length === 1 && parts[0] === INVENTORY_GRANT) return 'inventory';
+  const normalized = [...parts].sort().join(',');
+  if (PURCHASE_GRANTS.some((grant) => grant.split(',').sort().join(',') === normalized)) return 'purchase';
   return 'cli';
 }
 
