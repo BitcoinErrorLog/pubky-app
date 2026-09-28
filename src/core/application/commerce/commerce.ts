@@ -1168,16 +1168,29 @@ export class CommerceApplication {
   }
 
   /**
-   * Drops the Marketplace Transaction Service session from memory and from
-   * `localStorage`. Part of the sign-out teardown: the bearer token must not
-   * survive the user it was minted for (this is the single cleanup point).
-   * The published-receipt memo backs the user-visible `published` status, so
-   * it is cleared here too — session teardown matches the store reset, and a
-   * later account re-reads its receipts instead of trusting a prior session.
-   * The Lock Server creator frontend session is wiped here for the same reason.
+   * Drops the Marketplace Transaction Service session this tab holds, with
+   * only its own persisted record (a newer bearer another tab persisted
+   * stays). The published-receipt memo backs the user-visible `published`
+   * status, so it is cleared here too — session teardown matches the store
+   * reset, and a later account re-reads its receipts instead of trusting a
+   * prior session. The Lock Server creator frontend session is wiped here for
+   * the same reason.
    */
   static clearMarketplaceSession(): void {
     MarketplaceSessionService.clearSession('cleared');
+    this.clearSessionScopedState();
+  }
+
+  /**
+   * Sign-out and account switch: also removes a purchase bearer another tab
+   * persisted, because none may outlive the user who is leaving.
+   */
+  static clearMarketplaceSessionForSignOut(): void {
+    MarketplaceSessionService.clearForSignOut();
+    this.clearSessionScopedState();
+  }
+
+  private static clearSessionScopedState(): void {
     LocksFrontendSessionStore.clear();
     this.publishedReceiptUrls.clear();
     this.ownReviewHomeserverMisses.clear();

@@ -22,6 +22,7 @@ import {
   bindFlow,
   completeClaim,
   deleteBridge,
+  deleteBridgeForSession,
   getBridge,
   getFlow,
   insertCreatingFlow,
@@ -276,11 +277,26 @@ export async function cancelFlow(
   await terminalizeFlow(config, stateId, 'cancelled');
 }
 
-export async function clearSession(request: Request, sessionCookie: string | undefined): Promise<void> {
+/**
+ * Unpairs the session cookie's bridge. A `session_id` query scopes it to that
+ * marketplace session, so one tab's expired bearer cannot unpair a newer
+ * session another tab paired on the shared cookie. Returns whether the
+ * cookie should be dropped.
+ */
+export async function clearSession(request: Request, sessionCookie: string | undefined): Promise<boolean> {
   const config = requiredConfig();
   assertSameOrigin(request, config);
+  const ownedSessionId = new URL(request.url).searchParams.get('session_id');
+  if (ownedSessionId !== null && !marketplaceSessionIdSchema.safeParse(ownedSessionId).success) {
+    throw new BffError(400, 'invalid_request');
+  }
   const parsed = parseBoundCookie(sessionCookie);
-  if (parsed) await deleteBridge(config, parsed.id);
+  if (!parsed) return true;
+  if (ownedSessionId === null) {
+    await deleteBridge(config, parsed.id);
+    return true;
+  }
+  return await deleteBridgeForSession(config, parsed.id, ownedSessionId);
 }
 
 export function mapBffError(error: unknown): { status: number; code: string; retryAfterSeconds?: number } {

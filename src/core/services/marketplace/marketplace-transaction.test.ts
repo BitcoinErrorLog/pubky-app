@@ -11,7 +11,8 @@ import sellerDropCapture from '@/test/fixtures/commerce/live/seller-drop-v0621.j
 import { LIVE_ORDERS_WIRE_FIXTURE } from '@/test/fixtures/commerce/orders.wire';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { MARKETPLACE_NOTIFICATION_TYPE_MAX_LENGTH, marketplaceNotificationSchema } from './marketplace-projections';
-import { MarketplaceSessionService } from './marketplace-session';
+import { MARKETPLACE_SESSION_STORAGE_KEY, MarketplaceSessionService } from './marketplace-session';
+import { MARKETPLACE_SESSION_GRANT } from './marketplace-session-grant';
 import { MarketplaceTransactionService } from './marketplace-transaction';
 
 const ACTOR = 'y'.repeat(52);
@@ -192,6 +193,31 @@ describe('MarketplaceTransactionService.execute', () => {
       code: 'SESSION_EXPIRED',
     });
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+  });
+
+  it('a 401 for the bearer a request carried keeps a newer session adopted while it was in flight', async () => {
+    await establishSession();
+    const newer = 'B'.repeat(43);
+    vi.mocked(fetch).mockImplementationOnce(async () => {
+      MarketplaceSessionService.establishClaimedGrantSession(
+        {
+          token: newer,
+          pubky: ACTOR,
+          capabilities: MARKETPLACE_SESSION_GRANT,
+          expiresAt: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+        },
+        ACTOR,
+      );
+      return jsonResponse(401, { error: { message: 'The session is invalid or expired.' } });
+    });
+
+    await expect(MarketplaceTransactionService.execute(ACTOR, bidCommand())).rejects.toMatchObject({
+      code: 'SESSION_EXPIRED',
+    });
+    expect(MarketplaceSessionService.getActiveSession()?.token).toBe(newer);
+    expect(JSON.parse(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY) ?? '{}')).toMatchObject({
+      token: newer,
+    });
   });
 
   it('refuses to act for a different pubky than the session was minted for', async () => {
