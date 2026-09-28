@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CommerceInventoryImportApplication,
@@ -276,6 +278,24 @@ describe('CommerceInventoryImportApplication', () => {
     expect(result).toMatchObject({ status: 'parse-failed', puts: 0, message: IMPORT_PARSE_FAIL_COPY });
     expect(puts).toEqual([]);
     expect(store.manifests.size).toBe(0);
+  });
+
+  it('plans a current Shopify product CSV without using inventory quantity as stock', async () => {
+    const bytes = new Uint8Array(
+      readFileSync(resolve(__dirname, '../../../test/fixtures/shopify/product-current.csv')),
+    );
+    const result = await app().planFile(new BytesFile(bytes, 'product-current.csv', 'text/csv'));
+    expect(result).toMatchObject({ status: 'planned', rowCount: 2 });
+    const payloads = [...store.payloads.values()].map(
+      (value) => JSON.parse(value) as { listingId: string; sku: string; variantQuantity: number; amountMinor: number },
+    );
+    expect(payloads).toHaveLength(2);
+    expect(payloads.every((row) => row.listingId === 'night-boots')).toBe(true);
+    expect(payloads.map((row) => row.sku).sort()).toEqual(['BOOT-L', 'BOOT-M']);
+    expect(payloads.map((row) => row.variantQuantity)).toEqual([0, 0]);
+    expect(payloads.every((row) => row.amountMinor === 12_500)).toBe(true);
+    expect(JSON.stringify(payloads)).not.toContain('draft-hat');
+    expect(puts).toEqual([]);
   });
 
   it('rejects a formula_payload CSV and never PUTs', async () => {
