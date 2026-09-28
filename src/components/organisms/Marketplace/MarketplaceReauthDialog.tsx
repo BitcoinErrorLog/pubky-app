@@ -6,7 +6,6 @@ import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
-import { useMarketplaceSessionNeedsPrivateData } from '@/hooks/useMarketplaceSessionNeedsPrivateData/useMarketplaceSessionNeedsPrivateData';
 import { useStepUpReauth } from '@/hooks/useStepUpReauth/useStepUpReauth';
 import { Logger } from '@/libs/logger/logger';
 import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
@@ -25,19 +24,19 @@ type MarketplaceReauthDialogProps = {
  * Option C) for scope-gated features — watchlist sync and portable receipts
  * today.
  *
- * Which approval fixes the refusal depends on which session lacks the
- * private tree. When the homeserver session can already write it but the
- * purchase session does not cover it (the `/v1/me/priv-keys` `needs_reauth`
- * state), the fix is a new purchase session approval in Bitkit or Pubky Ring.
- * A Bitkit (grant) sign-in always holds the full homeserver grant and cannot
- * run the Ring step-up, so it takes the same path. Otherwise the homeserver
- * session itself is narrow and gets the Pubky Ring step-up below, which also
- * mints a covering purchase session.
+ * It routes on who raised the refusal. On this release every producer of
+ * the watchlist and receipt `needs_reauth` states is a homeserver refusal,
+ * so a cookie sign-in gets the Pubky Ring step-up below, which is the only
+ * approval that repairs it (and, under single approval, also mints a
+ * covering purchase session). A Bitkit (grant) sign-in cannot run the Ring
+ * step-up (`AuthController.getStepUpAuthUrl` refuses it), so it gets the
+ * marketplace session approval in Bitkit or Pubky Ring instead. A refusal
+ * raised by the purchase session itself arrives with the private-data key
+ * release and must route on that source, not on session facts.
  */
 export function MarketplaceReauthDialog({ triggerLabel, onReauthenticated }: MarketplaceReauthDialogProps) {
-  const purchaseSessionNeedsPrivateData = useMarketplaceSessionNeedsPrivateData();
   const isGrantSession = useIsGrantSession();
-  if (purchaseSessionNeedsPrivateData || isGrantSession) {
+  if (isGrantSession) {
     return <MarketplaceSessionConnectDialog triggerLabel={triggerLabel} onConnected={onReauthenticated} />;
   }
   return <HomeserverStepUpDialog triggerLabel={triggerLabel} onReauthenticated={onReauthenticated} />;

@@ -15,10 +15,12 @@ import { MarketplaceReauthDialog } from './MarketplaceReauthDialog';
 import { MarketplaceSessionRequiredCard } from './MarketplaceSessionRequiredCard';
 
 /**
- * #49 end to end through the real hooks: only the BFF network clients and
- * the Ring step-up hook are stubbed. The producers are the real auth store
- * (a grant-backed Bitkit sign-in), the real purchase session service and
- * commerce store, and the real session-connect hook.
+ * Bitkit approval routing through the real hooks: only the BFF network
+ * clients and the Ring step-up hook are stubbed. The auth store (a
+ * grant-backed Bitkit sign-in), the purchase session service, the commerce
+ * store and the session-connect hook are real. The re-approval dialog is
+ * mounted directly: no producer on this release opens it for a Bitkit
+ * sign-in (docs/ecommerce/step-up-approval.md).
  */
 vi.mock('@/services/marketplace/marketplace-grant-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/marketplace/marketplace-grant-client')>()),
@@ -165,20 +167,24 @@ describe('#49 Bitkit approval journeys (real hooks)', () => {
     );
   });
 
-  it('a Ring sign-in whose purchase session lacks /priv also re-approves the purchase session', async () => {
-    signIn('ring');
-    seedPurchaseSession(parityCapture.previous_request.homeserver_verified);
-    vi.mocked(beginMarketplaceGrantFlow).mockResolvedValue(
-      deferredGrantFlow(grantUrl(parityCapture.parity_request.caps)).flow,
-    );
-    const user = userEvent.setup();
+  it.each([
+    ['is inventory-only', parityCapture.previous_request.homeserver_verified],
+    ['is missing', null],
+  ])(
+    'a Ring sign-in whose purchase session %s gets the Ring step-up, the only fix for a homeserver refusal',
+    async (_label, capabilities) => {
+      signIn('ring');
+      if (capabilities !== null) seedPurchaseSession(capabilities);
+      const user = userEvent.setup();
 
-    render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
-    await user.click(screen.getByRole('button', { name: 'Sign in again' }));
+      render(<MarketplaceReauthDialog triggerLabel="Sign in again" />);
+      await user.click(screen.getByRole('button', { name: 'Sign in again' }));
 
-    await waitFor(() => expect(beginMarketplaceGrantFlow).toHaveBeenCalledTimes(1));
-    expect(ringStepUp.start).not.toHaveBeenCalled();
-  });
+      await waitFor(() => expect(ringStepUp.start).toHaveBeenCalledTimes(1));
+      expect(screen.getByRole('button', { name: 'Open in Pubky Ring' })).toBeInTheDocument();
+      expect(beginMarketplaceGrantFlow).not.toHaveBeenCalled();
+    },
+  );
 
   it('a Ring sign-in whose purchase session already covers /priv gets the homeserver step-up', async () => {
     signIn('ring');
