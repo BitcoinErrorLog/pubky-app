@@ -173,7 +173,10 @@ export class LocalMessagingService {
   /**
    * Creates the conversation row if absent; bumps `last_message_at`/`updated_at`
    * if newer. The read checkpoint (`last_read_at`) is owned by
-   * `markConversationRead` and is never touched here.
+   * `markConversationRead` and is never touched here. `origin` and
+   * `first_contact_at` apply only when the row is created: later writes never
+   * move a thread between Requests and the inbox (that is
+   * {@link markCounterpartyKnown}).
    */
   static async touchConversation(
     conversation: Omit<CommerceMessagingConversationModelSchema, 'id' | 'created_at' | 'last_read_at'>,
@@ -197,6 +200,63 @@ export class LocalMessagingService {
   }
 
   /**
+   * Moves every conversation with `counterpartyPubky` out of Requests. Used
+   * when the account accepts the person, replies to them, or turns out to
+   * know them (follows them, or shares an order or offer).
+   */
+  static async markCounterpartyKnown(ownerId: string, counterpartyPubky: string): Promise<void> {
+    const conversations = await this.getConversationsByOwner(ownerId);
+    for (const conversation of conversations) {
+      if (conversation.counterparty_pubky !== counterpartyPubky || conversation.origin !== 'request') continue;
+      await CommerceMessagingConversationModel.upsert({ ...conversation, origin: 'known' });
+    }
+  }
+
+  /** Dates the first message to a new person on this conversation, once. */
+  static async recordFirstContact(ownerId: string, conversationId: string, at: number): Promise<void> {
+    const current = await CommerceMessagingConversationModel.findById(`${ownerId}:${conversationId}`);
+    if (!current || typeof current.first_contact_at === 'number') return;
+    await CommerceMessagingConversationModel.upsert({ ...current, first_contact_at: at });
+  }
+
+  /** Every recorded first contact of this account, oldest first. */
+  static async getFirstContacts(ownerId: string): Promise<{ counterpartyPubky: string; at: number }[]> {
+    const conversations = await this.getConversationsByOwner(ownerId);
+    return conversations
+      .flatMap((conversation) =>
+        typeof conversation.first_contact_at === 'number'
+          ? [{ counterpartyPubky: conversation.counterparty_pubky, at: conversation.first_contact_at }]
+          : [],
+      )
+      .sort((left, right) => left.at - right.at);
+  }
+
+  /**
+   * Whether this account has already exchanged anything with the person:
+   * a message either way, a queued message, or an established link.
+   */
+  static async hasHistoryWith(ownerId: string, counterpartyPubky: string): Promise<boolean> {
+    const link = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    if (link?.status === 'established') return true;
+    if ((await this.getQueuedMessages(ownerId, counterpartyPubky)).length > 0) return true;
+    for (const conversation of await this.getConversationsByOwner(ownerId)) {
+      if (conversation.counterparty_pubky !== counterpartyPubky) continue;
+      if ((await this.getMessages(ownerId, conversation.conversation_id)).length > 0) return true;
+    }
+    return false;
+  }
+
+  /** Whether the account has sent this person at least one message. */
+  static async hasSentTo(ownerId: string, counterpartyPubky: string): Promise<boolean> {
+    for (const conversation of await this.getConversationsByOwner(ownerId)) {
+      if (conversation.counterparty_pubky !== counterpartyPubky) continue;
+      const messages = await this.getMessages(ownerId, conversation.conversation_id);
+      if (messages.some((message) => message.direction === 'sent')) return true;
+    }
+    return false;
+  }
+
+  /**
    * Moves the device-local read checkpoint forward (never backward). Called
    * when the conversation surface is actually showing its messages.
    */
@@ -211,12 +271,18 @@ export class LocalMessagingService {
    * Honest device-local unread: conversations holding at least one RECEIVED
    * message persisted after the read checkpoint. Counts only messages that
    * already arrived on this device — it can never claim knowledge of
-   * undelivered mail sitting on a homeserver.
+   * undelivered mail sitting on a homeserver. Requests and the
+   * `excludedCounterparties` (muted people) never count.
    */
-  static async countUnreadConversations(ownerId: string): Promise<number> {
+  static async countUnreadConversations(
+    ownerId: string,
+    excludedCounterparties?: ReadonlySet<string>,
+  ): Promise<number> {
     const conversations = await this.getConversationsByOwner(ownerId);
     let unread = 0;
     for (const conversation of conversations) {
+      if (conversation.origin === 'request') continue;
+      if (excludedCounterparties?.has(conversation.counterparty_pubky)) continue;
       const checkpoint = conversation.last_read_at ?? 0;
       const messages = await this.getMessages(ownerId, conversation.conversation_id);
       if (messages.some((message) => message.direction === 'received' && message.recorded_at > checkpoint)) {
@@ -236,6 +302,11 @@ export class LocalMessagingService {
   static async getMessages(ownerId: string, conversationId: string): Promise<CommerceMessagingMessageModelSchema[]> {
     const messages = await CommerceMessagingMessageModel.findByConversation(ownerId, conversationId);
     return messages.filter(isBoundToCounterparty);
+  }
+
+  /** Whether any message row (sent or received) holds this event id for the owner. */
+  static async hasMessage(ownerId: string, eventId: string): Promise<boolean> {
+    return (await CommerceMessagingMessageModel.findById(`${ownerId}:${eventId}`)) !== null;
   }
 
   /**

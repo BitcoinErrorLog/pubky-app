@@ -1,3 +1,5 @@
+import type { ConversationOrigin } from '@/libs/messaging/first-contact';
+
 /**
  * Account-scoped persistence for end-to-end-encrypted marketplace messaging
  * over Paykit Encrypted Links (durable commerce modes).
@@ -135,6 +137,20 @@ export interface CommerceMessagingConversationModelSchema {
    * arrived on THIS device, never anything unfetched.
    */
   last_read_at: number | null;
+  /**
+   * `request` while the counterparty is someone this account does not know
+   * yet: the thread is listed under Requests and never counts as unread.
+   * `known` for everyone else. Absent on rows written before first contact
+   * existed, which read as `known`. Not indexed, so adding it needed no
+   * Dexie version.
+   */
+  origin?: ConversationOrigin;
+  /**
+   * When this account first messaged a new person in this conversation, on
+   * this device's clock. Drives the limit on new people per hour; `null` or
+   * absent otherwise.
+   */
+  first_contact_at?: number | null;
   created_at: number;
   updated_at: number;
 }

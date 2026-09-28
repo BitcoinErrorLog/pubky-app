@@ -23,6 +23,7 @@ import {
   PaykitMessagingService,
   setPaykitWasmModuleForTests,
 } from '@/services/paykit/paykit-messaging';
+import { ADMIT_ALL_GATE } from '@/test-utils/messaging-gate';
 
 vi.mock('@/config/commerce', () => ({
   getCommerceAdapterMode: () => 'transaction-service' as const,
@@ -131,7 +132,7 @@ async function drainAlice(alicePubky: string, bobPubky: string, deadlineMs: numb
   }
   const received: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
   while (state.status === 'ready' && Date.now() < deadline && received.length === 0) {
-    received.push(...(await PaykitMessagingService.receiveMessages(alicePubky, bobPubky)));
+    received.push(...(await PaykitMessagingService.receiveMessages(alicePubky, bobPubky, ADMIT_ALL_GATE)));
     if (received.length === 0) await sleep(STEP_MS);
   }
   return { state, received };

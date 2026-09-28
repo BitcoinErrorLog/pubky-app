@@ -10,6 +10,7 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useEncryptedInbox } from '@/hooks/useEncryptedInbox/useEncryptedInbox';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
@@ -18,6 +19,7 @@ import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFal
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessagingEnableDialog } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
+import { MessagingMutesNotice, MessagingRequests } from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
@@ -83,6 +85,8 @@ export function Messages() {
               </div>
             )}
 
+            <MessagingMutesNotice status={inbox.mutesStatus} onRetry={inbox.refresh} />
+
             {inbox.status === 'loading' ? (
               <Skeleton className="h-32 w-full" />
             ) : inbox.conversations.length ? (
@@ -91,18 +95,25 @@ export function Messages() {
                   End-to-end encrypted · history stored on this device · both sides must have enabled encrypted
                   messaging. The local storage includes the keys that decrypt it — clearing site data deletes both.
                 </Typography>
-                {inbox.conversations.map((conversation) =>
-                  conversation.kind === 'dm' ? (
-                    <DmConversationRow key={conversation.id} conversation={conversation} />
-                  ) : (
-                    <ListingConversationRow key={conversation.id} conversation={conversation} />
-                  ),
-                )}
+                {inbox.conversations
+                  .filter((conversation) => conversation.origin !== 'request')
+                  .map((conversation) =>
+                    conversation.kind === 'dm' ? (
+                      <DmConversationRow key={conversation.id} conversation={conversation} />
+                    ) : (
+                      <ListingConversationRow key={conversation.id} conversation={conversation} />
+                    ),
+                  )}
+                <MessagingRequests
+                  requests={inbox.conversations.filter((conversation) => conversation.origin === 'request')}
+                  canMute={isDurableCommerceMode(getCommerceAdapterMode())}
+                  onChanged={inbox.refresh}
+                />
               </div>
             ) : inbox.status === 'ready' ? (
               <EmptyState
                 title="No messages yet"
-                body="Open someone's profile and message them, or message a seller from a listing. You can receive messages from people you follow or who follow you (plus marketplace contacts) — a total stranger's invitation stays invisible until they're in your graph."
+                body="Open someone's profile and message them, or message a seller from a listing. Messages from people you don't know yet arrive under Requests."
               />
             ) : null}
           </div>

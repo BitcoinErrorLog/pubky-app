@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MessagingThreadState } from '@/application/messaging/messaging';
 import { getCommercePollIntervalMs } from '@/config/commerce';
 import { MessagingController } from '@/controllers/messaging/messaging';
 import { bodyByteSize, chatMessageBodyBudget } from '@/libs/commerce/messaging-contracts';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
@@ -11,7 +13,6 @@ import {
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { toast } from '@/molecules/Toaster/use-toast';
-import type { MessagingLinkState } from '@/services/paykit/paykit-messaging';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import type {
   ConversationThreadItem,
@@ -45,8 +46,11 @@ export function useEncryptedConversation(
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [followOnSend, setFollowOnSend] = useState(false);
+  const [firstContactNotice, setFirstContactNotice] = useState<string | null>(null);
   // The "your message is queued" toast fires once per surface, not per send.
   const queuedToastShownRef = useRef(false);
+  const rateCapToastShownRef = useRef(false);
 
   const conversationId = useMemo(
     () => buildMarketplaceConversationAggregateId(sellerPubky, buyerPubky, listingId),
@@ -88,9 +92,10 @@ export function useEncryptedConversation(
     let cancelled = false;
     let timer: number | null = null;
 
-    const applyLinkState = (state: MessagingLinkState) => {
+    const applyLinkState = (state: MessagingThreadState) => {
       if (cancelled) return;
-      if (state.status === 'ready') setStatus('ready');
+      if (state.status === 'muted') setStatus('muted');
+      else if (state.status === 'ready') setStatus('ready');
       else if (state.status === 'not-enrolled') setStatus('not-enrolled');
       else if (state.status === 'recovery-needed') setStatus('recovery-needed');
       else setStatus(state.role === 'initiator' ? 'handshaking-initiator' : 'handshaking-responder');
@@ -99,12 +104,16 @@ export function useEncryptedConversation(
     const poll = async () => {
       if (cancelled || document.hidden) return;
       try {
-        const { state, received, flushed } = await MessagingController.pollConversation(
+        const { state, received, flushed, rateLimited } = await MessagingController.pollConversation(
           sellerPubky,
           buyerPubky,
           listingId,
         );
         applyLinkState(state);
+        if (rateLimited > 0 && !rateCapToastShownRef.current) {
+          rateCapToastShownRef.current = true;
+          toast({ variant: 'warning', description: MESSAGING_COPY.rateCap });
+        }
         // A flush turned queued rows into real sent history — reload so the
         // queued bubbles are replaced by their sent records.
         if (received.length > 0 || flushed > 0) await loadThread();
@@ -130,8 +139,11 @@ export function useEncryptedConversation(
         }
         const opened = await MessagingController.openConversation(sellerPubky, buyerPubky, listingId);
         applyLinkState(opened.state);
+        if (opened.state.status === 'muted') return;
         // Opening flushes queued rows when the link is ready — show the result.
         if (opened.state.status === 'ready') await loadThread();
+        const willFollow = await MessagingController.willFollowOnSend(sellerPubky, buyerPubky, listingId);
+        if (!cancelled) setFollowOnSend(willFollow);
       } catch (error) {
         if (cancelled) return;
         Logger.error('Failed to open the encrypted conversation', { error });
@@ -170,6 +182,8 @@ export function useEncryptedConversation(
     try {
       const outcome = await MessagingController.sendOrQueueMessage(sellerPubky, buyerPubky, listingId, body);
       setDraft('');
+      setFollowOnSend(false);
+      if (outcome.firstContact?.followed === 'failed') setFirstContactNotice(MESSAGING_COPY.followFailed);
       await loadThread();
       if (!outcome.delivered && !queuedToastShownRef.current) {
         queuedToastShownRef.current = true;
@@ -214,5 +228,7 @@ export function useEncryptedConversation(
     send,
     cancelQueued,
     refresh,
+    followOnSend,
+    firstContactNotice,
   };
 }

@@ -7,12 +7,15 @@ import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useDmConversation } from '@/hooks/useDmConversation/useDmConversation';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { buildDmConversationId } from '@/libs/messaging/dm-contracts';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceMessagingEnablePanel } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
+import { ConversationSafetyActions, MutedConversationPanel } from '@/organisms/Messaging/ConversationSafetyActions';
 import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -79,7 +82,25 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
           </Typography>
         ) : (
           <div className="flex flex-col gap-4">
+            {conversation.status !== 'loading' && conversation.status !== 'muted' ? (
+              <ConversationSafetyActions
+                counterpartyPubky={counterpartyPubky}
+                conversationId={buildDmConversationId(counterpartyPubky)}
+                counterpartyLabel={displayName}
+                canMute={isDurableCommerceMode(getCommerceAdapterMode())}
+                onMuted={conversation.refresh}
+              />
+            ) : null}
+
             {conversation.status === 'loading' && <Skeleton className="h-48 w-full" />}
+
+            {conversation.status === 'muted' && (
+              <MutedConversationPanel
+                counterpartyPubky={counterpartyPubky}
+                counterpartyLabel={displayName}
+                onUnmuted={conversation.refresh}
+              />
+            )}
 
             {conversation.status === 'needs-enable' && (
               <MarketplaceMessagingEnablePanel

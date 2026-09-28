@@ -99,6 +99,8 @@ export class CommerceMessagingConversationModel
   counterparty_pubky: string;
   last_message_at: number | null;
   last_read_at: number | null;
+  origin?: CommerceMessagingConversationModelSchema['origin'];
+  first_contact_at?: number | null;
   created_at: number;
   updated_at: number;
 
@@ -111,6 +113,8 @@ export class CommerceMessagingConversationModel
     this.counterparty_pubky = conversation.counterparty_pubky;
     this.last_message_at = conversation.last_message_at;
     this.last_read_at = conversation.last_read_at;
+    this.origin = conversation.origin;
+    this.first_contact_at = conversation.first_contact_at;
     this.created_at = conversation.created_at;
     this.updated_at = conversation.updated_at;
   }

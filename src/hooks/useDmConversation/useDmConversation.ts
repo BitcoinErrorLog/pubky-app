@@ -1,14 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MessagingThreadState } from '@/application/messaging/messaging';
 import { getCommercePollIntervalMs } from '@/config/commerce';
 import { MessagingController } from '@/controllers/messaging/messaging';
 import { bodyByteSize } from '@/libs/commerce/messaging-contracts';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { buildDmConversationId, dmBodyBudget } from '@/libs/messaging/dm-contracts';
 import { toast } from '@/molecules/Toaster/use-toast';
-import type { MessagingLinkState } from '@/services/paykit/paykit-messaging';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import type {
   ConversationThreadItem,
@@ -45,6 +46,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
   const [refreshNonce, setRefreshNonce] = useState(0);
   // The "your message is queued" toast fires once per surface, not per send.
   const queuedToastShownRef = useRef(false);
+  const rateCapToastShownRef = useRef(false);
 
   const conversationId = useMemo(() => buildDmConversationId(counterpartyPubky), [counterpartyPubky]);
   // The DM envelope has no variable-width fields outside the body, so the
@@ -77,9 +79,10 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
     let cancelled = false;
     let timer: number | null = null;
 
-    const applyLinkState = (state: MessagingLinkState) => {
+    const applyLinkState = (state: MessagingThreadState) => {
       if (cancelled) return;
-      if (state.status === 'ready') setStatus('ready');
+      if (state.status === 'muted') setStatus('muted');
+      else if (state.status === 'ready') setStatus('ready');
       else if (state.status === 'not-enrolled') setStatus('not-enrolled');
       else if (state.status === 'recovery-needed') setStatus('recovery-needed');
       else setStatus(state.role === 'initiator' ? 'handshaking-initiator' : 'handshaking-responder');
@@ -88,8 +91,13 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
     const poll = async () => {
       if (cancelled || document.hidden) return;
       try {
-        const { state, received, flushed } = await MessagingController.pollDmConversation(counterpartyPubky);
+        const { state, received, flushed, rateLimited } =
+          await MessagingController.pollDmConversation(counterpartyPubky);
         applyLinkState(state);
+        if (rateLimited > 0 && !rateCapToastShownRef.current) {
+          rateCapToastShownRef.current = true;
+          toast({ variant: 'warning', description: MESSAGING_COPY.rateCap });
+        }
         // A flush turned queued rows into real sent history — reload so the
         // queued bubbles are replaced by their sent records.
         if (received.length > 0 || flushed > 0) await loadThread();
@@ -115,6 +123,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
         }
         const opened = await MessagingController.openDmConversation(counterpartyPubky);
         applyLinkState(opened.state);
+        if (opened.state.status === 'muted') return;
         // Opening flushes queued rows when the link is ready — show the result.
         if (opened.state.status === 'ready') await loadThread();
       } catch (error) {

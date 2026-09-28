@@ -21,6 +21,8 @@ import {
   decodeDmMessage,
   type PubkyAppDmMessage,
 } from '@/libs/messaging/dm-contracts';
+import type { ConversationOrigin } from '@/libs/messaging/first-contact';
+import type { MessagingIntakeGate } from '@/libs/messaging/intake-gate';
 import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
@@ -613,8 +615,16 @@ export class PaykitMessagingService {
    * skipped here would be lost. Unknown kinds are skipped (legal on a shared
    * link). Message rows and conversation rows are persisted BEFORE the
    * advanced snapshot.
+   *
+   * Every new message passes `gate` (Shop policy: mutes, the receive cap,
+   * Requests) before it is stored. A refused message is consumed like any
+   * other: the snapshot still advances past it, so it is never stored later.
    */
-  static async receiveMessages(ownerPubky: string, counterpartyPubky: string): Promise<ReceivedMessage[]> {
+  static async receiveMessages(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    gate: MessagingIntakeGate,
+  ): Promise<ReceivedMessage[]> {
     return await this.withQueue(counterpartyPubky, async () => {
       const link = this.links.get(this.linkKey(ownerPubky, counterpartyPubky));
       if (!link) return [];
@@ -624,6 +634,23 @@ export class PaykitMessagingService {
       for (const item of inbound) {
         const routed = this.routeInboundMessage(item.rawJson, ownerPubky, counterpartyPubky);
         if (!routed) continue;
+        // A redelivery of a stored message is not new traffic, so it is not
+        // put to the gate (it must not use up the receive cap). Its thread
+        // row is normally there already; if a crash lost it, the row is
+        // recreated under Requests until the next sync reclassifies it.
+        let origin: ConversationOrigin = 'request';
+        if (!(await LocalMessagingService.hasMessage(ownerPubky, routed.event_id))) {
+          const decision = await gate.admit({
+            counterpartyPubky,
+            kind: routed.kind,
+            conversationId: routed.conversation_id,
+          });
+          if (!decision.store) {
+            Logger.info('Skipped an inbound message', { reason: decision.reason });
+            continue;
+          }
+          origin = decision.origin;
+        }
         // `event_id` is sender-chosen too, so a stored row is never
         // overwritten: an exact redelivery is a no-op and any other reuse of
         // the id is dropped.
@@ -654,6 +681,7 @@ export class PaykitMessagingService {
           counterparty_pubky: counterpartyPubky,
           last_message_at: touchedAt,
           updated_at: touchedAt,
+          origin,
         });
         if (stored.status === 'inserted') received.push(routed);
       }

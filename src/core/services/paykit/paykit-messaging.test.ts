@@ -25,6 +25,7 @@ import {
   CommerceMessagingReceiverModel,
 } from '@/models/messaging/messaging.models';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
+import { ADMIT_ALL_GATE } from '@/test-utils/messaging-gate';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { PaykitMessagingService, setPaykitWasmModuleForTests } from './paykit-messaging';
 
@@ -711,7 +712,7 @@ describe('PaykitMessagingService', () => {
           const restoresBefore = world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length;
           const receivesBefore = world.calls.filter((call) => call === 'link.receive').length;
           const markerReadsBefore = recoveringMarkerReads();
-          await MessagingApplication.syncCounterparties(OWNER, [...recovering, HEALTHY]);
+          await MessagingApplication.syncCounterparties(OWNER, [...recovering, HEALTHY], { gate: ADMIT_ALL_GATE });
           restoresPerPass.push(
             world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length - restoresBefore,
           );
@@ -819,14 +820,14 @@ describe('PaykitMessagingService', () => {
         { version: 1, kind: 'paykit.payment_request.v0', rawJson: foreign },
       );
 
-      const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
+      const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
       expect(received).toHaveLength(1);
       expect(received[0].body).toBe('hello from the counterparty');
       expect(received[0].sent_at).toBe(Date.parse('2026-08-21T10:00:00.000Z'));
 
       // Replay the same event (expected after a snapshot restore): no duplicate.
       link.inboundQueue.push({ version: 1, kind: 'marketplace.chat_message.v0', rawJson });
-      await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
+      await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
 
       const rows = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
       expect(rows).toHaveLength(1);
@@ -859,7 +860,7 @@ describe('PaykitMessagingService', () => {
         }),
       });
 
-      await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
+      await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
       expect(order).toEqual(['message', 'snapshot']);
     });
 
@@ -913,7 +914,7 @@ describe('PaykitMessagingService', () => {
         { version: 1, kind: 'pubky_app.dm.v0', rawJson: dmRaw },
       );
 
-      const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY);
+      const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
 
       expect(received.map((entry) => entry.kind)).toEqual(['listing', 'dm']);
       await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toHaveLength(1);
@@ -992,7 +993,7 @@ describe('PaykitMessagingService', () => {
       const eventId = crypto.randomUUID();
       pushInbound(chatRaw({ ...forged, eventId, body: 'pay the new address instead' }));
 
-      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER);
+      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE);
 
       expect(received).toEqual([]);
       const thread = await LocalMessagingService.getMessages(OWNER, forged.conversationId);
@@ -1014,7 +1015,7 @@ describe('PaykitMessagingService', () => {
         }),
       );
 
-      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE)).resolves.toEqual([]);
       await expect(CommerceMessagingConversationModel.findByOwner(OWNER)).resolves.toEqual([]);
       await expect(CommerceMessagingMessageModel.table.count()).resolves.toBe(0);
     });
@@ -1047,7 +1048,7 @@ describe('PaykitMessagingService', () => {
       },
     ])('drops a listing message whose envelope does not bind to the link ($case)', async (envelope) => {
       pushInbound(chatRaw({ ...envelope, body: 'not bound' }));
-      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE)).resolves.toEqual([]);
       await expect(CommerceMessagingMessageModel.table.count()).resolves.toBe(0);
     });
 
@@ -1059,7 +1060,7 @@ describe('PaykitMessagingService', () => {
       const listingRef = buildMarketplaceListingAggregateId(seller, LISTING_ID);
       pushInbound(chatRaw({ conversationId, listingRef, body: 'a real question' }));
 
-      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER);
+      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE);
 
       expect(received).toHaveLength(1);
       expect(received[0]).toMatchObject({ conversation_id: conversationId, counterpartyPubky: ATTACKER });
@@ -1086,7 +1087,7 @@ describe('PaykitMessagingService', () => {
       );
       const snapshotSpy = vi.spyOn(LocalMessagingService, 'updateLinkSnapshot');
 
-      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER);
+      const received = await PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE);
 
       expect(received.map((row) => row.body)).toEqual(['bound']);
       await expect(LocalMessagingService.getMessages(OWNER, victimThread)).resolves.toEqual([]);
@@ -1103,7 +1104,7 @@ describe('PaykitMessagingService', () => {
       });
       pushInbound(chatRaw({ conversationId: ownThread, listingRef, eventId: sent.event_id, body: 'rewritten' }));
 
-      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE)).resolves.toEqual([]);
 
       const thread = await LocalMessagingService.getMessages(OWNER, ownThread);
       expect(thread).toHaveLength(1);
@@ -1136,7 +1137,7 @@ describe('PaykitMessagingService', () => {
         kind: 'x',
         rawJson: fixture.envelope(eventId, 'original', 1_787_306_400_000),
       });
-      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toHaveLength(1);
+      await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE)).resolves.toHaveLength(1);
       const original = await CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`);
       await LocalMessagingService.markConversationRead(OWNER, fixture.conversationId, original!.recorded_at + 1);
       vi.useFakeTimers({ toFake: ['Date'], now: original!.recorded_at + 60_000 });
@@ -1147,7 +1148,7 @@ describe('PaykitMessagingService', () => {
         { version: 1, kind: 'x', rawJson: fixture.envelope(eventId, 'original', 1_787_306_400_000) },
       );
       try {
-        await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER)).resolves.toEqual([]);
+        await expect(PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE)).resolves.toEqual([]);
       } finally {
         vi.useRealTimers();
       }
@@ -1203,8 +1204,8 @@ describe('PaykitMessagingService', () => {
       );
 
       const [fromAttacker, fromSecond] = await Promise.all([
-        PaykitMessagingService.receiveMessages(OWNER, ATTACKER),
-        PaykitMessagingService.receiveMessages(OWNER, SECOND),
+        PaykitMessagingService.receiveMessages(OWNER, ATTACKER, ADMIT_ALL_GATE),
+        PaykitMessagingService.receiveMessages(OWNER, SECOND, ADMIT_ALL_GATE),
       ]);
 
       expect(fromAttacker.length + fromSecond.length).toBe(1);

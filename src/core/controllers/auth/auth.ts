@@ -7,6 +7,7 @@ import type {
 } from '@/application/auth/auth.types';
 import { BootstrapApplication, type BootstrapProgressCallback } from '@/application/bootstrap/bootstrap';
 import { CommerceApplication } from '@/application/commerce/commerce';
+import { FirstContactApplication } from '@/application/messaging/first-contact';
 import { MessagingApplication } from '@/application/messaging/messaging';
 import { SettingsApplication } from '@/application/settings/settings';
 import { postStreamQueue } from '@/application/stream/posts/muting/post-stream-queue';
@@ -862,6 +863,8 @@ export class AuthController {
     CommerceController.clearMarketplaceSession();
     // Same rule for the encrypted-messaging homeserver session and its live link handles.
     MessagingApplication.clearMessagingSession();
+    // The mute list, known contacts and message counters belong to the signed-out identity.
+    FirstContactApplication.clear();
     useMessagingStore.getState().clearMessagingEnabled();
     TtlCoordinator.resetInstance();
     StreamCoordinator.resetInstance();

@@ -1,6 +1,6 @@
 # Reading encrypted marketplace data without the marketplace
 
-The Shop encrypts your watchlist, order receipts and badge checkpoints before they reach your homeserver. The key is a random 32-byte data key that the marketplace service holds sealed and releases only to your signed-in session. **Settings → Privacy and Safety → Export recovery key** downloads that key. With the file and your homeserver data, you can read everything offline, even if the marketplace service no longer exists.
+The Shop encrypts your watchlist, order receipts, badge checkpoints and the people you muted in messages before they reach your homeserver. The key is a random 32-byte data key that the marketplace service holds sealed and releases only to your signed-in session. **Settings → Privacy and Safety → Export recovery key** downloads that key. With the file and your homeserver data, you can read everything offline, even if the marketplace service no longer exists.
 
 Anyone who has the file can read the same data. Keep it offline.
 
@@ -53,8 +53,11 @@ path           = /priv/pubky.app/marketplace/v2/s/{family segment}/{entry name}
 | Order receipt             | `order_receipt`           | entry segment for the receipt id (a UUID) |
 | Activity badge checkpoint | `attention_seen/activity` | a random 32-character lowercase hex name  |
 | Orders badge checkpoint   | `attention_seen/orders`   | a random 32-character lowercase hex name  |
+| Messaging mutes           | `messaging_mutes`         | entry segment for id `mutes`              |
 
 A badge checkpoint's plaintext is `{ "version": 1, "seenAt": <ms> }`; the checkpoint is the largest `seenAt`.
+
+The mute list's plaintext is `{ "version": 1, "kind": "pubky_app.messaging_mutes.v0", "owner_pubky": <your pubky>, "entries": { <pubky>: { "muted": <bool>, "changed_at": <ms> } } }`. A person is muted when their entry says `"muted": true`; `false` records an unmute.
 
 To open a record, find the key whose `keyId` equals the envelope's `kid`. Decrypt `ct` with XChaCha20-Poly1305 under that key's record key, the envelope's `nonce`, and associated data built from the entry's own name (the last segment of its path):
 

@@ -37,10 +37,13 @@ import type {
  *                             this device.
  * - `ready`                 — the Encrypted Link is established; sending and
  *                             receiving are live.
+ * - `muted`                 — this account muted the other person: nothing
+ *                             is opened, sent or received until it unmutes.
  * - `error`                 — a real transport failure, with its message.
  */
 export type EncryptedConversationStatus =
   | 'loading'
+  | 'muted'
   | 'needs-enable'
   | 'not-enrolled'
   | 'handshaking-initiator'
@@ -96,4 +99,8 @@ export interface UseEncryptedConversationReturn {
   cancelQueued: (id: string) => Promise<void>;
   /** Re-runs status resolution (used after the enable dialog completes). */
   refresh: () => void;
+  /** True when the next send will follow the seller (a buyer's first message to them). */
+  followOnSend?: boolean;
+  /** Shown after a first message when the seller may not see it yet. */
+  firstContactNotice?: string | null;
 }

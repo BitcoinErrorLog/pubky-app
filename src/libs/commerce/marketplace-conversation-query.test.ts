@@ -102,9 +102,7 @@ describe('listing aggregate helpers', () => {
 });
 
 describe('MESSAGING_COPY', () => {
-  it('uses the Round 2 listing disclosure wording', () => {
-    expect(MESSAGING_COPY.listingDisclosure).toBe(
-      'You can write here. The seller sees it after you follow them or you share an order.',
-    );
+  it('explains the follow on the first message in one plain line', () => {
+    expect(MESSAGING_COPY.followOnSend).toBe('Sending also follows this shop so they can see your message.');
   });
 });

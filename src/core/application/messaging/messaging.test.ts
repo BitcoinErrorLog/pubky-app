@@ -6,6 +6,7 @@ import { MESSAGING_RETRY_POLICY } from '@/libs/messaging/retry-backoff';
 import { CommerceMessagingConversationModel, CommerceMessagingOutboxModel } from '@/models/messaging/messaging.models';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { type MessagingLinkState, PaykitMessagingService } from '@/services/paykit/paykit-messaging';
+import { ADMIT_ALL_GATE } from '@/test-utils/messaging-gate';
 import {
   MESSAGING_SYNC_MAX_COUNTERPARTIES,
   MESSAGING_SYNC_MAX_RECOVERY_PROBES,
@@ -274,7 +275,7 @@ describe('MessagingApplication queued-message outbox', () => {
     mockLinkState(READY);
     mockChatSend();
 
-    const { state, flushed } = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY);
+    const { state, flushed } = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
 
     expect(state).toEqual(READY);
     expect(flushed).toBe(1);
@@ -286,7 +287,7 @@ describe('MessagingApplication queued-message outbox', () => {
     mockLinkState(HANDSHAKING);
     const flushSpy = vi.spyOn(MessagingApplication, 'flushOutbox');
 
-    const { flushed } = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY);
+    const { flushed } = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
 
     expect(flushed).toBe(0);
     expect(flushSpy).not.toHaveBeenCalled();
@@ -315,7 +316,7 @@ describe('MessagingApplication queued-message outbox', () => {
     vi.spyOn(PaykitMessagingService, 'receiveMessages').mockResolvedValue([]);
     mockDmSend();
 
-    await MessagingApplication.syncCounterparties(OWNER, [COUNTERPARTY]);
+    await MessagingApplication.syncCounterparties(OWNER, [COUNTERPARTY], { gate: ADMIT_ALL_GATE });
 
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
   });
@@ -396,7 +397,7 @@ describe('MessagingApplication retry spacing', () => {
     const probeSpy = vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue(READY);
     const receiveSpy = vi.spyOn(PaykitMessagingService, 'receiveMessages').mockResolvedValue([]);
 
-    await MessagingApplication.syncCounterparties(OWNER, [...due, ...waiting, ...healthy]);
+    await MessagingApplication.syncCounterparties(OWNER, [...due, ...waiting, ...healthy], { gate: ADMIT_ALL_GATE });
 
     const probed = probeSpy.mock.calls.map(([, counterparty]) => counterparty);
     expect(probed.slice(0, healthy.length)).toEqual(healthy);
