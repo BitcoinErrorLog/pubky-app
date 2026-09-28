@@ -11,8 +11,10 @@ import {
   isAbandonedCheckout,
   isBuyerCheckoutInProgress,
   isBuyerOrderHistory,
+  isSellerBoundBitcoinOrder,
   isSellerPaidOrder,
   isSellerReservation,
+  isSellerSalesOrder,
   readCheckoutHashOrderId,
   reservedWhileYouPayCopy,
   resolveCreatedCheckoutOrderIds,
@@ -91,6 +93,13 @@ describe('checkout-phase', () => {
     const returning = { state: 'return_requested', sellerPubky: SELLER, buyerPubky: BUYER };
     expect(isSellerReservation(unpaid, SELLER)).toBe(true);
     expect(isSellerPaidOrder(unpaid, SELLER)).toBe(false);
+    expect(isSellerSalesOrder(unpaid, SELLER)).toBe(false);
+    const boundBitcoin = { ...unpaid, paymentMethod: 'bitcoin' as const };
+    expect(isSellerBoundBitcoinOrder(boundBitcoin)).toBe(true);
+    expect(isSellerReservation(boundBitcoin, SELLER)).toBe(false);
+    expect(isSellerSalesOrder(boundBitcoin, SELLER)).toBe(true);
+    expect(isSellerReservation({ ...unpaid, paymentMethod: 'paypal' }, SELLER)).toBe(true);
+    expect(isSellerSalesOrder({ ...unpaid, paymentMethod: 'paypal' }, SELLER)).toBe(false);
     expect(isSellerReservation(paid, SELLER)).toBe(false);
     expect(isSellerPaidOrder(paid, SELLER)).toBe(true);
     expect(isSellerPaidOrder(returning, SELLER)).toBe(true);

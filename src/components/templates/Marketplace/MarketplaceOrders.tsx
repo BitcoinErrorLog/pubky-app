@@ -32,8 +32,8 @@ import {
   isBuyerCheckoutInProgress,
   isBuyerOrderHistory,
   isPendingPaymentState,
-  isSellerPaidOrder,
   isSellerReservation,
+  isSellerSalesOrder,
   readCheckoutHashOrderId,
   sellerReservationCopy,
   unlistedOrderStateLabel,
@@ -69,7 +69,10 @@ import { MarketplacePaymentStatusCard } from '@/organisms/Marketplace/Marketplac
 import { MarketplaceReauthDialog } from '@/organisms/Marketplace/MarketplaceReauthDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
 import { MarketplaceSellerDigitalPanel } from '@/organisms/Marketplace/MarketplaceSellerDigitalPanel';
-import { MarketplaceSessionRequiredCard } from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
+import {
+  MarketplaceSessionRequiredCard,
+  SALES_LIST_SESSION_NOTE,
+} from '@/organisms/Marketplace/MarketplaceSessionRequiredCard';
 import type { MarketplaceOrder, MarketplacePayment } from '@/services/marketplace/marketplace';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -103,7 +106,7 @@ export function MarketplaceOrders() {
   const sellerReservations = orders.filter(({ order }) => isSellerReservation(order, currentUserPubky));
   const abandonedCheckouts = orders.filter(({ order }) => isAbandonedCheckout(order, currentUserPubky));
   const historyOrders = orders.filter(
-    ({ order }) => isBuyerOrderHistory(order, currentUserPubky) || isSellerPaidOrder(order, currentUserPubky),
+    ({ order }) => isBuyerOrderHistory(order, currentUserPubky) || isSellerSalesOrder(order, currentUserPubky),
   );
   const orderCounts = getOrderTabCounts(historyOrders, currentUserPubky);
   const visibleOrders = historyOrders.filter((view) => isOrderInTab(view, activeTab, currentUserPubky));
@@ -217,7 +220,7 @@ export function MarketplaceOrders() {
         ) : isLoading ? (
           <Skeleton className="h-48 w-full" />
         ) : needsSession && error ? (
-          <MarketplaceSessionRequiredCard />
+          <MarketplaceSessionRequiredCard note={SALES_LIST_SESSION_NOTE} />
         ) : error ? (
           <div role="alert" className="rounded-xl border border-destructive/40 p-4">
             {error}
@@ -409,13 +412,15 @@ export function MarketplaceOrders() {
                               </Typography>
                             )}
                             <MarketplaceOrderReference order={order} isBuyer={isBuyer} />
-                            {order.state === 'pending_payment' && order.holdExpiresAt && (
-                              <Typography as="p" className="mt-2 text-sm text-muted-foreground">
-                                {isBuyer
-                                  ? buyerCheckoutProgressCopy(order, payment)
-                                  : sellerReservationCopy(order.holdExpiresAt)}
-                              </Typography>
-                            )}
+                            {order.state === 'pending_payment' &&
+                              order.holdExpiresAt &&
+                              (isBuyer || !sellerBitcoinDecision(order, payment)) && (
+                                <Typography as="p" className="mt-2 text-sm text-muted-foreground">
+                                  {isBuyer
+                                    ? buyerCheckoutProgressCopy(order, payment)
+                                    : sellerReservationCopy(order.holdExpiresAt)}
+                                </Typography>
+                              )}
                             {/* A post-payment terms change (§A3): the buyer is told
                             plainly, and their unilateral exit is named. */}
                             {isBuyer && order.fulfillment === 'pickup' && order.pickupTermsChanged && (

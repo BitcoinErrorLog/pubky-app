@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MarketplaceSessionRequiredCard } from './MarketplaceSessionRequiredCard';
+import { MarketplaceSessionRequiredCard, SALES_LIST_SESSION_NOTE } from './MarketplaceSessionRequiredCard';
 
 const view = vi.hoisted(() => ({ isGrantSession: false, grantEnabled: false }));
 
@@ -37,6 +37,12 @@ describe('MarketplaceSessionRequiredCard', () => {
 
     expect(screen.getByRole('heading', { name: 'Approve purchases in Bitkit' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve in Bitkit' })).toBeInTheDocument();
+  });
+
+  it('explains that sales use the same approval', () => {
+    render(<MarketplaceSessionRequiredCard note={SALES_LIST_SESSION_NOTE} />);
+
+    expect(screen.getByText(SALES_LIST_SESSION_NOTE)).toBeInTheDocument();
   });
 
   it('keeps Pubky Ring copy for a Bitkit sign-in when the grant flow is off', () => {

@@ -32,6 +32,8 @@ const dashboardState = vi.hoisted(() => ({
     total: 0,
   },
   unfinishedDrafts: [] as Array<{ listingId: string; title: string; updatedAt: number; ageLabel: string }>,
+  needsSession: false,
+  sessionError: null as string | null,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -54,8 +56,8 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     sellerOrders: [],
     offers: [],
     isLoading: false,
-    needsSession: false,
-    sessionError: null,
+    needsSession: dashboardState.needsSession,
+    sessionError: dashboardState.sessionError,
     metrics: dashboardState.metrics,
     actionNeeded: dashboardState.actionNeeded,
     updateListingState: vi.fn(async () => true),
@@ -66,6 +68,10 @@ vi.mock('@/hooks/useMarketplaceSellerDashboard/useMarketplaceSellerDashboard', (
     resumeListingDraft: dashboardFns.resumeListingDraft,
     exportCsv: () => 'listing_id,title,state,format,price_minor,currency,inventory',
   }),
+}));
+
+vi.mock('@/organisms/Marketplace/MarketplaceSessionConnectDialog', () => ({
+  MarketplaceSessionConnectDialog: ({ triggerLabel }: { triggerLabel: string }) => <button>{triggerLabel}</button>,
 }));
 
 vi.mock('dexie-react-hooks', () => ({
@@ -111,12 +117,27 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 describe('MarketplaceDashboard', () => {
   beforeEach(() => {
     dashboardState.unfinishedDrafts = [];
+    dashboardState.needsSession = false;
+    dashboardState.sessionError = null;
     dashboardFns.discardListingDraft.mockClear();
     dashboardFns.resumeListingDraft.mockClear();
     router.push.mockClear();
     paymentGate.isDurable = false;
     paymentGate.ready = true;
     paymentGate.reason = null;
+  });
+
+  it('explains the marketplace approval on the seller dashboard', () => {
+    dashboardState.needsSession = true;
+    dashboardState.sessionError = 'A marketplace session is required.';
+
+    render(<MarketplaceDashboard />);
+
+    expect(
+      screen.getByText(
+        'Your sales use this same approval, because the marketplace lists them only for a session it can tie to you.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('renders KPI metrics as a horizontal chip strip on mobile', () => {
