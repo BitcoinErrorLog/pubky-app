@@ -20,6 +20,12 @@ import { ContentCard } from '@/molecules/Content/Content';
 import { Logo } from '@/molecules/Logo/Logo';
 import { PageTitle } from '@/molecules/Page/Page';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
+import {
+  BITKIT_IDENTITY_HINT,
+  SIGNER_AUTH_COPY,
+  SignerAuthOption,
+  SignerAuthorizeButton,
+} from '@/molecules/SignerAuthOption/SignerAuthOption';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import { useSignInStore } from '@/stores/signIn/signIn.store';
@@ -110,106 +116,24 @@ async function copyWithToast(copy: () => Promise<void>) {
 
 type TSignerAuth = ReturnType<typeof useMobileAuth>;
 
-const BITKIT_IDENTITY_HINT = "New Bitkit users must create a Pubky identity in Bitkit's profile before scanning.";
+const SIGNERS = SIGNER_AUTH_COPY.signIn;
 
-const SIGNERS = {
-  ring: {
-    name: 'Pubky Ring',
-    hint: 'Scan with Pubky Ring.',
-    identityHint: null,
-    copyLabel: 'Copy authentication link',
-    reloadLabel: 'Reload sign-in QR code',
-    openingLabel: 'Opening Pubky Ring...',
-    showRingLogo: true,
-  },
-  bitkit: {
-    name: 'Bitkit',
-    hint: 'Scan with Bitkit.',
-    identityHint: BITKIT_IDENTITY_HINT,
-    copyLabel: 'Copy Bitkit authentication link',
-    reloadLabel: 'Reload Bitkit sign-in QR code',
-    openingLabel: 'Opening Bitkit...',
-    showRingLogo: false,
-  },
-} as const;
+const SignInQrOption = ({ signer, auth }: { signer: keyof typeof SIGNERS; auth: TSignerAuth }) => (
+  <SignerAuthOption
+    copy={SIGNERS[signer]}
+    auth={auth}
+    onCopied={() => copyWithToast(auth.copyAuthUrl)}
+    testId={`sign-in-${signer}-option`}
+  />
+);
 
-/** One signer's labelled QR in the side-by-side desktop layout. */
-const SignInQrOption = ({ signer, auth }: { signer: keyof typeof SIGNERS; auth: TSignerAuth }) => {
-  const copy = SIGNERS[signer];
-  const { url, isLoading, isExpired, fetchUrl, copyAuthUrl } = auth;
-  const handleQRClick = async () => {
-    if (!url) return;
-    await copyWithToast(copyAuthUrl);
-  };
-  return (
-    <div className="flex flex-col items-center gap-4" data-testid={`sign-in-${signer}-option`}>
-      <Typography as="h2" className="text-xl font-bold text-foreground">
-        {copy.name}
-      </Typography>
-      <button
-        type="button"
-        className="group relative flex size-48 cursor-pointer items-center justify-center rounded-md bg-foreground p-2"
-        onClick={isExpired ? fetchUrl : handleQRClick}
-        disabled={isLoading || (!url && !isExpired)}
-        aria-label={isExpired ? copy.reloadLabel : copy.copyLabel}
-      >
-        <QrCodeSlot
-          isLoading={isLoading}
-          isExpired={isExpired}
-          url={url}
-          generatingLabel={'Generating QR Code...'}
-          clickToReloadLabel={'Click to reload'}
-          activeQrHasHoverEffect
-          showRingLogo={copy.showRingLogo}
-        />
-      </button>
-      <Typography as="span" className="text-center text-muted-foreground">
-        {copy.hint}
-      </Typography>
-      {copy.identityHint ? (
-        <Typography as="p" className="max-w-48 text-center text-sm text-muted-foreground">
-          {copy.identityHint}
-        </Typography>
-      ) : null}
-    </div>
-  );
-};
-
-/** One signer's deeplink button in the stacked mobile layout. */
-const SignInAuthorizeButton = ({ signer, auth }: { signer: keyof typeof SIGNERS; auth: TSignerAuth }) => {
-  const copy = SIGNERS[signer];
-  const { url, isLoading, isExpired, isOpeningRing, onAuthorizeClick } = auth;
-  const isMobileLaunching = isLoading || isOpeningRing;
-  return (
-    <Button
-      className="w-full"
-      size="lg"
-      onClick={onAuthorizeClick}
-      disabled={isMobileLaunching || (!url && !isExpired)}
-      aria-busy={isMobileLaunching}
-      data-testid={signer === 'ring' ? 'button' : 'sign-in-grant-button'}
-    >
-      {isMobileLaunching ? (
-        <>
-          <Loader2 className="mr-2 size-4 animate-spin" />
-          <Typography as="span" overrideDefaults aria-live="polite">
-            {isOpeningRing ? copy.openingLabel : 'Generating...'}
-          </Typography>
-        </>
-      ) : isExpired ? (
-        <>
-          <RefreshCw className="mr-2 size-4" />
-          {'Click to reload'}
-        </>
-      ) : (
-        <>
-          <Key className="mr-2 size-4" />
-          {`Authorize with ${copy.name}`}
-        </>
-      )}
-    </Button>
-  );
-};
+const SignInAuthorizeButton = ({ signer, auth }: { signer: keyof typeof SIGNERS; auth: TSignerAuth }) => (
+  <SignerAuthorizeButton
+    copy={SIGNERS[signer]}
+    auth={auth}
+    testId={signer === 'ring' ? 'button' : 'sign-in-grant-button'}
+  />
+);
 
 /**
  * Ring and Bitkit side by side. Each QR runs its own flow; the first approval
