@@ -82,7 +82,9 @@ export function MarketplaceSessionConnectDialog({
   const requestsGrantReconnect = session.requestsGrantReconnect;
   const requestsGrantBootstrap = session.requestsGrantBootstrap;
   const bootstrapCaption =
-    requestsGrantBootstrap && session.authorizationUrl ? sessionGrantApprovalCaption(session.authorizationUrl, 'Bitkit') : null;
+    requestsGrantBootstrap && session.authorizationUrl
+      ? sessionGrantApprovalCaption(session.authorizationUrl, 'Bitkit')
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

@@ -61,7 +61,10 @@ describe('marketplace session grant', () => {
     );
     expect(sessionGrantApprovalCaption('pubkyauth://signin_grant?caps=x', 'Bitkit')).toBeNull();
     expect(
-      sessionGrantApprovalCaption(urlFor(captured.parity_request, { caps: captured.shop_signin_request.caps }), 'Bitkit'),
+      sessionGrantApprovalCaption(
+        urlFor(captured.parity_request, { caps: captured.shop_signin_request.caps }),
+        'Bitkit',
+      ),
     ).toBeNull();
     expect(sessionGrantApprovalCaption('not a url', 'Bitkit')).toBeNull();
   });
