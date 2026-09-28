@@ -34,7 +34,7 @@ import {
 } from '@/models/messaging/messaging.models';
 import type { Pubky } from '@/models/models.types';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
-import { PaykitMessagingService, setPaykitWasmModuleForTests } from '@/services/paykit/paykit-messaging';
+import { setPaykitWasmModuleForTests } from '@/services/paykit/paykit-messaging';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';

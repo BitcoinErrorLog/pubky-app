@@ -109,7 +109,7 @@ export function createFakePaykitPair() {
 
   const sessionOwner = (session: unknown) => (session as FakeSessionHandle).pubky();
 
-  const module = {
+  const binding = {
     default: async () => undefined,
     PubkyClient: FakePubkyClient,
     generateNoiseSecretKey: () => {
@@ -146,7 +146,7 @@ export function createFakePaykitPair() {
   };
 
   return {
-    module: asOpaque<typeof import('paykit-wasm')>(module),
+    module: asOpaque<typeof import('paykit-wasm')>(binding),
     log,
     /** Every message one account ever sent another, as raw JSON. */
     sent: (from: string, to: string) => [...(mailboxes.get(`${from}>${to}`) ?? [])],
