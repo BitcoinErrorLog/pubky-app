@@ -1245,8 +1245,17 @@ export class CommerceApplication {
     return await MarketplaceGatewayService.getOffers(actorPubky);
   }
 
+  /**
+   * The account's marketplace notifications. In durable modes a
+   * `message_received` row is never returned: private messages are
+   * end-to-end encrypted, no service writer can attest them, and a row naming
+   * a sender would show who wrote without the mute list being consulted.
+   * Durable messaging is surfaced only by the inbox, which applies it.
+   */
   static async getMarketplaceNotifications(actorPubky: string) {
-    return await MarketplaceGatewayService.getNotifications(actorPubky);
+    const notifications = await MarketplaceGatewayService.getNotifications(actorPubky);
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return notifications;
+    return notifications.filter((notification) => notification.type !== 'message_received');
   }
 
   static async getMarketplaceNotificationPreferences(actorPubky: string) {

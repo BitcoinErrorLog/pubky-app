@@ -27,12 +27,45 @@ const encryptedView = vi.hoisted(() => ({
   conversations: [] as unknown[],
   receiverProvisioned: false,
   errorMessage: null as string | null,
+  mutesStatus: 'ready' as string | null,
 }));
 
 const config = vi.hoisted(() => ({ mode: 'sandbox' as string }));
 
 const ENCRYPTED_SELLER = 's'.repeat(52);
 const ENCRYPTED_LISTING = '0033GVVN22HJ0FYQGZZS8R2BFC';
+
+const REQUEST_BUYER = 'q'.repeat(52);
+
+function requestConversationFixture(seller: string, withMessage: boolean) {
+  const conversationId = `conversation:${seller}_${REQUEST_BUYER}_${ENCRYPTED_LISTING}`;
+  return {
+    id: `${seller}:${conversationId}`,
+    owner_id: seller,
+    conversation_id: conversationId,
+    listing_ref: `listing:${seller}_${ENCRYPTED_LISTING}`,
+    counterparty_pubky: REQUEST_BUYER,
+    origin: 'request',
+    last_message_at: withMessage ? 1_787_227_200_000 : null,
+    last_read_at: null,
+    created_at: 1_787_140_800_000,
+    updated_at: 1_787_227_200_000,
+    lastQueued: null,
+    lastMessage: withMessage
+      ? {
+          id: `${seller}:r1`,
+          owner_id: seller,
+          conversation_id: conversationId,
+          listing_ref: `listing:${seller}_${ENCRYPTED_LISTING}`,
+          counterparty_pubky: REQUEST_BUYER,
+          direction: 'received',
+          body: 'Hi, is the record player still available?',
+          sent_at: 1_787_227_200_000,
+          recorded_at: 1_787_227_200_000,
+        }
+      : null,
+  };
+}
 
 function encryptedConversationFixture(buyer: string) {
   const conversationId = `conversation:${ENCRYPTED_SELLER}_${buyer}_${ENCRYPTED_LISTING}`;
@@ -118,8 +151,27 @@ vi.mock('@/hooks/useEncryptedInbox/useEncryptedInbox', () => ({
     conversations: encryptedView.conversations,
     receiverProvisioned: encryptedView.receiverProvisioned,
     errorMessage: encryptedView.errorMessage,
+    mutesStatus: encryptedView.mutesStatus,
     refresh: vi.fn(),
   }),
+}));
+
+vi.mock('@/hooks/useMessagingSafety/useMessagingSafety', () => ({
+  useMessagingSafety: () => ({
+    isPending: false,
+    mute: vi.fn(async () => true),
+    unmute: vi.fn(async () => true),
+    accept: vi.fn(async () => true),
+    report: vi.fn(async () => true),
+  }),
+}));
+
+vi.mock('@/organisms/Marketplace/MarketplaceReauthDialog', () => ({
+  MarketplaceReauthDialog: ({ triggerLabel }: { triggerLabel: string }) => (
+    <button type="button" className="rounded-full border px-4 py-2 text-sm">
+      {triggerLabel}
+    </button>
+  ),
 }));
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
@@ -138,6 +190,7 @@ describe('Marketplace inbox — visual regression', () => {
     encryptedView.conversations = [];
     encryptedView.receiverProvisioned = false;
     encryptedView.errorMessage = null;
+    encryptedView.mutesStatus = 'ready';
   });
 
   it('renders the conversations list at desktop viewport', async () => {
@@ -244,6 +297,43 @@ describe('Marketplace inbox — visual regression', () => {
 
     await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
     await expect(expectVrtSurface('marketplace-inbox')).toMatchScreenshot('inbox-error-mobile');
+  });
+
+  it('renders Requests from people the seller does not know yet at desktop viewport', async () => {
+    const { buyer } = await fixtures;
+    config.mode = 'transaction-service';
+    encryptedView.conversations = [
+      encryptedConversationFixture(buyer),
+      requestConversationFixture(buyer, true),
+      {
+        ...requestConversationFixture(buyer, false),
+        id: 'second',
+        conversation_id: `conversation:${buyer}_${'r'.repeat(52)}_L2`,
+        counterparty_pubky: 'r'.repeat(52),
+      },
+    ];
+
+    await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(expectVrtSurface('marketplace-inbox')).toMatchScreenshot('inbox-encrypted-requests-desktop');
+  });
+
+  it('renders Requests at mobile viewport', async () => {
+    const { buyer } = await fixtures;
+    config.mode = 'transaction-service';
+    encryptedView.conversations = [requestConversationFixture(buyer, true)];
+
+    await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(expectVrtSurface('marketplace-inbox')).toMatchScreenshot('inbox-encrypted-requests-mobile');
+  });
+
+  it('renders the paused-delivery notice when mutes need approval at desktop viewport', async () => {
+    config.mode = 'transaction-service';
+    encryptedView.mutesStatus = 'needs_approval';
+    // While the list is unconfirmed the controller returns no conversations at all.
+    encryptedView.conversations = [];
+
+    await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(expectVrtSurface('marketplace-inbox')).toMatchScreenshot('inbox-encrypted-mutes-paused-desktop');
   });
 
   it('renders the fail-closed invalid conversation query at desktop viewport', async () => {

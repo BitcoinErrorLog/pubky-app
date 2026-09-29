@@ -30,6 +30,7 @@ import {
   PaykitMessagingService,
   setPaykitWasmModuleForTests,
 } from '@/services/paykit/paykit-messaging';
+import { ADMIT_ALL_GATE } from '@/test-utils/messaging-gate';
 
 // Self-contained factories, hoisted by vitest above the imports (browser-mode
 // mocking cannot use importActual here): the messaging service imports exactly
@@ -215,7 +216,7 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
     let aliceReceived: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const aliceDeadline = Date.now() + 30_000;
     while (Date.now() < aliceDeadline && aliceReceived.length === 0) {
-      aliceReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
+      aliceReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky, ADMIT_ALL_GATE);
       if (aliceReceived.length === 0) await sleep(500);
     }
     expect(aliceReceived).toHaveLength(1);
@@ -256,7 +257,7 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
     let aliceDmReceived: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const aliceDmDeadline = Date.now() + 30_000;
     while (Date.now() < aliceDmDeadline && aliceDmReceived.length === 0) {
-      aliceDmReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
+      aliceDmReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky, ADMIT_ALL_GATE);
       if (aliceDmReceived.length === 0) await sleep(500);
     }
     expect(aliceDmReceived).toHaveLength(1);
@@ -307,7 +308,7 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
     let afterRestore: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const restoreDeadline = Date.now() + 30_000;
     while (Date.now() < restoreDeadline && afterRestore.length === 0) {
-      afterRestore = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
+      afterRestore = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky, ADMIT_ALL_GATE);
       if (afterRestore.length === 0) await sleep(500);
     }
     expect(afterRestore).toHaveLength(1);

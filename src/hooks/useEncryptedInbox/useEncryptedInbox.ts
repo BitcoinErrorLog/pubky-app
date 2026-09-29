@@ -1,11 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { MessagingMutesState } from '@/application/messaging/first-contact';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import { getCommercePollIntervalMs } from '@/config/commerce';
 import { MessagingController } from '@/controllers/messaging/messaging';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 
@@ -18,6 +21,12 @@ export interface UseEncryptedInboxReturn {
   /** True when a receiver key exists on this device (reconnect vs first-enable copy). */
   receiverProvisioned: boolean;
   errorMessage: string | null;
+  /**
+   * The outcome of the latest read of the mute list. Anything but `ready`
+   * or `unavailable` means nothing was received and no conversation is
+   * listed until the list reads again.
+   */
+  mutesStatus: MessagingMutesState['kind'] | null;
   refresh: () => void;
 }
 
@@ -40,6 +49,9 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
   const [receiverProvisioned, setReceiverProvisioned] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [mutesStatus, setMutesStatus] = useState<MessagingMutesState['kind'] | null>(null);
+  // The receive-cap toast fires once per surface, not per sync.
+  const rateCapToastShownRef = useRef(false);
 
   useEffect(() => {
     if (!currentUserPubky) {
@@ -54,7 +66,9 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
 
     const loadConversations = async () => {
       const next = await MessagingController.getConversations();
-      if (!cancelled) setConversations(next);
+      if (cancelled) return;
+      setConversations(next.conversations);
+      setMutesStatus(next.mutes);
     };
 
     const sync = async () => {
@@ -69,9 +83,14 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
           if (!cancelled) setStatus('needs-enable');
           return;
         }
-        await MessagingController.syncInbox();
+        const synced = await MessagingController.syncInbox();
         await loadConversations();
-        if (!cancelled) setStatus('ready');
+        if (cancelled) return;
+        setStatus('ready');
+        if (synced.rateLimited > 0 && !rateCapToastShownRef.current) {
+          rateCapToastShownRef.current = true;
+          toast({ variant: 'warning', description: MESSAGING_COPY.rateCap });
+        }
       } catch (error) {
         if (cancelled) return;
         Logger.error('Encrypted inbox sync failed', { error });
@@ -99,5 +118,5 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
 
   const refresh = useCallback(() => setRefreshNonce((nonce) => nonce + 1), []);
 
-  return { status, conversations, receiverProvisioned, errorMessage, refresh };
+  return { status, conversations, receiverProvisioned, errorMessage, mutesStatus, refresh };
 }

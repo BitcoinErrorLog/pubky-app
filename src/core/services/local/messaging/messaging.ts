@@ -1,3 +1,6 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
+import { db } from '@/database/franky/franky';
 import { listingConversationBetween } from '@/libs/commerce/messaging-contracts';
 import { getOrCreateWrappingKey } from '@/libs/crypto/messaging-keyring';
 import {
@@ -20,6 +23,7 @@ import {
   CommerceMessagingMessageModel,
   CommerceMessagingOutboxModel,
   CommerceMessagingReceiverModel,
+  CommerceMessagingUnprocessedModel,
 } from '@/models/messaging/messaging.models';
 import type {
   CommerceMessagingConversationModelSchema,
@@ -31,6 +35,7 @@ import type {
 
 const RECEIVERS_TABLE = 'commerce_messaging_receivers';
 const LINKS_TABLE = 'commerce_messaging_links';
+const UNPROCESSED_TABLE = 'commerce_messaging_unprocessed';
 
 /**
  * Account-scoped Dexie persistence for encrypted marketplace messaging.
@@ -148,8 +153,26 @@ export class LocalMessagingService {
       snapshot: wrapped,
       wrap_version: WRAP_VERSION_AES_GCM_256,
       status,
+      send_pending: false,
       updated_at: now,
     });
+  }
+
+  /**
+   * Marks the pair's link as about to send, before the ciphertext leaves.
+   * The snapshot saved after the send clears it ({@link updateLinkSnapshot}).
+   * Touches only the flag: the stored snapshot bytes stay as they are.
+   * Throws when the mark cannot be written, so nothing is sent.
+   */
+  static async markSendPending(ownerId: string, counterpartyPubky: string): Promise<void> {
+    const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    if (!row) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'No messaging link row exists for this counterparty.', {
+        service: ErrorService.Local,
+        operation: 'markSendPending',
+      });
+    }
+    await CommerceMessagingLinkModel.upsert({ ...row, send_pending: true });
   }
 
   /**
@@ -173,7 +196,10 @@ export class LocalMessagingService {
   /**
    * Creates the conversation row if absent; bumps `last_message_at`/`updated_at`
    * if newer. The read checkpoint (`last_read_at`) is owned by
-   * `markConversationRead` and is never touched here.
+   * `markConversationRead` and is never touched here. `origin` and
+   * `first_contact_at` apply only when the row is created: later writes never
+   * move a thread between Requests and the inbox (that is
+   * {@link markCounterpartyKnown}).
    */
   static async touchConversation(
     conversation: Omit<CommerceMessagingConversationModelSchema, 'id' | 'created_at' | 'last_read_at'>,
@@ -197,6 +223,113 @@ export class LocalMessagingService {
   }
 
   /**
+   * Moves every conversation with `counterpartyPubky` out of Requests. Used
+   * when the account accepts the person, replies to them, or turns out to
+   * know them (follows them, or shares an order or offer).
+   */
+  static async markCounterpartyKnown(ownerId: string, counterpartyPubky: string): Promise<void> {
+    const conversations = await this.getConversationsByOwner(ownerId);
+    for (const conversation of conversations) {
+      if (conversation.counterparty_pubky !== counterpartyPubky || conversation.origin !== 'request') continue;
+      await CommerceMessagingConversationModel.upsert({ ...conversation, origin: 'known' });
+    }
+  }
+
+  /**
+   * Claims a first contact with a new person: in one IndexedDB transaction,
+   * reads every first contact of the account, refuses (`limited`) when
+   * `isAllowed` says the new person would go past the limit, and otherwise
+   * dates this conversation's first contact, creating its row if needed. A
+   * read-write transaction on the table cannot interleave with another, in
+   * this tab or any other, so concurrent sends cannot all pass the limit.
+   */
+  static async claimFirstContact(
+    input: {
+      ownerId: string;
+      conversationId: string;
+      listingRef: string;
+      counterpartyPubky: string;
+      at: number;
+    },
+    isAllowed: (
+      firstContacts: { counterpartyPubky: string; at: number }[],
+      counterpartyPubky: string,
+      now: number,
+    ) => boolean,
+  ): Promise<'claimed' | 'limited'> {
+    return await db.transaction('rw', CommerceMessagingConversationModel.table, async () => {
+      const rows = (
+        await CommerceMessagingConversationModel.table.where('owner_id').equals(input.ownerId).toArray()
+      ).filter(isBoundToCounterparty);
+      const firstContacts = rows.flatMap((row) =>
+        typeof row.first_contact_at === 'number'
+          ? [{ counterpartyPubky: row.counterparty_pubky, at: row.first_contact_at }]
+          : [],
+      );
+      if (!isAllowed(firstContacts, input.counterpartyPubky, input.at)) return 'limited';
+      const id = `${input.ownerId}:${input.conversationId}`;
+      const current = rows.find((row) => row.id === id);
+      if (current && typeof current.first_contact_at === 'number') return 'claimed';
+      await CommerceMessagingConversationModel.table.put(
+        current
+          ? { ...current, first_contact_at: input.at }
+          : {
+              id,
+              owner_id: input.ownerId,
+              conversation_id: input.conversationId,
+              kind: 'listing',
+              listing_ref: input.listingRef,
+              counterparty_pubky: input.counterpartyPubky,
+              last_message_at: null,
+              last_read_at: null,
+              origin: 'known',
+              first_contact_at: input.at,
+              created_at: input.at,
+              updated_at: input.at,
+            },
+      );
+      return 'claimed';
+    });
+  }
+
+  /** Every recorded first contact of this account, oldest first. */
+  static async getFirstContacts(ownerId: string): Promise<{ counterpartyPubky: string; at: number }[]> {
+    const conversations = await this.getConversationsByOwner(ownerId);
+    return conversations
+      .flatMap((conversation) =>
+        typeof conversation.first_contact_at === 'number'
+          ? [{ counterpartyPubky: conversation.counterparty_pubky, at: conversation.first_contact_at }]
+          : [],
+      )
+      .sort((left, right) => left.at - right.at);
+  }
+
+  /**
+   * Whether this account has already exchanged anything with the person:
+   * a message either way, a queued message, or an established link.
+   */
+  static async hasHistoryWith(ownerId: string, counterpartyPubky: string): Promise<boolean> {
+    const link = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    if (link?.status === 'established') return true;
+    if ((await this.getQueuedMessages(ownerId, counterpartyPubky)).length > 0) return true;
+    for (const conversation of await this.getConversationsByOwner(ownerId)) {
+      if (conversation.counterparty_pubky !== counterpartyPubky) continue;
+      if ((await this.getMessages(ownerId, conversation.conversation_id)).length > 0) return true;
+    }
+    return false;
+  }
+
+  /** Whether the account has sent this person at least one message. */
+  static async hasSentTo(ownerId: string, counterpartyPubky: string): Promise<boolean> {
+    for (const conversation of await this.getConversationsByOwner(ownerId)) {
+      if (conversation.counterparty_pubky !== counterpartyPubky) continue;
+      const messages = await this.getMessages(ownerId, conversation.conversation_id);
+      if (messages.some((message) => message.direction === 'sent')) return true;
+    }
+    return false;
+  }
+
+  /**
    * Moves the device-local read checkpoint forward (never backward). Called
    * when the conversation surface is actually showing its messages.
    */
@@ -211,12 +344,18 @@ export class LocalMessagingService {
    * Honest device-local unread: conversations holding at least one RECEIVED
    * message persisted after the read checkpoint. Counts only messages that
    * already arrived on this device — it can never claim knowledge of
-   * undelivered mail sitting on a homeserver.
+   * undelivered mail sitting on a homeserver. Requests and the
+   * `excludedCounterparties` (muted people) never count.
    */
-  static async countUnreadConversations(ownerId: string): Promise<number> {
+  static async countUnreadConversations(
+    ownerId: string,
+    excludedCounterparties?: ReadonlySet<string>,
+  ): Promise<number> {
     const conversations = await this.getConversationsByOwner(ownerId);
     let unread = 0;
     for (const conversation of conversations) {
+      if (conversation.origin === 'request') continue;
+      if (excludedCounterparties?.has(conversation.counterparty_pubky)) continue;
       const checkpoint = conversation.last_read_at ?? 0;
       const messages = await this.getMessages(ownerId, conversation.conversation_id);
       if (messages.some((message) => message.direction === 'received' && message.recorded_at > checkpoint)) {
@@ -236,6 +375,31 @@ export class LocalMessagingService {
   static async getMessages(ownerId: string, conversationId: string): Promise<CommerceMessagingMessageModelSchema[]> {
     const messages = await CommerceMessagingMessageModel.findByConversation(ownerId, conversationId);
     return messages.filter(isBoundToCounterparty);
+  }
+
+  /**
+   * How many inbound events from one person this account stored after
+   * `since`: received messages plus events kept unprocessed. Read from
+   * IndexedDB, so every tab and every reload sees the same count.
+   */
+  static async countStoredInbound(ownerId: string, counterpartyPubky: string, since: number): Promise<number> {
+    const messages = await CommerceMessagingMessageModel.table
+      .where('counterparty_pubky')
+      .equals(counterpartyPubky)
+      .filter((row) => row.owner_id === ownerId && row.direction === 'received' && row.recorded_at > since)
+      .count();
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) return messages;
+    const unprocessed = await CommerceMessagingUnprocessedModel.table
+      .where('[owner_id+counterparty_pubky]')
+      .equals([ownerId, counterpartyPubky])
+      .filter((row) => row.received_at > since)
+      .count();
+    return messages + unprocessed;
+  }
+
+  /** Whether any message row (sent or received) holds this event id for the owner. */
+  static async hasMessage(ownerId: string, eventId: string): Promise<boolean> {
+    return (await CommerceMessagingMessageModel.findById(`${ownerId}:${eventId}`)) !== null;
   }
 
   /**
@@ -283,6 +447,92 @@ export class LocalMessagingService {
    */
   static async upsertMessage(eventId: string, message: Omit<CommerceMessagingMessageModelSchema, 'id'>): Promise<void> {
     await CommerceMessagingMessageModel.upsert({ ...message, id: `${message.owner_id}:${eventId}` });
+  }
+
+  // --- unprocessed inbound events --------------------------------------------
+  // Events of a kind or version this build cannot interpret. They are stored
+  // before the link's read position moves past them and offered again later.
+
+  /** The row id of one raw event from one peer; identical bytes share an id. */
+  static unprocessedId(ownerId: string, counterpartyPubky: string, rawJson: string): string {
+    const digest = bytesToHex(sha256(new TextEncoder().encode(rawJson)));
+    return `${ownerId}:${counterpartyPubky}:${digest}`;
+  }
+
+  static async hasUnprocessed(id: string): Promise<boolean> {
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) return false;
+    return (await CommerceMessagingUnprocessedModel.findById(id)) !== null;
+  }
+
+  /**
+   * Stores one event, wrapped at rest. Throws when it cannot be stored
+   * (including on a database without the table), so the caller never
+   * advances the link past it.
+   */
+  static async storeUnprocessed(event: {
+    ownerId: string;
+    counterpartyPubky: string;
+    kind: string;
+    version: number | null;
+    rawJson: string;
+    receivedAt: number;
+    position: number;
+  }): Promise<'stored' | 'duplicate'> {
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'This device cannot keep messages it cannot read yet.', {
+        service: ErrorService.Local,
+        operation: 'storeUnprocessed',
+        context: { reason: 'unprocessed_table_missing' },
+      });
+    }
+    const id = this.unprocessedId(event.ownerId, event.counterpartyPubky, event.rawJson);
+    const sealed = JSON.stringify({ kind: event.kind.slice(0, 128), version: event.version, rawJson: event.rawJson });
+    const payload = await this.wrapSecretField(
+      UNPROCESSED_TABLE,
+      id,
+      new TextEncoder().encode(sealed),
+      'storeUnprocessed',
+    );
+    const added = await CommerceMessagingUnprocessedModel.addIfAbsent({
+      id,
+      owner_id: event.ownerId,
+      counterparty_pubky: event.counterpartyPubky,
+      payload,
+      wrap_version: WRAP_VERSION_AES_GCM_256,
+      received_at: event.receivedAt,
+      position: event.position,
+    });
+    return added ? 'stored' : 'duplicate';
+  }
+
+  /**
+   * The stored events from one peer, oldest first, unwrapped. A row whose
+   * ciphertext no longer opens (lost wrapping key, tampered row) is left in
+   * place and skipped.
+   */
+  static async getUnprocessed(
+    ownerId: string,
+    counterpartyPubky: string,
+  ): Promise<{ id: string; kind: string; version: number | null; rawJson: string }[]> {
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) return [];
+    const rows = await CommerceMessagingUnprocessedModel.findByOwnerAndCounterparty(ownerId, counterpartyPubky);
+    const events: { id: string; kind: string; version: number | null; rawJson: string }[] = [];
+    for (const row of rows) {
+      if (row.wrap_version !== WRAP_VERSION_AES_GCM_256) continue;
+      const bytes = await this.unwrapSecretField(UNPROCESSED_TABLE, row.id, row.payload, 'getUnprocessed');
+      if (!bytes) continue;
+      const event = parseSealedUnprocessed(new TextDecoder().decode(bytes));
+      if (event) events.push({ id: row.id, ...event });
+    }
+    return events;
+  }
+
+  /** Deletes one stored event once it has been processed; only the owner's own rows. */
+  static async deleteUnprocessed(ownerId: string, id: string): Promise<void> {
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) return;
+    const row = await CommerceMessagingUnprocessedModel.findById(id);
+    if (!row || row.owner_id !== ownerId) return;
+    await CommerceMessagingUnprocessedModel.deleteById(id);
   }
 
   // --- queued-message outbox -------------------------------------------------
@@ -427,4 +677,19 @@ function latest(left: number | null, right: number | null): number | null {
   if (left === null) return right;
   if (right === null) return left;
   return Math.max(left, right);
+}
+
+/** The sealed `{ kind, version, rawJson }` of an unprocessed row, or `null` when it is not that shape. */
+function parseSealedUnprocessed(json: string): { kind: string; version: number | null; rawJson: string } | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null) return null;
+  const { kind, version, rawJson } = value as { kind?: unknown; version?: unknown; rawJson?: unknown };
+  if (typeof kind !== 'string' || typeof rawJson !== 'string') return null;
+  if (version !== null && typeof version !== 'number') return null;
+  return { kind, version, rawJson };
 }

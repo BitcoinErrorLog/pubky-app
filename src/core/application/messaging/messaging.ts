@@ -9,6 +9,7 @@ import {
   parseDmConversationId,
   type PubkyAppDmMessage,
 } from '@/libs/messaging/dm-contracts';
+import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import type {
   CommerceMessagingConversationModelSchema,
@@ -23,6 +24,17 @@ import {
   PaykitMessagingService,
   type ReceivedMessage,
 } from '@/services/paykit/paykit-messaging';
+
+/**
+ * A conversation's state as the Shop shows it: the transport's link state,
+ * `muted` when this account muted the other person, or `paused` while the
+ * mute list cannot be confirmed. In both of the last two nothing is opened,
+ * sent, flushed or received.
+ */
+export type MessagingThreadState =
+  | MessagingLinkState
+  | { status: 'muted' }
+  | { status: 'paused'; reason: 'needs_approval' | 'needs_reauth' | 'error' };
 
 export type MessagingStatus = {
   /**
@@ -121,9 +133,13 @@ export class MessagingApplication {
     counterpartyPubky: string,
     conversationId: string,
     listingRef: string,
+    policy: MessagingPolicy,
   ): Promise<MessagingLinkState> {
+    assertReachable(policy, counterpartyPubky, 'openConversation');
     const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
     if (state.status !== 'not-enrolled') {
+      // A thread this account opens itself is never a request; an existing
+      // row (for example one in Requests) keeps its place.
       await LocalMessagingService.touchConversation({
         owner_id: ownerPubky,
         conversation_id: conversationId,
@@ -132,13 +148,14 @@ export class MessagingApplication {
         counterparty_pubky: counterpartyPubky,
         last_message_at: null,
         updated_at: Date.now(),
+        origin: 'known',
       });
     }
     // Opening a conversation can be the first moment the link is READY on
     // this device (e.g. the counterparty answered while it was closed) —
     // deliver anything queued right away.
     if (state.status === 'ready') {
-      await this.flushOutbox(ownerPubky, counterpartyPubky);
+      await this.flushOutbox(ownerPubky, counterpartyPubky, policy);
     }
     return state;
   }
@@ -148,7 +165,12 @@ export class MessagingApplication {
    * link machinery as listing conversations; the conversation identity is the
    * counterparty pubky itself.
    */
-  static async openDmConversation(ownerPubky: string, counterpartyPubky: string): Promise<MessagingLinkState> {
+  static async openDmConversation(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    policy: MessagingPolicy,
+  ): Promise<MessagingLinkState> {
+    assertReachable(policy, counterpartyPubky, 'openDmConversation');
     const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
     if (state.status !== 'not-enrolled') {
       await LocalMessagingService.touchConversation({
@@ -159,12 +181,13 @@ export class MessagingApplication {
         counterparty_pubky: counterpartyPubky,
         last_message_at: null,
         updated_at: Date.now(),
+        origin: 'known',
       });
     }
     // Same flush-on-open rule as listing conversations — the shared link
     // carries both kinds, so any queued row can deliver the moment it's ready.
     if (state.status === 'ready') {
-      await this.flushOutbox(ownerPubky, counterpartyPubky);
+      await this.flushOutbox(ownerPubky, counterpartyPubky, policy);
     }
     return state;
   }
@@ -181,23 +204,53 @@ export class MessagingApplication {
   static async pollConversation(
     ownerPubky: string,
     counterpartyPubky: string,
+    policy: MessagingPolicy,
   ): Promise<{ state: MessagingLinkState; received: ReceivedMessage[]; flushed: number }> {
+    assertReachable(policy, counterpartyPubky, 'pollConversation');
     const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
     if (state.status !== 'ready') return { state, received: [], flushed: 0 };
-    const { delivered } = await this.flushOutbox(ownerPubky, counterpartyPubky);
-    const received = await PaykitMessagingService.receiveMessages(ownerPubky, counterpartyPubky);
+    const { delivered } = await this.flushOutbox(ownerPubky, counterpartyPubky, policy);
+    const received = await PaykitMessagingService.receiveMessages(ownerPubky, counterpartyPubky, policy.gate);
     return { state, received, flushed: delivered };
+  }
+
+  /**
+   * Throws the same typed error a send would when this listing message could
+   * not be sent at all (too long, empty, or a thread that does not name both
+   * people), so callers can refuse before doing anything else.
+   */
+  static assertSendableChat(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    input: { conversationId: string; listingRef: string; body: string },
+  ): void {
+    assertListingConversationBound(ownerPubky, counterpartyPubky, input, 'assertSendableChat');
+    buildChatMessage({
+      eventId: crypto.randomUUID(),
+      conversationId: input.conversationId,
+      listingRef: input.listingRef,
+      sentAt: Date.now(),
+      body: input.body,
+    });
   }
 
   static async sendMessage(
     ownerPubky: string,
     counterpartyPubky: string,
     input: { conversationId: string; listingRef: string; body: string },
+    policy: MessagingPolicy,
   ): Promise<MarketplaceChatMessage> {
+    assertReachable(policy, counterpartyPubky, 'sendMessage');
     return await PaykitMessagingService.sendChatMessage(ownerPubky, counterpartyPubky, input);
   }
 
-  static async sendDmMessage(ownerPubky: string, counterpartyPubky: string, body: string): Promise<PubkyAppDmMessage> {
+  static async sendDmMessage(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    body: string,
+    policy: MessagingPolicy,
+  ): Promise<PubkyAppDmMessage> {
+    assertReachable(policy, counterpartyPubky, 'sendDmMessage');
     return await PaykitMessagingService.sendDmMessage(ownerPubky, counterpartyPubky, { body });
   }
 
@@ -214,14 +267,16 @@ export class MessagingApplication {
     ownerPubky: string,
     counterpartyPubky: string,
     input: { conversationId: string; listingRef: string; body: string },
+    policy: MessagingPolicy,
   ): Promise<MessagingSendOutcome<MarketplaceChatMessage>> {
+    assertReachable(policy, counterpartyPubky, 'sendOrQueueMessage');
     const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
     if (state.status === 'ready') {
       // Older queued rows must deliver FIRST or the thread order would lie.
       // If the flush stalls on a failure, this message queues behind them.
-      const { remaining } = await this.flushOutbox(ownerPubky, counterpartyPubky);
+      const { remaining } = await this.flushOutbox(ownerPubky, counterpartyPubky, policy);
       if (remaining === 0) {
-        return { delivered: true, message: await this.sendMessage(ownerPubky, counterpartyPubky, input) };
+        return { delivered: true, message: await this.sendMessage(ownerPubky, counterpartyPubky, input, policy) };
       }
     }
     return {
@@ -235,12 +290,14 @@ export class MessagingApplication {
     ownerPubky: string,
     counterpartyPubky: string,
     body: string,
+    policy: MessagingPolicy,
   ): Promise<MessagingSendOutcome<PubkyAppDmMessage>> {
+    assertReachable(policy, counterpartyPubky, 'sendOrQueueDmMessage');
     const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
     if (state.status === 'ready') {
-      const { remaining } = await this.flushOutbox(ownerPubky, counterpartyPubky);
+      const { remaining } = await this.flushOutbox(ownerPubky, counterpartyPubky, policy);
       if (remaining === 0) {
-        return { delivered: true, message: await this.sendDmMessage(ownerPubky, counterpartyPubky, body) };
+        return { delivered: true, message: await this.sendDmMessage(ownerPubky, counterpartyPubky, body, policy) };
       }
     }
     return {
@@ -326,7 +383,18 @@ export class MessagingApplication {
    * due. Bounded (one pass over the rows present at start) and
    * reentrancy-safe (concurrent callers share the in-flight pass).
    */
-  static async flushOutbox(ownerPubky: string, counterpartyPubky: string): Promise<MessagingOutboxFlushResult> {
+  static async flushOutbox(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    policy: MessagingPolicy,
+  ): Promise<MessagingOutboxFlushResult> {
+    // Nothing queued toward a muted person is ever sent; it stays queued.
+    if (policy.isMuted(counterpartyPubky)) {
+      return {
+        delivered: 0,
+        remaining: (await LocalMessagingService.getQueuedMessages(ownerPubky, counterpartyPubky)).length,
+      };
+    }
     const key = `${ownerPubky}:${counterpartyPubky}`;
     const inFlight = this.outboxFlushInFlight.get(key);
     if (inFlight) return await inFlight;
@@ -421,8 +489,11 @@ export class MessagingApplication {
    * received-and-persisted message newer than the read checkpoint. Local
    * reads only — this never claims knowledge of undelivered mail.
    */
-  static async getUnreadConversationCount(ownerPubky: string): Promise<number> {
-    return await LocalMessagingService.countUnreadConversations(ownerPubky);
+  static async getUnreadConversationCount(
+    ownerPubky: string,
+    excludedCounterparties?: ReadonlySet<string>,
+  ): Promise<number> {
+    return await LocalMessagingService.countUnreadConversations(ownerPubky, excludedCounterparties);
   }
 
   static async getConversationMessages(
@@ -464,54 +535,104 @@ export class MessagingApplication {
    * {@link MESSAGING_SYNC_MAX_RECOVERY_PROBES} due retries run per pass,
    * after every healthy pair, so a retry never delays or displaces healthy
    * delivery.
+   *
+   * Existing counterparties are probed most recent first, and
+   * {@link MESSAGING_SYNC_RESERVED_NEW_PROBES} of the healthy budget are kept
+   * for people with no local state yet (`priorityPubkys` first, then the
+   * rest of `candidatePubkys`), so a long contact list never locks new people
+   * out. Muted people are never probed.
    */
-  static async syncCounterparties(ownerPubky: string, candidatePubkys: string[]): Promise<void> {
-    // Insertion order is the probe priority: local messaging state (live or
-    // pending conversations) must never be crowded out by fresh candidates.
-    // Established links first: until a pair's first failure is recorded (for
-    // example after a reload) a retry looks healthy, and it must not push a
-    // live link out of the budget.
-    const known = new Set<string>();
-    const links = await LocalMessagingService.getLinksByOwner(ownerPubky);
-    for (const link of links) {
-      if (link.status === 'established') known.add(link.counterparty_pubky);
-    }
-    for (const link of links) {
-      known.add(link.counterparty_pubky);
-    }
-    for (const conversation of await LocalMessagingService.getConversationsByOwner(ownerPubky)) {
-      known.add(conversation.counterparty_pubky);
-    }
-    for (const candidate of candidatePubkys) {
-      known.add(candidate);
-    }
-    known.delete(ownerPubky);
-    const healthy: string[] = [];
+  static async syncCounterparties(
+    ownerPubky: string,
+    candidatePubkys: string[],
+    options: { priorityPubkys?: string[]; policy: MessagingPolicy },
+  ): Promise<void> {
+    const { policy } = options;
+    const existing = await this.existingCounterpartiesByRecency(ownerPubky);
+    const existingSet = new Set(existing);
+    const fresh = [...new Set([...(options.priorityPubkys ?? []), ...candidatePubkys])].filter(
+      (pubky) => !existingSet.has(pubky),
+    );
     const retries: string[] = [];
-    for (const counterparty of known) {
-      const retry = PaykitMessagingService.linkRetryStatus(ownerPubky, counterparty);
-      if (retry === 'none') healthy.push(counterparty);
-      else if (retry === 'due') retries.push(counterparty);
-    }
+    const split = (pubkys: string[]) => {
+      const healthy: string[] = [];
+      for (const counterparty of pubkys) {
+        if (counterparty === ownerPubky || policy.isMuted(counterparty)) continue;
+        const retry = PaykitMessagingService.linkRetryStatus(ownerPubky, counterparty);
+        if (retry === 'none') healthy.push(counterparty);
+        else if (retry === 'due') retries.push(counterparty);
+      }
+      return healthy;
+    };
+    const healthyExisting = split(existing);
+    const healthyFresh = split(fresh);
+    const freshSlots = Math.min(healthyFresh.length, MESSAGING_SYNC_RESERVED_NEW_PROBES);
+    const existingProbes = healthyExisting.slice(0, MESSAGING_SYNC_MAX_COUNTERPARTIES - freshSlots);
+    const freshProbes = healthyFresh.slice(0, MESSAGING_SYNC_MAX_COUNTERPARTIES - existingProbes.length);
     // Sequential on purpose: each probe is a couple of homeserver reads, and
     // parallel fan-out against one homeserver session buys nothing but load.
     for (const counterparty of [
-      ...healthy.slice(0, MESSAGING_SYNC_MAX_COUNTERPARTIES),
+      ...existingProbes,
+      ...freshProbes,
       ...retries.slice(0, MESSAGING_SYNC_MAX_RECOVERY_PROBES),
     ]) {
       const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
       if (state.status === 'ready') {
         // The probe may have JUST completed the handshake — deliver anything
         // queued toward this counterparty before draining inbound messages.
-        await this.flushOutbox(ownerPubky, counterparty);
-        await PaykitMessagingService.receiveMessages(ownerPubky, counterparty);
+        await this.flushOutbox(ownerPubky, counterparty, policy);
+        await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
       }
     }
+  }
+
+  /**
+   * Everyone this account has local messaging state with, most recent
+   * activity first. Established links lead: until a pair's first failure is
+   * recorded (for example after a reload) a retry looks healthy, and it must
+   * not push a live link out of the budget.
+   */
+  private static async existingCounterpartiesByRecency(ownerPubky: string): Promise<string[]> {
+    const activity = new Map<string, { established: boolean; at: number }>();
+    const note = (pubky: string, at: number, established: boolean) => {
+      const current = activity.get(pubky);
+      activity.set(pubky, {
+        established: established || Boolean(current?.established),
+        at: Math.max(at, current?.at ?? 0),
+      });
+    };
+    for (const link of await LocalMessagingService.getLinksByOwner(ownerPubky)) {
+      note(link.counterparty_pubky, link.updated_at, link.status === 'established');
+    }
+    for (const conversation of await LocalMessagingService.getConversationsByOwner(ownerPubky)) {
+      note(conversation.counterparty_pubky, conversation.last_message_at ?? conversation.created_at, false);
+    }
+    activity.delete(ownerPubky);
+    return [...activity.entries()]
+      .sort(([, left], [, right]) => Number(right.established) - Number(left.established) || right.at - left.at)
+      .map(([pubky]) => pubky);
   }
 }
 
 /** Upper bound on healthy counterparties probed per inbox sync pass. */
 export const MESSAGING_SYNC_MAX_COUNTERPARTIES = 25;
 
+/** Healthy probes per pass kept for people with no local messaging state yet. */
+export const MESSAGING_SYNC_RESERVED_NEW_PROBES = 10;
+
 /** Upper bound on due link retries run per inbox sync pass, on top of the healthy budget. */
 export const MESSAGING_SYNC_MAX_RECOVERY_PROBES = 3;
+
+/**
+ * Refuses any contact with a person the confirmed policy says is muted.
+ * Callers already refuse earlier with their own copy; this keeps every
+ * application entry point safe on its own.
+ */
+function assertReachable(policy: MessagingPolicy, counterpartyPubky: string, operation: string): void {
+  if (!policy.isMuted(counterpartyPubky)) return;
+  throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'This person is muted.', {
+    service: ErrorService.Local,
+    operation,
+    context: { reason: 'muted' },
+  });
+}

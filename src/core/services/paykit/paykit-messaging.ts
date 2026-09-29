@@ -6,6 +6,7 @@ import {
   buildChatMessage,
   decodeChatMessage,
   isListingConversationBound,
+  MARKETPLACE_CHAT_MESSAGE_KIND,
   type MarketplaceChatMessage,
   PAYKIT_MESSAGING_CAPABILITY,
   PAYKIT_MESSAGING_RECEIVER_PATH,
@@ -19,8 +20,11 @@ import {
   buildDmConversationId,
   buildDmMessage,
   decodeDmMessage,
+  PUBKY_APP_DM_KIND,
   type PubkyAppDmMessage,
 } from '@/libs/messaging/dm-contracts';
+import type { ConversationOrigin } from '@/libs/messaging/first-contact';
+import type { MessagingIntakeGate } from '@/libs/messaging/intake-gate';
 import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
@@ -106,7 +110,7 @@ export type MessagingLinkState =
   | { status: 'handshaking'; role: 'initiator' | 'responder' }
   | {
       status: 'recovery-needed';
-      reason: 'counterparty-key-changed' | 'handshake-restore-failed' | 'link-restore-failed';
+      reason: 'counterparty-key-changed' | 'handshake-restore-failed' | 'link-restore-failed' | 'send-state-unknown';
     }
   | { status: 'ready' };
 
@@ -198,6 +202,14 @@ export class PaykitMessagingService {
   private static restoreInFlight: { pubky: string; done: Promise<boolean> } | null = null;
   private static client: PubkyClient | null = null;
   private static links = new Map<string, EncryptedLinkHandle>();
+  /**
+   * Pairs whose live handle sent a message after its last saved snapshot,
+   * because saving the snapshot after the send failed. Restoring such a
+   * pair from the saved snapshot would send again under a counter the peer
+   * already received, so the handle is kept and the snapshot is saved
+   * before anything else runs on the pair.
+   */
+  private static unsavedSends = new Set<string>();
   private static handshakes = new Map<string, ActiveHandshake>();
   private static queues = new Map<string, Promise<unknown>>();
   // Automatic retries are spaced by MESSAGING_RETRY_POLICY, never by the
@@ -452,6 +464,7 @@ export class PaykitMessagingService {
     for (const link of this.links.values()) closeQuietly(() => void link.close());
     for (const handshake of this.handshakes.values()) closeQuietly(() => handshake.handle.free());
     this.links.clear();
+    this.unsavedSends.clear();
     this.handshakes.clear();
     this.queues.clear();
     this.linkRetry.clear();
@@ -551,6 +564,7 @@ export class PaykitMessagingService {
   ): Promise<MarketplaceChatMessage> {
     return await this.withQueue(counterpartyPubky, async () => {
       assertListingConversationBound(ownerPubky, counterpartyPubky, input, 'sendChatMessage');
+      await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendChatMessage');
       const { message, json } = buildChatMessage({
         eventId: input.eventId ?? crypto.randomUUID(),
@@ -559,8 +573,7 @@ export class PaykitMessagingService {
         sentAt: Date.now(),
         body: input.body,
       });
-      await link.sendPrivateApplicationMessageJson(json);
-      await this.persistSentMessage(ownerPubky, counterpartyPubky, link, {
+      await this.sendOnLink(ownerPubky, counterpartyPubky, link, json, {
         kind: 'listing',
         eventId: message.event_id,
         conversationId: message.conversation_id,
@@ -585,14 +598,14 @@ export class PaykitMessagingService {
     input: { body: string; eventId?: string },
   ): Promise<PubkyAppDmMessage> {
     return await this.withQueue(counterpartyPubky, async () => {
+      await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendDmMessage');
       const { message, json } = buildDmMessage({
         eventId: input.eventId ?? crypto.randomUUID(),
         sentAt: Date.now(),
         body: input.body,
       });
-      await link.sendPrivateApplicationMessageJson(json);
-      await this.persistSentMessage(ownerPubky, counterpartyPubky, link, {
+      await this.sendOnLink(ownerPubky, counterpartyPubky, link, json, {
         kind: 'dm',
         eventId: message.event_id,
         conversationId: buildDmConversationId(counterpartyPubky),
@@ -605,63 +618,217 @@ export class PaykitMessagingService {
   }
 
   /**
-   * Receives pending inbound messages on an established link and routes them
+   * Receives pending inbound events on an established link and routes them
    * by kind: `marketplace.chat_message.v0` lands in its envelope's listing
    * conversation, `pubky_app.dm.v0` lands in the counterparty's DM
-   * conversation. BOTH kinds are always persisted in one drain — the
-   * binding's read checkpoint advances past everything returned, so a kind
-   * skipped here would be lost. Unknown kinds are skipped (legal on a shared
-   * link). Message rows and conversation rows are persisted BEFORE the
-   * advanced snapshot.
+   * conversation. Everything the binding returns in one drain is dealt with
+   * before the advanced snapshot is persisted, because the binding's read
+   * position moves past all of it:
+   *
+   * - a message of a known kind is stored (or refused by `gate`, or dropped
+   *   when its envelope is invalid or names another thread);
+   * - an event of a kind or version this build cannot interpret is stored
+   *   unprocessed, wrapped at rest, and offered to the router again at the
+   *   start of every later receive, so a build that understands it can still
+   *   process it. If it cannot be stored, this throws and the snapshot is not
+   *   advanced.
+   *
+   * Every new event passes `gate` (Shop policy: mutes, the receive cap,
+   * Requests) before it is stored. A refused event is consumed like any
+   * other: the snapshot still advances past it, so it is never stored later.
    */
-  static async receiveMessages(ownerPubky: string, counterpartyPubky: string): Promise<ReceivedMessage[]> {
+  static async receiveMessages(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    gate: MessagingIntakeGate,
+  ): Promise<ReceivedMessage[]> {
     return await this.withQueue(counterpartyPubky, async () => {
-      const link = this.links.get(this.linkKey(ownerPubky, counterpartyPubky));
+      const key = this.linkKey(ownerPubky, counterpartyPubky);
+      const link = this.links.get(key);
       if (!link) return [];
-      const inbound = (await link.receivePrivateApplicationMessages()) as { rawJson: string }[];
+      await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const received: ReceivedMessage[] = [];
-      const now = Date.now();
-      for (const item of inbound) {
-        const routed = this.routeInboundMessage(item.rawJson, ownerPubky, counterpartyPubky);
-        if (!routed) continue;
-        // `event_id` is sender-chosen too, so a stored row is never
-        // overwritten: an exact redelivery is a no-op and any other reuse of
-        // the id is dropped.
-        const stored = await LocalMessagingService.insertReceivedMessage(routed.event_id, {
-          owner_id: ownerPubky,
-          conversation_id: routed.conversation_id,
-          listing_ref: routed.listing_ref,
-          counterparty_pubky: counterpartyPubky,
-          body: routed.body,
-          sent_at: routed.sent_at,
-          recorded_at: now,
-        });
-        if (stored.status === 'conflict') {
-          Logger.warn('Dropped an inbound message that reuses the id of a different stored message', {
-            reason: 'event_id_collision',
-          });
-          continue;
+      await this.reprocessUnprocessed(ownerPubky, counterpartyPubky, gate, received);
+      try {
+        const inbound = (await link.receivePrivateApplicationMessages()) as InboundEvent[];
+        const now = Date.now();
+        for (const [position, item] of inbound.entries()) {
+          const classified = this.classifyInbound(item, ownerPubky, counterpartyPubky);
+          if (classified.type === 'invalid') continue;
+          if (classified.type === 'unknown') {
+            await this.keepUnprocessed(ownerPubky, counterpartyPubky, item, classified, gate, { now, position });
+            continue;
+          }
+          await this.intakeMessage(ownerPubky, counterpartyPubky, classified.message, gate, now, received);
         }
-        // A replay still ensures the conversation row exists (the first
-        // delivery may have crashed before this write) but never moves its
-        // timestamps past the original receipt.
-        const touchedAt = stored.status === 'replay' ? stored.recordedAt : now;
-        await LocalMessagingService.touchConversation({
-          owner_id: ownerPubky,
-          conversation_id: routed.conversation_id,
-          kind: routed.kind,
-          listing_ref: routed.listing_ref,
-          counterparty_pubky: counterpartyPubky,
-          last_message_at: touchedAt,
-          updated_at: touchedAt,
-        });
-        if (stored.status === 'inserted') received.push(routed);
-      }
-      if (inbound.length > 0) {
-        await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
+        if (inbound.length > 0) {
+          await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
+        }
+      } catch (error) {
+        // The live handle's read position already moved past this batch;
+        // only the persisted snapshot did not. Dropping the handle makes the
+        // next operation restore from that snapshot and read the batch
+        // again, so nothing in it is skipped. Redeliveries are deduplicated.
+        // Only this handle is dropped: a sign-out and sign-in during the
+        // receive may already have put a new one under the same key.
+        if (this.links.get(key) === link) this.links.delete(key);
+        closeQuietly(() => void link.close());
+        throw error;
       }
       return received;
     });
+  }
+
+  /**
+   * Offers every stored unprocessed event from this peer to the router
+   * again, oldest first. One this build now understands is taken in like a
+   * new message and its row is removed; one refused by the mute policy or
+   * no longer valid is removed too. One still unknown, or only held back by
+   * the receive cap, stays for a later receive.
+   */
+  private static async reprocessUnprocessed(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    gate: MessagingIntakeGate,
+    received: ReceivedMessage[],
+  ): Promise<void> {
+    for (const event of await LocalMessagingService.getUnprocessed(ownerPubky, counterpartyPubky)) {
+      const classified = this.classifyInbound(event, ownerPubky, counterpartyPubky);
+      if (classified.type === 'unknown') continue;
+      if (classified.type === 'message') {
+        const outcome = await this.intakeMessage(
+          ownerPubky,
+          counterpartyPubky,
+          classified.message,
+          gate,
+          Date.now(),
+          received,
+        );
+        if (outcome === 'rate_limited') continue;
+      }
+      await LocalMessagingService.deleteUnprocessed(ownerPubky, event.id);
+    }
+  }
+
+  /** Stores one event this build cannot interpret, unless the gate refuses it or it is already stored. */
+  private static async keepUnprocessed(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    item: InboundEvent,
+    classified: { kind: string; version: number | null },
+    gate: MessagingIntakeGate,
+    at: { now: number; position: number },
+  ): Promise<void> {
+    const id = LocalMessagingService.unprocessedId(ownerPubky, counterpartyPubky, item.rawJson);
+    if (await LocalMessagingService.hasUnprocessed(id)) return;
+    const decision = await gate.admit({ counterpartyPubky, kind: 'unknown', conversationId: null });
+    if (!decision.store) {
+      Logger.info('Skipped an inbound event', { reason: decision.reason });
+      return;
+    }
+    await LocalMessagingService.storeUnprocessed({
+      ownerId: ownerPubky,
+      counterpartyPubky,
+      kind: classified.kind,
+      version: classified.version,
+      rawJson: item.rawJson,
+      receivedAt: at.now,
+      position: at.position,
+    });
+  }
+
+  /**
+   * Takes one routed message in: puts a new one to the gate, stores it
+   * first-write-wins, and makes sure its conversation row exists.
+   */
+  private static async intakeMessage(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    routed: ReceivedMessage,
+    gate: MessagingIntakeGate,
+    now: number,
+    received: ReceivedMessage[],
+  ): Promise<'stored' | 'replay' | 'muted' | 'rate_limited' | 'conflict'> {
+    // A redelivery of a stored message is not new traffic, so it is not
+    // put to the gate (it must not use up the receive cap). Its thread
+    // row is normally there already; if a crash lost it, the row is
+    // recreated under Requests until the next sync reclassifies it.
+    let origin: ConversationOrigin = 'request';
+    if (!(await LocalMessagingService.hasMessage(ownerPubky, routed.event_id))) {
+      const decision = await gate.admit({
+        counterpartyPubky,
+        kind: routed.kind,
+        conversationId: routed.conversation_id,
+      });
+      if (!decision.store) {
+        Logger.info('Skipped an inbound message', { reason: decision.reason });
+        return decision.reason;
+      }
+      origin = decision.origin;
+    }
+    // `event_id` is sender-chosen too, so a stored row is never
+    // overwritten: an exact redelivery is a no-op and any other reuse of
+    // the id is dropped.
+    const stored = await LocalMessagingService.insertReceivedMessage(routed.event_id, {
+      owner_id: ownerPubky,
+      conversation_id: routed.conversation_id,
+      listing_ref: routed.listing_ref,
+      counterparty_pubky: counterpartyPubky,
+      body: routed.body,
+      sent_at: routed.sent_at,
+      recorded_at: now,
+    });
+    if (stored.status === 'conflict') {
+      Logger.warn('Dropped an inbound message that reuses the id of a different stored message', {
+        reason: 'event_id_collision',
+      });
+      return 'conflict';
+    }
+    // A replay still ensures the conversation row exists (the first
+    // delivery may have crashed before this write) but never moves its
+    // timestamps past the original receipt.
+    const touchedAt = stored.status === 'replay' ? stored.recordedAt : now;
+    await LocalMessagingService.touchConversation({
+      owner_id: ownerPubky,
+      conversation_id: routed.conversation_id,
+      kind: routed.kind,
+      listing_ref: routed.listing_ref,
+      counterparty_pubky: counterpartyPubky,
+      last_message_at: touchedAt,
+      updated_at: touchedAt,
+      origin,
+    });
+    if (stored.status === 'inserted') {
+      received.push(routed);
+      return 'stored';
+    }
+    return 'replay';
+  }
+
+  /**
+   * What one inbound event is. A known kind at a known version is decoded:
+   * a valid one is a `message`, anything else about it (a malformed body, a
+   * listing thread that does not name both link ends) is `invalid` and
+   * dropped. Any other kind, or a known kind at a version this build does
+   * not know, is `unknown` and kept. An event with no kind at all is not an
+   * application message and is `invalid`.
+   */
+  private static classifyInbound(
+    item: InboundEvent,
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ):
+    | { type: 'message'; message: ReceivedMessage }
+    | { type: 'invalid' }
+    | { type: 'unknown'; kind: string; version: number | null } {
+    const envelope = readEnvelopeHeader(item.rawJson);
+    const kind = envelope.kind ?? (typeof item.kind === 'string' && item.kind.length > 0 ? item.kind : null);
+    const version = envelope.kind ? envelope.version : typeof item.version === 'number' ? item.version : null;
+    if (kind === null) return { type: 'invalid' };
+    const known = kind === MARKETPLACE_CHAT_MESSAGE_KIND || kind === PUBKY_APP_DM_KIND;
+    if (!known || version !== 1) return { type: 'unknown', kind, version };
+    const message = this.routeInboundMessage(item.rawJson, ownerPubky, counterpartyPubky);
+    return message ? { type: 'message', message } : { type: 'invalid' };
   }
 
   /**
@@ -741,11 +908,28 @@ export class PaykitMessagingService {
     return link;
   }
 
-  /** Persists a sent message row + conversation touch, THEN the advanced snapshot. */
-  private static async persistSentMessage(
+  /**
+   * Sends one message and saves what it changed, in an order that can never
+   * let a later restore reuse the link's send counter:
+   *
+   * 1. A durable "send pending" mark goes on the link row BEFORE the
+   *    ciphertext leaves. A restore that finds it set cannot know whether
+   *    the counter advanced past the saved snapshot, so that pair never
+   *    sends from that snapshot (see the restore in `stepLink`).
+   * 2. The message is sent. The binding may advance its counter even when
+   *    the send fails, so the snapshot is saved either way.
+   * 3. After a successful send, the message row and its conversation are
+   *    stored, then the snapshot is saved, which clears the mark.
+   *
+   * If the snapshot cannot be saved, the pair is recorded as having an
+   * unsaved send: its live handle is kept, and every later send or receive
+   * on the pair saves the snapshot first ({@link settleUnsavedSend}).
+   */
+  private static async sendOnLink(
     ownerPubky: string,
     counterpartyPubky: string,
     link: EncryptedLinkHandle,
+    json: string,
     sent: {
       kind: 'listing' | 'dm';
       eventId: string;
@@ -755,27 +939,66 @@ export class PaykitMessagingService {
       body: string;
     },
   ): Promise<void> {
-    const now = Date.now();
-    await LocalMessagingService.upsertMessage(sent.eventId, {
-      owner_id: ownerPubky,
-      conversation_id: sent.conversationId,
-      listing_ref: sent.listingRef,
-      counterparty_pubky: counterpartyPubky,
-      direction: 'sent',
-      body: sent.body,
-      sent_at: sent.sentAt,
-      recorded_at: now,
-    });
-    await LocalMessagingService.touchConversation({
-      owner_id: ownerPubky,
-      conversation_id: sent.conversationId,
-      kind: sent.kind,
-      listing_ref: sent.listingRef,
-      counterparty_pubky: counterpartyPubky,
-      last_message_at: now,
-      updated_at: now,
-    });
+    await LocalMessagingService.markSendPending(ownerPubky, counterpartyPubky);
+    let failure: { error: unknown } | null = null;
+    try {
+      await link.sendPrivateApplicationMessageJson(json);
+    } catch (error) {
+      failure = { error };
+    }
+    if (!failure) {
+      try {
+        const now = Date.now();
+        await LocalMessagingService.upsertMessage(sent.eventId, {
+          owner_id: ownerPubky,
+          conversation_id: sent.conversationId,
+          listing_ref: sent.listingRef,
+          counterparty_pubky: counterpartyPubky,
+          direction: 'sent',
+          body: sent.body,
+          sent_at: sent.sentAt,
+          recorded_at: now,
+        });
+        await LocalMessagingService.touchConversation({
+          owner_id: ownerPubky,
+          conversation_id: sent.conversationId,
+          kind: sent.kind,
+          listing_ref: sent.listingRef,
+          counterparty_pubky: counterpartyPubky,
+          last_message_at: now,
+          updated_at: now,
+        });
+      } catch (error) {
+        failure = { error };
+      }
+    }
+    try {
+      await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
+    } catch (error) {
+      this.unsavedSends.add(this.linkKey(ownerPubky, counterpartyPubky));
+      Logger.warn('Could not save the link after a send; the pair waits until it is saved', {
+        reason: 'send_snapshot_unsaved',
+      });
+      throw error;
+    }
+    if (failure) throw failure.error;
+  }
+
+  /**
+   * Saves the snapshot of a pair whose last send was not saved, before the
+   * pair is used again. Throws while it still cannot be saved, so nothing
+   * sends or receives on a handle that is ahead of its saved state.
+   */
+  private static async settleUnsavedSend(ownerPubky: string, counterpartyPubky: string): Promise<void> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    if (!this.unsavedSends.has(key)) return;
+    const link = this.links.get(key);
+    if (!link) {
+      this.unsavedSends.delete(key);
+      return;
+    }
     await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
+    this.unsavedSends.delete(key);
   }
 
   // --- internals -----------------------------------------------------------
@@ -831,6 +1054,15 @@ export class PaykitMessagingService {
     const receiver = await this.requireReceiver(ownerPubky);
 
     if (stored?.status === 'established') {
+      if (stored.send_pending) {
+        // A send may have left after this snapshot was saved; its counter
+        // is unknown, and sending from here could reuse it. Nothing is
+        // deleted, and queued messages stay queued.
+        Logger.warn('A link was saved before a send finished; it will not send from that snapshot', {
+          reason: 'send_state_unknown',
+        });
+        return this.deferLink(key, { status: 'recovery-needed', reason: 'send-state-unknown' });
+      }
       try {
         const link = (await wasmModule.restoreEncryptedLink(
           session.handle,
@@ -979,8 +1211,17 @@ export class PaykitMessagingService {
 
     if (result.status === 'complete' && result.link) {
       this.handshakes.delete(key);
+      // Saved before it is used: a link registered ahead of its saved
+      // state could send, and a later restore would then reuse its counter.
+      try {
+        await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, result.link);
+      } catch (error) {
+        const unsaved = result.link;
+        closeQuietly(() => void unsaved.close());
+        Logger.warn('Could not save a completed handshake; it restarts from its saved state', { error });
+        return this.deferLink(key, { status: 'handshaking', role: handshake.role });
+      }
       this.links.set(key, result.link);
-      await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, result.link);
       return { status: 'ready' };
     }
 
@@ -1063,19 +1304,25 @@ export class PaykitMessagingService {
     const key = this.linkKey(ownerPubky, counterpartyPubky);
     const now = Date.now();
     if (inbound.link) {
-      this.links.set(key, inbound.link);
-      await LocalMessagingService.upsertLink({
-        owner_id: ownerPubky,
-        counterparty_pubky: counterpartyPubky,
-        role: 'responder',
-        status: 'established',
-        local_receiver_path: localReceiverPath,
-        remote_receiver_path: marker.receiverPath,
-        remote_noise_public_key: marker.noisePublicKey,
-        snapshot: inbound.link.snapshot(),
-        created_at: now,
-        updated_at: now,
-      });
+      const adopted = inbound.link;
+      try {
+        await LocalMessagingService.upsertLink({
+          owner_id: ownerPubky,
+          counterparty_pubky: counterpartyPubky,
+          role: 'responder',
+          status: 'established',
+          local_receiver_path: localReceiverPath,
+          remote_receiver_path: marker.receiverPath,
+          remote_noise_public_key: marker.noisePublicKey,
+          snapshot: adopted.snapshot(),
+          created_at: now,
+          updated_at: now,
+        });
+      } catch (error) {
+        closeQuietly(() => void adopted.close());
+        throw error;
+      }
+      this.links.set(key, adopted);
       return { status: 'ready' };
     }
     if (inbound.handshake) {
@@ -1321,4 +1568,23 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+/** One event as the binding returns it (`{ version, kind, rawJson }`), or as stored unprocessed. */
+type InboundEvent = { rawJson: string; kind?: unknown; version?: unknown };
+
+/** The `kind` and `version` a JSON envelope declares, when it declares a kind. */
+function readEnvelopeHeader(rawJson: string): { kind: string | null; version: number | null } {
+  let value: unknown;
+  try {
+    value = JSON.parse(rawJson);
+  } catch {
+    return { kind: null, version: null };
+  }
+  if (typeof value !== 'object' || value === null) return { kind: null, version: null };
+  const { kind, version } = value as { kind?: unknown; version?: unknown };
+  return {
+    kind: typeof kind === 'string' && kind.length > 0 ? kind : null,
+    version: typeof version === 'number' ? version : null,
+  };
 }

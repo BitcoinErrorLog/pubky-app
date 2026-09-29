@@ -1,10 +1,21 @@
 import { z } from 'zod';
 import { CommerceApplication } from '@/application/commerce/commerce';
-import { MESSAGING_SYNC_MAX_COUNTERPARTIES, MessagingApplication } from '@/application/messaging/messaging';
+import {
+  FirstContactApplication,
+  type MessagingMutesState,
+  type MuteChangeResult,
+} from '@/application/messaging/first-contact';
+import {
+  MESSAGING_SYNC_MAX_COUNTERPARTIES,
+  MessagingApplication,
+  type MessagingThreadState,
+} from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
+import { UserApplication } from '@/application/user/user';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { NEXUS_USER_IDS_MAX_LIMIT } from '@/config/nexus';
 import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
+import { MESSAGING_COPY, messagingReportText } from '@/libs/commerce/messaging-copy';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
@@ -12,11 +23,14 @@ import {
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
-import { parseDmConversationId } from '@/libs/messaging/dm-contracts';
+import { buildDmConversationId, parseDmConversationId } from '@/libs/messaging/dm-contracts';
+import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import type { Pubky } from '@/models/models.types';
 import { buildUserCompositeId } from '@/models/stream/user/userStream.helper';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
+import { FollowNormalizer } from '@/pipes/follow/follow.normalizer';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 
@@ -68,38 +82,34 @@ export class MessagingController {
    * Opens the encrypted conversation for a listing between the signed-in user
    * and a counterparty. The conversation id is the same aggregate reference
    * the sandbox transport uses (`conversation:{seller}_{buyer}_{listingId}`).
+   * Nothing is opened with someone this account muted, and nothing at all
+   * while the mute list cannot be confirmed (`paused`).
    */
-  static async openConversation(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown) {
+  static async openConversation(
+    sellerPubky: unknown,
+    buyerPubky: unknown,
+    listingId: unknown,
+  ): Promise<{ state: MessagingThreadState; conversationId: string; counterpartyPubky: string }> {
     const { ownerPubky, counterpartyPubky, conversationId, listingRef } = this.resolveConversation(
       sellerPubky,
       buyerPubky,
       listingId,
     );
+    const confirmed = await this.confirmPolicy(ownerPubky, counterpartyPubky);
+    if (!confirmed.policy) return { state: confirmed.state, conversationId, counterpartyPubky };
     const state = await MessagingApplication.openConversation(
       ownerPubky,
       counterpartyPubky,
       conversationId,
       listingRef,
+      confirmed.policy,
     );
     return { state, conversationId, counterpartyPubky };
   }
 
   static async pollConversation(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown) {
     const { ownerPubky, counterpartyPubky } = this.resolveConversation(sellerPubky, buyerPubky, listingId);
-    return await MessagingApplication.pollConversation(ownerPubky, counterpartyPubky);
-  }
-
-  static async sendMessage(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown, body: string) {
-    const { ownerPubky, counterpartyPubky, conversationId, listingRef } = this.resolveConversation(
-      sellerPubky,
-      buyerPubky,
-      listingId,
-    );
-    return await MessagingApplication.sendMessage(ownerPubky, counterpartyPubky, {
-      conversationId,
-      listingRef,
-      body,
-    });
+    return await this.pollCounterparty(ownerPubky, counterpartyPubky);
   }
 
   /**
@@ -107,66 +117,276 @@ export class MessagingController {
    * otherwise queues the message device-locally (validated against the same
    * byte ceiling) for automatic delivery. The result distinguishes the two —
    * the UI never labels a queued message sent.
+   *
+   * A buyer's first message in a listing thread first does the first-contact
+   * work the seller needs to find them: it follows the seller and publishes
+   * a conversation request for the listing. The first message to a new
+   * person is refused, before anything is followed or written, once the
+   * buyer reached the limit of new people per hour. `firstContact` reports
+   * what happened so the dialog can tell the buyer when the seller may not
+   * see the message yet. Writing to someone accepts them.
    */
   static async sendOrQueueMessage(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown, body: string) {
-    const { ownerPubky, counterpartyPubky, conversationId, listingRef } = this.resolveConversation(
-      sellerPubky,
-      buyerPubky,
-      listingId,
+    const resolved = this.resolveConversation(sellerPubky, buyerPubky, listingId);
+    const { ownerPubky, counterpartyPubky, conversationId, listingRef } = resolved;
+    const policy = await this.requirePolicy(ownerPubky, counterpartyPubky, 'sendOrQueueMessage');
+    // A message that cannot be sent must not follow anyone or publish anything.
+    MessagingApplication.assertSendableChat(ownerPubky, counterpartyPubky, { conversationId, listingRef, body });
+    const firstContact =
+      ownerPubky === resolved.buyerPubky
+        ? await this.runFirstContact(ownerPubky, counterpartyPubky, resolved.listingId)
+        : null;
+    const outcome = await MessagingApplication.sendOrQueueMessage(
+      ownerPubky,
+      counterpartyPubky,
+      { conversationId, listingRef, body },
+      policy,
     );
-    return await MessagingApplication.sendOrQueueMessage(ownerPubky, counterpartyPubky, {
-      conversationId,
-      listingRef,
-      body,
-    });
+    await FirstContactApplication.accept(ownerPubky, counterpartyPubky);
+    return { ...outcome, firstContact };
+  }
+
+  /**
+   * Whether the buyer's next send in this listing thread will follow the
+   * seller, so the dialog can say so before Send. `false` when the answer is
+   * unknown: the send still follows, and reports it.
+   */
+  static async willFollowOnSend(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown): Promise<boolean> {
+    const resolved = this.resolveConversation(sellerPubky, buyerPubky, listingId);
+    if (resolved.ownerPubky !== resolved.buyerPubky) return false;
+    if (FirstContactApplication.isOrderCounterparty(resolved.ownerPubky, resolved.counterpartyPubky)) return false;
+    const preparation = await FirstContactApplication.prepareFirstContact(
+      resolved.ownerPubky,
+      resolved.counterpartyPubky,
+      resolved.listingId,
+    );
+    if (preparation.kind !== 'ready' || !preparation.firstMessage) return false;
+    try {
+      return !(await FirstContactApplication.isFollowing(resolved.ownerPubky, resolved.counterpartyPubky));
+    } catch {
+      return false;
+    }
+  }
+
+  private static async runFirstContact(buyerPubky: string, sellerPubky: string, listingId: string) {
+    const preparation = await FirstContactApplication.prepareFirstContact(buyerPubky, sellerPubky, listingId);
+    if (preparation.kind === 'limited') {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, MESSAGING_COPY.firstContactLimited, {
+        service: ErrorService.Local,
+        operation: 'sendOrQueueMessage',
+        context: { reason: 'first_contact_limited' },
+      });
+    }
+    if (!preparation.firstMessage) return null;
+    if (FirstContactApplication.isOrderCounterparty(buyerPubky, sellerPubky)) return null;
+    if (
+      preparation.newCounterparty &&
+      (await FirstContactApplication.claimFirstContact(buyerPubky, sellerPubky, listingId)) === 'limited'
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, MESSAGING_COPY.firstContactLimited, {
+        service: ErrorService.Local,
+        operation: 'sendOrQueueMessage',
+        context: { reason: 'first_contact_limited' },
+      });
+    }
+    const followed = await this.followForFirstContact(buyerPubky, sellerPubky);
+    const request = await FirstContactApplication.writeConversationRequest(buyerPubky, sellerPubky, listingId);
+    return { followed, request };
+  }
+
+  /** Follows the seller unless the buyer already does. Never throws. */
+  private static async followForFirstContact(
+    buyerPubky: string,
+    sellerPubky: string,
+  ): Promise<'already' | 'followed' | 'failed'> {
+    try {
+      if (await FirstContactApplication.isFollowing(buyerPubky, sellerPubky)) return 'already';
+      const { meta, follow } = FollowNormalizer.to({ follower: buyerPubky as Pubky, followee: sellerPubky as Pubky });
+      await UserApplication.commitFollow({
+        eventType: HttpMethod.PUT,
+        followUrl: meta.url,
+        followJson: follow.toJson(),
+        follower: buyerPubky as Pubky,
+        followee: sellerPubky as Pubky,
+        activeStreamId: null,
+      });
+      return 'followed';
+    } catch {
+      Logger.warn('Could not follow the seller for a first message', { reason: 'first_contact_follow_failed' });
+      return 'failed';
+    }
   }
 
   /** Opens (or resumes) the general DM conversation with a counterparty. */
-  static async openDmConversation(counterpartyPubky: unknown) {
+  static async openDmConversation(
+    counterpartyPubky: unknown,
+  ): Promise<{ state: MessagingThreadState; counterpartyPubky: string }> {
     const ownerPubky = this.getCurrentUserPubky();
     const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
-    const state = await MessagingApplication.openDmConversation(ownerPubky, counterparty);
+    const confirmed = await this.confirmPolicy(ownerPubky, counterparty);
+    if (!confirmed.policy) return { state: confirmed.state, counterpartyPubky: counterparty };
+    const state = await MessagingApplication.openDmConversation(ownerPubky, counterparty, confirmed.policy);
     return { state, counterpartyPubky: counterparty };
   }
 
   /** One poll step for the DM surface: advance handshake + receive on the shared link. */
   static async pollDmConversation(counterpartyPubky: unknown) {
     const ownerPubky = this.getCurrentUserPubky();
-    return await MessagingApplication.pollConversation(ownerPubky, CommerceRecordNormalizer.pubky(counterpartyPubky));
+    return await this.pollCounterparty(ownerPubky, CommerceRecordNormalizer.pubky(counterpartyPubky));
   }
 
-  static async sendDmMessage(counterpartyPubky: unknown, body: string) {
-    const ownerPubky = this.getCurrentUserPubky();
-    return await MessagingApplication.sendDmMessage(
-      ownerPubky,
-      CommerceRecordNormalizer.pubky(counterpartyPubky),
-      body,
-    );
-  }
-
-  /** Queue-aware DM send — same contract as {@link sendOrQueueMessage}. */
+  /** Queue-aware DM send — same contract as {@link sendOrQueueMessage}, without first-contact work. */
   static async sendOrQueueDmMessage(counterpartyPubky: unknown, body: string) {
     const ownerPubky = this.getCurrentUserPubky();
-    return await MessagingApplication.sendOrQueueDmMessage(
+    const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
+    const policy = await this.requirePolicy(ownerPubky, counterparty, 'sendOrQueueDmMessage');
+    const outcome = await MessagingApplication.sendOrQueueDmMessage(ownerPubky, counterparty, body, policy);
+    await FirstContactApplication.accept(ownerPubky, counterparty);
+    return outcome;
+  }
+
+  /**
+   * One poll step with one counterparty, on a fresh read of the mute list.
+   * A muted person is not contacted at all, and while the list cannot be
+   * confirmed nobody is: no handshake step, queued send or receive runs.
+   */
+  private static async pollCounterparty(
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): Promise<{
+    state: MessagingThreadState;
+    received: Awaited<ReturnType<typeof MessagingApplication.pollConversation>>['received'];
+    flushed: number;
+    rateLimited: number;
+  }> {
+    const confirmed = await this.confirmPolicy(ownerPubky, counterpartyPubky);
+    if (!confirmed.policy) return { state: confirmed.state, received: [], flushed: 0, rateLimited: 0 };
+    const result = await MessagingApplication.pollConversation(ownerPubky, counterpartyPubky, confirmed.policy);
+    return { ...result, rateLimited: FirstContactApplication.takeRateLimitedCount(ownerPubky) };
+  }
+
+  // --- mutes, requests, report -------------------------------------------
+
+  /** The signed-in account's mute list, read from private storage. */
+  static async getMutes(): Promise<MessagingMutesState> {
+    return await FirstContactApplication.loadMutes(this.getCurrentUserPubky());
+  }
+
+  /** Mutes or unmutes a person, then refreshes the unread fact. */
+  static async setCounterpartyMuted(counterpartyPubky: unknown, muted: boolean): Promise<MuteChangeResult> {
+    const ownerPubky = this.getCurrentUserPubky();
+    const state = await FirstContactApplication.setMuted(
       ownerPubky,
       CommerceRecordNormalizer.pubky(counterpartyPubky),
-      body,
+      muted,
+    );
+    await this.refreshUnreadCount();
+    return state;
+  }
+
+  /** Moves a person's Requests into the inbox. */
+  static async acceptRequest(counterpartyPubky: unknown): Promise<void> {
+    await FirstContactApplication.accept(this.getCurrentUserPubky(), CommerceRecordNormalizer.pubky(counterpartyPubky));
+    await this.refreshUnreadCount();
+  }
+
+  /**
+   * The text "Report" copies for one of the account's conversations: the
+   * conversation id and the other account. Only ever given to the clipboard.
+   */
+  static async getReportDetails(conversationId: unknown): Promise<string> {
+    const ownerPubky = this.getCurrentUserPubky();
+    const id = this.normalizeConversationId(conversationId);
+    const dm = parseDmConversationId(id);
+    const counterpartyPubky = this.counterpartyOf(ownerPubky, id);
+    if (!counterpartyPubky || counterpartyPubky === ownerPubky) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'This conversation is not on this account.', {
+        service: ErrorService.Local,
+        operation: 'getReportDetails',
+      });
+    }
+    return messagingReportText({
+      conversationId: dm ? buildDmConversationId(counterpartyPubky) : id,
+      counterpartyPubky,
+    });
+  }
+
+  /**
+   * The confirmed policy for one operation with one person, from a fresh
+   * read of the mute list, or the state to show instead: `paused` while the
+   * list cannot be confirmed, `muted` for a muted person.
+   */
+  private static async confirmPolicy(
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): Promise<{ policy: MessagingPolicy; state: null } | { policy: null; state: MessagingThreadState }> {
+    const mutes = await FirstContactApplication.loadMutes(ownerPubky);
+    const policy = FirstContactApplication.policyFor(ownerPubky, mutes);
+    if (!policy) {
+      const reason = mutes.kind === 'needs_approval' || mutes.kind === 'needs_reauth' ? mutes.kind : 'error';
+      return { policy: null, state: { status: 'paused', reason } };
+    }
+    if (policy.isMuted(counterpartyPubky)) return { policy: null, state: { status: 'muted' } };
+    return { policy, state: null };
+  }
+
+  /** {@link confirmPolicy} for a send: refuses with the reason instead of returning a state. */
+  private static async requirePolicy(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    operation: string,
+  ): Promise<MessagingPolicy> {
+    const confirmed = await this.confirmPolicy(ownerPubky, counterpartyPubky);
+    if (confirmed.policy) return confirmed.policy;
+    const muted = confirmed.state.status === 'muted';
+    throw Err.validation(
+      ValidationErrorCode.INVALID_INPUT,
+      muted ? MESSAGING_COPY.mutedSendRefused : MESSAGING_COPY.sendPausedForMutes,
+      { service: ErrorService.Local, operation, context: { reason: muted ? 'muted' : 'mutes_unconfirmed' } },
     );
   }
 
+  /**
+   * The muted people from a fresh read of the mute list, for surfaces that
+   * show message content, or `null` while the list cannot be confirmed: then
+   * no row, preview, thread or count is shown at all.
+   */
+  private static async displayMutes(ownerPubky: string): Promise<ReadonlySet<string> | null> {
+    const mutes = await FirstContactApplication.loadMutes(ownerPubky);
+    if (mutes.kind === 'ready') return mutes.muted;
+    return mutes.kind === 'unavailable' ? new Set<string>() : null;
+  }
+
+  /** The history of one conversation; empty while the mute list is unconfirmed or the other person is muted. */
   static async getConversationMessages(conversationId: unknown) {
-    return await MessagingApplication.getConversationMessages(
-      this.getCurrentUserPubky(),
-      this.normalizeConversationId(conversationId),
-    );
+    const ownerPubky = this.getCurrentUserPubky();
+    const id = this.normalizeConversationId(conversationId);
+    if (!(await this.mayShowConversation(ownerPubky, id))) return [];
+    return await MessagingApplication.getConversationMessages(ownerPubky, id);
   }
 
-  /** Device-locally queued (not yet sent) messages of one conversation, oldest first. */
+  /** Device-locally queued (not yet sent) messages of one conversation, oldest first, gated like its history. */
   static async getQueuedConversationMessages(conversationId: unknown) {
-    return await MessagingApplication.getQueuedMessagesForConversation(
-      this.getCurrentUserPubky(),
-      this.normalizeConversationId(conversationId),
-    );
+    const ownerPubky = this.getCurrentUserPubky();
+    const id = this.normalizeConversationId(conversationId);
+    if (!(await this.mayShowConversation(ownerPubky, id))) return [];
+    return await MessagingApplication.getQueuedMessagesForConversation(ownerPubky, id);
+  }
+
+  private static async mayShowConversation(ownerPubky: string, conversationId: string): Promise<boolean> {
+    const muted = await this.displayMutes(ownerPubky);
+    const counterpartyPubky = this.counterpartyOf(ownerPubky, conversationId);
+    return muted !== null && counterpartyPubky !== null && !muted.has(counterpartyPubky);
+  }
+
+  /** The other person of one of the account's conversations, or `null` when it is not the account's. */
+  private static counterpartyOf(ownerPubky: string, conversationId: string): string | null {
+    const dm = parseDmConversationId(conversationId);
+    if (dm) return dm.counterpartyPubky === ownerPubky ? null : dm.counterpartyPubky;
+    const listing = parseConversationAggregateId(conversationId);
+    if (!listing) return null;
+    if (listing.sellerPubky === ownerPubky) return listing.buyerPubky === ownerPubky ? null : listing.buyerPubky;
+    return listing.buyerPubky === ownerPubky ? listing.sellerPubky : null;
   }
 
   /** Deletes one of the signed-in user's queued messages while it is still queued. */
@@ -174,8 +394,25 @@ export class MessagingController {
     await MessagingApplication.cancelQueuedMessage(this.getCurrentUserPubky(), this.normalizeOutboxId(id));
   }
 
-  static async getConversations() {
-    return await MessagingApplication.getConversations(this.getCurrentUserPubky());
+  /**
+   * The account's conversations after a fresh read of the mute list, and
+   * that read's outcome. Threads with muted people are left out; while the
+   * list cannot be confirmed no conversation is returned at all, so no row,
+   * preview or sender is shown anywhere.
+   */
+  static async getConversations(): Promise<{
+    mutes: MessagingMutesState['kind'];
+    conversations: Awaited<ReturnType<typeof MessagingApplication.getConversations>>;
+  }> {
+    const ownerPubky = this.getCurrentUserPubky();
+    const mutes = await FirstContactApplication.loadMutes(ownerPubky);
+    if (mutes.kind !== 'ready' && mutes.kind !== 'unavailable') return { mutes: mutes.kind, conversations: [] };
+    const muted = mutes.kind === 'ready' ? mutes.muted : new Set<string>();
+    const conversations = await MessagingApplication.getConversations(ownerPubky);
+    return {
+      mutes: mutes.kind,
+      conversations: conversations.filter((conversation) => !muted.has(conversation.counterparty_pubky)),
+    };
   }
 
   /**
@@ -193,6 +430,8 @@ export class MessagingController {
    * Recomputes the device-local unread conversation count and mirrors it into
    * the messaging store (the header/footer badges subscribe there). Honest by
    * construction: only messages already persisted on this device count.
+   * Requests and muted people never count, and nothing counts while the
+   * mute list cannot be confirmed.
    */
   static async refreshUnreadCount(): Promise<number> {
     const ownerPubky = useAuthStore.getState().currentUserPubky;
@@ -200,7 +439,8 @@ export class MessagingController {
       useMessagingStore.getState().setUnreadConversations(0);
       return 0;
     }
-    const count = await MessagingApplication.getUnreadConversationCount(ownerPubky);
+    const muted = await this.displayMutes(ownerPubky);
+    const count = muted === null ? 0 : await MessagingApplication.getUnreadConversationCount(ownerPubky, muted);
     useMessagingStore.getState().setUnreadConversations(count);
     return count;
   }
@@ -211,30 +451,48 @@ export class MessagingController {
    * handshakes from strangers), so the naming set is assembled here:
    *
    * 1. Everyone with existing local messaging state (added inside the
-   *    application layer, always first within the probe bound).
+   *    application layer, most recent first).
    * 2. Marketplace order/offer participants — only when a durable commerce
    *    mode is configured; general DMs never depend on the commerce adapter.
-   * 3. The user's follows and followers (Nexus-fed user streams) — the v1
-   *    answer to the stranger problem: someone in your graph can reach you,
-   *    a total stranger's invitation stays invisible until they enter it.
+   * 3. The user's follows and followers (Nexus-fed user streams). A buyer
+   *    who follows this seller and published a conversation request is
+   *    probed first, and the request adds the listing thread right away.
+   *
+   * People this account does not follow and shares no order or offer with
+   * land in Requests. Muted people are never probed. When the mute list
+   * cannot be confirmed, nobody is contacted at all (no request discovery,
+   * probe, handshake step, queued send or receive), and `mutes` says why.
    *
    * Any source failing to read degrades to the remaining sources instead of
    * failing the sync. Ends by refreshing the device-local unread fact.
    */
-  static async syncInbox(): Promise<void> {
+  static async syncInbox(): Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }> {
     const ownerPubky = this.getCurrentUserPubky();
-    const candidates = new Set<string>();
-    if (isDurableCommerceMode(getCommerceAdapterMode())) {
-      for (const pubky of await this.getMarketplaceCounterpartyCandidates(ownerPubky)) {
-        candidates.add(pubky);
-      }
+    const mutes = await FirstContactApplication.loadMutes(ownerPubky);
+    const policy = FirstContactApplication.policyFor(ownerPubky, mutes);
+    if (!policy) {
+      await this.refreshUnreadCount();
+      return { mutes: mutes.kind, rateLimited: 0 };
     }
-    for (const pubky of await this.getFollowGraphCandidates(ownerPubky)) {
-      candidates.add(pubky);
-    }
+    const muted = mutes.kind === 'ready' ? mutes.muted : new Set<string>();
+    const orderCounterparties = isDurableCommerceMode(getCommerceAdapterMode())
+      ? await this.getMarketplaceCounterpartyCandidates(ownerPubky)
+      : [];
+    const { following, followers } = await this.getFollowGraphCandidates(ownerPubky);
+    FirstContactApplication.setKnownContacts(ownerPubky, {
+      following,
+      orderCounterparties: orderCounterparties.filter((pubky) => pubky !== ownerPubky),
+    });
+    const requesters = await FirstContactApplication.discoverRequests(ownerPubky, followers, muted);
+    const candidates = new Set([...orderCounterparties, ...following, ...followers]);
     candidates.delete(ownerPubky);
-    await MessagingApplication.syncCounterparties(ownerPubky, [...candidates]);
+    await MessagingApplication.syncCounterparties(ownerPubky, [...candidates], {
+      priorityPubkys: requesters,
+      policy,
+    });
+    await FirstContactApplication.promoteKnownRequests(ownerPubky);
     await this.refreshUnreadCount();
+    return { mutes: mutes.kind, rateLimited: FirstContactApplication.takeRateLimitedCount(ownerPubky) };
   }
 
   /** Buyer/seller pubkys from the user's durable orders and offers; failures degrade to empty. */
@@ -273,10 +531,12 @@ export class MessagingController {
    * capped at {@link MESSAGING_SYNC_MAX_COUNTERPARTIES} probes, so deeper
    * pagination would buy nothing). Failures degrade to empty.
    */
-  private static async getFollowGraphCandidates(ownerPubky: string): Promise<string[]> {
-    const candidates = new Set<string>();
+  private static async getFollowGraphCandidates(
+    ownerPubky: string,
+  ): Promise<{ following: string[]; followers: string[] }> {
+    const reaches = ['following', 'followers'] as const;
     const slices = await Promise.allSettled(
-      (['following', 'followers'] as const).map((reach) =>
+      reaches.map((reach) =>
         UserStreamApplication.getOrFetchStreamSlice({
           streamId: buildUserCompositeId({ userId: ownerPubky as Pubky, reach }),
           skip: 0,
@@ -289,19 +549,18 @@ export class MessagingController {
         }),
       ),
     );
+    const graph = { following: [] as string[], followers: [] as string[] };
     slices.forEach((slice, index) => {
       if (slice.status === 'fulfilled') {
-        for (const pubky of slice.value.nextPageIds) {
-          candidates.add(pubky);
-        }
+        graph[reaches[index]] = [...new Set(slice.value.nextPageIds)].filter((pubky) => pubky !== ownerPubky);
       } else {
         Logger.warn('Inbox sync could not read the follow graph for counterparty candidates', {
           error: slice.reason,
-          context: { reach: index === 0 ? 'following' : 'followers' },
+          context: { reach: reaches[index] },
         });
       }
     });
-    return [...candidates];
+    return graph;
   }
 
   /**
@@ -348,6 +607,8 @@ export class MessagingController {
     return {
       ownerPubky,
       counterpartyPubky,
+      buyerPubky: buyer,
+      listingId: listing,
       conversationId: buildMarketplaceConversationAggregateId(seller, buyer, listing),
       listingRef: buildMarketplaceListingAggregateId(seller, listing),
     };

@@ -11,6 +11,7 @@ import type {
   CommerceMessagingMessageModelSchema,
   CommerceMessagingOutboxModelSchema,
   CommerceMessagingReceiverModelSchema,
+  CommerceMessagingUnprocessedModelSchema,
 } from './messaging.schema';
 
 export class CommerceMessagingReceiverModel
@@ -54,6 +55,7 @@ export class CommerceMessagingLinkModel
   remote_noise_public_key: string;
   snapshot: Uint8Array;
   wrap_version?: number;
+  send_pending?: boolean;
   created_at: number;
   updated_at: number;
 
@@ -68,6 +70,7 @@ export class CommerceMessagingLinkModel
     this.remote_noise_public_key = link.remote_noise_public_key;
     this.snapshot = link.snapshot;
     this.wrap_version = link.wrap_version;
+    this.send_pending = link.send_pending;
     this.created_at = link.created_at;
     this.updated_at = link.updated_at;
   }
@@ -99,6 +102,8 @@ export class CommerceMessagingConversationModel
   counterparty_pubky: string;
   last_message_at: number | null;
   last_read_at: number | null;
+  origin?: CommerceMessagingConversationModelSchema['origin'];
+  first_contact_at?: number | null;
   created_at: number;
   updated_at: number;
 
@@ -111,6 +116,8 @@ export class CommerceMessagingConversationModel
     this.counterparty_pubky = conversation.counterparty_pubky;
     this.last_message_at = conversation.last_message_at;
     this.last_read_at = conversation.last_read_at;
+    this.origin = conversation.origin;
+    this.first_contact_at = conversation.first_contact_at;
     this.created_at = conversation.created_at;
     this.updated_at = conversation.updated_at;
   }
@@ -263,6 +270,79 @@ export class CommerceMessagingOutboxModel
       throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name} by owner`, {
         service: ErrorService.Local,
         operation: 'findByOwner',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+}
+
+export class CommerceMessagingUnprocessedModel
+  extends RecordModelBase<string, CommerceMessagingUnprocessedModelSchema>
+  implements CommerceMessagingUnprocessedModelSchema
+{
+  // Looked up on use: the table exists only from DB version 8, and a build
+  // deployed with an older NEXT_PUBLIC_DB_VERSION must still load. There,
+  // storing an unprocessed event throws, so the link's read position stays
+  // where it is instead of moving past the event.
+  static get table(): Table<CommerceMessagingUnprocessedModelSchema> {
+    return db.table('commerce_messaging_unprocessed');
+  }
+
+  owner_id: string;
+  counterparty_pubky: string;
+  payload: Uint8Array;
+  wrap_version: number;
+  received_at: number;
+  position: number;
+
+  constructor(row: CommerceMessagingUnprocessedModelSchema) {
+    super(row);
+    this.owner_id = row.owner_id;
+    this.counterparty_pubky = row.counterparty_pubky;
+    this.payload = row.payload;
+    this.wrap_version = row.wrap_version;
+    this.received_at = row.received_at;
+    this.position = row.position;
+  }
+
+  /** Whether this database declares the table (DB version 8 and later). */
+  static isAvailable(): boolean {
+    return db.tables.some((table) => table.name === 'commerce_messaging_unprocessed');
+  }
+
+  /** Adds the row unless its id is taken; resolves whether it was added. */
+  static async addIfAbsent(row: CommerceMessagingUnprocessedModelSchema): Promise<boolean> {
+    try {
+      return await db.transaction('rw', this.table, async () => {
+        if (await this.table.get(row.id)) return false;
+        await this.table.add(row);
+        return true;
+      });
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, `Failed to insert into ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'addIfAbsent',
+        context: { table: this.table.name },
+        cause: error,
+      });
+    }
+  }
+
+  static async findByOwnerAndCounterparty(
+    ownerId: string,
+    counterpartyPubky: string,
+  ): Promise<CommerceMessagingUnprocessedModelSchema[]> {
+    try {
+      const rows = await this.table
+        .where('[owner_id+counterparty_pubky]')
+        .equals([ownerId, counterpartyPubky])
+        .toArray();
+      return rows.sort((left, right) => left.received_at - right.received_at || left.position - right.position);
+    } catch (error) {
+      throw Err.database(DatabaseErrorCode.QUERY_FAILED, `Failed to query ${this.table.name}`, {
+        service: ErrorService.Local,
+        operation: 'findByOwnerAndCounterparty',
         context: { table: this.table.name },
         cause: error,
       });

@@ -37,10 +37,17 @@ import type {
  *                             this device.
  * - `ready`                 — the Encrypted Link is established; sending and
  *                             receiving are live.
+ * - `paused`                — the mute list cannot be confirmed right now:
+ *                             nothing is opened, sent or received until it
+ *                             can (`pausedReason` says what would fix it).
+ * - `muted`                 — this account muted the other person: nothing
+ *                             is opened, sent or received until it unmutes.
  * - `error`                 — a real transport failure, with its message.
  */
 export type EncryptedConversationStatus =
   | 'loading'
+  | 'paused'
+  | 'muted'
   | 'needs-enable'
   | 'not-enrolled'
   | 'handshaking-initiator'
@@ -96,4 +103,10 @@ export interface UseEncryptedConversationReturn {
   cancelQueued: (id: string) => Promise<void>;
   /** Re-runs status resolution (used after the enable dialog completes). */
   refresh: () => void;
+  /** True when the next send will follow the seller (a buyer's first message to them). */
+  followOnSend?: boolean;
+  /** Shown after a first message when the seller may not see it yet. */
+  firstContactNotice?: string | null;
+  /** Why the conversation is `paused`: an approval is needed, or the mute list could not be read. */
+  pausedReason?: 'needs_approval' | 'needs_reauth' | 'error' | null;
 }

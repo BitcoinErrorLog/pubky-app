@@ -29,6 +29,7 @@ import {
 import { Logger } from '@/libs/logger/logger';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { PaykitMessagingService, setPaykitWasmModuleForTests } from '@/services/paykit/paykit-messaging';
+import { ADMIT_ALL_GATE } from '@/test-utils/messaging-gate';
 
 // Self-contained factories, hoisted by vitest above the imports (browser-mode
 // mocking cannot use importActual here): the messaging service imports exactly
@@ -268,7 +269,7 @@ describe('encrypted marketplace messaging — live two-party proof on STAGING (p
     let aliceReceived: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const aliceDeadline = Date.now() + 60_000;
     while (Date.now() < aliceDeadline && aliceReceived.length === 0) {
-      aliceReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
+      aliceReceived = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky, ADMIT_ALL_GATE);
       if (aliceReceived.length === 0) await sleep(1000);
     }
     expect(aliceReceived).toHaveLength(1);
@@ -305,7 +306,7 @@ describe('encrypted marketplace messaging — live two-party proof on STAGING (p
     let afterRestore: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
     const restoreDeadline = Date.now() + 60_000;
     while (Date.now() < restoreDeadline && afterRestore.length === 0) {
-      afterRestore = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky);
+      afterRestore = await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky, ADMIT_ALL_GATE);
       if (afterRestore.length === 0) await sleep(1000);
     }
     expect(afterRestore).toHaveLength(1);

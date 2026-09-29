@@ -58,3 +58,38 @@ Sandbox-only-and-labelled remains the right posture — do **not** add plaintext
 | pubky-noise direct                       | Would require designing an unreviewed protocol layer (kinds, ordering, attachments, backup) that Paykit already provides — forbidden. Legacy `/Volumes` fork additionally deprecated/non-interoperable. |
 | Homeserver encrypted records             | Homeserver has no counterparty-readable private paths; every honest design reinvents pubky-noise; pubky-app-specs has no message model; browser cannot ECDH with the identity key. Blocked.             |
 | Anything else                            | Nothing found: Sealed Blob/atomicity is outside the audited upstream set; Locks has no messaging surface; Chatwoot is operator support chat; Pubky App has no DMs.                                      |
+
+## First contact, Requests and mutes
+
+The transport cannot list inbound handshakes, so a seller finds a new buyer through two public records the buyer writes on the first message in a listing thread:
+
+- a follow of the seller (`/pub/pubky.app/follows/{seller}`), which puts the buyer in the seller's followers; the dialog says so above Send: "Sending also follows this shop so they can see your message.";
+- a conversation request, one per listing, with no message in it:
+
+```
+pubky://{buyer}/pub/pubky.app/marketplace/v1/conversation-requests/{seller}/{listingId}
+
+{ "version": 1, "kind": "marketplace.conversation_request.v0",
+  "seller_pubky": "<seller>", "buyer_pubky": "<buyer>",
+  "listing_id": "<listingId>", "created_at": <buyer clock, Unix ms> }
+```
+
+Like the other `marketplace/v1/*` paths, this is a Shop convention and not part of `pubky-app-specs`. The record is public: anyone can read which seller and listing a buyer asked about. The buyer reads it first and writes it only when it is missing or invalid; a failed read writes nothing. Both sides of an order or offer already find each other, so a first message about one writes neither record.
+
+On each inbox sync the seller lists the request directory of up to 20 followers and adds one listing thread per valid request. Only the path is trusted: the homeserver lets nobody but the buyer write under the buyer's `/pub`, and every JSON field must repeat the path or the request is ignored. Messages are then accepted into a thread only when its id names both authenticated ends of the link.
+
+A thread with someone the account does not follow, shares no order or offer with, and has never written to lands in **Requests**. Requests never count as unread. Accept, a reply, a follow of the person or a shared order moves every thread with them into the inbox.
+
+Mutes are private and kept as an add-only log under `/priv/pubky.app/marketplace/v2/s/`, family `messaging_mutes`, sealed with the same data keys and envelope as the watchlist (see `docs/ecommerce/priv-encryption-recovery.md`). Each mute or unmute is its own record under a fresh random name and is never rewritten or deleted, so two devices, two tabs or a reload in the middle of a change never lose one another's changes; per person the latest change wins and a mute wins a tie. A muted person is never probed, sent to or stored, and their threads are hidden. At most 1,000 people can be muted at once. A list saved in the earlier single-document format (entry id `mutes`) is still read and folded in, so none of its mutes is lost; if it does not open, the list cannot be confirmed.
+
+Every operation that contacts someone (opening or advancing a link, sending, flushing queued messages, receiving, reading request directories) first reads the whole log. If any part of it cannot be read or opened, nothing contacts anyone, nothing new is stored, and nothing about any conversation is shown: the inbox, Requests and Messages list no rows or previews, conversation history and queued messages are not returned, the unread badge shows nothing, and conversations say that new messages are paused. Surfaces that show message content read the list themselves each time. A list read earlier never stands in for a failed read. In durable modes no marketplace notification of a message is shown at all (no service writer exists; the inbox is the only surface for private messages). Messages wait on the homeserver until the list reads again. Messages a muted person sent arrive after an unmute.
+
+Events of a kind or version this build cannot interpret (for example Paykit payment kinds on the same link, or a newer chat version) are stored before the link's read position moves past them, encrypted at rest in `commerce_messaging_unprocessed` (kind and version included, so nothing about the event is stored in the clear), never shown, and offered to the router again on every later receive. If storing anything from a batch fails, the live link handle, whose read position already moved past the batch, is dropped, so the next receive restores it from the last persisted snapshot and reads the batch again. That table needs `NEXT_PUBLIC_DB_VERSION=8`; with an older version, a link that receives such an event stops there instead of reading past it.
+
+A link's send counter is never used twice. Before a message leaves, the link row is marked as sending; the snapshot saved after the send, whether it succeeded or failed, clears the mark. If that snapshot cannot be saved, the pair keeps its live handle and saves the snapshot before its next send or receive, and does neither until the save succeeds. A handle whose failed receive is dropped is only that handle, never one a later sign-in put under the same pair. A link found still marked after a reload may have sent past its saved snapshot, so it is never restored from it: it reports `recovery-needed` (`send-state-unknown`), keeps its row and queued messages, and sends nothing. A completed handshake, and an adopted inbound link, are used only after they are saved; a completed handshake that cannot be saved restarts from its saved handshake state.
+
+Accounts signed in through a Bitkit grant cannot turn on private messages yet; they see the Ring-only notice, and none of the above applies to them until the messaging runtime can borrow their session.
+
+Limits, on this device's clock (never a sender's `sent_at`): a buyer can message at most 5 new people per rolling hour, and at most 20 messages per minute from one person are stored. Both are counted from IndexedDB, so another tab or a reload does not reset them, and the new-people check and its record are one transaction, so concurrent sends cannot all pass it. Both bind honest clients only; mute, Requests and the probe budget (10 of the 25 probes per sync kept for people with no local state) are the defences that hold against a modified client. Report copies the conversation id and the other account to the clipboard and builds no URL.
+
+This policy sits above the transport behind `MessagingIntakeGate` (`src/libs/messaging/intake-gate.ts`): the link runtime asks it once per inbound message before storing it.

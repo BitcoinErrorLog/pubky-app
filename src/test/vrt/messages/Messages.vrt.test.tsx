@@ -203,6 +203,21 @@ vi.mock('@/hooks/useMarketplaceMessagingEnable/useMarketplaceMessagingEnable', (
   }),
 }));
 
+vi.mock('@/config/commerce', async () => {
+  const actual = await vi.importActual<typeof import('@/config/commerce')>('@/config/commerce');
+  return { ...actual, getCommerceAdapterMode: () => 'transaction-service' };
+});
+
+vi.mock('@/hooks/useMessagingSafety/useMessagingSafety', () => ({
+  useMessagingSafety: () => ({
+    isPending: false,
+    mute: vi.fn(async () => true),
+    unmute: vi.fn(async () => true),
+    accept: vi.fn(async () => true),
+    report: vi.fn(async () => true),
+  }),
+}));
+
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main className="w-full py-6">{children}</main>,
 }));
@@ -238,9 +253,25 @@ describe('Messages area — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-list-mobile');
   });
 
-  it('renders the empty state with the follows-graph disclosure at desktop viewport', async () => {
+  it('renders the empty state with the Requests note at desktop viewport', async () => {
     const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-empty-desktop');
+  });
+
+  it('renders a direct-message request below the inbox at desktop viewport', async () => {
+    inboxView.conversations = [listingConversationFixture(), { ...dmConversationFixture(true), origin: 'request' }];
+
+    const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-requests-desktop');
+  });
+
+  it('renders a muted DM conversation with the way to unmute at desktop viewport', async () => {
+    dmView.status = 'muted';
+
+    const screen = await renderForVRT(<MessagesConversation counterpartyPubky={DM_COUNTERPARTY} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dm-conversation-muted-desktop');
   });
 
   it('renders the signed-out state at desktop viewport', async () => {

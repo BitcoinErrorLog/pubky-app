@@ -59,7 +59,6 @@ export function MarketplaceMessageDialog({ sellerPubky, listingId }: { sellerPub
         buyerPubky={currentUserPubky}
         listingId={listingId}
         counterpartyPubky={sellerPubky}
-        showListingDisclosure
         trigger={
           <Button variant="secondary" size="sm" className="w-full rounded-full">
             <MessageCircle className="mr-2 size-4" />

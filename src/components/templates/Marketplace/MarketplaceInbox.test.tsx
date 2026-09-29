@@ -20,6 +20,7 @@ const encryptedView = vi.hoisted(() => ({
   conversations: [] as unknown[],
   receiverProvisioned: false,
   errorMessage: null as string | null,
+  mutesStatus: 'ready' as string | null,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -54,6 +55,7 @@ vi.mock('@/hooks/useEncryptedInbox/useEncryptedInbox', () => ({
     conversations: encryptedView.conversations,
     receiverProvisioned: encryptedView.receiverProvisioned,
     errorMessage: encryptedView.errorMessage,
+    mutesStatus: encryptedView.mutesStatus,
     refresh: vi.fn(),
   }),
 }));
@@ -88,6 +90,18 @@ vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
   }),
 }));
 
+const safety = vi.hoisted(() => ({ accept: async (_pubky: string) => true }));
+
+vi.mock('@/hooks/useMessagingSafety/useMessagingSafety', () => ({
+  useMessagingSafety: () => ({
+    isPending: false,
+    mute: async () => true,
+    unmute: async () => true,
+    accept: (pubky: string) => safety.accept(pubky),
+    report: async () => true,
+  }),
+}));
+
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
   ContentLayout: ({ children }: { children: React.ReactNode }) => <main>{children}</main>,
 }));
@@ -107,6 +121,7 @@ describe('MarketplaceInbox conversation query', () => {
     encryptedView.conversations = [];
     encryptedView.receiverProvisioned = false;
     encryptedView.errorMessage = null;
+    encryptedView.mutesStatus = 'ready';
   });
 
   it('shows the fail-closed copy for a malformed query and does not open a thread', async () => {
@@ -187,5 +202,55 @@ describe('MarketplaceInbox conversation query', () => {
     render(<MarketplaceInbox />);
     expect(await screen.findByLabelText('Unread messages')).toBeInTheDocument();
     expect(screen.getByText(MESSAGING_COPY.thisSeller)).toBeInTheDocument();
+  });
+
+  it('lists a stranger’s unread message under Requests with no unread dot, and accepts it', async () => {
+    const accept = vi.fn(async () => true);
+    safety.accept = accept;
+    encryptedView.conversations = [
+      {
+        id: `${SELLER}:${CONVERSATION_ID}`,
+        owner_id: SELLER,
+        conversation_id: CONVERSATION_ID,
+        listing_ref: `listing:${SELLER}:${LISTING_ID}`,
+        counterparty_pubky: BUYER,
+        origin: 'request',
+        last_message_at: 200,
+        last_read_at: null,
+        created_at: 1,
+        updated_at: 200,
+        lastMessage: {
+          id: `${SELLER}:m1`,
+          owner_id: SELLER,
+          conversation_id: CONVERSATION_ID,
+          listing_ref: `listing:${SELLER}:${LISTING_ID}`,
+          counterparty_pubky: BUYER,
+          direction: 'received',
+          body: 'Is it still available?',
+          sent_at: 200,
+          recorded_at: 200,
+        },
+        lastQueued: null,
+      },
+    ];
+    auth.currentUserPubky = SELLER;
+    render(<MarketplaceInbox />);
+
+    const requests = await screen.findByRole('region', { name: MESSAGING_COPY.requestsTitle });
+    expect(requests).toHaveTextContent('Is it still available?');
+    expect(screen.queryByLabelText('Unread messages')).not.toBeInTheDocument();
+    screen.getByRole('button', { name: `${MESSAGING_COPY.requestAccept} ${MESSAGING_COPY.thisBuyer}` }).click();
+    await waitFor(() => expect(accept).toHaveBeenCalledWith(BUYER));
+    expect(screen.getByRole('button', { name: `${MESSAGING_COPY.mute} ${MESSAGING_COPY.thisBuyer}` })).toBeEnabled();
+  });
+
+  it('shows only the paused notice, with no empty state or rows, while the mute list is unconfirmed', () => {
+    encryptedView.mutesStatus = 'error';
+    encryptedView.conversations = [];
+    render(<MarketplaceInbox />);
+
+    expect(screen.getByText(MESSAGING_COPY.mutesUnavailable)).toBeInTheDocument();
+    expect(screen.queryByText(MESSAGING_COPY.inboxEmptyTitle)).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: MESSAGING_COPY.requestsTitle })).not.toBeInTheDocument();
   });
 });

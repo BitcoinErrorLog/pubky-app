@@ -73,6 +73,9 @@ const conversationView = vi.hoisted(() => ({
   draftBytes: 0,
   isSending: false,
   sendError: null as string | null,
+  followOnSend: false,
+  firstContactNotice: null as string | null,
+  pausedReason: null as string | null,
 }));
 
 const enableView = vi.hoisted(() => ({
@@ -127,6 +130,19 @@ vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
     send: vi.fn(async () => 'queued'),
     cancelQueued: vi.fn(async () => {}),
     refresh: vi.fn(),
+    followOnSend: conversationView.followOnSend,
+    firstContactNotice: conversationView.firstContactNotice,
+    pausedReason: conversationView.pausedReason,
+  }),
+}));
+
+vi.mock('@/hooks/useMessagingSafety/useMessagingSafety', () => ({
+  useMessagingSafety: () => ({
+    isPending: false,
+    mute: vi.fn(async () => true),
+    unmute: vi.fn(async () => true),
+    accept: vi.fn(async () => true),
+    report: vi.fn(async () => true),
   }),
 }));
 
@@ -190,6 +206,9 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     conversationView.draftBytes = 0;
     conversationView.isSending = false;
     conversationView.sendError = null;
+    conversationView.followOnSend = false;
+    conversationView.firstContactNotice = null;
+    conversationView.pausedReason = null;
     enableView.status = 'awaiting';
     enableView.authorizationUrl = '';
     enableView.errorMessage = null;
@@ -443,24 +462,66 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     );
   });
 
-  it('renders the listing disclosure on an open durable conversation at desktop viewport', async () => {
-    const screen = await renderForVRT(
-      <Harness>
-        <MarketplaceEncryptedConversationDialog
-          sellerPubky={SELLER}
-          buyerPubky={BUYER}
-          listingId={LISTING_ID}
-          counterpartyPubky={SELLER}
-          showListingDisclosure
-          trigger={<Button variant="secondary">Message seller</Button>}
-        />
-      </Harness>,
-      { viewport: VRT_VIEWPORT_DESKTOP },
-    );
+  it('renders the follow line above Send on a first message to a seller at desktop viewport', async () => {
+    conversationView.followOnSend = true;
+    conversationView.draft = 'Is this still available?';
+    conversationView.draftBytes = 24;
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
     await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
-      'messaging-listing-disclosure-desktop',
+      'messaging-follow-on-send-desktop',
     );
+  });
+
+  it('renders the follow line above Send at mobile viewport', async () => {
+    conversationView.followOnSend = true;
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_MOBILE });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-follow-on-send-mobile',
+    );
+  });
+
+  it('renders the notice after a first message whose follow failed at desktop viewport', async () => {
+    conversationView.status = 'handshaking-initiator';
+    conversationView.thread = [
+      fixedQueued('00000000-0000-4000-8000-000000000905', 'Is this still available?', VRT_FROZEN_NOW_MS - 60_000),
+    ];
+    conversationView.firstContactNotice =
+      'We could not follow this shop for you. The seller sees your message after you follow them.';
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-follow-failed-desktop',
+    );
+  });
+
+  it('renders a paused conversation while the mute list cannot be read at desktop viewport', async () => {
+    conversationView.status = 'paused';
+    conversationView.pausedReason = 'error';
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot('messaging-paused-desktop');
+  });
+
+  it('renders a muted conversation with the way to unmute at desktop viewport', async () => {
+    conversationView.status = 'muted';
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot('messaging-muted-desktop');
+  });
+
+  it('renders a muted conversation at mobile viewport', async () => {
+    conversationView.status = 'muted';
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_MOBILE });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot('messaging-muted-mobile');
   });
 
   it('renders the seller-disabled listing CTA at desktop viewport', async () => {

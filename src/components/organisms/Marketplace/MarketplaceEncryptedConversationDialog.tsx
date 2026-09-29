@@ -10,7 +10,10 @@ import { useEncryptedConversation } from '@/hooks/useEncryptedConversation/useEn
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { marketplaceCounterpartyLabel, MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
+import { ConversationSafetyActions, MutedConversationPanel } from '@/organisms/Messaging/ConversationSafetyActions';
 import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
+import { MessagingMutesNotice } from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceMessagingEnablePanel } from './MarketplaceMessagingEnableDialog';
 
@@ -25,7 +28,6 @@ export function MarketplaceEncryptedConversationDialog({
   counterpartyPubky,
   trigger,
   defaultOpen = false,
-  showListingDisclosure = false,
 }: {
   sellerPubky: string;
   buyerPubky: string;
@@ -33,7 +35,6 @@ export function MarketplaceEncryptedConversationDialog({
   counterpartyPubky: string;
   trigger: ReactNode;
   defaultOpen?: boolean;
-  showListingDisclosure?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const { requireAuth } = useRequireAuth();
@@ -64,13 +65,29 @@ export function MarketplaceEncryptedConversationDialog({
           <DialogTitle>{counterpartyLabel}</DialogTitle>
         </DialogHeader>
 
-        {showListingDisclosure ? (
-          <Typography as="p" className="text-sm text-muted-foreground">
-            {MESSAGING_COPY.listingDisclosure}
-          </Typography>
+        {conversation.status !== 'loading' && conversation.status !== 'muted' && conversation.status !== 'paused' ? (
+          <ConversationSafetyActions
+            counterpartyPubky={counterpartyPubky}
+            conversationId={buildMarketplaceConversationAggregateId(sellerPubky, buyerPubky, listingId)}
+            counterpartyLabel={counterpartyLabel}
+            canMute
+            onMuted={conversation.refresh}
+          />
         ) : null}
 
         {conversation.status === 'loading' && <Skeleton className="h-40 w-full" />}
+
+        {conversation.status === 'paused' && (
+          <MessagingMutesNotice status={conversation.pausedReason ?? 'error'} onRetry={conversation.refresh} />
+        )}
+
+        {conversation.status === 'muted' && (
+          <MutedConversationPanel
+            counterpartyPubky={counterpartyPubky}
+            counterpartyLabel={counterpartyLabel}
+            onUnmuted={conversation.refresh}
+          />
+        )}
 
         {conversation.status === 'needs-enable' && (
           <MarketplaceMessagingEnablePanel

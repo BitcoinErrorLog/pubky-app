@@ -1,3 +1,5 @@
+import type { ConversationOrigin } from '@/libs/messaging/first-contact';
+
 /**
  * Account-scoped persistence for end-to-end-encrypted marketplace messaging
  * over Paykit Encrypted Links (durable commerce modes).
@@ -86,6 +88,14 @@ export interface CommerceMessagingLinkModelSchema {
   snapshot: Uint8Array;
   /** At-rest wrap format of `snapshot`: absent/0 = legacy plaintext, 1 = AES-GCM-256. */
   wrap_version?: number;
+  /**
+   * Set before a message is sent on this link and cleared by the snapshot
+   * saved after it. Still set on a restore, it means a send may have left
+   * after `snapshot` was saved, so this snapshot's send counter may already
+   * have been used and the link must not send from it. Not indexed, so it
+   * needed no Dexie version.
+   */
+  send_pending?: boolean;
   created_at: number;
   updated_at: number;
 }
@@ -135,6 +145,20 @@ export interface CommerceMessagingConversationModelSchema {
    * arrived on THIS device, never anything unfetched.
    */
   last_read_at: number | null;
+  /**
+   * `request` while the counterparty is someone this account does not know
+   * yet: the thread is listed under Requests and never counts as unread.
+   * `known` for everyone else. Absent on rows written before first contact
+   * existed, which read as `known`. Not indexed, so adding it needed no
+   * Dexie version.
+   */
+  origin?: ConversationOrigin;
+  /**
+   * When this account first messaged a new person in this conversation, on
+   * this device's clock. Drives the limit on new people per hour; `null` or
+   * absent otherwise.
+   */
+  first_contact_at?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -231,4 +255,42 @@ export const commerceMessagingOutboxTableSchema = [
   'counterparty_pubky',
   'queued_at',
   '[owner_pubky+counterparty_pubky]',
+].join(', ');
+
+/**
+ * An authenticated inbound event this build cannot interpret: a kind or
+ * version it has no handler for (for example a Paykit payment kind riding
+ * the same link, or a newer chat version). It is stored before the link's
+ * read position moves past it, left unprocessed, never shown, and offered
+ * again to the router on every later receive, so a build that understands
+ * it can still process it.
+ *
+ * `payload` holds the event, encrypted at rest like link snapshots
+ * (AES-GCM-256 under the messaging keyring, AAD-bound to this table and
+ * row id; `wrap_version` 1). It can carry anything the peer sent, so it is
+ * never logged or synced. Cleared on sign-out with every other table.
+ */
+export interface CommerceMessagingUnprocessedModelSchema {
+  /** `${owner_id}:${counterparty_pubky}:${digest}`, where `digest` is the SHA-256 of the raw bytes: an identical redelivery stores nothing new. */
+  id: string;
+  owner_id: string;
+  counterparty_pubky: string;
+  /**
+   * Wrapped `{ kind, version, rawJson }`: the event's raw JSON and the kind
+   * and version the link reported for it. SECRET-class — see above. Nothing
+   * about the event, not even its kind, is stored in the clear.
+   */
+  payload: Uint8Array;
+  wrap_version: number;
+  /** Local receipt time; events are offered again in this order. */
+  received_at: number;
+  /** Position within the drain that returned it, so events of one drain keep their stream order. */
+  position: number;
+}
+
+export const commerceMessagingUnprocessedTableSchema = [
+  '&id',
+  'owner_id',
+  'received_at',
+  '[owner_id+counterparty_pubky]',
 ].join(', ');

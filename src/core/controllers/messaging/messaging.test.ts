@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
+import { FirstContactApplication } from '@/application/messaging/first-contact';
 import { MessagingApplication } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
 import { getCommerceAdapterMode } from '@/config/commerce';
@@ -50,6 +51,9 @@ describe('MessagingController inbox naming set', () => {
     commerceModeMock.mockReturnValue('unavailable');
     syncCounterpartiesSpy = vi.spyOn(MessagingApplication, 'syncCounterparties').mockResolvedValue();
     vi.spyOn(MessagingApplication, 'getUnreadConversationCount').mockResolvedValue(0);
+    vi.spyOn(FirstContactApplication, 'discoverRequests').mockResolvedValue([]);
+    vi.spyOn(FirstContactApplication, 'loadMutes').mockResolvedValue({ kind: 'ready', muted: new Set() });
+    vi.spyOn(FirstContactApplication, 'promoteKnownRequests').mockResolvedValue();
   });
 
   it('names follows and followers, deduped, with the owner excluded', async () => {
@@ -72,7 +76,7 @@ describe('MessagingController inbox naming set', () => {
 
     expect(ordersSpy).not.toHaveBeenCalled();
     expect(offersSpy).not.toHaveBeenCalled();
-    expect(syncCounterpartiesSpy).toHaveBeenCalledWith(OWNER, [FOLLOWED]);
+    expect(syncCounterpartiesSpy).toHaveBeenCalledWith(OWNER, [FOLLOWED], expect.anything());
   });
 
   it('adds marketplace order/offer participants when the durable service is configured', async () => {
@@ -96,7 +100,7 @@ describe('MessagingController inbox naming set', () => {
 
     await MessagingController.syncInbox();
 
-    expect(syncCounterpartiesSpy).toHaveBeenCalledWith(OWNER, [FOLLOWER]);
+    expect(syncCounterpartiesSpy).toHaveBeenCalledWith(OWNER, [FOLLOWER], expect.anything());
   });
 
   it('refreshes the device-local unread fact into the store after the pass', async () => {
@@ -180,16 +184,24 @@ describe('MessagingController listing conversation ownership', () => {
   });
 
   it('resolves the counterparty from the thread when the signed-in account is the buyer', async () => {
+    vi.spyOn(FirstContactApplication, 'loadMutes').mockResolvedValue({ kind: 'ready', muted: new Set() });
+    vi.spyOn(FirstContactApplication, 'prepareFirstContact').mockResolvedValue({ kind: 'ready', firstMessage: false });
+    vi.spyOn(FirstContactApplication, 'accept').mockResolvedValue();
     const sendSpy = vi
       .spyOn(MessagingApplication, 'sendOrQueueMessage')
       .mockResolvedValue({ delivered: false } as Awaited<ReturnType<typeof MessagingApplication.sendOrQueueMessage>>);
 
     await MessagingController.sendOrQueueMessage(SELLER, OWNER, LISTING_ID, 'hello');
 
-    expect(sendSpy).toHaveBeenCalledWith(OWNER, SELLER, {
-      conversationId: `conversation:${SELLER}_${OWNER}_${LISTING_ID}`,
-      listingRef: `listing:${SELLER}_${LISTING_ID}`,
-      body: 'hello',
-    });
+    expect(sendSpy).toHaveBeenCalledWith(
+      OWNER,
+      SELLER,
+      {
+        conversationId: `conversation:${SELLER}_${OWNER}_${LISTING_ID}`,
+        listingRef: `listing:${SELLER}_${LISTING_ID}`,
+        body: 'hello',
+      },
+      expect.objectContaining({ gate: expect.anything() }),
+    );
   });
 });

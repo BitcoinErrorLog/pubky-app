@@ -27,6 +27,11 @@ import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessagingEnableDialog } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
+import {
+  isMuteListUnconfirmed,
+  MessagingMutesNotice,
+  MessagingRequests,
+} from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceInbox() {
@@ -95,8 +100,13 @@ function EncryptedInbox() {
   const openConversationId = openQuery
     ? buildMarketplaceConversationAggregateId(openQuery.sellerPubky, openQuery.buyerPubky, openQuery.listingId)
     : null;
+  const listingConversations = inbox.conversations.filter((conversation) =>
+    parseConversationAggregateId(conversation.conversation_id),
+  );
+  const inboxRows = listingConversations.filter((conversation) => conversation.origin !== 'request');
+  const requestRows = listingConversations.filter((conversation) => conversation.origin === 'request');
   const matchingOpenRow = openConversationId
-    ? inbox.conversations.some((conversation) => conversation.conversation_id === openConversationId)
+    ? inboxRows.some((conversation) => conversation.conversation_id === openConversationId)
     : false;
 
   if (!currentUserPubky && query.status !== 'invalid' && query.status !== 'other-account') {
@@ -154,19 +164,22 @@ function EncryptedInbox() {
         </div>
       )}
 
+      <MessagingMutesNotice status={inbox.mutesStatus} onRetry={inbox.refresh} />
+
       {inbox.status === 'loading' ? (
         <Skeleton className="h-32 w-full" />
-      ) : inbox.conversations.length ? (
+      ) : inboxRows.length || requestRows.length ? (
         <div className="flex flex-col gap-3">
-          {inbox.conversations.map((conversation) => (
+          {inboxRows.map((conversation) => (
             <EncryptedConversationRow
               key={conversation.id}
               conversation={conversation}
               defaultOpen={Boolean(openConversationId && conversation.conversation_id === openConversationId)}
             />
           ))}
+          <MessagingRequests requests={requestRows} canMute onChanged={inbox.refresh} />
         </div>
-      ) : inbox.status === 'ready' ? (
+      ) : inbox.status === 'ready' && !isMuteListUnconfirmed(inbox.mutesStatus) ? (
         <EmptyState title={MESSAGING_COPY.inboxEmptyTitle} body={MESSAGING_COPY.inboxEmptyBody} />
       ) : null}
     </div>

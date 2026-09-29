@@ -74,6 +74,18 @@ export function EncryptedConversationBody({
         </Typography>
       )}
 
+      {conversation.firstContactNotice ? (
+        <Typography as="p" role="status" className="text-sm text-muted-foreground">
+          {conversation.firstContactNotice}
+        </Typography>
+      ) : null}
+
+      {conversation.followOnSend ? (
+        <Typography as="p" overrideDefaults className="text-sm text-muted-foreground" data-testid="follow-on-send">
+          {MESSAGING_COPY.followOnSend}
+        </Typography>
+      ) : null}
+
       <div className="flex items-center justify-between gap-3">
         <Typography as="p" overrideDefaults className="text-xs text-muted-foreground">
           {MESSAGING_COPY.noAttachments}

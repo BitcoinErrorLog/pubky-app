@@ -1,9 +1,10 @@
 /**
- * Wave A consumer copy. One plain sentence per state. Do not add Paykit,
+ * Messaging consumer copy. One plain sentence per state. Do not add Paykit,
  * bytes, truncated pubkys, or experiment-grade language on shop screens.
  *
- * Listing disclosure uses the Round 2 implementer wording: the buyer follows
- * the seller, so the seller sees the thread after that follow (or an order).
+ * The listing disclosure explains how the seller finds a new buyer: the
+ * buyer's first message follows the seller (`followOnSend`), and the seller
+ * sees the thread after that follow or an order.
  */
 export const MESSAGING_COPY = {
   inboxSubtitleDurable: 'Private listing conversations. History stays on this device.',
@@ -16,7 +17,6 @@ export const MESSAGING_COPY = {
   inboxRetry: 'Try again',
   listingCta: 'Message seller',
   listingOwn: 'This is your listing. Buyer conversations appear in your messages.',
-  listingDisclosure: 'You can write here. The seller sees it after you follow them or you share an order.',
   listingEmptyThread: 'Ask about condition, shipping, or item details. Do not share payment credentials.',
   notEnrolledSeller: 'This seller has not turned on private messages yet. Nothing can be delivered until they do.',
   notEnrolledBuyer: 'This buyer has not turned on private messages yet.',
@@ -40,7 +40,41 @@ export const MESSAGING_COPY = {
   deepLinkOtherAccount: 'This conversation is not on this account.',
   thisSeller: 'This seller',
   thisBuyer: 'This buyer',
+  followOnSend: 'Sending also follows this shop so they can see your message.',
+  followFailed: 'We could not follow this shop for you. The seller sees your message after you follow them.',
+  firstContactLimited: 'You have messaged 5 new people in the last hour. Try again later.',
+  requestsTitle: 'Requests',
+  requestsBody: 'Messages from people you have not talked to yet. They do not count as unread.',
+  requestPreview: 'Asked about this listing.',
+  requestAccept: 'Accept',
+  requestAccepted: 'Moved to your messages.',
+  mute: 'Mute',
+  unmute: 'Unmute',
+  muted: 'Muted. You will not see new messages from this person.',
+  unmuted: 'Unmuted. New messages from this person will reach you again.',
+  mutedThread: 'You muted this person. Unmute them to see new messages or reply.',
+  mutedSendRefused: 'You muted this person. Unmute them to send a message.',
+  muteFailed: 'The mute could not be saved. Try again.',
+  muteListFull: 'You can mute up to 1,000 people. Unmute someone to mute another person.',
+  muteNeedsApproval: 'Approve private sync to save mutes.',
+  approvePrivateSync: 'Approve private sync',
+  mutesNeedApproval: 'New messages are paused until you approve private sync, so mutes keep working.',
+  sendPausedForMutes: 'Sending is paused until your mutes can be loaded. Try again in a moment.',
+  mutesUnavailable: 'New messages are paused because your mutes could not be loaded. Try again.',
+  rateCap: 'Too many messages from this person. Try again later.',
+  report: 'Report',
+  reportCopied: 'Report details copied. Paste them only where you intend to send them.',
+  reportFailed: 'Report details could not be copied.',
+  conversationActions: 'Conversation options',
 } as const;
+
+/**
+ * What "Report" copies: the conversation and the other account, so the user
+ * can paste it wherever they choose to report. It is never put in a URL.
+ */
+export function messagingReportText(input: { conversationId: string; counterpartyPubky: string }): string {
+  return `Pubky Shop message report\nConversation: ${input.conversationId}\nAccount: ${input.counterpartyPubky}`;
+}
 
 export function marketplaceCounterpartyLabel(input: {
   profileName?: string | null;
