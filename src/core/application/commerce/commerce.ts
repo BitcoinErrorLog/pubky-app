@@ -1173,8 +1173,8 @@ export class CommerceApplication {
    * stays). The published-receipt memo backs the user-visible `published`
    * status, so it is cleared here too — session teardown matches the store
    * reset, and a later account re-reads its receipts instead of trusting a
-   * prior session. The Lock Server creator frontend session is wiped here for
-   * the same reason.
+   * prior session. The persisted Lock Server creator session is not this
+   * bearer's and stays; sign-out removes it.
    */
   static clearMarketplaceSession(): void {
     MarketplaceSessionService.clearSession('cleared');
@@ -1182,16 +1182,17 @@ export class CommerceApplication {
   }
 
   /**
-   * Sign-out and account switch: also removes a purchase bearer another tab
-   * persisted, because none may outlive the user who is leaving.
+   * Sign-out and account switch: also removes the purchase bearer and Lock
+   * Server creator session another tab persisted, because none may outlive
+   * the user who is leaving.
    */
   static clearMarketplaceSessionForSignOut(): void {
     MarketplaceSessionService.clearForSignOut();
+    LocksFrontendSessionStore.clearForSignOut();
     this.clearSessionScopedState();
   }
 
   private static clearSessionScopedState(): void {
-    LocksFrontendSessionStore.clear();
     this.publishedReceiptUrls.clear();
     this.ownReviewHomeserverMisses.clear();
     CommercePrivKeyringApplication.clear();
@@ -1542,7 +1543,6 @@ export class CommerceApplication {
   static async createLocksFrontendSession(code: string, state: string, accountPubky?: string) {
     const session = await LocksGatewayService.createFrontendSession(code, state);
     if (!accountPubky || !locksCreatorMatchesShopPubky(session.creator, accountPubky)) {
-      LocksFrontendSessionStore.clear();
       return session;
     }
     LocksFrontendSessionStore.save({
@@ -1565,8 +1565,8 @@ export class CommerceApplication {
     return LocksFrontendSessionStore.restore(accountPubky);
   }
 
-  static clearLocksFrontendSession(): void {
-    LocksFrontendSessionStore.clear();
+  static clearLocksFrontendSession(token: string): void {
+    LocksFrontendSessionStore.clear(token);
   }
 
   static async lookupLocksVerification(creatorPubky: string, bundleId: string) {

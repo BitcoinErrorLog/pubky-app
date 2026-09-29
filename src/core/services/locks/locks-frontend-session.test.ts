@@ -14,18 +14,46 @@ const RECORD = {
   pubky: PUBKY,
 };
 
+const NEWER = { ...RECORD, token: 'locks-frontend-session-token-from-another-tab' };
+
+function stored(): string | null {
+  return window.localStorage.getItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY);
+}
+
 afterEach(() => {
-  LocksFrontendSessionStore.clear();
+  LocksFrontendSessionStore.clearForSignOut();
   vi.restoreAllMocks();
 });
 
 describe('LocksFrontendSessionStore', () => {
-  it('restores a saved session for the matching Shop account and drops a mismatched one', () => {
+  it('restores a saved session for the matching Shop account and leaves another account’s in place', () => {
     LocksFrontendSessionStore.save(RECORD);
 
     expect(LocksFrontendSessionStore.restore(PUBKY)).toEqual(RECORD);
     expect(LocksFrontendSessionStore.restore(OTHER)).toBeNull();
-    expect(window.localStorage.getItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY)).toBeNull();
+    expect(LocksFrontendSessionStore.restore(PUBKY)).toEqual(RECORD);
+  });
+
+  it('a clear for the token a check read keeps the newer session another tab saved', () => {
+    LocksFrontendSessionStore.save(RECORD);
+    LocksFrontendSessionStore.save(NEWER);
+
+    LocksFrontendSessionStore.clear(RECORD.token);
+
+    expect(LocksFrontendSessionStore.restore(PUBKY)).toEqual(NEWER);
+  });
+
+  it('a clear for the stored token removes it', () => {
+    LocksFrontendSessionStore.save(RECORD);
+    LocksFrontendSessionStore.clear(RECORD.token);
+    expect(stored()).toBeNull();
+  });
+
+  it('a purchase-session clear that is not a sign-out keeps the Lock Server session', async () => {
+    LocksFrontendSessionStore.save(RECORD);
+    const { CommerceApplication } = await import('@/application/commerce/commerce');
+    CommerceApplication.clearMarketplaceSession();
+    expect(LocksFrontendSessionStore.restore(PUBKY)).toEqual(RECORD);
   });
 
   it('drops a malformed blob instead of treating it as connected', () => {
@@ -39,17 +67,11 @@ describe('LocksFrontendSessionStore', () => {
     expect(window.localStorage.getItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY)).toBeNull();
   });
 
-  it('clear removes the stored bearer', () => {
-    LocksFrontendSessionStore.save(RECORD);
-    LocksFrontendSessionStore.clear();
-    expect(LocksFrontendSessionStore.restore(PUBKY)).toBeNull();
-  });
-
-  it('sign-out teardown wipes the stored bearer', async () => {
-    LocksFrontendSessionStore.save(RECORD);
+  it('sign-out teardown wipes the stored bearer, whichever tab saved it', async () => {
+    LocksFrontendSessionStore.save(NEWER);
     const { CommerceApplication } = await import('@/application/commerce/commerce');
-    CommerceApplication.clearMarketplaceSession();
-    expect(window.localStorage.getItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY)).toBeNull();
+    CommerceApplication.clearMarketplaceSessionForSignOut();
+    expect(stored()).toBeNull();
     expect(LocksFrontendSessionStore.restore(PUBKY)).toBeNull();
   });
 
@@ -68,7 +90,7 @@ describe('LocksFrontendSessionStore', () => {
     expect(window.localStorage.getItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY)).toBeNull();
   });
 
-  it('persists a matching creator and drops a foreign one at the application boundary', async () => {
+  it('persists a matching creator and never lets a foreign one replace or clear it', async () => {
     const { CommerceApplication } = await import('@/application/commerce/commerce');
     const create = vi.spyOn(LocksGatewayService, 'createFrontendSession');
     create.mockResolvedValueOnce({
@@ -83,7 +105,7 @@ describe('LocksFrontendSessionStore', () => {
       creator: `pubky${OTHER}`,
     });
     await CommerceApplication.createLocksFrontendSession('code', 'state', PUBKY);
-    expect(window.localStorage.getItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY)).toBeNull();
+    expect(LocksFrontendSessionStore.restore(PUBKY)).toEqual(RECORD);
     create.mockRestore();
   });
 });

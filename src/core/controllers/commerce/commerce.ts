@@ -1236,8 +1236,9 @@ export class CommerceController {
     return CommerceApplication.restoreLocksFrontendSession(accountPubky);
   }
 
-  static clearLocksFrontendSession(): void {
-    CommerceApplication.clearLocksFrontendSession();
+  /** Removes the persisted Lock Server session only while it still carries `token`. */
+  static clearLocksFrontendSession(token: string): void {
+    CommerceApplication.clearLocksFrontendSession(token);
   }
 
   static async lookupLocksVerification(creatorPubky: unknown, bundleId: unknown) {
