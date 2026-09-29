@@ -7,6 +7,10 @@ import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import type { AppDatabase } from './franky';
 
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, index) => byte === b[index]);
+}
+
 /**
  * Data migration for DB version 4 → 5: wraps the two messaging key-material
  * columns (`commerce_messaging_receivers.noise_secret`,
@@ -47,10 +51,18 @@ export async function migrateMessagingSecretsToWrappedStorage(database: AppDatab
     }
     for (const link of legacyLinks) {
       const wrapped = await wrapPayload(key, buildWrapAad('commerce_messaging_links', link.id), link.snapshot);
-      await database.commerce_messaging_links.put({
-        ...link,
-        snapshot: wrapped,
-        wrap_version: WRAP_VERSION_AES_GCM_256,
+      // Another tab may have saved a newer snapshot of this link since it
+      // was read; putting the older one back would rewind its send counter.
+      // The row is replaced only if it is still the one that was wrapped.
+      await database.transaction('rw', database.commerce_messaging_links, async () => {
+        const current = await database.commerce_messaging_links.get(link.id);
+        if (!current || current.wrap_version === WRAP_VERSION_AES_GCM_256) return;
+        if (!sameBytes(current.snapshot, link.snapshot)) return;
+        await database.commerce_messaging_links.put({
+          ...current,
+          snapshot: wrapped,
+          wrap_version: WRAP_VERSION_AES_GCM_256,
+        });
       });
     }
     Logger.info('Wrapped legacy plaintext messaging secrets at rest (DB 4 → 5)', {
