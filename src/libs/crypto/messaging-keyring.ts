@@ -27,7 +27,27 @@ const KEYRING_DB_VERSION = 1;
 const KEYRING_STORE_NAME = 'wrapping-key';
 const WRAPPING_KEY_RECORD_ID = 'wrapping-key';
 
+/**
+ * Web Lock every tab takes around each read or write of key-wrapped
+ * messaging state: shared by readers and writers, exclusive for teardown
+ * (see {@link withCurrentWrappingKey} and {@link tearDownMessagingKeys}).
+ */
+const KEY_FENCE_LOCK = 'pubky-messaging-keys';
+/**
+ * `localStorage` id of the persisted wrapping key's epoch: set when a tab
+ * first loads or creates the key, removed first by teardown. A tab whose
+ * cached epoch no longer matches holds a key that was cleared or replaced.
+ */
+const KEYRING_EPOCH_STORAGE_KEY = 'pubky-messaging-keyring-epoch';
+/** How long sign-out waits for in-flight wrapped reads and writes before clearing anyway. */
+const TEARDOWN_LOCK_WAIT_MS = 10_000;
+const KEYRING_CHANGED_REASON = 'messaging_keyring_changed';
+
 let cachedKey: CryptoKey | null = null;
+let cachedEpoch: string | null = null;
+// Set when another connection deletes the keyring database: whatever this
+// tab cached may no longer be the persisted key.
+let cachedKeyRevoked = false;
 let keyringDbPromise: Promise<IDBDatabase> | null = null;
 let wrappingKeyPromise: Promise<CryptoKey> | null = null;
 
@@ -69,7 +89,18 @@ function openKeyringDb(): Promise<IDBDatabase> {
       keyringDbPromise = null;
       reject(request.error ?? new Error('Failed to open the messaging keyring database'));
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const connection = request.result;
+      // Another tab deleting the keyring must not wait for this tab to
+      // close, and whatever this tab cached is no longer known to be the
+      // persisted key.
+      connection.onversionchange = () => {
+        connection.close();
+        keyringDbPromise = null;
+        if (cachedKey) cachedKeyRevoked = true;
+      };
+      resolve(connection);
+    };
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(KEYRING_STORE_NAME)) {
         request.result.createObjectStore(KEYRING_STORE_NAME);
@@ -112,8 +143,10 @@ function isUsableWrappingKey(candidate: unknown): candidate is CryptoKey {
 export async function getOrCreateWrappingKey(): Promise<CryptoKey> {
   if (cachedKey) return cachedKey;
   if (!wrappingKeyPromise) {
-    const pending = loadOrCreateWrappingKey().then((key) => {
+    const pending = loadOrCreateWrappingKey().then(({ key, epoch }) => {
       cachedKey = key;
+      cachedEpoch = epoch;
+      cachedKeyRevoked = false;
       return key;
     });
     // A failed load stays retryable on the next call — but only clear the
@@ -126,18 +159,22 @@ export async function getOrCreateWrappingKey(): Promise<CryptoKey> {
   return wrappingKeyPromise;
 }
 
-async function loadOrCreateWrappingKey(): Promise<CryptoKey> {
+async function loadOrCreateWrappingKey(): Promise<{ key: CryptoKey; epoch: string | null }> {
   assertMessagingCryptoAvailable('getOrCreateWrappingKey');
+  const load = async () => {
+    const key = await readOrAddWrappingKey();
+    return { key, epoch: establishKeyringEpoch() };
+  };
   try {
     // Hard cross-tab exclusion when available: two tabs racing first use
     // (e.g. the boot sweep) serialize on this lock, so the loser's read
-    // below sees the winner's key. Falls back cleanly to the get-then-add
-    // guard when Web Locks is unavailable.
+    // below sees the winner's key and epoch. Falls back cleanly to the
+    // get-then-add guard when Web Locks is unavailable.
     const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
     if (locks && typeof locks.request === 'function') {
-      return await locks.request(KEYRING_DB_NAME, () => readOrAddWrappingKey());
+      return await locks.request(KEYRING_DB_NAME, load);
     }
-    return await readOrAddWrappingKey();
+    return await load();
   } catch (error) {
     throw Err.database(
       DatabaseErrorCode.INIT_FAILED,
@@ -222,6 +259,8 @@ function readOrAddWrappingKey(): Promise<CryptoKey> {
  */
 export async function deleteWrappingKeyStore(): Promise<void> {
   cachedKey = null;
+  cachedEpoch = null;
+  cachedKeyRevoked = false;
   wrappingKeyPromise = null;
   if (keyringDbPromise) {
     try {
@@ -245,9 +284,165 @@ export async function deleteWrappingKeyStore(): Promise<void> {
 }
 
 /**
+ * The persisted key's epoch, created for a key that has none (a key stored
+ * before epochs existed, or right after it was created). Runs only while
+ * loading the key, under the keyring lock when one is available. `null`
+ * when `localStorage` is unavailable; {@link withCurrentWrappingKey} then
+ * refuses to run.
+ */
+function establishKeyringEpoch(): string | null {
+  const stored = readKeyringEpoch();
+  if (stored !== undefined && stored !== null) return stored;
+  const epoch = crypto.randomUUID();
+  try {
+    window.localStorage.setItem(KEYRING_EPOCH_STORAGE_KEY, epoch);
+  } catch {
+    return null;
+  }
+  return epoch;
+}
+
+/** The persisted epoch; `null` when none is set, `undefined` when `localStorage` cannot be read. */
+function readKeyringEpoch(): string | null | undefined {
+  try {
+    return window.localStorage.getItem(KEYRING_EPOCH_STORAGE_KEY);
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when an error means this tab's wrapping key was cleared or replaced by another tab. */
+export function isMessagingKeyringChanged(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { context?: { reason?: unknown } }).context?.reason === KEYRING_CHANGED_REASON
+  );
+}
+
+/**
+ * Runs `run` with the persisted wrapping key while holding the key fence in
+ * shared mode. Every read and write of key-wrapped messaging state goes
+ * through here, and teardown takes the fence exclusively, so no teardown
+ * can happen between the check below and the end of `run`.
+ *
+ * Holding the fence, the tab's cached key must still be the persisted one:
+ * its epoch must match and no other tab may have deleted the keyring since
+ * it was loaded. Otherwise the cache is dropped and this throws, so a tab
+ * never writes state under a key that was cleared or replaced, and never
+ * mistakes rows it can no longer open for corrupt ones. The next call
+ * loads the persisted key afresh.
+ *
+ * Without the Web Locks API this fails closed, unless `whenUnavailable` is
+ * `'run'` (the boot wrap sweep, which runs where no other messaging reader
+ * or writer can, since they all fail closed without it).
+ *
+ * `run` must not call this again: a shared request queued behind a waiting
+ * teardown would wait on the fence this call holds.
+ */
+export async function withCurrentWrappingKey<T>(
+  run: (key: CryptoKey) => Promise<T>,
+  { whenUnavailable = 'refuse' }: { whenUnavailable?: 'refuse' | 'run' } = {},
+): Promise<T> {
+  const fenced = async () => {
+    const key = await getOrCreateWrappingKey();
+    const persisted = readKeyringEpoch();
+    if (cachedKeyRevoked || persisted === undefined || cachedEpoch === null || persisted !== cachedEpoch) {
+      cachedKey = null;
+      cachedEpoch = null;
+      cachedKeyRevoked = false;
+      wrappingKeyPromise = null;
+      Logger.warn('The messaging wrapping key was cleared or replaced in another tab; nothing was read or written', {
+        reason: KEYRING_CHANGED_REASON,
+      });
+      throw Err.database(
+        DatabaseErrorCode.WRITE_FAILED,
+        'Private messages were reset in another tab. Reload to continue.',
+        {
+          service: ErrorService.Local,
+          operation: 'withCurrentWrappingKey',
+          context: { reason: KEYRING_CHANGED_REASON },
+        },
+      );
+    }
+    return await run(key);
+  };
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (typeof locks?.request !== 'function') {
+    if (whenUnavailable === 'run') return await fenced();
+    throw Err.database(
+      DatabaseErrorCode.INIT_FAILED,
+      'Private messages are paused: this browser cannot keep your open tabs from sending at the same time.',
+      { service: ErrorService.Local, operation: 'withCurrentWrappingKey', context: { reason: 'lock_unsupported' } },
+    );
+  }
+  let granted = false;
+  try {
+    return await locks.request(KEY_FENCE_LOCK, { mode: 'shared' }, async () => {
+      granted = true;
+      return await fenced();
+    });
+  } catch (error) {
+    if (granted) throw error;
+    throw Err.database(
+      DatabaseErrorCode.INIT_FAILED,
+      'Private messages are paused: this tab could not coordinate with your other tabs. Try again.',
+      { service: ErrorService.Local, operation: 'withCurrentWrappingKey', context: { reason: 'lock_refused' } },
+    );
+  }
+}
+
+/**
+ * Sign-out and identity teardown of key-wrapped messaging state: holding
+ * the key fence exclusively, removes the keyring epoch (so every other tab's
+ * cached key is known stale from here on), runs `clearRows`, then deletes
+ * the wrapping key. No tab reads or writes wrapped state meanwhile.
+ *
+ * Sign-out must finish, so if the fence cannot be had within
+ * {@link TEARDOWN_LOCK_WAIT_MS} (or Web Locks is unavailable, in which case
+ * no messaging reader or writer runs at all) the same steps run without it.
+ * The epoch is still removed first, so a tab that has not yet checked it
+ * refuses to write.
+ */
+export async function tearDownMessagingKeys(clearRows: () => Promise<void>): Promise<void> {
+  const teardown = async () => {
+    try {
+      window.localStorage.removeItem(KEYRING_EPOCH_STORAGE_KEY);
+    } catch {
+      // Without localStorage no epoch was ever set, and no tab can pass the fence.
+    }
+    await clearRows();
+    await deleteWrappingKeyStore();
+  };
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (typeof locks?.request !== 'function') {
+    await teardown();
+    return;
+  }
+  const wait = new AbortController();
+  const timer = setTimeout(() => wait.abort(), TEARDOWN_LOCK_WAIT_MS);
+  let granted = false;
+  try {
+    await locks.request(KEY_FENCE_LOCK, { mode: 'exclusive', signal: wait.signal }, async () => {
+      granted = true;
+      clearTimeout(timer);
+      await teardown();
+    });
+  } catch (error) {
+    if (granted) throw error;
+    Logger.warn('Could not hold the messaging key lock for sign-out; clearing without it', {
+      reason: 'teardown_lock_unavailable',
+    });
+    await teardown();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Test seam: drops the in-memory cache AND the persisted key, simulating a
  * lost wrapping key (profile wipe without the main database). Never used in
- * production — sign-out goes through {@link deleteWrappingKeyStore}.
+ * production — sign-out goes through {@link tearDownMessagingKeys}.
  */
 export async function resetMessagingKeyringForTests(): Promise<void> {
   await deleteWrappingKeyStore();
@@ -259,6 +454,9 @@ export async function resetMessagingKeyringForTests(): Promise<void> {
  */
 export function dropCachedWrappingKeyForTests(): void {
   cachedKey = null;
+  cachedEpoch = null;
+  cachedKeyRevoked = false;
+  wrappingKeyPromise = null;
 }
 
 /**
@@ -268,6 +466,8 @@ export function dropCachedWrappingKeyForTests(): void {
  */
 export async function closeWrappingKeyStoreForTests(): Promise<void> {
   cachedKey = null;
+  cachedEpoch = null;
+  cachedKeyRevoked = false;
   wrappingKeyPromise = null;
   const pending = keyringDbPromise;
   keyringDbPromise = null;

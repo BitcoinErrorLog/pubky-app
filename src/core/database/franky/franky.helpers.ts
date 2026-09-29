@@ -1,6 +1,6 @@
 import { DB_NAME } from '@/config/database';
 import { db } from '@/database/franky/franky';
-import { deleteWrappingKeyStore } from '@/libs/crypto/messaging-keyring';
+import { tearDownMessagingKeys } from '@/libs/crypto/messaging-keyring';
 
 export const PUBLIC_CACHE_TABLES: ReadonlySet<string> = new Set([
   'user_counts',
@@ -38,12 +38,14 @@ export async function clearDatabase(): Promise<void> {
     await db.open();
   }
 
-  await Promise.all(tablesClearedOnIdentitySwitch(true).map((table) => table.clear()));
   // The messaging wrapping key lives outside the Dexie tables; wipe it too so
-  // sign-out/account switch leaves no key material behind. (Its ciphertexts
-  // were just cleared, so a deletion failure would be harmless — the helper
-  // is best-effort by design.)
-  await deleteWrappingKeyStore();
+  // sign-out/account switch leaves no key material behind. The teardown
+  // holds the messaging key lock, so no other tab reads or writes wrapped
+  // state between the clear and the key deletion, and every other tab's
+  // cached key is known stale afterwards.
+  await tearDownMessagingKeys(async () => {
+    await Promise.all(tablesClearedOnIdentitySwitch(true).map((table) => table.clear()));
+  });
 }
 
 export async function clearPrivateData(): Promise<void> {
@@ -51,8 +53,9 @@ export async function clearPrivateData(): Promise<void> {
     await db.open();
   }
 
-  await Promise.all(tablesClearedOnIdentitySwitch(false).map((table) => table.clear()));
-  await deleteWrappingKeyStore();
+  await tearDownMessagingKeys(async () => {
+    await Promise.all(tablesClearedOnIdentitySwitch(false).map((table) => table.clear()));
+  });
 }
 
 export async function resetDatabase(): Promise<void> {
