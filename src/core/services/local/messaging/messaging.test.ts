@@ -14,7 +14,12 @@ import type {
   CommerceMessagingOutboxModelSchema,
 } from '@/models/messaging/messaging.schema';
 import { asInvalid } from '@/test-utils/type-assertions';
+import { installWebLocks, removeWebLocks } from '@/test-utils/web-locks';
 import { LocalMessagingService } from './messaging';
+
+// Every read and write of wrapped messaging state holds the key fence.
+beforeEach(installWebLocks);
+afterEach(removeWebLocks);
 
 const OWNER = 'a'.repeat(52);
 const COUNTERPARTY = 'z'.repeat(52);

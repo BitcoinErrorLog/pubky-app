@@ -11,8 +11,15 @@ import {
   PAYKIT_MESSAGING_CAPABILITY,
   PAYKIT_MESSAGING_RECEIVER_PATH,
 } from '@/libs/commerce/messaging-contracts';
+import { isMessagingKeyringChanged } from '@/libs/crypto/messaging-keyring';
 import { isAppError } from '@/libs/error/error';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import {
+  AuthErrorCode,
+  ClientErrorCode,
+  DatabaseErrorCode,
+  ServerErrorCode,
+  ValidationErrorCode,
+} from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
@@ -34,6 +41,7 @@ import {
 } from '@/libs/messaging/marker-read';
 import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
+import type { CommerceMessagingReceiverModelSchema } from '@/models/messaging/messaging.schema';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 
 type PaykitWasmModule = typeof import('paykit-wasm');
@@ -224,6 +232,11 @@ export class PaykitMessagingService {
    * before anything else runs on the pair.
    */
   private static unsavedSends = new Set<string>();
+  /**
+   * The link row revision this tab last wrote or read for each pair, taken
+   * while holding the pair's lock (see {@link withLinkLock}).
+   */
+  private static linkRevisions = new Map<string, string | null>();
   private static handshakes = new Map<string, ActiveHandshake>();
   private static queues = new Map<string, Promise<unknown>>();
   // Automatic retries are spaced by MESSAGING_RETRY_POLICY, never by the
@@ -396,7 +409,7 @@ export class PaykitMessagingService {
    */
   private static async ensureReceiverProvisioned(pubky: string): Promise<void> {
     if (this.session?.pubky !== pubky) return;
-    const receiver = await LocalMessagingService.getReceiver(pubky);
+    const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(pubky));
     if (receiver?.marker_published) return;
     if (this.receiverRetry.status(pubky) === 'waiting') return;
     try {
@@ -405,6 +418,8 @@ export class PaykitMessagingService {
       this.receiverRetry.succeed(pubky);
       Logger.info('Provisioned the messaging receiver automatically for the resumed session', { pubky });
     } catch (error) {
+      // Keys reset in another tab end this session; there is nothing to retry.
+      if (isMessagingKeyringChanged(error)) throw error;
       this.receiverRetry.fail(pubky, true);
       Logger.warn('Could not provision the messaging receiver for the resumed session; will retry later', {
         error,
@@ -471,7 +486,7 @@ export class PaykitMessagingService {
 
   /** Facts about local provisioning (no network): has a receiver key + published marker. */
   static async isReceiverProvisioned(pubky: string): Promise<boolean> {
-    const receiver = await LocalMessagingService.getReceiver(pubky);
+    const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(pubky));
     return Boolean(receiver?.marker_published);
   }
 
@@ -485,6 +500,7 @@ export class PaykitMessagingService {
     for (const handshake of this.handshakes.values()) closeQuietly(() => handshake.handle.free());
     this.links.clear();
     this.unsavedSends.clear();
+    this.linkRevisions.clear();
     this.handshakes.clear();
     this.queues.clear();
     this.linkRetry.clear();
@@ -542,7 +558,7 @@ export class PaykitMessagingService {
    * step allows and reports the truthful state. Serialized per counterparty.
    */
   static async ensureLink(ownerPubky: string, counterpartyPubky: string): Promise<MessagingLinkState> {
-    return await this.withQueue(counterpartyPubky, async () => {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
       const state = await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true);
       // `allowInitiate` guarantees the probe-only 'none' branch is unreachable.
       return state as MessagingLinkState;
@@ -557,7 +573,9 @@ export class PaykitMessagingService {
    * (existing conversations/links plus marketplace order/offer participants).
    */
   static async probeCounterparty(ownerPubky: string, counterpartyPubky: string): Promise<MessagingProbeState> {
-    return await this.withQueue(counterpartyPubky, () => this.ensureLinkLocked(ownerPubky, counterpartyPubky, false));
+    return await this.withQueue(ownerPubky, counterpartyPubky, () =>
+      this.ensureLinkLocked(ownerPubky, counterpartyPubky, false),
+    );
   }
 
   /**
@@ -577,7 +595,7 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     input: { conversationId: string; listingRef: string; body: string; eventId?: string },
   ): Promise<MarketplaceChatMessage> {
-    return await this.withQueue(counterpartyPubky, async () => {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
       assertListingConversationBound(ownerPubky, counterpartyPubky, input, 'sendChatMessage');
       await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendChatMessage');
@@ -612,7 +630,7 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     input: { body: string; eventId?: string },
   ): Promise<PubkyAppDmMessage> {
-    return await this.withQueue(counterpartyPubky, async () => {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
       await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendDmMessage');
       const { message, json } = buildDmMessage({
@@ -657,7 +675,7 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     gate: MessagingIntakeGate,
   ): Promise<ReceivedMessage[]> {
-    return await this.withQueue(counterpartyPubky, async () => {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
       const key = this.linkKey(ownerPubky, counterpartyPubky);
       const link = this.links.get(key);
       if (!link) return [];
@@ -1402,40 +1420,75 @@ export class PaykitMessagingService {
     );
   }
 
+  /**
+   * Gets or creates the account's receiver Noise key and publishes its
+   * marker, all while holding the account's receiver lock
+   * ({@link withReceiverLock}). Every tab of the origin therefore ends with
+   * the same key, the marker advertises that key, and the row is marked
+   * published only while it still holds the published key.
+   */
   private static async provisionReceiver(
     wasmModule: PaykitWasmModule,
     session: SessionHandle,
     pubky: string,
   ): Promise<MessagingEnabledInfo> {
+    return await this.withReceiverLock(pubky, async () => {
+      // Read only once the lock is held: another tab may have created,
+      // replaced or published the receiver while this one waited.
+      const receiver =
+        (await LocalMessagingService.getReceiver(pubky)) ?? (await this.createReceiver(wasmModule, pubky));
+      // Republishing is idempotent and heals a marker removed elsewhere. A
+      // messaging-only receiver advertises exactly the Encrypted Link
+      // capability (`privatePayments`) and none of the payment capabilities.
+      await wasmModule.publishReceiverMarker(
+        session,
+        receiver.receiver_path,
+        receiver.noise_public_key,
+        true,
+        false,
+        false,
+        false,
+      );
+      if (!(await LocalMessagingService.markReceiverPublished(pubky, receiver.noise_public_key, Date.now()))) {
+        throw Err.database(
+          DatabaseErrorCode.WRITE_FAILED,
+          'The messaging receiver changed while its marker was being published.',
+          { service: ErrorService.Local, operation: 'provisionReceiver' },
+        );
+      }
+      return { pubky, receiverPath: receiver.receiver_path, noisePublicKey: receiver.noise_public_key };
+    });
+  }
+
+  /**
+   * Creates the receiver key for an account with no readable receiver. A
+   * row that exists but cannot be opened (its wrapping key is lost, or it
+   * was tampered with) is replaced, as re-enabling always has; a row some
+   * other writer added meanwhile is adopted.
+   */
+  private static async createReceiver(
+    wasmModule: PaykitWasmModule,
+    pubky: string,
+  ): Promise<CommerceMessagingReceiverModelSchema> {
     const now = Date.now();
-    let receiver = await LocalMessagingService.getReceiver(pubky);
-    if (!receiver) {
-      const noiseSecret = wasmModule.generateNoiseSecretKey();
-      receiver = {
-        id: pubky,
-        noise_secret: noiseSecret,
-        noise_public_key: wasmModule.noisePublicKeyFromSecret(noiseSecret),
-        receiver_path: PAYKIT_MESSAGING_RECEIVER_PATH,
-        marker_published: false,
-        created_at: now,
-        updated_at: now,
-      };
-      await LocalMessagingService.upsertReceiver(receiver);
-    }
-    // Republishing is idempotent and heals a marker removed elsewhere. A
-    // messaging-only receiver advertises exactly the Encrypted Link
-    // capability (`privatePayments`) and none of the payment capabilities.
-    await wasmModule.publishReceiverMarker(
-      session,
-      receiver.receiver_path,
-      receiver.noise_public_key,
-      true,
-      false,
-      false,
-      false,
-    );
-    await LocalMessagingService.upsertReceiver({ ...receiver, marker_published: true, updated_at: Date.now() });
-    return { pubky, receiverPath: receiver.receiver_path, noisePublicKey: receiver.noise_public_key };
+    const noiseSecret = wasmModule.generateNoiseSecretKey();
+    const receiver: CommerceMessagingReceiverModelSchema = {
+      id: pubky,
+      noise_secret: noiseSecret,
+      noise_public_key: wasmModule.noisePublicKeyFromSecret(noiseSecret),
+      receiver_path: PAYKIT_MESSAGING_RECEIVER_PATH,
+      marker_published: false,
+      created_at: now,
+      updated_at: now,
+    };
+    if (await LocalMessagingService.addReceiver(receiver)) return receiver;
+    const stored = await LocalMessagingService.getReceiver(pubky);
+    if (stored) return stored;
+    Logger.warn('The stored messaging receiver cannot be opened; replacing it with a new key', {
+      reason: 'receiver_unreadable',
+    });
+    await LocalMessagingService.upsertReceiver(receiver);
+    return receiver;
   }
 
   private static async getCounterpartyMarkerWith(
@@ -1475,6 +1528,14 @@ export class PaykitMessagingService {
     const receiver = await LocalMessagingService.getReceiver(ownerPubky);
     if (!receiver) {
       throw Err.client(ClientErrorCode.BAD_REQUEST, 'Messaging is not provisioned on this device.', {
+        service: ErrorService.Paykit,
+        operation: 'requireReceiver',
+      });
+    }
+    // A key the marker may not advertise yet is never used: a peer would
+    // encrypt to whichever key the marker holds.
+    if (!receiver.marker_published) {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Messaging is still being set up on this device.', {
         service: ErrorService.Paykit,
         operation: 'requireReceiver',
       });
@@ -1531,11 +1592,17 @@ export class PaykitMessagingService {
   /**
    * Serializes operations per counterparty: the binding rejects overlapping
    * operations on one link, and interleaved persistence would break the
-   * messages-before-snapshot ordering.
+   * messages-before-snapshot ordering. Each operation also holds the pair's
+   * lock shared with every other tab ({@link withLinkLock}).
    */
-  private static async withQueue<T>(counterpartyPubky: string, operation: () => Promise<T>): Promise<T> {
+  private static async withQueue<T>(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
     const previous = this.queues.get(counterpartyPubky) ?? Promise.resolve();
-    const next = previous.then(operation, operation);
+    const locked = () => this.withLinkLock(ownerPubky, counterpartyPubky, operation);
+    const next = previous.then(locked, locked);
     this.queues.set(
       counterpartyPubky,
       next.catch(() => undefined),
@@ -1543,8 +1610,145 @@ export class PaykitMessagingService {
     return await next;
   }
 
+  /**
+   * Runs one link operation while holding the pair's lock, which every tab
+   * of this origin shares. Each tab restores its own handle from the same
+   * saved snapshot, so without the lock two tabs could send under the same
+   * counter, complete the same handshake twice, or save a snapshot older
+   * than another tab's send. Every send, snapshot save, receive and
+   * handshake step runs here.
+   *
+   * Holding the lock, the tab first drops any in-memory handle or handshake
+   * whose row another tab has written since this tab last did, so the
+   * operation continues from the saved state instead of a stale one.
+   * Without the Web Locks API, or when the lock is refused, nothing runs.
+   */
+  private static async withLinkLock<T>(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    return await this.endSessionIfKeyringChanged(() =>
+      withWebLock(`pubky-messaging-link|${ownerPubky}|${counterpartyPubky}`, 'withLinkLock', async () => {
+        await this.dropStateMovedByAnotherTab(ownerPubky, counterpartyPubky);
+        try {
+          return await operation();
+        } finally {
+          await this.recordLinkRevision(ownerPubky, counterpartyPubky);
+        }
+      }),
+    );
+  }
+
+  /**
+   * Runs receiver provisioning (reading, creating or replacing the receiver
+   * Noise key, publishing its marker and marking it published) while
+   * holding the account's receiver lock, which every tab of the origin
+   * shares. Without it, two tabs could each create a key, and the marker
+   * could end up advertising one while the device keeps the other.
+   * Nothing is kept in memory across it: each holder reads the receiver
+   * afresh.
+   *
+   * Lock order: a link operation may restore the session and so provision
+   * the receiver while it holds its pair lock, so the order is always pair
+   * lock, then receiver lock, then the key fence (shared, held only around
+   * one database read or write of wrapped state, see
+   * `withCurrentWrappingKey`), then the keyring's create lock. Nothing under
+   * the receiver lock takes a pair lock or the receiver lock again, nothing
+   * under the key fence takes the fence again or any lock but the create
+   * lock, the create lock takes none, and sign-out holds only the fence, so
+   * no two holders can wait on each other.
+   */
+  private static async withReceiverLock<T>(ownerPubky: string, operation: () => Promise<T>): Promise<T> {
+    return await this.endSessionIfKeyringChanged(() =>
+      withWebLock(`pubky-messaging-receiver|${ownerPubky}`, 'withReceiverLock', operation),
+    );
+  }
+
+  /**
+   * Another tab signed out or reset this account's messaging keys while this
+   * tab still held its session: every handle, handshake and session this tab
+   * holds belongs to state that no longer exists, so all of it is dropped.
+   * Messaging resumes only through a fresh session restore.
+   */
+  private static async endSessionIfKeyringChanged<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (isMessagingKeyringChanged(error)) this.clearSession();
+      throw error;
+    }
+  }
+
+  /**
+   * Drops this tab's in-memory handle and handshake for the pair when the
+   * stored row is no longer the one this tab last wrote or read. Runs under
+   * the pair's lock, so no other tab is mid-operation on it.
+   */
+  private static async dropStateMovedByAnotherTab(ownerPubky: string, counterpartyPubky: string): Promise<void> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    const link = this.links.get(key);
+    const handshake = this.handshakes.get(key);
+    if (!link && !handshake) return;
+    const revision = await LocalMessagingService.getLinkRevision(ownerPubky, counterpartyPubky);
+    if (this.linkRevisions.has(key) && this.linkRevisions.get(key) === revision) return;
+    Logger.warn('Another tab moved this link on; continuing from its saved state', {
+      reason: 'link_moved_by_another_tab',
+    });
+    this.links.delete(key);
+    this.handshakes.delete(key);
+    this.unsavedSends.delete(key);
+    if (link) closeQuietly(() => void link.close());
+    if (handshake) closeQuietly(() => handshake.handle.free());
+  }
+
+  /**
+   * Records the row revision this tab leaves behind. If it cannot be read,
+   * the record is dropped, so the next operation treats the row as changed.
+   */
+  private static async recordLinkRevision(ownerPubky: string, counterpartyPubky: string): Promise<void> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    try {
+      this.linkRevisions.set(key, await LocalMessagingService.getLinkRevision(ownerPubky, counterpartyPubky));
+    } catch {
+      this.linkRevisions.delete(key);
+    }
+  }
+
   private static linkKey(ownerPubky: string, counterpartyPubky: string): string {
     return `${ownerPubky}:${counterpartyPubky}`;
+  }
+}
+
+/**
+ * Runs `operation` holding the exclusive Web Lock `name`, shared by every
+ * tab of the origin. Without the Web Locks API, or when the browser refuses
+ * the lock, `operation` never runs and the call fails; an error thrown by
+ * `operation` itself is passed on as it is.
+ */
+async function withWebLock<T>(name: string, operation: string, run: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (typeof locks?.request !== 'function') {
+    throw Err.client(
+      ClientErrorCode.UNPROCESSABLE,
+      'Private messages are paused: this browser cannot keep your open tabs from sending at the same time.',
+      { service: ErrorService.Paykit, operation, context: { reason: 'lock_unsupported' } },
+    );
+  }
+  let granted = false;
+  try {
+    return await locks.request(name, async () => {
+      granted = true;
+      return await run();
+    });
+  } catch (error) {
+    if (granted) throw error;
+    Logger.warn('A messaging lock was refused; nothing was sent or saved', { reason: 'lock_refused', operation });
+    throw Err.client(
+      ClientErrorCode.UNPROCESSABLE,
+      'Private messages are paused: this tab could not coordinate with your other tabs. Try again.',
+      { service: ErrorService.Paykit, operation, context: { reason: 'lock_refused' } },
+    );
   }
 }
 

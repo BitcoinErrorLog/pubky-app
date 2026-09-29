@@ -56,6 +56,7 @@ export class CommerceMessagingLinkModel
   snapshot: Uint8Array;
   wrap_version?: number;
   send_pending?: boolean;
+  write_id?: string;
   created_at: number;
   updated_at: number;
 
@@ -71,6 +72,7 @@ export class CommerceMessagingLinkModel
     this.snapshot = link.snapshot;
     this.wrap_version = link.wrap_version;
     this.send_pending = link.send_pending;
+    this.write_id = link.write_id;
     this.created_at = link.created_at;
     this.updated_at = link.updated_at;
   }

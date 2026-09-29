@@ -2,7 +2,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { db } from '@/database/franky/franky';
 import { listingConversationBetween } from '@/libs/commerce/messaging-contracts';
-import { getOrCreateWrappingKey } from '@/libs/crypto/messaging-keyring';
+import { withCurrentWrappingKey } from '@/libs/crypto/messaging-keyring';
 import {
   buildWrapAad,
   isUnwrapAuthenticationError,
@@ -64,65 +64,117 @@ export class LocalMessagingService {
   private constructor() {}
 
   static async getReceiver(ownerId: string): Promise<CommerceMessagingReceiverModelSchema | null> {
-    const row = await CommerceMessagingReceiverModel.findById(ownerId);
-    if (!row) return null;
-    if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
-      const secret = await this.unwrapSecretField(RECEIVERS_TABLE, row.id, row.noise_secret, 'getReceiver');
-      if (!secret) return null;
-      return { ...row, noise_secret: secret };
-    }
-    if (this.isUnknownWrapVersion(row.wrap_version, RECEIVERS_TABLE, 'getReceiver')) return null;
-    return row;
+    return await withCurrentWrappingKey(async (key) => {
+      const row = await CommerceMessagingReceiverModel.findById(ownerId);
+      if (!row) return null;
+      if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
+        const secret = await this.unwrapSecretField(key, RECEIVERS_TABLE, row.id, row.noise_secret, 'getReceiver');
+        if (!secret) return null;
+        return { ...row, noise_secret: secret };
+      }
+      if (this.isUnknownWrapVersion(row.wrap_version, RECEIVERS_TABLE, 'getReceiver')) return null;
+      return row;
+    });
+  }
+
+  /**
+   * Stores a new receiver only if the account has none: `false` when a row
+   * already exists (created by another tab, or one this tab cannot open),
+   * and nothing is written.
+   */
+  static async addReceiver(receiver: CommerceMessagingReceiverModelSchema): Promise<boolean> {
+    return await withCurrentWrappingKey(async (key) => {
+      const wrapped = await this.wrapSecretField(
+        key,
+        RECEIVERS_TABLE,
+        receiver.id,
+        receiver.noise_secret,
+        'addReceiver',
+      );
+      try {
+        await CommerceMessagingReceiverModel.table.add({
+          ...receiver,
+          noise_secret: wrapped,
+          wrap_version: WRAP_VERSION_AES_GCM_256,
+        });
+        return true;
+      } catch (error) {
+        if (error instanceof Error && error.name === 'ConstraintError') return false;
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Marks the account's receiver as published, only if its stored public key
+   * is still the one that was published: `false`, with nothing written, when
+   * the row is gone (signed out) or holds another key.
+   */
+  static async markReceiverPublished(ownerId: string, noisePublicKey: string, now: number): Promise<boolean> {
+    return await withCurrentWrappingKey(
+      async () =>
+        await db.transaction('rw', CommerceMessagingReceiverModel.table, async () => {
+          const row = await CommerceMessagingReceiverModel.table.get(ownerId);
+          if (!row || row.noise_public_key !== noisePublicKey) return false;
+          await CommerceMessagingReceiverModel.table.put({ ...row, marker_published: true, updated_at: now });
+          return true;
+        }),
+    );
   }
 
   static async upsertReceiver(receiver: CommerceMessagingReceiverModelSchema): Promise<void> {
-    const wrapped = await this.wrapSecretField(RECEIVERS_TABLE, receiver.id, receiver.noise_secret, 'upsertReceiver');
-    await CommerceMessagingReceiverModel.upsert({
-      ...receiver,
-      noise_secret: wrapped,
-      wrap_version: WRAP_VERSION_AES_GCM_256,
+    await withCurrentWrappingKey(async (key) => {
+      const wrapped = await this.wrapSecretField(
+        key,
+        RECEIVERS_TABLE,
+        receiver.id,
+        receiver.noise_secret,
+        'upsertReceiver',
+      );
+      await CommerceMessagingReceiverModel.upsert({
+        ...receiver,
+        noise_secret: wrapped,
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+      });
     });
   }
 
   static async getLink(ownerId: string, counterpartyPubky: string): Promise<CommerceMessagingLinkModelSchema | null> {
-    const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
-    if (!row) return null;
-    if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
-      const snapshot = await this.unwrapSecretField(LINKS_TABLE, row.id, row.snapshot, 'getLink');
-      if (!snapshot) return null;
-      return { ...row, snapshot };
-    }
-    if (this.isUnknownWrapVersion(row.wrap_version, LINKS_TABLE, 'getLink')) return null;
-    return row;
+    return await withCurrentWrappingKey((key) => this.readLinkWith(key, ownerId, counterpartyPubky, 'getLink'));
   }
 
   static async getLinksByOwner(ownerId: string): Promise<CommerceMessagingLinkModelSchema[]> {
-    const rows = await CommerceMessagingLinkModel.findByOwner(ownerId);
-    const links: CommerceMessagingLinkModelSchema[] = [];
-    for (const row of rows) {
-      if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
-        // An unrecoverable link is skipped (lost): inbox sync simply never
-        // probes that counterparty from local state again.
-        const snapshot = await this.unwrapSecretField(LINKS_TABLE, row.id, row.snapshot, 'getLinksByOwner');
-        if (!snapshot) continue;
-        links.push({ ...row, snapshot });
-      } else if (this.isUnknownWrapVersion(row.wrap_version, LINKS_TABLE, 'getLinksByOwner')) {
-        continue;
-      } else {
-        links.push(row);
+    return await withCurrentWrappingKey(async (key) => {
+      const rows = await CommerceMessagingLinkModel.findByOwner(ownerId);
+      const links: CommerceMessagingLinkModelSchema[] = [];
+      for (const row of rows) {
+        if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
+          // An unrecoverable link is skipped (lost): inbox sync simply never
+          // probes that counterparty from local state again.
+          const snapshot = await this.unwrapSecretField(key, LINKS_TABLE, row.id, row.snapshot, 'getLinksByOwner');
+          if (!snapshot) continue;
+          links.push({ ...row, snapshot });
+        } else if (this.isUnknownWrapVersion(row.wrap_version, LINKS_TABLE, 'getLinksByOwner')) {
+          continue;
+        } else {
+          links.push(row);
+        }
       }
-    }
-    return links;
+      return links;
+    });
   }
 
   static async upsertLink(link: Omit<CommerceMessagingLinkModelSchema, 'id'>): Promise<void> {
     const id = this.linkId(link.owner_id, link.counterparty_pubky);
-    const wrapped = await this.wrapSecretField(LINKS_TABLE, id, link.snapshot, 'upsertLink');
-    await CommerceMessagingLinkModel.upsert({
-      ...link,
-      id,
-      snapshot: wrapped,
-      wrap_version: WRAP_VERSION_AES_GCM_256,
+    await withCurrentWrappingKey(async (key) => {
+      const wrapped = await this.wrapSecretField(key, LINKS_TABLE, id, link.snapshot, 'upsertLink');
+      await CommerceMessagingLinkModel.upsert({
+        ...link,
+        id,
+        snapshot: wrapped,
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+        write_id: crypto.randomUUID(),
+      });
     });
   }
 
@@ -139,22 +191,25 @@ export class LocalMessagingService {
     status: CommerceMessagingLinkModelSchema['status'],
     now: number,
   ): Promise<void> {
-    const current = await this.getLink(ownerId, counterpartyPubky);
-    if (!current) {
-      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'No messaging link row exists for this counterparty.', {
-        service: ErrorService.Local,
-        operation: 'updateLinkSnapshot',
+    await withCurrentWrappingKey(async (key) => {
+      const current = await this.readLinkWith(key, ownerId, counterpartyPubky, 'updateLinkSnapshot');
+      if (!current) {
+        throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'No messaging link row exists for this counterparty.', {
+          service: ErrorService.Local,
+          operation: 'updateLinkSnapshot',
+        });
+      }
+      const id = this.linkId(ownerId, counterpartyPubky);
+      const wrapped = await this.wrapSecretField(key, LINKS_TABLE, id, snapshot, 'updateLinkSnapshot');
+      await CommerceMessagingLinkModel.upsert({
+        ...current,
+        snapshot: wrapped,
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+        status,
+        send_pending: false,
+        write_id: crypto.randomUUID(),
+        updated_at: now,
       });
-    }
-    const id = this.linkId(ownerId, counterpartyPubky);
-    const wrapped = await this.wrapSecretField(LINKS_TABLE, id, snapshot, 'updateLinkSnapshot');
-    await CommerceMessagingLinkModel.upsert({
-      ...current,
-      snapshot: wrapped,
-      wrap_version: WRAP_VERSION_AES_GCM_256,
-      status,
-      send_pending: false,
-      updated_at: now,
     });
   }
 
@@ -165,14 +220,28 @@ export class LocalMessagingService {
    * Throws when the mark cannot be written, so nothing is sent.
    */
   static async markSendPending(ownerId: string, counterpartyPubky: string): Promise<void> {
+    await withCurrentWrappingKey(async () => {
+      const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+      if (!row) {
+        throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'No messaging link row exists for this counterparty.', {
+          service: ErrorService.Local,
+          operation: 'markSendPending',
+        });
+      }
+      await CommerceMessagingLinkModel.upsert({ ...row, send_pending: true, write_id: crypto.randomUUID() });
+    });
+  }
+
+  /**
+   * Identifies the pair's link row as last written, without unwrapping its
+   * snapshot; `null` when no row exists. Any write changes it: this build
+   * replaces `write_id` on every write, and every snapshot write, from any
+   * build, re-wraps the snapshot under a fresh IV.
+   */
+  static async getLinkRevision(ownerId: string, counterpartyPubky: string): Promise<string | null> {
     const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
-    if (!row) {
-      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'No messaging link row exists for this counterparty.', {
-        service: ErrorService.Local,
-        operation: 'markSendPending',
-      });
-    }
-    await CommerceMessagingLinkModel.upsert({ ...row, send_pending: true });
+    if (!row) return null;
+    return `${row.write_id ?? 'legacy'}|${row.status}|${row.send_pending ? 1 : 0}|${bytesToHex(row.snapshot)}`;
   }
 
   /**
@@ -487,22 +556,25 @@ export class LocalMessagingService {
     }
     const id = this.unprocessedId(event.ownerId, event.counterpartyPubky, event.rawJson);
     const sealed = JSON.stringify({ kind: event.kind.slice(0, 128), version: event.version, rawJson: event.rawJson });
-    const payload = await this.wrapSecretField(
-      UNPROCESSED_TABLE,
-      id,
-      new TextEncoder().encode(sealed),
-      'storeUnprocessed',
-    );
-    const added = await CommerceMessagingUnprocessedModel.addIfAbsent({
-      id,
-      owner_id: event.ownerId,
-      counterparty_pubky: event.counterpartyPubky,
-      payload,
-      wrap_version: WRAP_VERSION_AES_GCM_256,
-      received_at: event.receivedAt,
-      position: event.position,
+    return await withCurrentWrappingKey(async (key) => {
+      const payload = await this.wrapSecretField(
+        key,
+        UNPROCESSED_TABLE,
+        id,
+        new TextEncoder().encode(sealed),
+        'storeUnprocessed',
+      );
+      const added = await CommerceMessagingUnprocessedModel.addIfAbsent({
+        id,
+        owner_id: event.ownerId,
+        counterparty_pubky: event.counterpartyPubky,
+        payload,
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+        received_at: event.receivedAt,
+        position: event.position,
+      });
+      return added ? 'stored' : 'duplicate';
     });
-    return added ? 'stored' : 'duplicate';
   }
 
   /**
@@ -515,16 +587,18 @@ export class LocalMessagingService {
     counterpartyPubky: string,
   ): Promise<{ id: string; kind: string; version: number | null; rawJson: string }[]> {
     if (!CommerceMessagingUnprocessedModel.isAvailable()) return [];
-    const rows = await CommerceMessagingUnprocessedModel.findByOwnerAndCounterparty(ownerId, counterpartyPubky);
-    const events: { id: string; kind: string; version: number | null; rawJson: string }[] = [];
-    for (const row of rows) {
-      if (row.wrap_version !== WRAP_VERSION_AES_GCM_256) continue;
-      const bytes = await this.unwrapSecretField(UNPROCESSED_TABLE, row.id, row.payload, 'getUnprocessed');
-      if (!bytes) continue;
-      const event = parseSealedUnprocessed(new TextDecoder().decode(bytes));
-      if (event) events.push({ id: row.id, ...event });
-    }
-    return events;
+    return await withCurrentWrappingKey(async (key) => {
+      const rows = await CommerceMessagingUnprocessedModel.findByOwnerAndCounterparty(ownerId, counterpartyPubky);
+      const events: { id: string; kind: string; version: number | null; rawJson: string }[] = [];
+      for (const row of rows) {
+        if (row.wrap_version !== WRAP_VERSION_AES_GCM_256) continue;
+        const bytes = await this.unwrapSecretField(key, UNPROCESSED_TABLE, row.id, row.payload, 'getUnprocessed');
+        if (!bytes) continue;
+        const event = parseSealedUnprocessed(new TextDecoder().decode(bytes));
+        if (event) events.push({ id: row.id, ...event });
+      }
+      return events;
+    });
   }
 
   /** Deletes one stored event once it has been processed; only the owner's own rows. */
@@ -603,14 +677,32 @@ export class LocalMessagingService {
    * its table + row id. FAIL CLOSED: with no working wrapping key this
    * throws — a plaintext write is never an option.
    */
+  /** The pair's link row unwrapped with `key`; `null` when absent or lost. */
+  private static async readLinkWith(
+    key: CryptoKey,
+    ownerId: string,
+    counterpartyPubky: string,
+    operation: string,
+  ): Promise<CommerceMessagingLinkModelSchema | null> {
+    const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    if (!row) return null;
+    if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
+      const snapshot = await this.unwrapSecretField(key, LINKS_TABLE, row.id, row.snapshot, operation);
+      if (!snapshot) return null;
+      return { ...row, snapshot };
+    }
+    if (this.isUnknownWrapVersion(row.wrap_version, LINKS_TABLE, operation)) return null;
+    return row;
+  }
+
   private static async wrapSecretField(
+    key: CryptoKey,
     table: string,
     rowId: string,
     plaintext: Uint8Array,
     operation: string,
   ): Promise<Uint8Array> {
     try {
-      const key = await getOrCreateWrappingKey();
       return await wrapPayload(key, buildWrapAad(table, rowId), plaintext);
     } catch (error) {
       if (isAppError(error)) throw error;
@@ -630,13 +722,13 @@ export class LocalMessagingService {
    * (WebCrypto/IDB unavailable) THROW — fail closed, never silent data loss.
    */
   private static async unwrapSecretField(
+    key: CryptoKey,
     table: string,
     rowId: string,
     wrapped: Uint8Array,
     operation: string,
   ): Promise<Uint8Array | null> {
     try {
-      const key = await getOrCreateWrappingKey();
       return await unwrapPayload(key, buildWrapAad(table, rowId), wrapped);
     } catch (error) {
       if (isUnwrapAuthenticationError(error)) {

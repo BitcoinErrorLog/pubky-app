@@ -48,6 +48,7 @@ import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';
 import { createFakePaykitPair } from '@/test-utils/fake-paykit-pair';
 import { establishMarketplaceSession, releasedKeyring } from '@/test-utils/priv-session-replacement';
+import { installWebLocks, removeWebLocks } from '@/test-utils/web-locks';
 import { MessagingController } from './messaging';
 
 vi.mock('@/config/commerce', async () => {
@@ -162,6 +163,7 @@ beforeEach(async () => {
   homeserver = installFakeHomeserver();
   pair = createFakePaykitPair();
   setPaykitWasmModuleForTests(pair.module);
+  installWebLocks();
   orders = [];
   actor = SELLER;
   vi.spyOn(useAuthStore, 'getState').mockImplementation(() => ({
@@ -203,6 +205,7 @@ afterEach(() => {
   FirstContactApplication.clear();
   CommercePrivKeyringApplication.clear();
   setPaykitWasmModuleForTests(null);
+  removeWebLocks();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });

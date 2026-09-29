@@ -12,12 +12,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessagingApplication } from '@/application/messaging/messaging';
+import { DB_NAME } from '@/config/database';
+import { resumePendingMessagingTeardown } from '@/database/franky/franky.helpers';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
-import { resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
+import { dropCachedWrappingKeyForTests, resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
 import { WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
+import { Logger } from '@/libs/logger/logger';
 import { MESSAGING_RETRY_POLICY } from '@/libs/messaging/retry-backoff';
 import { CommerceMessagingLinkModel, CommerceMessagingMessageModel } from '@/models/messaging/messaging.models';
 import {
@@ -29,6 +32,7 @@ import {
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { ADMIT_ALL_GATE, ADMIT_ALL_POLICY, policyMuting } from '@/test-utils/messaging-gate';
 import { asOpaque } from '@/test-utils/type-assertions';
+import { installRefusingWebLocks, installWebLocks, removeWebLocks } from '@/test-utils/web-locks';
 import { PaykitMessagingService, setPaykitWasmModuleForTests } from './paykit-messaging';
 
 // Verbatim from the vendored binding on the production Pubky network: a
@@ -41,6 +45,7 @@ const RAW_MARKER_INVALID_DATA_ERROR =
   'failed to fetch receiver marker: invalid data: get_paykit_receiver_marker: Paykit receiver marker JSON is invalid: expected value at line 1 column 1';
 
 const advanceClock = (ms: number) => vi.setSystemTime(Date.now() + ms);
+const TEARDOWN_PENDING = 'pubky-messaging-keys-teardown-pending';
 const POLL_MS = 2_000;
 
 const OWNER = 'a'.repeat(52);
@@ -95,6 +100,11 @@ function createFakeWorld() {
     cookieResumePubkyOverride: null as string | null,
     // Scripted marker-publish failures (consumed one per publish attempt).
     publishMarkerFailures: 0,
+    // How long successive marker publishes take before the homeserver
+    // accepts them (consumed one per publish; 0 when empty).
+    publishAcceptDelays: [] as number[],
+    // When set, a marker publish waits on it before the homeserver accepts it.
+    publishHold: null as Promise<void> | null,
     // Scripted `restoreEncryptedLinkHandshake` rejections (consumed one per call).
     restoreHandshakeFailures: 0,
     // Scripted `restoreEncryptedLink` rejections (consumed one per call).
@@ -107,6 +117,8 @@ function createFakeWorld() {
     receiveFailures: 0,
     // When set, a receive waits on it after draining.
     receiveHold: null as Promise<void> | null,
+    // When set, a send waits on it before it spends a counter.
+    sendHold: null as Promise<void> | null,
     // Counterparties whose inbound handshake completes on the responder's first advance.
     responderCompletes: new Set<string>(),
     // Scripted marker read rejections per owner: the binding's own message text,
@@ -143,6 +155,7 @@ function createFakeWorld() {
     async sendPrivateApplicationMessageJson(rawJson: string) {
       if (new TextEncoder().encode(rawJson).byteLength > 1000) throw new Error('exceeds max Noise message size');
       world.calls.push('link.send');
+      if (world.sendHold) await world.sendHold;
       const counter = this.sendCounter;
       this.sendCounter += 1;
       world.sentCounters.push(counter);
@@ -260,6 +273,9 @@ function createFakeWorld() {
         world.publishMarkerFailures -= 1;
         throw new Error('marker publish failed (scripted transient homeserver error)');
       }
+      const acceptDelay = world.publishAcceptDelays.shift() ?? 0;
+      if (acceptDelay > 0) await new Promise((resolve) => setTimeout(resolve, acceptDelay));
+      if (world.publishHold) await world.publishHold;
       world.lastPublishedMarker = { path, noisePublicKey, capabilities };
     },
     getReceiverMarker: async (_client: unknown, ownerPubky: string, path?: string) => {
@@ -328,12 +344,16 @@ async function enableMessaging(world: ReturnType<typeof createFakeWorld>['world'
 
 describe('PaykitMessagingService', () => {
   let world: ReturnType<typeof createFakeWorld>['world'];
+  let wasm: ReturnType<typeof createFakeWorld>['module'];
 
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const fake = createFakeWorld();
     world = fake.world;
+    wasm = fake.module;
     setPaykitWasmModuleForTests(fake.module);
+    installWebLocks();
+    window.localStorage.removeItem(TEARDOWN_PENDING);
     config.mode = 'transaction-service';
     PaykitMessagingService.clearSession();
     await Promise.all([
@@ -348,6 +368,7 @@ describe('PaykitMessagingService', () => {
   afterEach(() => {
     PaykitMessagingService.clearSession();
     setPaykitWasmModuleForTests(null);
+    removeWebLocks();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -1496,7 +1517,7 @@ describe('PaykitMessagingService', () => {
         });
       });
 
-      it('a failed receive drops only its own handle, never one a sign-out and sign-in put in its place', async () => {
+      it('a sign-in waits for a receive the signed-out session still holds, then keeps its new handle', async () => {
         let release!: () => void;
         world.receiveHold = new Promise<void>((resolve) => {
           release = resolve;
@@ -1506,15 +1527,22 @@ describe('PaykitMessagingService', () => {
         await vi.waitFor(() => expect(world.calls).toContain('link.receive'));
 
         await reload();
-        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
-        const replacement = world.links.at(-1)!;
-        const restores = world.calls.filter((call) => call === 'restoreEncryptedLink').length;
+        const restoresBefore = world.calls.filter((call) => call === 'restoreEncryptedLink').length;
+        let signedInReady = false;
+        const signedIn = PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY).then((state) => {
+          signedInReady = true;
+          return state;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(signedInReady).toBe(false);
+        expect(world.calls.filter((call) => call === 'restoreEncryptedLink')).toHaveLength(restoresBefore);
+
         world.receiveHold = null;
         release();
         await expect(heldReceive).rejects.toThrow(/outbox read failed/);
+        await expect(signedIn).resolves.toEqual({ status: 'ready' });
+        const replacement = world.links.at(-1)!;
 
-        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
-        expect(world.calls.filter((call) => call === 'restoreEncryptedLink')).toHaveLength(restores);
         await sendChat('after sign-in');
         expect(replacement.sent).toHaveLength(1);
         expect(replacement.closed).toBe(false);
@@ -1564,6 +1592,658 @@ describe('PaykitMessagingService', () => {
         role: 'initiator',
       });
       expect(unsaved.sent).toEqual([]);
+    });
+  });
+
+  describe('two tabs on one link', () => {
+    const MARKER = { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) };
+    const chat = (body: string) => ({ conversationId: CONVERSATION_ID, listingRef: LISTING_REF, body });
+    const expectNoCounterReused = () => expect(new Set(world.sentCounters).size).toBe(world.sentCounters.length);
+    const sends = () => world.calls.filter((call) => call === 'link.send').length;
+
+    type Tab = {
+      service: typeof PaykitMessagingService;
+      application: typeof MessagingApplication;
+      /** Sign-out as the app runs it: the tab's messaging session, then the database and keyring wipe. */
+      signOut: () => Promise<void>;
+      /** Drops the tab's cached wrapping key, as a reload does. */
+      forgetKeys: () => void;
+      /** How long this tab's sign-out waits for other tabs before it returns. */
+      setTeardownWait: (ms: number) => void;
+      close: () => Promise<void>;
+    };
+    const tabA = { service: PaykitMessagingService, application: MessagingApplication };
+    let tabB: Tab | undefined;
+
+    /**
+     * A second tab: fresh copies of the messaging modules (their own session,
+     * handles and queues) over the same IndexedDB, keyring and Web Locks.
+     */
+    const openTabB = async ({ enable = true } = {}): Promise<Tab> => {
+      vi.resetModules();
+      const service = await import('./paykit-messaging');
+      const application = await import('@/application/messaging/messaging');
+      const keyring = await import('@/libs/crypto/messaging-keyring');
+      const { db } = await import('@/database/franky/franky');
+      const helpers = await import('@/database/franky/franky.helpers');
+      service.setPaykitWasmModuleForTests(wasm);
+      world.nextApprovalPubky = OWNER;
+      if (enable) await (await service.PaykitMessagingService.beginEnableFlow(OWNER)).awaitEnabled();
+      return {
+        service: service.PaykitMessagingService,
+        application: application.MessagingApplication,
+        signOut: async () => {
+          application.MessagingApplication.clearMessagingSession();
+          await helpers.clearDatabase();
+        },
+        forgetKeys: () => keyring.dropCachedWrappingKeyForTests(),
+        setTeardownWait: (ms) => keyring.setTeardownLockWaitForTests(ms),
+        close: async () => {
+          application.MessagingApplication.clearMessagingSession();
+          service.setPaykitWasmModuleForTests(null);
+          await keyring.closeWrappingKeyStoreForTests();
+          db.close();
+        },
+      };
+    };
+
+    beforeEach(async () => {
+      MessagingApplication.clearMessagingSession();
+      await CommerceMessagingOutboxModel.clear();
+      world.markers.set(COUNTERPARTY, MARKER);
+    });
+
+    afterEach(async () => {
+      await tabB?.close();
+      tabB = undefined;
+    });
+
+    describe('once the link is established', () => {
+      beforeEach(async () => {
+        await enableMessaging(world);
+        world.advanceScript.push('complete');
+        await expect(tabA.service.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+        tabB = await openTabB();
+        await expect(tabB!.service.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+      });
+
+      it('never sends under a counter the other tab already used', async () => {
+        await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('from tab A'));
+        await tabB!.service.sendChatMessage(OWNER, COUNTERPARTY, chat('from tab B'));
+        await tabA.service.sendDmMessage(OWNER, COUNTERPARTY, { body: 'tab A again' });
+        await tabB!.service.sendDmMessage(OWNER, COUNTERPARTY, { body: 'tab B again' });
+
+        expect(world.sentCounters).toEqual([0, 1, 2, 3]);
+        expectNoCounterReused();
+      });
+
+      it('lets one tab send only after the other tab’s send and snapshot save are done', async () => {
+        let release!: () => void;
+        world.sendHold = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const first = tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('from tab A'));
+        await vi.waitFor(() => expect(sends()).toBe(1));
+        const second = tabB!.service.sendChatMessage(OWNER, COUNTERPARTY, chat('from tab B'));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(sends()).toBe(1);
+
+        world.sendHold = null;
+        release();
+        await Promise.all([first, second]);
+
+        expect(world.sentCounters).toEqual([0, 1]);
+        expectNoCounterReused();
+      });
+
+      it('flushes queued messages in one tab without reusing a counter the other tab sent under', async () => {
+        await LocalMessagingService.enqueueOutboxMessage({
+          id: crypto.randomUUID(),
+          owner_pubky: OWNER,
+          counterparty_pubky: COUNTERPARTY,
+          kind: 'chat',
+          conversation_id: CONVERSATION_ID,
+          listing_ref: LISTING_REF,
+          body: 'queued in tab B',
+          queued_at: Date.now(),
+          attempts: 0,
+          last_attempt_at: null,
+          last_error: null,
+        });
+        await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('from tab A'));
+
+        await expect(tabB!.application.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY)).resolves.toEqual({
+          delivered: 1,
+          remaining: 0,
+        });
+
+        expect(world.sentCounters).toEqual([0, 1]);
+      });
+
+      it('never lets a receive in a stale tab save a snapshot behind the other tab’s send', async () => {
+        const staleInB = world.links.at(-1)!;
+        await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('from tab A'));
+        staleInB.inboundQueue.push({
+          version: 1,
+          kind: 'marketplace.chat_message.v0',
+          rawJson: JSON.stringify({
+            version: 1,
+            kind: 'marketplace.chat_message.v0',
+            event_id: crypto.randomUUID(),
+            conversation_id: CONVERSATION_ID,
+            listing_ref: LISTING_REF,
+            sent_at: '2026-08-21T10:00:00.000Z',
+            body: 'reply',
+          }),
+        });
+
+        await tabB!.service.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+        expect(staleInB.closed).toBe(true);
+
+        // A reload of either tab restores from the saved snapshot.
+        MessagingApplication.clearMessagingSession();
+        await enableMessaging(world);
+        await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('after a reload'));
+
+        expect(world.sentCounters).toEqual([0, 1]);
+        expectNoCounterReused();
+      });
+    });
+
+    it('never completes the same handshake in both tabs', async () => {
+      await enableMessaging(world);
+      await expect(tabA.service.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({
+        status: 'handshaking',
+        role: 'initiator',
+      });
+      tabB = await openTabB();
+      await expect(tabB!.service.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({
+        status: 'handshaking',
+        role: 'initiator',
+      });
+
+      world.advanceScript.push('complete');
+      await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('from tab A'));
+      world.advanceScript.push('complete');
+      await tabB!.service.sendChatMessage(OWNER, COUNTERPARTY, chat('from tab B'));
+
+      expect(world.sentCounters).toEqual([0, 1]);
+      expectNoCounterReused();
+    });
+
+    describe('provisioning one receiver', () => {
+      const generated = () => world.calls.filter((call) => call === 'generateNoiseSecretKey').length;
+      const enableIn = async (service: typeof PaykitMessagingService) => {
+        world.nextApprovalPubky = OWNER;
+        return await (await service.beginEnableFlow(OWNER)).awaitEnabled();
+      };
+      /** The device holds one receiver, and it is the key the marker advertises. */
+      const expectOneAdvertisedKey = async () => {
+        const stored = (await LocalMessagingService.getReceiver(OWNER))!;
+        expect(stored.marker_published).toBe(true);
+        expect(wasm.noisePublicKeyFromSecret(stored.noise_secret)).toBe(stored.noise_public_key);
+        expect(world.lastPublishedMarker?.noisePublicKey).toBe(stored.noise_public_key);
+        return stored.noise_public_key;
+      };
+      const receiverOf = (secret: number) => {
+        const noiseSecret = new Uint8Array(32).fill(secret);
+        return {
+          id: OWNER,
+          noise_secret: noiseSecret,
+          noise_public_key: wasm.noisePublicKeyFromSecret(noiseSecret),
+          receiver_path: 'marketplace/wallet',
+          marker_published: false,
+          created_at: 1,
+          updated_at: 1,
+        };
+      };
+
+      beforeEach(async () => {
+        tabB = await openTabB({ enable: false });
+      });
+
+      it('two tabs enabling at once end with one key, the one the marker advertises', async () => {
+        world.publishAcceptDelays = [40];
+
+        const [inA, inB] = await Promise.all([enableIn(tabA.service), enableIn(tabB!.service)]);
+
+        const key = await expectOneAdvertisedKey();
+        expect([inA.noisePublicKey, inB.noisePublicKey]).toEqual([key, key]);
+        expect(generated()).toBe(1);
+      });
+
+      it('two tabs resuming from the sign-in cookie at once end with one key, the one the marker advertises', async () => {
+        world.cookieResume = 'success';
+        world.publishAcceptDelays = [40];
+
+        await expect(
+          Promise.all([tabA.service.restorePersistedSession(OWNER), tabB!.service.restorePersistedSession(OWNER)]),
+        ).resolves.toEqual([true, true]);
+
+        await expectOneAdvertisedKey();
+        expect(generated()).toBe(1);
+      });
+
+      it('two tabs replacing an unreadable receiver at once end with one key, the one the marker advertises', async () => {
+        await CommerceMessagingReceiverModel.upsert({
+          ...receiverOf(9),
+          noise_secret: crypto.getRandomValues(new Uint8Array(60)),
+          wrap_version: WRAP_VERSION_AES_GCM_256,
+          marker_published: true,
+        });
+        vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+        // Both tabs' first reads of the unreadable row meet, unless one tab
+        // is kept out until the other is done.
+        let waiting: (() => void) | null = null;
+        let met = false;
+        const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+        vi.spyOn(crypto.subtle, 'decrypt').mockImplementation(async (...args) => {
+          if (!met) {
+            if (waiting) {
+              met = true;
+              waiting();
+            } else {
+              await new Promise<void>((resolve) => {
+                waiting = resolve;
+                setTimeout(() => {
+                  met = true;
+                  resolve();
+                }, 50);
+              });
+            }
+          }
+          return await decrypt(...args);
+        });
+        world.publishAcceptDelays = [30];
+
+        const [inA, inB] = await Promise.all([enableIn(tabA.service), enableIn(tabB!.service)]);
+
+        const key = await expectOneAdvertisedKey();
+        expect([inA.noisePublicKey, inB.noisePublicKey]).toEqual([key, key]);
+        expect(generated()).toBe(1);
+      });
+
+      it('a tab that last looked before the other tab set up adopts that key instead of making another', async () => {
+        await expect(tabB!.service.isReceiverProvisioned(OWNER)).resolves.toBe(false);
+        const inA = await enableIn(tabA.service);
+
+        const inB = await enableIn(tabB!.service);
+
+        expect(inB.noisePublicKey).toBe(inA.noisePublicKey);
+        await expect(expectOneAdvertisedKey()).resolves.toBe(inA.noisePublicKey);
+        expect(generated()).toBe(1);
+      });
+
+      it('adopts a receiver another writer stored while this tab was making its own', async () => {
+        const other = receiverOf(42);
+        const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+        vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+          await LocalMessagingService.upsertReceiver(other);
+          return await encrypt(...args);
+        });
+
+        const enabled = await enableIn(tabA.service);
+
+        expect(enabled.noisePublicKey).toBe(other.noise_public_key);
+        await expect(expectOneAdvertisedKey()).resolves.toBe(other.noise_public_key);
+      });
+
+      it('never marks a receiver published when another key replaced it during the publish', async () => {
+        let release!: () => void;
+        world.publishHold = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const enabling = enableIn(tabA.service);
+        await vi.waitFor(() => expect(world.calls).toContain('publishReceiverMarker'));
+        const replacement = receiverOf(43);
+        await LocalMessagingService.upsertReceiver(replacement);
+        world.publishHold = null;
+        release();
+
+        await expect(enabling).rejects.toThrow(/changed while its marker was being published/);
+        await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toMatchObject({
+          noise_public_key: replacement.noise_public_key,
+          marker_published: false,
+        });
+      });
+
+      it('never opens a link on a receiver whose marker is not published yet', async () => {
+        world.cookieResume = 'success';
+        world.publishMarkerFailures = 1;
+        vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+        await expect(tabA.service.restorePersistedSession(OWNER)).resolves.toBe(true);
+        await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toMatchObject({ marker_published: false });
+
+        await expect(tabA.service.ensureLink(OWNER, COUNTERPARTY)).rejects.toThrow(/still being set up/);
+
+        expect(world.calls).not.toContain('initiateEncryptedLink');
+        expect(world.calls).not.toContain('acceptEncryptedLink');
+      });
+
+      it('sets up nothing without the Web Locks API', async () => {
+        removeWebLocks();
+
+        const outcome = await Promise.allSettled([enableIn(tabA.service)]);
+
+        expect(generated()).toBe(0);
+        expect(world.calls).not.toContain('publishReceiverMarker');
+        await expect(CommerceMessagingReceiverModel.table.count()).resolves.toBe(0);
+        expect(outcome[0].status).toBe('rejected');
+        expect(String((outcome[0] as PromiseRejectedResult).reason)).toMatch(/Private messages are paused/);
+      });
+    });
+
+    describe('a sign-out in another tab', () => {
+      const payment = JSON.stringify({ version: 1, kind: 'paykit.private_payment_list.v0', endpoints: ['x'] });
+      const hold = () => {
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { held, release };
+      };
+      /**
+       * After a reload (every cached wrapping key dropped), every wrapped row
+       * in the database still opens under the persisted key.
+       */
+      const expectEveryWrappedRowOpens = async () => {
+        dropCachedWrappingKeyForTests();
+        for (const row of await CommerceMessagingLinkModel.table.toArray()) {
+          await expect(LocalMessagingService.getLink(row.owner_id, row.counterparty_pubky)).resolves.not.toBeNull();
+        }
+        for (const row of await CommerceMessagingReceiverModel.table.toArray()) {
+          await expect(LocalMessagingService.getReceiver(row.id)).resolves.not.toBeNull();
+        }
+        const unprocessed = await CommerceMessagingUnprocessedModel.table.toArray();
+        for (const row of unprocessed) {
+          const opened = await LocalMessagingService.getUnprocessed(row.owner_id, row.counterparty_pubky);
+          expect(opened.map((event) => event.id)).toContain(row.id);
+        }
+      };
+      /** What a tab that kept its session would do next: set up again, reopen the link, send. */
+      const carryOnInTabA = async () => {
+        await tabA.service.restorePersistedSession(OWNER).catch(() => undefined);
+        await tabA.service.ensureLink(OWNER, COUNTERPARTY).catch(() => undefined);
+        await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('after sign-out')).catch(() => undefined);
+      };
+
+      beforeEach(async () => {
+        await enableMessaging(world);
+        world.advanceScript.push('complete');
+        await expect(tabA.service.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+        tabB = await openTabB();
+        vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      });
+
+      it('racing a send, leaves nothing wrapped under the deleted key and ends the other tab’s session', async () => {
+        const send = hold();
+        world.sendHold = send.held;
+        const sending = tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('in flight'));
+        await vi.waitFor(() => expect(world.calls).toContain('link.send'));
+
+        await tabB!.signOut();
+        world.sendHold = null;
+        send.release();
+        await expect(sending).rejects.toThrow(/reset in another tab/);
+        await carryOnInTabA();
+
+        expect(tabA.service.hasActiveSession(OWNER)).toBe(false);
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(0);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('racing a receive, stores nothing under the deleted key', async () => {
+        const receive = hold();
+        world.receiveHold = receive.held;
+        world.links.at(-1)!.inboundQueue.push({ version: 1, kind: 'paykit.private_payment_list.v0', rawJson: payment });
+        const receiving = tabA.service.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+        await vi.waitFor(() => expect(world.calls).toContain('link.receive'));
+
+        await tabB!.signOut();
+        world.receiveHold = null;
+        receive.release();
+        await expect(receiving).rejects.toThrow(/reset in another tab/);
+        await carryOnInTabA();
+
+        await expect(CommerceMessagingUnprocessedModel.table.count()).resolves.toBe(0);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('racing a setup, never stores or advertises a receiver under the deleted key', async () => {
+        tabA.service.clearSession();
+        await CommerceMessagingReceiverModel.clear();
+        const publish = hold();
+        world.publishHold = publish.held;
+        world.nextApprovalPubky = OWNER;
+        const enabling = (await tabA.service.beginEnableFlow(OWNER)).awaitEnabled();
+        await vi.waitFor(() => expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(3));
+
+        await tabB!.signOut();
+        world.publishHold = null;
+        publish.release();
+        await expect(enabling).rejects.toThrow(/reset in another tab/);
+
+        // Setting up again works, under a key that survives a reload.
+        const again = await (await tabA.service.beginEnableFlow(OWNER)).awaitEnabled();
+        await expectEveryWrappedRowOpens();
+        await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toMatchObject({
+          noise_public_key: again.noisePublicKey,
+          marker_published: true,
+        });
+        expect(world.lastPublishedMarker?.noisePublicKey).toBe(again.noisePublicKey);
+      });
+
+      it('never replaces state it can no longer open because its own key is stale', async () => {
+        await tabB!.signOut();
+        world.nextApprovalPubky = OWNER;
+        const replaced = await (await tabB!.service.beginEnableFlow(OWNER)).awaitEnabled();
+
+        await carryOnInTabA();
+
+        await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toMatchObject({
+          noise_public_key: replaced.noisePublicKey,
+        });
+        expect(world.lastPublishedMarker?.noisePublicKey).toBe(replaced.noisePublicKey);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('waits for a write already under way before clearing anything', async () => {
+        const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+        let signingOut: Promise<void> | null = null;
+        vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+          signingOut = tabB!.signOut();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          return await encrypt(...args);
+        });
+
+        await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('saved before the wipe')).catch(() => undefined);
+        await signingOut;
+
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(0);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('treats a key another tab replaced after finding it unusable as stale, and sends nothing', async () => {
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open(`${DB_NAME}-messaging-keyring`);
+          request.onsuccess = () => {
+            const connection = request.result;
+            const put = connection
+              .transaction('wrapping-key', 'readwrite')
+              .objectStore('wrapping-key')
+              .put('not a key', 'wrapping-key');
+            put.onsuccess = () => {
+              connection.close();
+              resolve();
+            };
+            put.onerror = () => reject(put.error);
+          };
+          request.onerror = () => reject(request.error);
+        });
+        tabB!.forgetKeys();
+        await expect(tabB!.service.isReceiverProvisioned(OWNER)).resolves.toBe(false);
+        const revisionBefore = await LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY);
+        world.calls.length = 0;
+
+        await expect(tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('under the old key'))).rejects.toThrow(
+          /reset in another tab/,
+        );
+
+        expect(world.sentCounters).toEqual([]);
+        expect(world.calls).not.toContain('link.send');
+        await expect(LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY)).resolves.toBe(revisionBefore);
+        expect(tabA.service.hasActiveSession(OWNER)).toBe(false);
+      });
+
+      it('never clears while a writer that passed the check is suspended past sign-out’s wait', async () => {
+        tabB!.setTeardownWait(20);
+        let resume!: () => void;
+        const suspended = new Promise<void>((resolve) => {
+          resume = resolve;
+        });
+        let reached!: () => void;
+        const atWrap = new Promise<void>((resolve) => {
+          reached = resolve;
+        });
+        const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+        vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+          reached();
+          await suspended;
+          return await encrypt(...args);
+        });
+        const sending = tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('suspended mid-save'));
+        await atWrap;
+
+        await tabB!.signOut();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        // Sign-out returned, but nothing key-wrapped was cleared while the writer holds the fence.
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(1);
+        expect(window.localStorage.getItem(TEARDOWN_PENDING)).not.toBeNull();
+
+        resume();
+        await sending.catch(() => undefined);
+        await vi.waitFor(async () => {
+          expect(window.localStorage.getItem(TEARDOWN_PENDING)).toBeNull();
+        });
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(0);
+        await expect(CommerceMessagingReceiverModel.table.count()).resolves.toBe(0);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('finishes a sign-out a closed tab left pending, and reads and writes nothing until then', async () => {
+        window.localStorage.setItem(TEARDOWN_PENDING, '1');
+        world.calls.length = 0;
+
+        await expect(tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('before the cleanup'))).rejects.toThrow(
+          /reset in another tab/,
+        );
+        expect(world.sentCounters).toEqual([]);
+        expect(world.calls).not.toContain('link.send');
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(1);
+
+        await resumePendingMessagingTeardown();
+
+        expect(window.localStorage.getItem(TEARDOWN_PENDING)).toBeNull();
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(0);
+        await expect(CommerceMessagingReceiverModel.table.count()).resolves.toBe(0);
+      });
+
+      it('treats a keyring an older build deleted as stale, and writes nothing under it', async () => {
+        // An older build's sign-out: tables cleared and the keyring deleted,
+        // without the key fence.
+        await Promise.all([CommerceMessagingLinkModel.clear(), CommerceMessagingReceiverModel.clear()]);
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase(`${DB_NAME}-messaging-keyring`);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
+
+        await carryOnInTabA();
+
+        await expectEveryWrappedRowOpens();
+      });
+    });
+
+    describe('without a lock every tab shares', () => {
+      beforeEach(async () => {
+        await enableMessaging(world);
+        world.advanceScript.push('complete');
+        await tabA.service.ensureLink(OWNER, COUNTERPARTY);
+        world.calls.length = 0;
+      });
+
+      it('refuses to send, receive or advance a link without the Web Locks API', async () => {
+        removeWebLocks();
+        const queuedId = crypto.randomUUID();
+        await LocalMessagingService.enqueueOutboxMessage({
+          id: queuedId,
+          owner_pubky: OWNER,
+          counterparty_pubky: COUNTERPARTY,
+          kind: 'dm',
+          conversation_id: null,
+          listing_ref: null,
+          body: 'queued',
+          queued_at: Date.now(),
+          attempts: 0,
+          last_attempt_at: null,
+          last_error: null,
+        });
+        const revisionBefore = await LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY);
+        world.calls.length = 0;
+        world.links.at(-1)!.inboundQueue.push({
+          version: 1,
+          kind: 'marketplace.chat_message.v0',
+          rawJson: JSON.stringify({
+            version: 1,
+            kind: 'marketplace.chat_message.v0',
+            event_id: crypto.randomUUID(),
+            conversation_id: CONVERSATION_ID,
+            listing_ref: LISTING_REF,
+            sent_at: '2026-08-21T10:00:00.000Z',
+            body: 'unread',
+          }),
+        });
+
+        const outcomes = await Promise.allSettled([
+          tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('hello')),
+          tabA.service.sendDmMessage(OWNER, COUNTERPARTY, { body: 'hello' }),
+          tabA.service.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE),
+          tabA.service.ensureLink(OWNER, COUNTERPARTY),
+          tabA.service.probeCounterparty(OWNER, COUNTERPARTY),
+        ]);
+        const flushed = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
+
+        // Nothing ran: no ciphertext left, nothing was read, no link state moved.
+        expect(world.sentCounters).toEqual([]);
+        expect(world.calls.filter((call) => call.startsWith('link.') || call.startsWith('handshake.'))).toEqual([]);
+        expect(world.calls).not.toContain('restoreEncryptedLink');
+        expect(world.calls).not.toContain('initiateEncryptedLink');
+        await expect(LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY)).resolves.toBe(revisionBefore);
+        await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toEqual([]);
+        expect(flushed).toEqual({ delivered: 0, remaining: 1 });
+        const queued = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+        expect(queued.map((row) => row.id)).toEqual([queuedId]);
+        // And each refusal says why.
+        for (const outcome of outcomes) {
+          expect(outcome.status).toBe('rejected');
+          expect(String((outcome as PromiseRejectedResult).reason)).toMatch(/Private messages are paused/);
+        }
+      });
+
+      it('refuses to send when the browser refuses the lock', async () => {
+        // Only the pair lock is refused, so what the refusal alone stops is visible.
+        installRefusingWebLocks(new DOMException('denied', 'SecurityError'), (name) =>
+          name.startsWith('pubky-messaging-link|'),
+        );
+        vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+        await expect(tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('hello'))).rejects.toThrow(
+          /could not coordinate with your other tabs/,
+        );
+
+        expect(world.sentCounters).toEqual([]);
+        expect(world.calls).not.toContain('link.send');
+      });
     });
   });
 

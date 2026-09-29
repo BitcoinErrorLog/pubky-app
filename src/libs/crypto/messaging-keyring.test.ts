@@ -191,7 +191,8 @@ describe('messaging keyring (wrapping-key custody)', () => {
     expect(healed.extractable).toBe(false);
     expect(healed.usages).toEqual(expect.arrayContaining(['encrypt', 'decrypt']));
 
-    // Exactly one record, and it is the fresh key (the dead one is gone).
+    // Exactly one key record, the fresh key (the dead one is gone), next to
+    // the fresh epoch minted with it.
     const records = await new Promise<unknown[]>((resolve, reject) => {
       const request = indexedDB.open(KEYRING_DB_NAME, 1);
       request.onsuccess = () => {
@@ -204,7 +205,8 @@ describe('messaging keyring (wrapping-key custody)', () => {
       };
       request.onerror = () => reject(request.error ?? new Error('Failed to open the keyring database'));
     });
-    expect(records).toHaveLength(1);
+    expect(records.filter((record) => typeof record !== 'string')).toHaveLength(1);
+    expect(records.filter((record) => typeof record === 'string')).toHaveLength(1);
 
     // A reload (cache drop) adopts the healed key: data wrapped now unwraps.
     const iv = crypto.getRandomValues(new Uint8Array(12));
