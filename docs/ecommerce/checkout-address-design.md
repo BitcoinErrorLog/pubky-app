@@ -22,32 +22,16 @@ The Shop command schema now matches that table. The live Rust service still reje
 | Other required | Free text                                                           | Trimmed string, max 100 |
 | Other optional | Free text, not required                                             | Empty string allowed    |
 
-## Address autocomplete (USA)
+## Address autocomplete
 
-Street suggest-as-you-type always sends the prefix to a geocoder. Delivery addresses are sensitive (W10.5 sealed path + shipping contract). No provider is called with the street until John creates a key.
+Street suggest-as-you-type always sends the prefix to a geocoder. Delivery addresses are sensitive (W10.5 sealed path + shipping contract), so the browser never contacts a geocoder directly.
 
-| Provider                         | Fit                                                             | Cost / key                                                                                              | What leaves the device                                                                                |
-| -------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Google Places Autocomplete (New) | Best US rooftop; session token ties suggest → one Place Details | Per-session SKU on John's Google Cloud project; public browser key with HTTP-referrer + API restriction | Google sees the typed prefix and the selected place id                                                |
-| Mapbox Search Box                | Good US data; token + URL restriction                           | Per-request; John-owned token                                                                           | Mapbox sees prefix + retrieve                                                                         |
-| Smarty / USPS-backed validation  | Excellent US delivery points                                    | Auth-id/token is server-shaped                                                                          | A Shop BFF would see the finished address — a second plaintext holder besides sealed / `plaintext_v1` |
-| Privacy-preserving ZIP fill      | ZIP → city + state; postal-shape checks per country             | None                                                                                                    | Nothing. Bundled GeoNames US ZIPs (CC-BY 4.0) + USPS ZIP3 prefixes                                    |
+| Provider                    | Fit                                                 | What leaves the device                                                                               |
+| --------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| OpenStreetMap via Photon    | Free, autocomplete allowed, weaker rooftop coverage | The typed Address line 1 and country go to the marketplace service, which forwards only the query    |
+| Smarty / USPS-backed        | Excellent US delivery points                        | Auth-id/token is server-shaped: a Shop BFF would see the finished address, a second plaintext holder |
+| Privacy-preserving ZIP fill | ZIP → city + state; postal-shape checks per country | Nothing. Bundled GeoNames US ZIPs (CC-BY 4.0) + USPS ZIP3 prefixes                                   |
 
-**Recommendation:** ship ZIP → City + State and per-country format validation now. Scaffold Google Places Autocomplete (New) behind `PUBKY_RUNTIME_GOOGLE_PLACES_API_KEY` so the type-ahead can turn on when John creates a referrer-restricted Places key. Do not send street keystrokes to Google, Mapbox, or Smarty without that key.
+**Decision:** ZIP → City + State and per-country format validation run on the device. Address line 1 type-ahead uses OpenStreetMap data through the marketplace service's proxy; see [`address-autocomplete-design.md`](address-autocomplete-design.md). Manual entry always works.
 
-Cost is Google's per-session Autocomplete (New) SKU, billed to the Cloud project that owns the key. Key ownership is John: create it, restrict it, paste it into Vercel. Privacy trade-off: with the key on, Google sees US address keystrokes and the selected place; Shop origin and any BFF never see Places traffic. With the key off, only the bundled ZIP table runs.
-
-### Input inventory
-
-| Input                                 | Type               | Source                                                                  | Missing                                                |
-| ------------------------------------- | ------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------ |
-| `PUBKY_RUNTIME_GOOGLE_PLACES_API_KEY` | Public browser key | Vercel runtime; Google Cloud key, HTTP referrers, Places API (New) only | Autocomplete off; ZIP fill and typed fields still work |
-| Session token                         | UUID in the tab    | Minted per typing session; rotated after Place Details                  | New session on the next suggest                        |
-
-### Key (only if type-ahead should go live)
-
-1. Google Cloud Console → enable **Places API (New)**.
-2. Create an API key. Application restriction: **HTTP referrers** `https://shop.pubky.app/*`, `https://*.vercel.app/*`, `http://localhost:*`. API restriction: **Places API (New)** only.
-3. Vercel Production + Preview: `PUBKY_RUNTIME_GOOGLE_PLACES_API_KEY`. Redeploy.
-
-ZIP fill does not wait on that key. GeoNames US postal file: https://download.geonames.org/export/zip/US.zip, Creative Commons Attribution 4.0.
+GeoNames US postal file: https://download.geonames.org/export/zip/US.zip, Creative Commons Attribution 4.0.
