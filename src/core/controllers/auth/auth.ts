@@ -809,6 +809,12 @@ export class AuthController {
         this.pendingLocalStateCapture = null;
         return false;
       }
+      // A sign-in replacing another account skips the sign-out cleanup, so
+      // the account that left must not keep a bearer at rest here.
+      if ([captured?.pubky ?? null, currentPubky, persistedPubky].some((pubky) => pubky && pubky !== newPubky)) {
+        CommerceController.clearMarketplaceSessionsOfOtherAccounts(newPubky);
+        MessagingApplication.clearMessagingSessionsOfOtherAccounts(newPubky);
+      }
       this.markLocalStateDirty();
       this.pendingLocalStateCapture = null;
       return true;
@@ -1402,6 +1408,7 @@ export class AuthController {
       signedOut = true;
     } finally {
       if (signedOut) {
+        await this.removePersistedSessionOfAccountUnderLock(captured.pubky);
         broadcastSignedOut();
       } else {
         useAuthStore.getState().setIsLoggingOut(false);
@@ -1415,6 +1422,20 @@ export class AuthController {
         suppressVibeSessionAutoRestore();
       }
     }
+  }
+
+  /**
+   * Sign-out is the one auth write that removes a persisted session this tab
+   * does not own: the persist fence keeps another tab's newer session of the
+   * same account through this tab's reset, but the user signed that account
+   * out of this browser, so it must not be restored on the next load.
+   * Another account's persisted session is left alone.
+   */
+  private static async removePersistedSessionOfAccountUnderLock(pubky: string | null): Promise<void> {
+    if (!pubky) return;
+    await withAuthFinalizationLock(async () => {
+      if (readPersistedAuthIdentity().pubky === pubky) clearPersistedAuthIdentity();
+    });
   }
 
   /**

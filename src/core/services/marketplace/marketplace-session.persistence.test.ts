@@ -188,6 +188,17 @@ describe('purchase-session persistence: a tab only removes the record it owns', 
     expect(afterReload.getActiveSession()?.token).toBe(OTHER_TAB.token);
   });
 
+  it('an account switch drops the departed account’s bearer from memory and rest, and keeps the new account’s', () => {
+    thisTabHolds(HOUR);
+    MarketplaceSessionService.clearOtherAccounts('z'.repeat(52));
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(stored()).toBeNull();
+
+    const kept = otherTabPersists(HOUR);
+    MarketplaceSessionService.clearOtherAccounts(PUBKY);
+    expect(stored()).toBe(kept);
+  });
+
   it('restore leaves another account’s record in place', () => {
     const foreign = JSON.stringify({
       ...OTHER_TAB,

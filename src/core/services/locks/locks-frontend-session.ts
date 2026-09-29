@@ -104,9 +104,23 @@ export class LocksFrontendSessionStore {
     this.removeIfUnchanged(raw);
   }
 
-  /** Sign-out and account switch: the only path that removes a session it did not check. */
+  /** Sign-out: the only path that removes a session it did not check. */
   static clearForSignOut(): void {
     this.remove();
+  }
+
+  /** Account switch without a sign-out: removes the session of any account but `keepPubky`. */
+  static clearOtherAccounts(keepPubky: string): void {
+    const raw = this.readStorage();
+    if (raw === null) return;
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (typeof stored !== 'object' || stored === null || (stored as { pubky?: unknown }).pubky === keepPubky) return;
+    this.removeIfUnchanged(raw);
   }
 
   private static removeIfUnchanged(raw: string): void {

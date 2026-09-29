@@ -17,6 +17,8 @@ import * as vibeSessionFragment from '@/libs/vibe-session/fragment';
 import type { Pubky } from '@/models/models.types';
 import { ROUTE_GUARD_RETURN_TO_STORAGE_KEY } from '@/providers/RouteGuardProvider/RouteGuardProvider.returnPath';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
+import { LOCKS_FRONTEND_SESSION_STORAGE_KEY } from '@/services/locks/locks-frontend-session';
+import { INVENTORY_SESSION_STORAGE_KEY } from '@/services/marketplace/marketplace-inventory-grant';
 import { MARKETPLACE_SESSION_STORAGE_KEY } from '@/services/marketplace/marketplace-session';
 import { MESSAGING_SESSION_STORAGE_KEY } from '@/services/paykit/paykit-messaging';
 import { readPersistedAuthPubky } from '@/stores/auth/auth.persisted';
@@ -608,5 +610,82 @@ describe('AuthController restore cleanup with the real bridge and database', () 
     await expect(restoreA).resolves.toEqual({ status: 'signed-out' });
 
     await expectAccountBCrossTabStateSurvives(PERSISTED_PUBKY);
+  });
+
+  it('sign-out removes the same account’s newer session another tab saved, so a reload stays signed out', async () => {
+    installQueuingFakeLocks();
+    useAuthStore.getState().init({
+      session: mockSession({ export: () => 'account-a-session-export' }),
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+    });
+    const tabB = createAuthStore();
+    tabB.getState().init({
+      session: mockSession({ export: () => 'account-a-newer-session-export' }),
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+    });
+    vi.spyOn(vibeSessionConfig, 'isVibeSessionConsumerEnabled').mockReturnValue(false);
+    vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+    vi.spyOn(AuthApplication, 'clearGrantSessions').mockResolvedValue(undefined);
+
+    await AuthController.logout();
+
+    expect(window.localStorage.getItem(AUTH_PERSIST_KEY)).toBeNull();
+  });
+
+  it('sign-out leaves another account’s persisted session alone', async () => {
+    installQueuingFakeLocks();
+    useAuthStore.setState({
+      session: mockSession({ export: () => 'account-a-session-export' }),
+      sessionExport: 'account-a-session-export',
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+      hasHydrated: true,
+      isRestoringSession: false,
+      sessionRestoreDeferred: false,
+    });
+    await persistAccountBFromOtherTab();
+    vi.spyOn(vibeSessionConfig, 'isVibeSessionConsumerEnabled').mockReturnValue(false);
+    vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+    vi.spyOn(AuthApplication, 'clearGrantSessions').mockResolvedValue(undefined);
+
+    await AuthController.logout();
+
+    expect(readPersistedAuthPubky()).toBe(ACCOUNT_B);
+  });
+
+  it('a sign-in that replaces another account removes that account’s bearers at rest and keeps the new account’s', async () => {
+    installQueuingFakeLocks();
+    useAuthStore.getState().init({
+      session: mockSession({ export: () => 'account-a-session-export' }),
+      currentUserPubky: PERSISTED_PUBKY,
+      hasProfile: true,
+    });
+    const departed = (extra: Record<string, unknown> = {}) =>
+      JSON.stringify({ token: 'A'.repeat(43), pubky: PERSISTED_PUBKY, ...extra });
+    window.localStorage.setItem(INVENTORY_SESSION_STORAGE_KEY, departed({ expiresAt: '2099-01-01T00:00:00Z' }));
+    window.localStorage.setItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY, departed({ creator: `pubky${PERSISTED_PUBKY}` }));
+    window.localStorage.setItem(
+      MESSAGING_SESSION_STORAGE_KEY,
+      JSON.stringify({ pubky: PERSISTED_PUBKY, exported: 'account-a-messaging-export' }),
+    );
+    const kept = JSON.stringify({ token: 'B'.repeat(43), pubky: ACCOUNT_B, expiresAt: '2099-01-01T00:00:00Z' });
+    window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, kept);
+
+    vi.spyOn(Identity, 'keypairFromMnemonic').mockReturnValue(mockKeypair());
+    vi.spyOn(Identity, 'z32FromSession').mockReturnValue(ACCOUNT_B);
+    vi.spyOn(AuthApplication, 'signIn').mockResolvedValue({
+      session: mockSession({ export: () => 'account-b-session-export' }),
+    } as Awaited<ReturnType<typeof AuthApplication.signIn>>);
+    vi.spyOn(AuthApplication, 'userIsSignedUp').mockResolvedValue(false);
+
+    await AuthController.loginWithMnemonic({ mnemonic: 'test mnemonic phrase' });
+
+    expect(readPersistedAuthPubky()).toBe(ACCOUNT_B);
+    expect(window.localStorage.getItem(INVENTORY_SESSION_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(MESSAGING_SESSION_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBe(kept);
   });
 });

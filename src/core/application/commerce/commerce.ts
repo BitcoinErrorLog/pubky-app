@@ -1192,6 +1192,18 @@ export class CommerceApplication {
     this.clearSessionScopedState();
   }
 
+  /**
+   * Account switch without a sign-out: the purchase, Studio and Lock Server
+   * sessions of any account but `keepPubky` go from memory and from rest,
+   * with the caches that belonged to the account that left.
+   */
+  static clearMarketplaceSessionsOfOtherAccounts(keepPubky: string): void {
+    MarketplaceSessionService.clearOtherAccounts(keepPubky);
+    CommerceInventoryApplication.clearInventorySessionsOfOtherAccounts(keepPubky);
+    LocksFrontendSessionStore.clearOtherAccounts(keepPubky);
+    this.clearSessionScopedState();
+  }
+
   private static clearSessionScopedState(): void {
     this.publishedReceiptUrls.clear();
     this.ownReviewHomeserverMisses.clear();

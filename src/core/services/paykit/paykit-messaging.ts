@@ -515,6 +515,24 @@ export class PaykitMessagingService {
     this.dropLiveSession();
   }
 
+  /**
+   * Account switch without a sign-out: drops the live session and the
+   * persisted export of any account but `keepPubky`.
+   */
+  static clearOtherAccounts(keepPubky: string): void {
+    if (this.session && this.session.pubky !== keepPubky) this.dropLiveSession();
+    const raw = this.readSessionStorage();
+    if (raw === null) return;
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (typeof stored !== 'object' || stored === null || (stored as { pubky?: unknown }).pubky === keepPubky) return;
+    this.removePersistedSessionIfUnchanged(raw);
+  }
+
   /** The in-memory half of {@link clearSession}: the session and every live handle, not the persisted slot. */
   private static dropLiveSession(): void {
     for (const link of this.links.values()) closeQuietly(() => void link.close());

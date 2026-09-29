@@ -156,7 +156,9 @@ export function mayWriteAuthPersist(existingRaw: string | null, incomingRaw: str
  * {@link mayWriteAuthPersist}: `localStorage` is shared by every tab while
  * each tab's store is its own, and zustand persists the whole partial state
  * on every `set()`. Web Locks serialize wipe/persist; this fence covers every
- * other write, including a signed-out tab's UI flags.
+ * other write, including a signed-out tab's UI flags. `removeItem` is not
+ * fenced: zustand calls it only from `persist.clearStorage()`, which nothing
+ * calls; removals go through {@link clearPersistedAuthIdentity} under the lock.
  */
 export function createOwnerGuardedAuthJSONStorage() {
   let ownedKey = NO_PERSISTED_SESSION.key;

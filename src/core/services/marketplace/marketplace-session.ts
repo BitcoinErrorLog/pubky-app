@@ -464,6 +464,18 @@ export class MarketplaceSessionService {
     this.notifySessionEnded({ reason: 'cleared', issuedAt: ended.issuedAt });
   }
 
+  /**
+   * Account switch without a sign-out (a sign-in ceremony for another
+   * account): the account that left owns nothing here any more, so its
+   * bearer goes from memory and from rest, whichever tab persisted it. A
+   * bearer `keepPubky` already holds (the ceremony may have minted one) stays.
+   */
+  static clearOtherAccounts(keepPubky: string): void {
+    if (this.session && this.session.pubky !== keepPubky) this.clearSession('cleared');
+    const stored = this.persistedBearer();
+    if (stored && stored.pubky !== keepPubky) this.removePersistedSession();
+  }
+
   private static toPublicInfo(session: StoredMarketplaceSession): MarketplaceSessionInfo {
     return {
       pubky: session.pubky,
@@ -579,16 +591,16 @@ export class MarketplaceSessionService {
     }
   }
 
-  /** The bearer and expiry of the persisted record, or null when there is none to compare. */
-  private static persistedBearer(): { token: string; expiresAtMs: number } | null {
+  /** The bearer, account and expiry of the persisted record, or null when there is none to compare. */
+  private static persistedBearer(): { token: string; pubky: unknown; expiresAtMs: number } | null {
     const raw = this.readStorage();
     if (raw === null) return null;
     const value = this.parseJson(raw);
     if (typeof value !== 'object' || value === null) return null;
-    const { token, expiresAt } = value as { token?: unknown; expiresAt?: unknown };
+    const { token, pubky, expiresAt } = value as { token?: unknown; pubky?: unknown; expiresAt?: unknown };
     if (typeof token !== 'string') return null;
     const expiresAtMs = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
-    return { token, expiresAtMs: Number.isNaN(expiresAtMs) ? 0 : expiresAtMs };
+    return { token, pubky, expiresAtMs: Number.isNaN(expiresAtMs) ? 0 : expiresAtMs };
   }
 
   /** Removes the persisted record only when it still carries `token`. */
