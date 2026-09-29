@@ -9,9 +9,6 @@ import {
   isFirstContactAllowed,
   listingIdFromRequestUrl,
   parseBoundConversationRequest,
-  RECEIVE_CAP_MAX_MESSAGES,
-  RECEIVE_CAP_WINDOW_MS,
-  ReceiveRateLimiter,
 } from './first-contact';
 
 const SELLER = 's'.repeat(52);
@@ -92,22 +89,5 @@ describe('isFirstContactAllowed', () => {
       isFirstContactAllowed(recent(FIRST_CONTACT_MAX_NEW_COUNTERPARTIES, NOW - FIRST_CONTACT_WINDOW_MS), SELLER, NOW),
     ).toBe(true);
     expect(isFirstContactAllowed(recent(FIRST_CONTACT_MAX_NEW_COUNTERPARTIES, NOW + 60_000), SELLER, NOW)).toBe(true);
-  });
-});
-
-describe('ReceiveRateLimiter', () => {
-  it(`admits ${RECEIVE_CAP_MAX_MESSAGES} per window per key and drops the rest`, () => {
-    const limiter = new ReceiveRateLimiter();
-    const admitted = Array.from({ length: RECEIVE_CAP_MAX_MESSAGES + 1 }, () => limiter.admit('a', NOW));
-    expect(admitted.filter(Boolean)).toHaveLength(RECEIVE_CAP_MAX_MESSAGES);
-    expect(admitted.at(-1)).toBe(false);
-    expect(limiter.admit('b', NOW)).toBe(true);
-  });
-
-  it('frees slots as the window slides, on the clock it is given', () => {
-    const limiter = new ReceiveRateLimiter();
-    for (let index = 0; index < RECEIVE_CAP_MAX_MESSAGES; index += 1) limiter.admit('a', NOW);
-    expect(limiter.admit('a', NOW + RECEIVE_CAP_WINDOW_MS - 1)).toBe(false);
-    expect(limiter.admit('a', NOW + RECEIVE_CAP_WINDOW_MS)).toBe(true);
   });
 });

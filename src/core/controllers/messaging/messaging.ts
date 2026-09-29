@@ -112,23 +112,6 @@ export class MessagingController {
     return await this.pollCounterparty(ownerPubky, counterpartyPubky);
   }
 
-  static async sendMessage(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown, body: string) {
-    const { ownerPubky, counterpartyPubky, conversationId, listingRef } = this.resolveConversation(
-      sellerPubky,
-      buyerPubky,
-      listingId,
-    );
-    const policy = await this.requirePolicy(ownerPubky, counterpartyPubky, 'sendMessage');
-    const message = await MessagingApplication.sendMessage(
-      ownerPubky,
-      counterpartyPubky,
-      { conversationId, listingRef, body },
-      policy,
-    );
-    await FirstContactApplication.accept(ownerPubky, counterpartyPubky);
-    return message;
-  }
-
   /**
    * Queue-aware listing-chat send: delivers directly when the link is ready,
    * otherwise queues the message device-locally (validated against the same
@@ -196,11 +179,18 @@ export class MessagingController {
     }
     if (!preparation.firstMessage) return null;
     if (FirstContactApplication.isOrderCounterparty(buyerPubky, sellerPubky)) return null;
+    if (
+      preparation.newCounterparty &&
+      (await FirstContactApplication.claimFirstContact(buyerPubky, sellerPubky, listingId)) === 'limited'
+    ) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, MESSAGING_COPY.firstContactLimited, {
+        service: ErrorService.Local,
+        operation: 'sendOrQueueMessage',
+        context: { reason: 'first_contact_limited' },
+      });
+    }
     const followed = await this.followForFirstContact(buyerPubky, sellerPubky);
     const request = await FirstContactApplication.writeConversationRequest(buyerPubky, sellerPubky, listingId);
-    if (preparation.newCounterparty) {
-      await FirstContactApplication.recordFirstContact(buyerPubky, sellerPubky, listingId);
-    }
     return { followed, request };
   }
 
@@ -243,15 +233,6 @@ export class MessagingController {
   static async pollDmConversation(counterpartyPubky: unknown) {
     const ownerPubky = this.getCurrentUserPubky();
     return await this.pollCounterparty(ownerPubky, CommerceRecordNormalizer.pubky(counterpartyPubky));
-  }
-
-  static async sendDmMessage(counterpartyPubky: unknown, body: string) {
-    const ownerPubky = this.getCurrentUserPubky();
-    const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
-    const policy = await this.requirePolicy(ownerPubky, counterparty, 'sendDmMessage');
-    const message = await MessagingApplication.sendDmMessage(ownerPubky, counterparty, body, policy);
-    await FirstContactApplication.accept(ownerPubky, counterparty);
-    return message;
   }
 
   /** Queue-aware DM send — same contract as {@link sendOrQueueMessage}, without first-contact work. */

@@ -312,6 +312,33 @@ describe('journey: a stranger asks a seller about a listing', () => {
     expect((await rowsOf(SELLER)).map((row) => row.conversation_id)).toEqual([THREAD]);
   });
 
+  it('keeps counting the receive cap across a reload', async () => {
+    await strangerSendsFirstMessage();
+    vi.setSystemTime(Date.now() + 61_000);
+    const listingRef = buildMarketplaceListingAggregateId(SELLER, LISTING);
+    const flood = (count: number, label: string) => {
+      for (let index = 0; index < count; index += 1) {
+        const { json } = buildChatMessage({
+          eventId: crypto.randomUUID(),
+          conversationId: THREAD,
+          listingRef,
+          sentAt: Date.now(),
+          body: `${label} ${index}`,
+        });
+        pair.inject(BUYER, SELLER, json);
+      }
+    };
+    flood(RECEIVE_CAP_MAX_MESSAGES - 5, 'before');
+    await MessagingController.syncInbox();
+    // The seller reloads within the same minute and more arrive.
+    await actAs(SELLER);
+    flood(10, 'after');
+    const synced = await MessagingController.syncInbox();
+
+    expect(await bodiesIn(SELLER, THREAD)).toHaveLength(1 + RECEIVE_CAP_MAX_MESSAGES);
+    expect(synced.rateLimited).toBe(5);
+  });
+
   it('stores at most the receive cap from one person per minute, whatever sent_at claims', async () => {
     await strangerSendsFirstMessage();
     vi.setSystemTime(Date.now() + 61_000);
@@ -672,6 +699,22 @@ describe('journey: the buyer follows the seller on the first message', () => {
 
     expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
     await expect(MessagingController.willFollowOnSend(SELLER, BUYER, LISTING)).resolves.toBe(true);
+  });
+
+  it('lets only one of two concurrent first messages take the last free slot', async () => {
+    await actAs(BUYER);
+    const sellers = ['c', 'd', 'e', 'f', 'g', 'h'].map((letter) => letter.repeat(52));
+    for (const seller of sellers.slice(0, 4)) {
+      await MessagingController.sendOrQueueMessage(seller, BUYER, LISTING, 'Hi');
+    }
+
+    const outcomes = await Promise.allSettled(
+      sellers.slice(4).map((seller) => MessagingController.sendOrQueueMessage(seller, BUYER, LISTING, 'Hi')),
+    );
+
+    expect(outcomes.map((outcome) => outcome.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const refused = outcomes.find((outcome) => outcome.status === 'rejected');
+    expect(String((refused as PromiseRejectedResult).reason)).toContain(MESSAGING_COPY.firstContactLimited);
   });
 
   it('refuses a sixth new seller within the hour before following, publishing or queueing anything', async () => {

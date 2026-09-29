@@ -125,27 +125,3 @@ export function isFirstContactAllowed(
   if (recent.has(counterpartyPubky)) return true;
   return recent.size < FIRST_CONTACT_MAX_NEW_COUNTERPARTIES;
 }
-
-/**
- * Sliding one-minute window per key, on the receiver's clock. The sender's
- * `sent_at` is never an input: a sender could set it to anything.
- */
-export class ReceiveRateLimiter {
-  private readonly stamps = new Map<string, number[]>();
-
-  /** Records one message for `key` and reports whether it may be stored. */
-  admit(key: string, now: number): boolean {
-    const recent = (this.stamps.get(key) ?? []).filter((at) => at > now - RECEIVE_CAP_WINDOW_MS && at <= now);
-    if (recent.length >= RECEIVE_CAP_MAX_MESSAGES) {
-      this.stamps.set(key, recent);
-      return false;
-    }
-    recent.push(now);
-    this.stamps.set(key, recent);
-    return true;
-  }
-
-  clear(): void {
-    this.stamps.clear();
-  }
-}

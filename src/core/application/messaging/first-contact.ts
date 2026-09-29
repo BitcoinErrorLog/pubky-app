@@ -20,7 +20,8 @@ import {
   isFirstContactAllowed,
   listingIdFromRequestUrl,
   parseBoundConversationRequest,
-  ReceiveRateLimiter,
+  RECEIVE_CAP_MAX_MESSAGES,
+  RECEIVE_CAP_WINDOW_MS,
 } from '@/libs/messaging/first-contact';
 import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import {
@@ -90,17 +91,12 @@ export type ConversationRequestWrite = 'written' | 'kept' | 'failed';
 export class FirstContactApplication {
   private constructor() {}
 
-  /** The last confirmed fold of the mute log: hides threads, never authorizes intake. */
-  private static mutes = new Map<string, MuteState>();
   /** Decrypted mute records by entry name. Records are never rewritten, so a name always holds the same change. */
   private static muteRecords = new Map<string, Map<string, MuteChange>>();
-  /** Whether the most recent read of the mute log succeeded. */
-  private static muteReads = new Map<string, 'confirmed' | 'failed'>();
   private static muteQueue = new Map<string, Promise<unknown>>();
   private static knownContacts = new Map<string, ReadonlySet<string>>();
   private static orderCounterparties = new Map<string, ReadonlySet<string>>();
   private static seenRequests = new Set<string>();
-  private static receiveLimiter = new ReceiveRateLimiter();
   private static rateLimitedCounts = new Map<string, number>();
 
   // --- mutes --------------------------------------------------------------
@@ -123,11 +119,8 @@ export class FirstContactApplication {
         ? await this.readMuteLog(ownerPubky, keys.keyring)
         : ({ kind: keys.kind === 'needs_reauth' ? 'needs_approval' : 'error' } as const);
     if (read.kind !== 'log') {
-      this.muteReads.set(ownerPubky, 'failed');
       return { kind: read.kind };
     }
-    this.mutes.set(ownerPubky, read.state);
-    this.muteReads.set(ownerPubky, 'confirmed');
     return { kind: 'ready', muted: mutedPubkys(read.state) };
   }
 
@@ -188,21 +181,6 @@ export class FirstContactApplication {
   }
 
   /**
-   * People to hide from lists: the mutes of the last confirmed read, plus
-   * changes made since. Display only; nothing is received or sent on it.
-   */
-  static getHiddenPubkys(ownerPubky: string): ReadonlySet<string> {
-    const state = this.mutes.get(ownerPubky);
-    return state ? mutedPubkys(state) : new Set<string>();
-  }
-
-  /** Whether the most recent read of this owner's mute log succeeded, failed, or has not run. */
-  static getMuteReadState(ownerPubky: string): 'confirmed' | 'failed' | 'none' {
-    if (!isDurableCommerceMode(getCommerceAdapterMode())) return 'confirmed';
-    return this.muteReads.get(ownerPubky) ?? 'none';
-  }
-
-  /**
    * Mutes or unmutes one person by adding one sealed record to the log,
    * after reading the whole log: a log that cannot be read is not written
    * to, a change that is already in effect adds nothing, and a new mute past
@@ -228,18 +206,14 @@ export class FirstContactApplication {
   ): Promise<MuteChangeResult> {
     const keys = await CommercePrivKeyringApplication.get(ownerPubky);
     if (keys.kind !== 'keys') {
-      this.muteReads.set(ownerPubky, 'failed');
       return { kind: keys.kind === 'needs_reauth' ? 'needs_approval' : 'error' };
     }
     const read = await this.readMuteLog(ownerPubky, keys.keyring);
     if (read.kind !== 'log') {
-      this.muteReads.set(ownerPubky, 'failed');
       return { kind: read.kind };
     }
     const current = mutedPubkys(read.state);
     if ((read.state.get(counterpartyPubky)?.muted ?? false) === muted) {
-      this.mutes.set(ownerPubky, read.state);
-      this.muteReads.set(ownerPubky, 'confirmed');
       return { kind: 'ready', muted: current };
     }
     if (muted && current.size >= MUTED_PEOPLE_MAX) {
@@ -264,8 +238,6 @@ export class FirstContactApplication {
       ),
       change,
     ]);
-    this.mutes.set(ownerPubky, state);
-    this.muteReads.set(ownerPubky, 'confirmed');
     return { kind: 'ready', muted: mutedPubkys(state) };
   }
 
@@ -285,7 +257,8 @@ export class FirstContactApplication {
    * The confirmed policy for one operation, or `null` when `mutes` is not a
    * fresh successful read (nothing may contact anyone then). Its gate refuses
    * muted people, caps each person at the receive cap per minute on this
-   * device's clock, and files a message that starts a thread with someone
+   * device's clock (counted from what is stored, so a reload or another tab
+   * does not reset it), and files a message that starts a thread with someone
    * this account does not know under Requests.
    */
   static policyFor(ownerPubky: string, mutes: MessagingMutesState): MessagingPolicy | null {
@@ -296,7 +269,12 @@ export class FirstContactApplication {
       gate: {
         admit: async ({ counterpartyPubky }) => {
           if (muted.has(counterpartyPubky)) return { store: false, reason: 'muted' };
-          if (!this.receiveLimiter.admit(`${ownerPubky}:${counterpartyPubky}`, Date.now())) {
+          const stored = await LocalMessagingService.countStoredInbound(
+            ownerPubky,
+            counterpartyPubky,
+            Date.now() - RECEIVE_CAP_WINDOW_MS,
+          );
+          if (stored >= RECEIVE_CAP_MAX_MESSAGES) {
             this.rateLimitedCounts.set(ownerPubky, (this.rateLimitedCounts.get(ownerPubky) ?? 0) + 1);
             return { store: false, reason: 'rate_limited' };
           }
@@ -475,20 +453,26 @@ export class FirstContactApplication {
     return { kind: 'ready', firstMessage: true, newCounterparty };
   }
 
-  /** Dates the first message to a new person, for the limit on new people per hour. */
-  static async recordFirstContact(buyerPubky: string, sellerPubky: string, listingId: string): Promise<void> {
-    const conversationId = buildMarketplaceConversationAggregateId(sellerPubky, buyerPubky, listingId);
-    await LocalMessagingService.touchConversation({
-      owner_id: buyerPubky,
-      conversation_id: conversationId,
-      kind: 'listing',
-      listing_ref: buildMarketplaceListingAggregateId(sellerPubky, listingId),
-      counterparty_pubky: sellerPubky,
-      last_message_at: null,
-      updated_at: Date.now(),
-      origin: 'known',
-    });
-    await LocalMessagingService.recordFirstContact(buyerPubky, conversationId, Date.now());
+  /**
+   * Claims the first message to a new person against the limit on new
+   * people per hour, atomically with every other claim in any tab. Called
+   * before anything is followed, written or sent.
+   */
+  static async claimFirstContact(
+    buyerPubky: string,
+    sellerPubky: string,
+    listingId: string,
+  ): Promise<'claimed' | 'limited'> {
+    return await LocalMessagingService.claimFirstContact(
+      {
+        ownerId: buyerPubky,
+        conversationId: buildMarketplaceConversationAggregateId(sellerPubky, buyerPubky, listingId),
+        listingRef: buildMarketplaceListingAggregateId(sellerPubky, listingId),
+        counterpartyPubky: sellerPubky,
+        at: Date.now(),
+      },
+      isFirstContactAllowed,
+    );
   }
 
   /**
@@ -542,14 +526,11 @@ export class FirstContactApplication {
 
   /** Sign-out teardown: forgets every cached list, contact set and counter. */
   static clear(): void {
-    this.mutes.clear();
     this.muteQueue.clear();
     this.muteRecords.clear();
-    this.muteReads.clear();
     this.knownContacts.clear();
     this.orderCounterparties.clear();
     this.seenRequests.clear();
-    this.receiveLimiter.clear();
     this.rateLimitedCounts.clear();
   }
 }

@@ -1,5 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { db } from '@/database/franky/franky';
 import { listingConversationBetween } from '@/libs/commerce/messaging-contracts';
 import { getOrCreateWrappingKey } from '@/libs/crypto/messaging-keyring';
 import {
@@ -216,11 +217,61 @@ export class LocalMessagingService {
     }
   }
 
-  /** Dates the first message to a new person on this conversation, once. */
-  static async recordFirstContact(ownerId: string, conversationId: string, at: number): Promise<void> {
-    const current = await CommerceMessagingConversationModel.findById(`${ownerId}:${conversationId}`);
-    if (!current || typeof current.first_contact_at === 'number') return;
-    await CommerceMessagingConversationModel.upsert({ ...current, first_contact_at: at });
+  /**
+   * Claims a first contact with a new person: in one IndexedDB transaction,
+   * reads every first contact of the account, refuses (`limited`) when
+   * `isAllowed` says the new person would go past the limit, and otherwise
+   * dates this conversation's first contact, creating its row if needed. A
+   * read-write transaction on the table cannot interleave with another, in
+   * this tab or any other, so concurrent sends cannot all pass the limit.
+   */
+  static async claimFirstContact(
+    input: {
+      ownerId: string;
+      conversationId: string;
+      listingRef: string;
+      counterpartyPubky: string;
+      at: number;
+    },
+    isAllowed: (
+      firstContacts: { counterpartyPubky: string; at: number }[],
+      counterpartyPubky: string,
+      now: number,
+    ) => boolean,
+  ): Promise<'claimed' | 'limited'> {
+    return await db.transaction('rw', CommerceMessagingConversationModel.table, async () => {
+      const rows = (
+        await CommerceMessagingConversationModel.table.where('owner_id').equals(input.ownerId).toArray()
+      ).filter(isBoundToCounterparty);
+      const firstContacts = rows.flatMap((row) =>
+        typeof row.first_contact_at === 'number'
+          ? [{ counterpartyPubky: row.counterparty_pubky, at: row.first_contact_at }]
+          : [],
+      );
+      if (!isAllowed(firstContacts, input.counterpartyPubky, input.at)) return 'limited';
+      const id = `${input.ownerId}:${input.conversationId}`;
+      const current = rows.find((row) => row.id === id);
+      if (current && typeof current.first_contact_at === 'number') return 'claimed';
+      await CommerceMessagingConversationModel.table.put(
+        current
+          ? { ...current, first_contact_at: input.at }
+          : {
+              id,
+              owner_id: input.ownerId,
+              conversation_id: input.conversationId,
+              kind: 'listing',
+              listing_ref: input.listingRef,
+              counterparty_pubky: input.counterpartyPubky,
+              last_message_at: null,
+              last_read_at: null,
+              origin: 'known',
+              first_contact_at: input.at,
+              created_at: input.at,
+              updated_at: input.at,
+            },
+      );
+      return 'claimed';
+    });
   }
 
   /** Every recorded first contact of this account, oldest first. */
@@ -306,6 +357,26 @@ export class LocalMessagingService {
   static async getMessages(ownerId: string, conversationId: string): Promise<CommerceMessagingMessageModelSchema[]> {
     const messages = await CommerceMessagingMessageModel.findByConversation(ownerId, conversationId);
     return messages.filter(isBoundToCounterparty);
+  }
+
+  /**
+   * How many inbound events from one person this account stored after
+   * `since`: received messages plus events kept unprocessed. Read from
+   * IndexedDB, so every tab and every reload sees the same count.
+   */
+  static async countStoredInbound(ownerId: string, counterpartyPubky: string, since: number): Promise<number> {
+    const messages = await CommerceMessagingMessageModel.table
+      .where('counterparty_pubky')
+      .equals(counterpartyPubky)
+      .filter((row) => row.owner_id === ownerId && row.direction === 'received' && row.recorded_at > since)
+      .count();
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) return messages;
+    const unprocessed = await CommerceMessagingUnprocessedModel.table
+      .where('[owner_id+counterparty_pubky]')
+      .equals([ownerId, counterpartyPubky])
+      .filter((row) => row.received_at > since)
+      .count();
+    return messages + unprocessed;
   }
 
   /** Whether any message row (sent or received) holds this event id for the owner. */
