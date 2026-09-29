@@ -33,6 +33,7 @@ type AppModules = {
   CommerceInventoryAutomationsApplication: typeof import('@/application/commerce/inventory-automations').CommerceInventoryAutomationsApplication;
   WEBHOOK_SECRET_COPY: typeof import('@/application/commerce/inventory-automations').WEBHOOK_SECRET_COPY;
   INVENTORY_GRANT: typeof import('@/services/marketplace/marketplace-inventory-grant').INVENTORY_GRANT;
+  MARKETPLACE_SESSION_GRANT: typeof import('@/services/marketplace/marketplace-session-grant').MARKETPLACE_SESSION_GRANT;
   MarketplaceShopClientService: typeof import('@/services/marketplace/marketplace-shop-client').MarketplaceShopClientService;
   DexieWebhookStore: typeof import('@/services/marketplace/marketplace-webhook-store').DexieWebhookStore;
   MarketplaceSessionService: typeof import('@/services/marketplace/marketplace-session').MarketplaceSessionService;
@@ -63,6 +64,8 @@ describe('inventory automations staging proof', () => {
         .CommerceInventoryAutomationsApplication,
       WEBHOOK_SECRET_COPY: (await import('@/application/commerce/inventory-automations')).WEBHOOK_SECRET_COPY,
       INVENTORY_GRANT: (await import('@/services/marketplace/marketplace-inventory-grant')).INVENTORY_GRANT,
+      MARKETPLACE_SESSION_GRANT: (await import('@/services/marketplace/marketplace-session-grant'))
+        .MARKETPLACE_SESSION_GRANT,
       MarketplaceShopClientService: (await import('@/services/marketplace/marketplace-shop-client'))
         .MarketplaceShopClientService,
       DexieWebhookStore: (await import('@/services/marketplace/marketplace-webhook-store')).DexieWebhookStore,
@@ -85,6 +88,7 @@ describe('inventory automations staging proof', () => {
       MarketplaceSessionService,
       MarketplaceInventorySessionService,
       INVENTORY_GRANT,
+      MARKETPLACE_SESSION_GRANT,
       useAuthStore,
       db,
       sdk,
@@ -98,6 +102,7 @@ describe('inventory automations staging proof', () => {
 
     if (!MarketplaceSessionService.getActiveSession()) {
       const identityFlow = MarketplaceSessionService.beginSessionFlow();
+      expect(new URL(identityFlow.authorizationUrl).searchParams.get('caps')).toBe(MARKETPLACE_SESSION_GRANT);
       await new sdk.Pubky().signer(keypair).approveAuthRequest(identityFlow.authorizationUrl);
       await identityFlow.awaitSession();
     }
@@ -105,9 +110,7 @@ describe('inventory automations staging proof', () => {
 
     if (!MarketplaceInventorySessionService.getActiveSession()) {
       const inventoryFlow = MarketplaceInventorySessionService.beginInventorySessionFlow(sellerPubky);
-      expect(inventoryFlow.authorizationUrl).toContain('marketplace-service');
-      expect(inventoryFlow.authorizationUrl).toContain(INVENTORY_GRANT);
-      expect(inventoryFlow.authorizationUrl).not.toMatch(/(?:^|[?&,])caps=\/:rw(?:&|$)/);
+      expect(new URL(inventoryFlow.authorizationUrl).searchParams.get('caps')).toBe(INVENTORY_GRANT);
       await new sdk.Pubky().signer(keypair).approveAuthRequest(inventoryFlow.authorizationUrl);
       const inventoryInfo = await inventoryFlow.awaitSession();
       expect(inventoryInfo.capabilities).toBe(INVENTORY_GRANT);
@@ -123,6 +126,7 @@ describe('inventory automations staging proof', () => {
       CommerceInventoryAutomationsApplication,
       WEBHOOK_SECRET_COPY,
       INVENTORY_GRANT,
+      MARKETPLACE_SESSION_GRANT,
       MarketplaceShopClientService,
       DexieWebhookStore,
       MarketplaceSessionService,
@@ -186,13 +190,20 @@ describe('inventory automations staging proof', () => {
       expect(MarketplaceShopClientService.isSessionRejected(deadList.error)).toBe(true);
     }
 
+    let purchaseList = 'absent';
     if (identityToken) {
       const identityClient = MarketplaceShopClientService.createInventoryClient(identityToken);
       const identityList = await MarketplaceShopClientService.listSessions(identityClient);
-      expect(identityList.ok).toBe(false);
-      if (!identityList.ok) {
-        expect(MarketplaceShopClientService.isSessionRejected(identityList.error)).toBe(false);
-        expect(MarketplaceShopClientService.isCapabilityRequired(identityList.error)).toBe(true);
+      // The purchase session's marketplace session grant covers inventory reads.
+      expect(identityList.ok).toBe(true);
+      if (identityList.ok) {
+        const body = identityList.value as {
+          sessions?: Array<{ capabilities?: string; revoked_at?: string; revokedAt?: string }>;
+        };
+        const sessions = Array.isArray(body.sessions) ? body.sessions : [];
+        const active = sessions.filter((row) => !row.revoked_at && !row.revokedAt);
+        expect(active.some((row) => row.capabilities === MARKETPLACE_SESSION_GRANT)).toBe(true);
+        purchaseList = 'covers-inventory';
       }
     }
 
@@ -213,6 +224,7 @@ describe('inventory automations staging proof', () => {
         `inventory_cleared=${MarketplaceInventorySessionService.getActiveSession() === null}`,
         `identity_present=${Boolean(MarketplaceSessionService.getActiveSession())}`,
         `dead_inventory=${deadList.ok ? 'ok' : deadList.error.code}`,
+        `purchase_list=${purchaseList}`,
       ].join('\n'),
     );
   }, 180_000);
