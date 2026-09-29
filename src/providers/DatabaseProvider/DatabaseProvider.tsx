@@ -2,10 +2,12 @@
 
 import { createContext, type ReactNode, useEffect, useRef, useState } from 'react';
 import { db } from '@/database/franky/franky';
+import { resumePendingMessagingTeardown } from '@/database/franky/franky.helpers';
 import { AppError } from '@/libs/error/error';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { Logger } from '@/libs/logger/logger';
 import { DatabaseErrorScreen } from '@/molecules/DatabaseErrorScreen/DatabaseErrorScreen';
 import { type DatabaseContextType } from '@/providers/DatabaseProvider/DatabaseProvider.types';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
@@ -42,6 +44,11 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       // degraded fact so the messaging enable UI can pause instead of
       // enabling on top of unprotected at-rest key material.
       useMessagingStore.getState().setMessagingAtRestDegraded(messagingAtRestDegraded);
+      // A sign-out whose tab closed before other tabs let it clear the
+      // messaging keys is finished here; messaging refuses to run until then.
+      void resumePendingMessagingTeardown().catch((resumeError: unknown) => {
+        Logger.warn('Could not finish clearing messaging keys from an earlier sign-out', { error: resumeError });
+      });
       setIsReady(true);
     } catch (err) {
       setIsReady(false);

@@ -40,8 +40,15 @@ const KEY_EPOCH_RECORD_ID = 'wrapping-key-epoch';
  * (see {@link withCurrentWrappingKey} and {@link tearDownMessagingKeys}).
  */
 const KEY_FENCE_LOCK = 'pubky-messaging-keys';
-/** How long sign-out waits for in-flight wrapped reads and writes before clearing anyway. */
+/**
+ * How long sign-out waits for in-flight wrapped reads and writes before it
+ * returns. It never clears without the fence: the teardown stays queued and
+ * runs when they finish, or on the next load (see {@link tearDownMessagingKeys}).
+ */
 const TEARDOWN_LOCK_WAIT_MS = 10_000;
+/** `localStorage` flag set before a teardown is queued and removed once it has run. */
+const TEARDOWN_PENDING_STORAGE_KEY = 'pubky-messaging-keys-teardown-pending';
+let teardownLockWaitMs = TEARDOWN_LOCK_WAIT_MS;
 const KEYRING_CHANGED_REASON = 'messaging_keyring_changed';
 
 let cachedKey: CryptoKey | null = null;
@@ -349,6 +356,20 @@ export async function withCurrentWrappingKey<T>(
   { whenUnavailable = 'refuse' }: { whenUnavailable?: 'refuse' | 'run' } = {},
 ): Promise<T> {
   const fenced = async () => {
+    if (isMessagingKeyTeardownPending()) {
+      Logger.warn('A sign-out is still clearing messaging keys; nothing was read or written', {
+        reason: KEYRING_CHANGED_REASON,
+      });
+      throw Err.database(
+        DatabaseErrorCode.WRITE_FAILED,
+        'Private messages were reset in another tab. Reload to continue.',
+        {
+          service: ErrorService.Local,
+          operation: 'withCurrentWrappingKey',
+          context: { reason: KEYRING_CHANGED_REASON },
+        },
+      );
+    }
     const key = await getOrCreateWrappingKey();
     const expected = cachedEpoch;
     const persisted = await readPersistedKeyEpoch();
@@ -397,45 +418,106 @@ export async function withCurrentWrappingKey<T>(
 }
 
 /**
- * Sign-out and identity teardown of key-wrapped messaging state: holding
- * the key fence exclusively, deletes the wrapping key and its epoch (so
- * every other tab's cached key is known stale from here on), then runs
- * `clearRows`. No tab reads or writes wrapped state meanwhile.
+ * Sign-out and identity teardown of key-wrapped messaging state: deletes the
+ * wrapping key and its epoch, then runs `clearWrappedRows`, holding the key
+ * fence exclusively. It never runs while any tab holds the fence: a writer
+ * that is part-way through a fenced write, even one suspended for a long
+ * time, finishes first, and its rows are then cleared with the rest. Web
+ * Locks grants in order, so fenced requests made after this one wait behind
+ * it.
  *
- * Sign-out must finish, so if the fence cannot be had within
- * {@link TEARDOWN_LOCK_WAIT_MS} (or Web Locks is unavailable, in which case
- * no messaging reader or writer runs at all) the same steps run without it,
- * logged. The key is still deleted first, so a tab that has not yet checked
- * its epoch refuses to write.
+ * A pending flag is set in `localStorage` before the request is queued and
+ * removed once the teardown has run. While it is set, every fenced read and
+ * write refuses. Sign-out must not hang on another tab, so this returns after
+ * {@link TEARDOWN_LOCK_WAIT_MS} with the request still queued; if this tab
+ * closes before it is granted, {@link resumeMessagingKeyTeardown} completes it
+ * on the next load. When the flag cannot be set, this waits for the teardown
+ * to run.
+ *
+ * Without the Web Locks API no messaging reader or writer runs at all, so the
+ * teardown runs directly. If the browser refuses the lock, nothing is
+ * deleted: the flag stays set, every fenced operation keeps refusing, and the
+ * next load tries again.
  */
-export async function tearDownMessagingKeys(clearRows: () => Promise<void>): Promise<void> {
+export async function tearDownMessagingKeys(clearWrappedRows: () => Promise<void>): Promise<void> {
+  const flagged = markTeardownPending();
   const teardown = async () => {
     await deleteWrappingKeyStore();
-    await clearRows();
+    await clearWrappedRows();
+    clearTeardownPending();
   };
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
   if (typeof locks?.request !== 'function') {
     await teardown();
     return;
   }
-  const wait = new AbortController();
-  const timer = setTimeout(() => wait.abort(), TEARDOWN_LOCK_WAIT_MS);
   let granted = false;
-  try {
-    await locks.request(KEY_FENCE_LOCK, { mode: 'exclusive', signal: wait.signal }, async () => {
+  const done = locks
+    .request(KEY_FENCE_LOCK, { mode: 'exclusive' }, async () => {
       granted = true;
-      clearTimeout(timer);
       await teardown();
+    })
+    .catch((error: unknown) => {
+      if (granted) throw error;
+      Logger.warn('The messaging key lock was refused; messaging keys are cleared on a later load', {
+        reason: 'teardown_lock_refused',
+      });
     });
-  } catch (error) {
-    if (granted) throw error;
-    Logger.warn('Could not hold the messaging key lock for sign-out; clearing without it', {
-      reason: 'teardown_lock_unavailable',
-    });
-    await teardown();
-  } finally {
-    clearTimeout(timer);
+  if (!flagged) {
+    await done;
+    return;
   }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const finished = await Promise.race([
+    done.then(() => true),
+    new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), teardownLockWaitMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (!finished) {
+    Logger.warn('Another tab is still using messaging keys; they are cleared as soon as it finishes', {
+      reason: 'teardown_waiting',
+    });
+    void done.catch(() => undefined);
+  }
+}
+
+/** Completes a teardown a closed tab left pending; a no-op when none is. */
+export async function resumeMessagingKeyTeardown(clearWrappedRows: () => Promise<void>): Promise<void> {
+  if (!isMessagingKeyTeardownPending()) return;
+  await tearDownMessagingKeys(clearWrappedRows);
+}
+
+/** True while a sign-out's teardown of messaging keys has not run yet. */
+export function isMessagingKeyTeardownPending(): boolean {
+  try {
+    return window.localStorage.getItem(TEARDOWN_PENDING_STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+function markTeardownPending(): boolean {
+  try {
+    window.localStorage.setItem(TEARDOWN_PENDING_STORAGE_KEY, '1');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearTeardownPending(): void {
+  try {
+    window.localStorage.removeItem(TEARDOWN_PENDING_STORAGE_KEY);
+  } catch {
+    // Without localStorage the flag was never set.
+  }
+}
+
+/** Test seam: shortens how long sign-out waits for other tabs. Never used in production. */
+export function setTeardownLockWaitForTests(ms: number | null): void {
+  teardownLockWaitMs = ms ?? TEARDOWN_LOCK_WAIT_MS;
 }
 
 /**
