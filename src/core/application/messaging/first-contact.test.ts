@@ -188,9 +188,11 @@ describe('FirstContactApplication mutes', () => {
   });
 
   it('reads every record past one page of the list', async () => {
-    for (let index = 0; index < 505; index += 1) plantMuteChange(homeserver, change(A, index % 2 === 0, index));
+    for (let index = 0; index < 504; index += 1) plantMuteChange(homeserver, change(A, false, index));
+    // The only mute sorts after every other name, so it is on the second page.
+    plantMuteChange(homeserver, change(B, true, 1), 'f'.repeat(32));
 
-    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([B]) });
   });
 
   it('writes nothing for a change already in effect', async () => {
