@@ -102,27 +102,83 @@ export function shouldRefuseForeignAuthPersistWrite(
   return existingPubky !== null && incomingPubky !== null && existingPubky !== incomingPubky;
 }
 
+type PersistedAuthSession = {
+  /** Identity of the persisted session: account, Ring cookie export and Bitkit grant record. */
+  key: string;
+  pubky: string | null;
+  present: boolean;
+};
+
+const NO_PERSISTED_SESSION: PersistedAuthSession = { key: '[null,null,null]', pubky: null, present: false };
+
+function persistedAuthSessionFromRaw(raw: string | null | undefined): PersistedAuthSession {
+  if (!raw) return NO_PERSISTED_SESSION;
+  try {
+    const state = (JSON.parse(raw) as { state?: PersistedAuthState & { grantSessionRecordId?: unknown } }).state;
+    if (!state || typeof state !== 'object') return NO_PERSISTED_SESSION;
+    const pubky = isNonEmptyString(state.currentUserPubky) ? state.currentUserPubky : null;
+    const sessionExport = isNonEmptyString(state.sessionExport) ? state.sessionExport : null;
+    const grantRecordId = isNonEmptyString(state.grantSessionRecordId) ? state.grantSessionRecordId : null;
+    return {
+      key: JSON.stringify([pubky, sessionExport, grantRecordId]),
+      pubky,
+      present: pubky !== null || sessionExport !== null || grantRecordId !== null,
+    };
+  } catch {
+    return NO_PERSISTED_SESSION;
+  }
+}
+
 /**
- * Zustand persist storage for the auth store: `setItem` no-ops when the
- * blob already holds a different pubky. Web Locks serialize wipe/persist;
- * this fence covers incidental live-store `set()` after skip/abort.
+ * Compare-before-write for `AUTH_PERSIST_KEY`. `ownedKey` is the session this
+ * tab last read (hydration) or wrote. A write that changes the stored session
+ * is allowed only when:
+ *  - the stored session is still the one this tab owns, or
+ *  - the write carries a session this tab has just established (a sign-in or
+ *    restore `init`, which runs under the auth finalization lock) and the slot
+ *    holds nothing or the same account.
+ * Everything else — a stale tab's flag update, reset or sign-out — would
+ * overwrite or clear a newer session another tab saved, and no-ops. A
+ * different account is never overwritten; identity switch clears first.
+ */
+export function mayWriteAuthPersist(existingRaw: string | null, incomingRaw: string, ownedKey: string): boolean {
+  const existing = persistedAuthSessionFromRaw(existingRaw);
+  const incoming = persistedAuthSessionFromRaw(incomingRaw);
+  if (existing.key === incoming.key) return true;
+  if (shouldRefuseForeignAuthPersistWrite(existing.pubky, incoming.pubky)) return false;
+  if (existing.key === ownedKey) return true;
+  const establishesNewSession = incoming.present && incoming.key !== ownedKey;
+  return establishesNewSession && (!existing.present || existing.pubky === incoming.pubky);
+}
+
+/**
+ * Zustand persist storage for the auth store, fenced by
+ * {@link mayWriteAuthPersist}: `localStorage` is shared by every tab while
+ * each tab's store is its own, and zustand persists the whole partial state
+ * on every `set()`. Web Locks serialize wipe/persist; this fence covers every
+ * other write, including a signed-out tab's UI flags.
  */
 export function createOwnerGuardedAuthJSONStorage() {
+  let ownedKey = NO_PERSISTED_SESSION.key;
   return createJSONStorage(() => {
     const storage = globalThis.localStorage;
     if (!storage) {
       throw new Error('localStorage unavailable');
     }
     return {
-      getItem: (name: string) => storage.getItem(name),
+      getItem: (name: string) => {
+        const raw = storage.getItem(name);
+        if (name === AUTH_PERSIST_KEY) ownedKey = persistedAuthSessionFromRaw(raw).key;
+        return raw;
+      },
       setItem: (name: string, value: string) => {
-        if (
-          name === AUTH_PERSIST_KEY &&
-          shouldRefuseForeignAuthPersistWrite(readPersistedAuthPubky(), parsePersistedAuthIdentityFromRaw(value).pubky)
-        ) {
+        if (name !== AUTH_PERSIST_KEY) {
+          storage.setItem(name, value);
           return;
         }
+        if (!mayWriteAuthPersist(storage.getItem(name), value, ownedKey)) return;
         storage.setItem(name, value);
+        ownedKey = persistedAuthSessionFromRaw(value).key;
       },
       removeItem: (name: string) => storage.removeItem(name),
     };
