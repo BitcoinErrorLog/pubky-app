@@ -18,6 +18,8 @@ type RetryDependencies = {
   sleep?: (delayMs: number) => Promise<void>;
   random?: () => number;
   now?: () => number;
+  beforeAttempt?: (attempt: number) => void | Promise<void>;
+  maxTotalDelayMs?: number;
 };
 
 const installedDependencies: RetryDependencies = {};
@@ -120,20 +122,29 @@ export async function retryHomeserverWrite<T>(
     ((delay: number) => new Promise<void>((resolve) => setTimeout(resolve, delay)));
   const random = dependencies.random ?? installedDependencies.random ?? Math.random;
   const now = dependencies.now ?? installedDependencies.now ?? Date.now;
+  const maxTotalDelayMs = dependencies.maxTotalDelayMs ?? Number.POSITIVE_INFINITY;
+  let totalDelayMs = 0;
 
   for (let attempt = 0; ; attempt += 1) {
+    await dependencies.beforeAttempt?.(attempt);
     let result: T;
     try {
       result = await operation();
     } catch (error) {
       const metadata = errorMetadata(error, now());
       if (!metadata || !retryableStatus(metadata.status) || attempt >= HOMESERVER_WRITE_MAX_RETRIES) throw error;
-      await sleep(delayMs(metadata, attempt, random));
+      const delay = delayMs(metadata, attempt, random);
+      if (totalDelayMs + delay > maxTotalDelayMs) throw error;
+      await sleep(delay);
+      totalDelayMs += delay;
       continue;
     }
 
     const metadata = responseMetadata(result, now());
     if (!metadata || !retryableStatus(metadata.status) || attempt >= HOMESERVER_WRITE_MAX_RETRIES) return result;
-    await sleep(delayMs(metadata, attempt, random));
+    const delay = delayMs(metadata, attempt, random);
+    if (totalDelayMs + delay > maxTotalDelayMs) return result;
+    await sleep(delay);
+    totalDelayMs += delay;
   }
 }

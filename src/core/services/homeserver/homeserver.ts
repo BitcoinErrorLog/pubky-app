@@ -23,6 +23,7 @@ import {
   getTestnet,
   isStagingHomeserverDeploy,
 } from '@/config/network';
+import { readAuthEpoch } from '@/controllers/auth/auth-epoch';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -113,6 +114,20 @@ export class HomeserverService {
   private static resolveOwnedSessionPath(url: string): TOwnedSessionPath | null {
     const session = useAuthStore.getState().selectSession();
     return resolveOwnedSessionPath({ url, session, ownedPathPrefixes: OWNED_PATH_PREFIXES });
+  }
+
+  private static assertWriteSessionCurrent(
+    expectedSession: Session,
+    expectedEpoch: number,
+    url: string,
+    method: HttpMethod,
+  ): void {
+    if (useAuthStore.getState().selectSession() === expectedSession && readAuthEpoch() === expectedEpoch) return;
+    throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Session ended before the homeserver write completed.', {
+      service: ErrorService.Homeserver,
+      operation: 'write',
+      context: { endpoint: url, method },
+    });
   }
 
   /** Whether an authenticated session object currently exists (restored sessions included). */
@@ -871,6 +886,8 @@ export class HomeserverService {
     // Handle owned session paths
     if (owned) {
       const { session, path } = owned;
+      const authEpoch = readAuthEpoch();
+      const beforeAttempt = () => this.assertWriteSessionCurrent(session, authEpoch, contextUrl, method);
 
       switch (method) {
         case HttpMethod.GET: {
@@ -878,14 +895,14 @@ export class HomeserverService {
           return (await parseResponseOrUndefined<T>({ response })) as T;
         }
         case HttpMethod.PUT:
-          await retryHomeserverWrite(HttpMethod.PUT, () => session.storage.putJson(toSdkPath(path), ownedBody)).catch(
-            (error) => handleError({ error, additionalContext: { url: contextUrl, method } }),
-          );
+          await retryHomeserverWrite(HttpMethod.PUT, () => session.storage.putJson(toSdkPath(path), ownedBody), {
+            beforeAttempt,
+          }).catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
           return undefined as T;
         case HttpMethod.DELETE:
-          await retryHomeserverWrite(HttpMethod.DELETE, () => session.storage.delete(toSdkPath(path))).catch((error) =>
-            handleError({ error, additionalContext: { url: contextUrl, method } }),
-          );
+          await retryHomeserverWrite(HttpMethod.DELETE, () => session.storage.delete(toSdkPath(path)), {
+            beforeAttempt,
+          }).catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
           return undefined as T;
       }
     }
@@ -939,9 +956,14 @@ export class HomeserverService {
     const retryBody = blob.slice();
     const owned = this.resolveOwnedSessionPath(url);
     if (owned) {
+      const authEpoch = readAuthEpoch();
       try {
-        await retryHomeserverWrite(HttpMethod.PUT, () =>
-          owned.session.storage.putBytes(toSdkPath(owned.path), retryBody.slice()),
+        await retryHomeserverWrite(
+          HttpMethod.PUT,
+          () => owned.session.storage.putBytes(toSdkPath(owned.path), retryBody.slice()),
+          {
+            beforeAttempt: () => this.assertWriteSessionCurrent(owned.session, authEpoch, contextUrl, HttpMethod.PUT),
+          },
         );
         return;
       } catch (error) {

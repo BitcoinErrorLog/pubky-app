@@ -1,5 +1,7 @@
 import type { Session } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AUTH_EPOCH_KEY } from '@/controllers/auth/auth-epoch';
+import { AuthErrorCode } from '@/libs/error/error.codes';
 import { HttpMethod } from '@/libs/http/http.types';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { CommerceHomeserverService } from './commerce/commerce';
@@ -67,6 +69,7 @@ describe('homeserver writes route through the shared retry policy', () => {
     // The SDK client is a process-wide singleton. A previous test can leave a
     // client whose fetch is not this file's mock.
     Reflect.set(HomeserverService, 'pubkySdk', null);
+    localStorage.removeItem(AUTH_EPOCH_KEY);
     mockState.currentSession = session();
     mockState.putJson.mockReset().mockResolvedValue(undefined);
     mockState.putBytes.mockReset().mockResolvedValue(undefined);
@@ -98,6 +101,46 @@ describe('homeserver writes route through the shared retry policy', () => {
       name: 'boots',
       price: 1,
     });
+  });
+
+  it('revert-fail: aborts a retry when sign-out advances the auth epoch during backoff', async () => {
+    mockState.putJson.mockRejectedValueOnce(requestError(500)).mockResolvedValueOnce(undefined);
+    installHomeserverWriteRetryDependenciesForTests({
+      sleep: async () => localStorage.setItem(AUTH_EPOCH_KEY, '1'),
+      random: () => 0,
+      now: () => 0,
+    });
+
+    await expect(
+      HomeserverService.request({
+        method: HttpMethod.PUT,
+        url: PROFILE_URL,
+        bodyJson: { name: 'Ada' },
+      }),
+    ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+
+    expect(mockState.putJson).toHaveBeenCalledOnce();
+  });
+
+  it('aborts a retry when the current session object is replaced during backoff', async () => {
+    mockState.putJson.mockRejectedValueOnce(requestError(500)).mockResolvedValueOnce(undefined);
+    installHomeserverWriteRetryDependenciesForTests({
+      sleep: async () => {
+        mockState.currentSession = session();
+      },
+      random: () => 0,
+      now: () => 0,
+    });
+
+    await expect(
+      HomeserverService.request({
+        method: HttpMethod.PUT,
+        url: PROFILE_URL,
+        bodyJson: { name: 'Ada' },
+      }),
+    ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+
+    expect(mockState.putJson).toHaveBeenCalledOnce();
   });
 
   it('retries a profile PUT after 500 and does not retry a mute DELETE on 400', async () => {
