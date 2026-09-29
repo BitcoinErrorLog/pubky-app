@@ -29,6 +29,7 @@ import {
   CommerceMessagingReceiverModel,
   CommerceMessagingUnprocessedModel,
 } from '@/models/messaging/messaging.models';
+import { HOMESERVER_WRITE_MAX_RETRIES } from '@/services/homeserver/write-retry';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { ADMIT_ALL_GATE, ADMIT_ALL_POLICY, policyMuting } from '@/test-utils/messaging-gate';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -100,6 +101,7 @@ function createFakeWorld() {
     cookieResumePubkyOverride: null as string | null,
     // Scripted marker-publish failures (consumed one per publish attempt).
     publishMarkerFailures: 0,
+    publishMarkerFailureStatus: null as number | null,
     // How long successive marker publishes take before the homeserver
     // accepts them (consumed one per publish; 0 when empty).
     publishAcceptDelays: [] as number[],
@@ -167,6 +169,9 @@ function createFakeWorld() {
       }
       this.sent.push(rawJson);
     }
+    setMaxSendRetries(max: number) {
+      world.calls.push(`link.setMaxSendRetries:${max}`);
+    }
     async receivePrivateApplicationMessages() {
       world.calls.push('link.receive');
       const drained = [...this.inboundQueue];
@@ -216,7 +221,9 @@ function createFakeWorld() {
       // detector compares them).
       return new Uint8Array([72, this.role === 'initiator' ? 1 : 2, this.advanced]);
     }
-    setMaxRecoveryAttempts() {}
+    setMaxRecoveryAttempts(max: number) {
+      world.calls.push(`handshake.setMaxRecoveryAttempts:${max}`);
+    }
     free() {}
   }
 
@@ -271,7 +278,12 @@ function createFakeWorld() {
       world.calls.push('publishReceiverMarker');
       if (world.publishMarkerFailures > 0) {
         world.publishMarkerFailures -= 1;
-        throw new Error('marker publish failed (scripted transient homeserver error)');
+        throw Object.assign(new Error('marker publish failed (scripted transient homeserver error)'), {
+          data:
+            world.publishMarkerFailureStatus === null
+              ? undefined
+              : { statusCode: world.publishMarkerFailureStatus, retryAfterSeconds: 0 },
+        });
       }
       const acceptDelay = world.publishAcceptDelays.shift() ?? 0;
       if (acceptDelay > 0) await new Promise((resolve) => setTimeout(resolve, acceptDelay));
@@ -433,6 +445,16 @@ describe('PaykitMessagingService', () => {
       const receiver = await LocalMessagingService.getReceiver(OWNER);
       expect(receiver?.noise_secret).toHaveLength(32);
       expect(receiver?.marker_published).toBe(true);
+    });
+
+    it('retries a rate-limited receiver marker before reporting it published', async () => {
+      world.publishMarkerFailures = 1;
+      world.publishMarkerFailureStatus = 429;
+
+      await enableMessaging(world);
+
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(2);
+      await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(true);
     });
 
     it('rejects an approval from a different identity than the signed-in user', async () => {
@@ -1383,6 +1405,11 @@ describe('PaykitMessagingService', () => {
       beforeEach(async () => {
         world.advanceScript.push('complete');
         await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      });
+
+      it('keeps binding-level outbox retries inside the link operation and uses the shared cap', () => {
+        expect(world.calls).toContain(`handshake.setMaxRecoveryAttempts:${HOMESERVER_WRITE_MAX_RETRIES}`);
+        expect(world.calls).toContain(`link.setMaxSendRetries:${HOMESERVER_WRITE_MAX_RETRIES}`);
       });
 
       it('marks the link as sending before the ciphertext leaves, and the saved snapshot clears the mark', async () => {

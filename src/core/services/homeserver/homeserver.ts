@@ -68,6 +68,7 @@ import {
   resolveOwnedSessionPath,
   toSdkPath,
 } from './homeserver.utils';
+import { retryHomeserverWrite } from './write-retry';
 
 // The single sign-in grant lives in `@/config/app` (as `CAPABILITIES`) so the
 // step-up re-approval dialog can render the exact requested string beside the
@@ -862,6 +863,10 @@ export class HomeserverService {
   static async request<T>({ method, url, bodyJson, logUrl }: THomeserverRequestParams): Promise<T> {
     const contextUrl = logUrl ?? url;
     const owned = this.resolveOwnedSessionPath(url);
+    // Snapshot once so every retry replays byte-for-byte equivalent JSON even
+    // if a caller mutates its object while this bounded operation is waiting.
+    const serializedBody = bodyJson === undefined ? undefined : JSON.stringify(bodyJson);
+    const ownedBody = serializedBody === undefined ? {} : (JSON.parse(serializedBody) as Record<string, unknown>);
 
     // Handle owned session paths
     if (owned) {
@@ -873,14 +878,14 @@ export class HomeserverService {
           return (await parseResponseOrUndefined<T>({ response })) as T;
         }
         case HttpMethod.PUT:
-          await session.storage
-            .putJson(toSdkPath(path), bodyJson ?? {})
-            .catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
+          await retryHomeserverWrite(HttpMethod.PUT, () => session.storage.putJson(toSdkPath(path), ownedBody)).catch(
+            (error) => handleError({ error, additionalContext: { url: contextUrl, method } }),
+          );
           return undefined as T;
         case HttpMethod.DELETE:
-          await session.storage
-            .delete(toSdkPath(path))
-            .catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
+          await retryHomeserverWrite(HttpMethod.DELETE, () => session.storage.delete(toSdkPath(path))).catch((error) =>
+            handleError({ error, additionalContext: { url: contextUrl, method } }),
+          );
           return undefined as T;
       }
     }
@@ -900,16 +905,19 @@ export class HomeserverService {
 
     // Handle public requests
     const pubkySdk = this.getPubkySdk();
-    const fetchPromise =
+    const fetchRequest = () =>
       method === HttpMethod.GET
         ? isHttpUrl(url)
           ? pubkySdk.client.fetch(url)
           : pubkySdk.publicStorage.get(url as Address)
-        : this.fetch({ url, logUrl, options: { method, body: bodyJson ? JSON.stringify(bodyJson) : undefined } });
+        : this.fetch({ url, logUrl, options: { method, body: serializedBody } });
 
-    const response = await fetchPromise.catch((error) =>
-      handleError({ error, additionalContext: { url: contextUrl, method } }),
-    );
+    const response =
+      method === HttpMethod.PUT || method === HttpMethod.DELETE
+        ? await retryHomeserverWrite(method, fetchRequest).catch((error) =>
+            handleError({ error, additionalContext: { url: contextUrl, method } }),
+          )
+        : await fetchRequest().catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
 
     await assertOk({ response, url: contextUrl, operation: 'request' });
 
@@ -927,10 +935,14 @@ export class HomeserverService {
    */
   static async putBlob({ url, blob, logUrl }: TPutBlobParams) {
     const contextUrl = logUrl ?? url;
+    // Uint8Array is mutable; retries must replay the exact original payload.
+    const retryBody = blob.slice();
     const owned = this.resolveOwnedSessionPath(url);
     if (owned) {
       try {
-        await owned.session.storage.putBytes(toSdkPath(owned.path), blob);
+        await retryHomeserverWrite(HttpMethod.PUT, () =>
+          owned.session.storage.putBytes(toSdkPath(owned.path), retryBody),
+        );
         return;
       } catch (error) {
         return handleError({ error, additionalContext: { url: contextUrl, method: HttpMethod.PUT } });
@@ -949,7 +961,9 @@ export class HomeserverService {
       );
     }
 
-    const response = await this.fetch({ url, logUrl, options: { method: HttpMethod.PUT, body: blob } });
+    const response = await retryHomeserverWrite(HttpMethod.PUT, () =>
+      this.fetch({ url, logUrl, options: { method: HttpMethod.PUT, body: retryBody } }),
+    );
     await assertOk({ response, url: contextUrl, operation: 'putBlob' });
   }
 
