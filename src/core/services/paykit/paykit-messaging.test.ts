@@ -12,11 +12,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessagingApplication } from '@/application/messaging/messaging';
+import { DB_NAME } from '@/config/database';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
-import { resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
+import { dropCachedWrappingKeyForTests, resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
 import { WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
 import { Logger } from '@/libs/logger/logger';
 import { MESSAGING_RETRY_POLICY } from '@/libs/messaging/retry-backoff';
@@ -1441,6 +1442,8 @@ describe('PaykitMessagingService', () => {
     type Tab = {
       service: typeof PaykitMessagingService;
       application: typeof MessagingApplication;
+      /** Sign-out as the app runs it: the tab's messaging session, then the database and keyring wipe. */
+      signOut: () => Promise<void>;
       close: () => Promise<void>;
     };
     const tabA = { service: PaykitMessagingService, application: MessagingApplication };
@@ -1456,12 +1459,17 @@ describe('PaykitMessagingService', () => {
       const application = await import('@/application/messaging/messaging');
       const keyring = await import('@/libs/crypto/messaging-keyring');
       const { db } = await import('@/database/franky/franky');
+      const helpers = await import('@/database/franky/franky.helpers');
       service.setPaykitWasmModuleForTests(wasm);
       world.nextApprovalPubky = OWNER;
       if (enable) await (await service.PaykitMessagingService.beginEnableFlow(OWNER)).awaitEnabled();
       return {
         service: service.PaykitMessagingService,
         application: application.MessagingApplication,
+        signOut: async () => {
+          application.MessagingApplication.clearMessagingSession();
+          await helpers.clearDatabase();
+        },
         close: async () => {
           application.MessagingApplication.clearMessagingSession();
           service.setPaykitWasmModuleForTests(null);
@@ -1751,9 +1759,155 @@ describe('PaykitMessagingService', () => {
 
         expect(generated()).toBe(0);
         expect(world.calls).not.toContain('publishReceiverMarker');
-        await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toBeNull();
+        await expect(CommerceMessagingReceiverModel.table.count()).resolves.toBe(0);
         expect(outcome[0].status).toBe('rejected');
         expect(String((outcome[0] as PromiseRejectedResult).reason)).toMatch(/Private messages are paused/);
+      });
+    });
+
+    describe('a sign-out in another tab', () => {
+      const payment = JSON.stringify({ version: 1, kind: 'paykit.private_payment_list.v0', endpoints: ['x'] });
+      const hold = () => {
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { held, release };
+      };
+      /**
+       * After a reload (every cached wrapping key dropped), every wrapped row
+       * in the database still opens under the persisted key.
+       */
+      const expectEveryWrappedRowOpens = async () => {
+        dropCachedWrappingKeyForTests();
+        for (const row of await CommerceMessagingLinkModel.table.toArray()) {
+          await expect(LocalMessagingService.getLink(row.owner_id, row.counterparty_pubky)).resolves.not.toBeNull();
+        }
+        for (const row of await CommerceMessagingReceiverModel.table.toArray()) {
+          await expect(LocalMessagingService.getReceiver(row.id)).resolves.not.toBeNull();
+        }
+        const unprocessed = await CommerceMessagingUnprocessedModel.table.toArray();
+        for (const row of unprocessed) {
+          const opened = await LocalMessagingService.getUnprocessed(row.owner_id, row.counterparty_pubky);
+          expect(opened.map((event) => event.id)).toContain(row.id);
+        }
+      };
+      /** What a tab that kept its session would do next: set up again, reopen the link, send. */
+      const carryOnInTabA = async () => {
+        await tabA.service.restorePersistedSession(OWNER).catch(() => undefined);
+        await tabA.service.ensureLink(OWNER, COUNTERPARTY).catch(() => undefined);
+        await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('after sign-out')).catch(() => undefined);
+      };
+
+      beforeEach(async () => {
+        await enableMessaging(world);
+        world.advanceScript.push('complete');
+        await expect(tabA.service.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+        tabB = await openTabB();
+        vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      });
+
+      it('racing a send, leaves nothing wrapped under the deleted key and ends the other tab’s session', async () => {
+        const send = hold();
+        world.sendHold = send.held;
+        const sending = tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('in flight'));
+        await vi.waitFor(() => expect(world.calls).toContain('link.send'));
+
+        await tabB!.signOut();
+        world.sendHold = null;
+        send.release();
+        await expect(sending).rejects.toThrow(/reset in another tab/);
+        await carryOnInTabA();
+
+        expect(tabA.service.hasActiveSession(OWNER)).toBe(false);
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(0);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('racing a receive, stores nothing under the deleted key', async () => {
+        const receive = hold();
+        world.receiveHold = receive.held;
+        world.links.at(-1)!.inboundQueue.push({ version: 1, kind: 'paykit.private_payment_list.v0', rawJson: payment });
+        const receiving = tabA.service.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+        await vi.waitFor(() => expect(world.calls).toContain('link.receive'));
+
+        await tabB!.signOut();
+        world.receiveHold = null;
+        receive.release();
+        await expect(receiving).rejects.toThrow(/reset in another tab/);
+        await carryOnInTabA();
+
+        await expect(CommerceMessagingUnprocessedModel.table.count()).resolves.toBe(0);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('racing a setup, never stores or advertises a receiver under the deleted key', async () => {
+        tabA.service.clearSession();
+        await CommerceMessagingReceiverModel.clear();
+        const publish = hold();
+        world.publishHold = publish.held;
+        world.nextApprovalPubky = OWNER;
+        const enabling = (await tabA.service.beginEnableFlow(OWNER)).awaitEnabled();
+        await vi.waitFor(() => expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(3));
+
+        await tabB!.signOut();
+        world.publishHold = null;
+        publish.release();
+        await expect(enabling).rejects.toThrow(/reset in another tab/);
+
+        // Setting up again works, under a key that survives a reload.
+        const again = await (await tabA.service.beginEnableFlow(OWNER)).awaitEnabled();
+        await expectEveryWrappedRowOpens();
+        await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toMatchObject({
+          noise_public_key: again.noisePublicKey,
+          marker_published: true,
+        });
+        expect(world.lastPublishedMarker?.noisePublicKey).toBe(again.noisePublicKey);
+      });
+
+      it('never replaces state it can no longer open because its own key is stale', async () => {
+        await tabB!.signOut();
+        world.nextApprovalPubky = OWNER;
+        const replaced = await (await tabB!.service.beginEnableFlow(OWNER)).awaitEnabled();
+
+        await carryOnInTabA();
+
+        await expect(LocalMessagingService.getReceiver(OWNER)).resolves.toMatchObject({
+          noise_public_key: replaced.noisePublicKey,
+        });
+        expect(world.lastPublishedMarker?.noisePublicKey).toBe(replaced.noisePublicKey);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('waits for a write already under way before clearing anything', async () => {
+        const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+        let signingOut: Promise<void> | null = null;
+        vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+          signingOut = tabB!.signOut();
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          return await encrypt(...args);
+        });
+
+        await tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('saved before the wipe')).catch(() => undefined);
+        await signingOut;
+
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(0);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('treats a keyring an older build deleted as stale, and writes nothing under it', async () => {
+        // An older build's sign-out: tables cleared and the keyring deleted,
+        // with no lock and the epoch left in place.
+        await Promise.all([CommerceMessagingLinkModel.clear(), CommerceMessagingReceiverModel.clear()]);
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase(`${DB_NAME}-messaging-keyring`);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
+
+        await carryOnInTabA();
+
+        await expectEveryWrappedRowOpens();
       });
     });
 
