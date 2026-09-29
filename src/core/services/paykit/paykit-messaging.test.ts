@@ -1603,6 +1603,8 @@ describe('PaykitMessagingService', () => {
       application: typeof MessagingApplication;
       /** Sign-out as the app runs it: the tab's messaging session, then the database and keyring wipe. */
       signOut: () => Promise<void>;
+      /** Drops the tab's cached wrapping key, as a reload does. */
+      forgetKeys: () => void;
       close: () => Promise<void>;
     };
     const tabA = { service: PaykitMessagingService, application: MessagingApplication };
@@ -1629,6 +1631,7 @@ describe('PaykitMessagingService', () => {
           application.MessagingApplication.clearMessagingSession();
           await helpers.clearDatabase();
         },
+        forgetKeys: () => keyring.dropCachedWrappingKeyForTests(),
         close: async () => {
           application.MessagingApplication.clearMessagingSession();
           service.setPaykitWasmModuleForTests(null);
@@ -2054,9 +2057,41 @@ describe('PaykitMessagingService', () => {
         await expectEveryWrappedRowOpens();
       });
 
+      it('treats a key another tab replaced after finding it unusable as stale, and sends nothing', async () => {
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open(`${DB_NAME}-messaging-keyring`);
+          request.onsuccess = () => {
+            const connection = request.result;
+            const put = connection
+              .transaction('wrapping-key', 'readwrite')
+              .objectStore('wrapping-key')
+              .put('not a key', 'wrapping-key');
+            put.onsuccess = () => {
+              connection.close();
+              resolve();
+            };
+            put.onerror = () => reject(put.error);
+          };
+          request.onerror = () => reject(request.error);
+        });
+        tabB!.forgetKeys();
+        await expect(tabB!.service.isReceiverProvisioned(OWNER)).resolves.toBe(false);
+        const revisionBefore = await LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY);
+        world.calls.length = 0;
+
+        await expect(tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('under the old key'))).rejects.toThrow(
+          /reset in another tab/,
+        );
+
+        expect(world.sentCounters).toEqual([]);
+        expect(world.calls).not.toContain('link.send');
+        await expect(LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY)).resolves.toBe(revisionBefore);
+        expect(tabA.service.hasActiveSession(OWNER)).toBe(false);
+      });
+
       it('treats a keyring an older build deleted as stale, and writes nothing under it', async () => {
         // An older build's sign-out: tables cleared and the keyring deleted,
-        // with no lock and the epoch left in place.
+        // without the key fence.
         await Promise.all([CommerceMessagingLinkModel.clear(), CommerceMessagingReceiverModel.clear()]);
         await new Promise<void>((resolve, reject) => {
           const request = indexedDB.deleteDatabase(`${DB_NAME}-messaging-keyring`);
