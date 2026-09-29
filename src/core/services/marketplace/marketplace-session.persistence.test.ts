@@ -199,6 +199,40 @@ describe('purchase-session persistence: a tab only removes the record it owns', 
     expect(stored()).toBe(kept);
   });
 
+  it('an account switch unpairs the BFF session of the departed record, and only that one', () => {
+    const departed = JSON.stringify({
+      ...OTHER_TAB,
+      pubky: 'z'.repeat(52),
+      capabilities: parity,
+      expiresAt: iso(Date.now() + 24 * HOUR),
+    });
+    window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, departed);
+    fetchSpy.mockClear();
+
+    MarketplaceSessionService.clearOtherAccounts(PUBKY);
+
+    expect(stored()).toBeNull();
+    expect(bffDeletes()).toEqual([`/api/marketplace/session?session_id=${OTHER_TAB.sessionId}`]);
+  });
+
+  it('an account switch persists the new account’s bearer that a later-expiring departed record kept out', () => {
+    window.localStorage.setItem(
+      MARKETPLACE_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        ...OTHER_TAB,
+        pubky: 'z'.repeat(52),
+        capabilities: parity,
+        expiresAt: iso(Date.now() + 48 * HOUR),
+      }),
+    );
+    thisTabHolds(HOUR);
+    expect(JSON.parse(stored()!)).toMatchObject({ token: OTHER_TAB.token });
+
+    MarketplaceSessionService.clearOtherAccounts(PUBKY);
+
+    expect(JSON.parse(stored()!)).toMatchObject({ token: THIS_TAB.token, pubky: PUBKY });
+  });
+
   it('restore leaves another account’s record in place', () => {
     const foreign = JSON.stringify({
       ...OTHER_TAB,

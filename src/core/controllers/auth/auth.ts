@@ -1367,12 +1367,12 @@ export class AuthController {
           // restorePersistedSession already cleaned up local state; a wrong-environment
           // rejection needs no toast here — the user asked to log out anyway.
           Logger.warn('Persisted session restore during logout failed; local state already cleaned up', { error });
-          await this.removeGrantKeysUnderLock();
+          await this.removeSignedOutSessionsUnderLock(captured.pubky);
           signedOut = true;
           return;
         }
         if (restoreResult.status === 'signed-out') {
-          await this.removeGrantKeysUnderLock();
+          await this.removeSignedOutSessionsUnderLock(captured.pubky);
           signedOut = true;
           return;
         }
@@ -1380,7 +1380,7 @@ export class AuthController {
           Logger.warn('Homeserver logout failed, clearing local state anyway', {
             error: 'Session restore deferred; homeserver sign-out could not run',
           });
-          await this.removeGrantKeysUnderLock();
+          await this.removeSignedOutSessionsUnderLock(captured.pubky);
           await this.finalizeSignedOutUnderLock({ captured, preservePublicCache: false });
           signedOut = true;
           return;
@@ -1400,7 +1400,7 @@ export class AuthController {
       // After the homeserver sign-out (it needs the grant key) and before the
       // record pointer is cleared: a key that cannot be removed keeps the
       // pointer and fails the logout instead of reporting signed-out.
-      await this.removeGrantKeysUnderLock();
+      await this.removeSignedOutSessionsUnderLock(captured.pubky);
       // Serialized with restore finalization and sign-in identity persists.
       // Cleanup is keyed to the identity captured at logout start: a
       // different live pubky means that sign-in now owns origin-scoped Dexie.
@@ -1408,7 +1408,6 @@ export class AuthController {
       signedOut = true;
     } finally {
       if (signedOut) {
-        await this.removePersistedSessionOfAccountUnderLock(captured.pubky);
         broadcastSignedOut();
       } else {
         useAuthStore.getState().setIsLoggingOut(false);
@@ -1425,29 +1424,23 @@ export class AuthController {
   }
 
   /**
-   * Sign-out is the one auth write that removes a persisted session this tab
-   * does not own: the persist fence keeps another tab's newer session of the
-   * same account through this tab's reset, but the user signed that account
-   * out of this browser, so it must not be restored on the next load.
-   * Another account's persisted session is left alone.
-   */
-  private static async removePersistedSessionOfAccountUnderLock(pubky: string | null): Promise<void> {
-    if (!pubky) return;
-    await withAuthFinalizationLock(async () => {
-      if (readPersistedAuthIdentity().pubky === pubky) clearPersistedAuthIdentity();
-    });
-  }
-
-  /**
    * Bumps the auth epoch and removes every stored grant session and key under
    * the finalization lock, so no tab can save a grant key after this sign-out.
    * Rejects while any stored record remains.
+   *
+   * In the same lock, removes the persisted auth session of the account being
+   * signed out. Sign-out is the one auth write that removes a session this
+   * tab does not own: the persist fence keeps another tab's newer session of
+   * the same account through this tab's reset, but the user signed that
+   * account out of this browser, so it must not be restored on the next load.
+   * A session persisted after this lock, and another account's, are left.
    */
-  private static async removeGrantKeysUnderLock(): Promise<void> {
+  private static async removeSignedOutSessionsUnderLock(pubky: string | null): Promise<void> {
     await withAuthFinalizationLock(async () => {
       bumpAuthEpoch();
       await AuthApplication.clearGrantSessions();
       clearGrantKeyCleanupPending();
+      if (pubky && readPersistedAuthIdentity().pubky === pubky) clearPersistedAuthIdentity();
     });
   }
 

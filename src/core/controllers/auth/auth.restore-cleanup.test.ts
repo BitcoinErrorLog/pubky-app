@@ -21,7 +21,7 @@ import { LOCKS_FRONTEND_SESSION_STORAGE_KEY } from '@/services/locks/locks-front
 import { INVENTORY_SESSION_STORAGE_KEY } from '@/services/marketplace/marketplace-inventory-grant';
 import { MARKETPLACE_SESSION_STORAGE_KEY } from '@/services/marketplace/marketplace-session';
 import { MESSAGING_SESSION_STORAGE_KEY } from '@/services/paykit/paykit-messaging';
-import { readPersistedAuthPubky } from '@/stores/auth/auth.persisted';
+import { readPersistedAuthIdentity, readPersistedAuthPubky } from '@/stores/auth/auth.persisted';
 import { createAuthStore, useAuthStore } from '@/stores/auth/auth.store';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import { AUTH_PERSIST_KEY, ONBOARDING_PERSIST_KEY } from '@/stores/persistedKeys';
@@ -631,7 +631,7 @@ describe('AuthController restore cleanup with the real bridge and database', () 
 
     await AuthController.logout();
 
-    expect(window.localStorage.getItem(AUTH_PERSIST_KEY)).toBeNull();
+    expect(readPersistedAuthIdentity()).toEqual({ pubky: null, present: false });
   });
 
   it('sign-out leaves another account’s persisted session alone', async () => {

@@ -298,11 +298,18 @@ export class MarketplaceInventorySessionService {
   /**
    * Account switch without a sign-out: the Studio bearer of any account but
    * `keepPubky` goes from memory and from rest, whichever tab persisted it.
+   * A Studio bearer `keepPubky` holds is persisted again if the departed
+   * record had kept it out of the slot.
    */
   static clearOtherAccounts(keepPubky: string): void {
     if (this.session && this.session.pubky !== keepPubky) this.clearSession('cleared');
     const stored = this.persistedBearer();
-    if (stored && stored.pubky !== keepPubky) this.removePersistedSession();
+    if (!stored || stored.pubky === keepPubky) return;
+    this.removePersistedSession();
+    if (this.session) {
+      const { token, sessionId, pubky, capabilities, expiresAt } = this.session;
+      this.writePersistedSession({ token, sessionId, pubky, capabilities, expiresAt });
+    }
   }
 
   private static toPublicInfo(session: StoredInventorySession): MarketplaceSessionInfo {
