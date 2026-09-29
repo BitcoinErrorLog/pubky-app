@@ -26,6 +26,13 @@ const KEYRING_DB_NAME = `${DB_NAME}-messaging-keyring`;
 const KEYRING_DB_VERSION = 1;
 const KEYRING_STORE_NAME = 'wrapping-key';
 const WRAPPING_KEY_RECORD_ID = 'wrapping-key';
+/**
+ * Random id stored next to the key and replaced in the same transaction
+ * whenever a new key record is stored (created or healed). Deleting the
+ * keyring deletes it too, so it identifies one persisted key: a tab whose
+ * cached epoch no longer matches holds a key that was cleared or replaced.
+ */
+const KEY_EPOCH_RECORD_ID = 'wrapping-key-epoch';
 
 /**
  * Web Lock every tab takes around each read or write of key-wrapped
@@ -33,21 +40,12 @@ const WRAPPING_KEY_RECORD_ID = 'wrapping-key';
  * (see {@link withCurrentWrappingKey} and {@link tearDownMessagingKeys}).
  */
 const KEY_FENCE_LOCK = 'pubky-messaging-keys';
-/**
- * `localStorage` id of the persisted wrapping key's epoch: set when a tab
- * first loads or creates the key, removed first by teardown. A tab whose
- * cached epoch no longer matches holds a key that was cleared or replaced.
- */
-const KEYRING_EPOCH_STORAGE_KEY = 'pubky-messaging-keyring-epoch';
 /** How long sign-out waits for in-flight wrapped reads and writes before clearing anyway. */
 const TEARDOWN_LOCK_WAIT_MS = 10_000;
 const KEYRING_CHANGED_REASON = 'messaging_keyring_changed';
 
 let cachedKey: CryptoKey | null = null;
 let cachedEpoch: string | null = null;
-// Set when another connection deletes the keyring database: whatever this
-// tab cached may no longer be the persisted key.
-let cachedKeyRevoked = false;
 let keyringDbPromise: Promise<IDBDatabase> | null = null;
 let wrappingKeyPromise: Promise<CryptoKey> | null = null;
 
@@ -92,12 +90,11 @@ function openKeyringDb(): Promise<IDBDatabase> {
     request.onsuccess = () => {
       const connection = request.result;
       // Another tab deleting the keyring must not wait for this tab to
-      // close, and whatever this tab cached is no longer known to be the
-      // persisted key.
+      // close. What this tab cached is then checked against the epoch on
+      // its next fenced use ({@link withCurrentWrappingKey}).
       connection.onversionchange = () => {
         connection.close();
         keyringDbPromise = null;
-        if (cachedKey) cachedKeyRevoked = true;
       };
       resolve(connection);
     };
@@ -146,7 +143,6 @@ export async function getOrCreateWrappingKey(): Promise<CryptoKey> {
     const pending = loadOrCreateWrappingKey().then(({ key, epoch }) => {
       cachedKey = key;
       cachedEpoch = epoch;
-      cachedKeyRevoked = false;
       return key;
     });
     // A failed load stays retryable on the next call — but only clear the
@@ -159,12 +155,9 @@ export async function getOrCreateWrappingKey(): Promise<CryptoKey> {
   return wrappingKeyPromise;
 }
 
-async function loadOrCreateWrappingKey(): Promise<{ key: CryptoKey; epoch: string | null }> {
+async function loadOrCreateWrappingKey(): Promise<{ key: CryptoKey; epoch: string }> {
   assertMessagingCryptoAvailable('getOrCreateWrappingKey');
-  const load = async () => {
-    const key = await readOrAddWrappingKey();
-    return { key, epoch: establishKeyringEpoch() };
-  };
+  const load = () => readOrAddWrappingKey();
   try {
     // Hard cross-tab exclusion when available: two tabs racing first use
     // (e.g. the boot sweep) serialize on this lock, so the loser's read
@@ -192,21 +185,48 @@ async function loadOrCreateWrappingKey(): Promise<{ key: CryptoKey; epoch: strin
  * record first and still `add`s, keeping that same adoption guard. The fresh
  * key is generated BEFORE the transaction opens — an awaited WebCrypto call
  * between two requests would let the transaction auto-commit and close.
+ *
+ * The key's epoch is read and written in the same transaction: a stored key
+ * without one (stored before epochs existed) gets one, and every newly
+ * stored key record, created or healed, gets a fresh one, so an epoch never
+ * outlives the key record it was minted for.
  */
-function readOrAddWrappingKey(): Promise<CryptoKey> {
+function readOrAddWrappingKey(): Promise<{ key: CryptoKey; epoch: string }> {
   return (async () => {
     const db = await openKeyringDb();
     const generated = await globalThis.crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, [
       'encrypt',
       'decrypt',
     ]);
-    return new Promise<CryptoKey>((resolve, reject) => {
+    return new Promise<{ key: CryptoKey; epoch: string }>((resolve, reject) => {
       const transaction = db.transaction(KEYRING_STORE_NAME, 'readwrite');
       const store = transaction.objectStore(KEYRING_STORE_NAME);
+      let result: { key: CryptoKey; epoch: string } | null = null;
+      transaction.oncomplete = () => {
+        if (result) resolve(result);
+        else reject(new Error('Messaging keyring transaction completed without a key'));
+      };
+      transaction.onabort = () => reject(transaction.error ?? new Error('Messaging keyring transaction aborted'));
 
-      const adoptExistingOrAdd = (existing: unknown) => {
+      const adoptStored = () => {
+        const keyRequest = store.get(WRAPPING_KEY_RECORD_ID);
+        const epochRequest = store.get(KEY_EPOCH_RECORD_ID);
+        epochRequest.onsuccess = () => {
+          if (!isUsableWrappingKey(keyRequest.result)) {
+            reject(new Error('Messaging keyring create race lost, but the winning record is unusable'));
+            return;
+          }
+          const epoch = typeof epochRequest.result === 'string' ? epochRequest.result : crypto.randomUUID();
+          if (epoch !== epochRequest.result) store.put(epoch, KEY_EPOCH_RECORD_ID);
+          result = { key: keyRequest.result, epoch };
+        };
+      };
+
+      const adoptExistingOrAdd = (existing: unknown, storedEpoch: unknown) => {
         if (isUsableWrappingKey(existing)) {
-          resolve(existing);
+          const epoch = typeof storedEpoch === 'string' ? storedEpoch : crypto.randomUUID();
+          if (epoch !== storedEpoch) store.put(epoch, KEY_EPOCH_RECORD_ID);
+          result = { key: existing, epoch };
           return;
         }
         if (existing !== undefined) {
@@ -221,7 +241,11 @@ function readOrAddWrappingKey(): Promise<CryptoKey> {
           store.delete(WRAPPING_KEY_RECORD_ID);
         }
         const addRequest = store.add(generated, WRAPPING_KEY_RECORD_ID);
-        addRequest.onsuccess = () => resolve(generated);
+        addRequest.onsuccess = () => {
+          const epoch = crypto.randomUUID();
+          store.put(epoch, KEY_EPOCH_RECORD_ID);
+          result = { key: generated, epoch };
+        };
         addRequest.onerror = (event) => {
           if (addRequest.error?.name !== 'ConstraintError') {
             reject(addRequest.error ?? new Error('Failed to persist the messaging wrapping key'));
@@ -229,24 +253,32 @@ function readOrAddWrappingKey(): Promise<CryptoKey> {
           }
           // Another tab won the create race between our read and this add.
           // Keep the transaction alive (a request error aborts it by default)
-          // and adopt the stored key — NEVER persist ours.
+          // and adopt the stored key and its epoch — NEVER persist ours.
           event.preventDefault();
-          const rereadRequest = store.get(WRAPPING_KEY_RECORD_ID);
-          rereadRequest.onsuccess = () => {
-            if (isUsableWrappingKey(rereadRequest.result)) {
-              resolve(rereadRequest.result);
-            } else {
-              reject(new Error('Messaging keyring create race lost, but the winning record is unusable'));
-            }
-          };
-          rereadRequest.onerror = () =>
-            reject(rereadRequest.error ?? new Error('Messaging keyring re-read after a lost create race failed'));
+          adoptStored();
         };
       };
 
       const getRequest = store.get(WRAPPING_KEY_RECORD_ID);
-      getRequest.onsuccess = () => adoptExistingOrAdd(getRequest.result);
+      const getEpochRequest = store.get(KEY_EPOCH_RECORD_ID);
+      getEpochRequest.onsuccess = () => adoptExistingOrAdd(getRequest.result, getEpochRequest.result);
       getRequest.onerror = () => reject(getRequest.error ?? new Error('Messaging keyring read failed'));
+      getEpochRequest.onerror = () => reject(getEpochRequest.error ?? new Error('Messaging keyring read failed'));
+    });
+  })();
+}
+
+/** The persisted key's epoch, read from the keyring itself; `null` when there is none (deleted or never created). */
+function readPersistedKeyEpoch(): Promise<string | null> {
+  return (async () => {
+    const db = await openKeyringDb();
+    return await new Promise<string | null>((resolve, reject) => {
+      const request = db
+        .transaction(KEYRING_STORE_NAME, 'readonly')
+        .objectStore(KEYRING_STORE_NAME)
+        .get(KEY_EPOCH_RECORD_ID);
+      request.onsuccess = () => resolve(typeof request.result === 'string' ? request.result : null);
+      request.onerror = () => reject(request.error ?? new Error('Messaging keyring epoch read failed'));
     });
   })();
 }
@@ -260,7 +292,6 @@ function readOrAddWrappingKey(): Promise<CryptoKey> {
 export async function deleteWrappingKeyStore(): Promise<void> {
   cachedKey = null;
   cachedEpoch = null;
-  cachedKeyRevoked = false;
   wrappingKeyPromise = null;
   if (keyringDbPromise) {
     try {
@@ -283,34 +314,6 @@ export async function deleteWrappingKeyStore(): Promise<void> {
   }
 }
 
-/**
- * The persisted key's epoch, created for a key that has none (a key stored
- * before epochs existed, or right after it was created). Runs only while
- * loading the key, under the keyring lock when one is available. `null`
- * when `localStorage` is unavailable; {@link withCurrentWrappingKey} then
- * refuses to run.
- */
-function establishKeyringEpoch(): string | null {
-  const stored = readKeyringEpoch();
-  if (stored !== undefined && stored !== null) return stored;
-  const epoch = crypto.randomUUID();
-  try {
-    window.localStorage.setItem(KEYRING_EPOCH_STORAGE_KEY, epoch);
-  } catch {
-    return null;
-  }
-  return epoch;
-}
-
-/** The persisted epoch; `null` when none is set, `undefined` when `localStorage` cannot be read. */
-function readKeyringEpoch(): string | null | undefined {
-  try {
-    return window.localStorage.getItem(KEYRING_EPOCH_STORAGE_KEY);
-  } catch {
-    return undefined;
-  }
-}
-
 /** True when an error means this tab's wrapping key was cleared or replaced by another tab. */
 export function isMessagingKeyringChanged(error: unknown): boolean {
   return (
@@ -327,8 +330,9 @@ export function isMessagingKeyringChanged(error: unknown): boolean {
  * can happen between the check below and the end of `run`.
  *
  * Holding the fence, the tab's cached key must still be the persisted one:
- * its epoch must match and no other tab may have deleted the keyring since
- * it was loaded. Otherwise the cache is dropped and this throws, so a tab
+ * its epoch must equal the epoch stored with the key in the keyring, which
+ * changes whenever a new key record is stored and disappears when the
+ * keyring is deleted. Otherwise the cache is dropped and this throws, so a tab
  * never writes state under a key that was cleared or replaced, and never
  * mistakes rows it can no longer open for corrupt ones. The next call
  * loads the persisted key afresh.
@@ -346,11 +350,11 @@ export async function withCurrentWrappingKey<T>(
 ): Promise<T> {
   const fenced = async () => {
     const key = await getOrCreateWrappingKey();
-    const persisted = readKeyringEpoch();
-    if (cachedKeyRevoked || persisted === undefined || cachedEpoch === null || persisted !== cachedEpoch) {
+    const expected = cachedEpoch;
+    const persisted = await readPersistedKeyEpoch();
+    if (expected === null || persisted !== expected) {
       cachedKey = null;
       cachedEpoch = null;
-      cachedKeyRevoked = false;
       wrappingKeyPromise = null;
       Logger.warn('The messaging wrapping key was cleared or replaced in another tab; nothing was read or written', {
         reason: KEYRING_CHANGED_REASON,
@@ -394,25 +398,20 @@ export async function withCurrentWrappingKey<T>(
 
 /**
  * Sign-out and identity teardown of key-wrapped messaging state: holding
- * the key fence exclusively, removes the keyring epoch (so every other tab's
- * cached key is known stale from here on), runs `clearRows`, then deletes
- * the wrapping key. No tab reads or writes wrapped state meanwhile.
+ * the key fence exclusively, deletes the wrapping key and its epoch (so
+ * every other tab's cached key is known stale from here on), then runs
+ * `clearRows`. No tab reads or writes wrapped state meanwhile.
  *
  * Sign-out must finish, so if the fence cannot be had within
  * {@link TEARDOWN_LOCK_WAIT_MS} (or Web Locks is unavailable, in which case
- * no messaging reader or writer runs at all) the same steps run without it.
- * The epoch is still removed first, so a tab that has not yet checked it
- * refuses to write.
+ * no messaging reader or writer runs at all) the same steps run without it,
+ * logged. The key is still deleted first, so a tab that has not yet checked
+ * its epoch refuses to write.
  */
 export async function tearDownMessagingKeys(clearRows: () => Promise<void>): Promise<void> {
   const teardown = async () => {
-    try {
-      window.localStorage.removeItem(KEYRING_EPOCH_STORAGE_KEY);
-    } catch {
-      // Without localStorage no epoch was ever set, and no tab can pass the fence.
-    }
-    await clearRows();
     await deleteWrappingKeyStore();
+    await clearRows();
   };
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
   if (typeof locks?.request !== 'function') {
@@ -455,7 +454,6 @@ export async function resetMessagingKeyringForTests(): Promise<void> {
 export function dropCachedWrappingKeyForTests(): void {
   cachedKey = null;
   cachedEpoch = null;
-  cachedKeyRevoked = false;
   wrappingKeyPromise = null;
 }
 
@@ -467,7 +465,6 @@ export function dropCachedWrappingKeyForTests(): void {
 export async function closeWrappingKeyStoreForTests(): Promise<void> {
   cachedKey = null;
   cachedEpoch = null;
-  cachedKeyRevoked = false;
   wrappingKeyPromise = null;
   const pending = keyringDbPromise;
   keyringDbPromise = null;

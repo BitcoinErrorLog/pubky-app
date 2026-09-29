@@ -418,6 +418,8 @@ export class PaykitMessagingService {
       this.receiverRetry.succeed(pubky);
       Logger.info('Provisioned the messaging receiver automatically for the resumed session', { pubky });
     } catch (error) {
+      // Keys reset in another tab end this session; there is nothing to retry.
+      if (isMessagingKeyringChanged(error)) throw error;
       this.receiverRetry.fail(pubky, true);
       Logger.warn('Could not provision the messaging receiver for the resumed session; will retry later', {
         error,
@@ -484,7 +486,7 @@ export class PaykitMessagingService {
 
   /** Facts about local provisioning (no network): has a receiver key + published marker. */
   static async isReceiverProvisioned(pubky: string): Promise<boolean> {
-    const receiver = await LocalMessagingService.getReceiver(pubky);
+    const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(pubky));
     return Boolean(receiver?.marker_published);
   }
 
