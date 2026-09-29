@@ -1978,7 +1978,10 @@ describe('PaykitMessagingService', () => {
       });
 
       it('refuses to send when the browser refuses the lock', async () => {
-        installRefusingWebLocks(new DOMException('denied', 'SecurityError'));
+        // Only the pair lock is refused, so what the refusal alone stops is visible.
+        installRefusingWebLocks(new DOMException('denied', 'SecurityError'), (name) =>
+          name.startsWith('pubky-messaging-link|'),
+        );
         vi.spyOn(Logger, 'warn').mockImplementation(() => {});
 
         await expect(tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('hello'))).rejects.toThrow(

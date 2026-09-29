@@ -67,10 +67,13 @@ export function installWebLocks(): void {
   Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true });
 }
 
-/** A lock manager whose every request is refused, as a browser may do. */
-export function installRefusingWebLocks(error: unknown): void {
-  const request = async () => {
-    throw error;
+/** A lock manager that refuses every request (or those `refuses` names), as a browser may do; the rest are granted. */
+export function installRefusingWebLocks(error: unknown, refuses: (name: string) => boolean = () => true): void {
+  installWebLocks();
+  const granting = (navigator as Navigator & { locks: { request: (...args: unknown[]) => Promise<unknown> } }).locks;
+  const request = async (name: string, ...rest: unknown[]) => {
+    if (refuses(name)) throw error;
+    return await granting.request(name, ...rest);
   };
   Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true });
 }
