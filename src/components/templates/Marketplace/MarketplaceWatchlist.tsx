@@ -25,6 +25,7 @@ import {
   useMarketplaceWatchlist,
 } from '@/hooks/useMarketplaceWatchlist/useMarketplaceWatchlist';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
+import { effectiveListingState } from '@/libs/commerce/auction-phase';
 import { formatCommerceMoney } from '@/libs/commerce/format';
 import { Logger } from '@/libs/logger/logger';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
@@ -442,7 +443,9 @@ function deriveWatchlistState(entry: MarketplaceWatchlistEntry): { label: string
   if (projectionState === 'sold') return { label: 'Sold out', tone: 'warn' };
   if (projectionState === 'reserved') return { label: 'Reserved', tone: 'warn' };
 
-  const state = entry.item?.state ?? entry.snapshot?.index_state ?? null;
+  const endsAt = entry.item?.auction?.endsAt ?? entry.snapshot?.auction_ends_at ?? null;
+  const indexState = entry.item?.state ?? entry.snapshot?.index_state ?? null;
+  const state = indexState ? effectiveListingState(indexState, endsAt) : null;
   switch (state) {
     case 'active':
       return { label: 'Active', tone: 'normal' };

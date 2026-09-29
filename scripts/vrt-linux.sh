@@ -2,6 +2,9 @@
 # Linux VRT in the pinned Playwright image CI uses.
 # Usage: scripts/vrt-linux.sh [spec...]
 # No arguments runs the full Linux suite. Missing *-linux.png baselines fail.
+# VRT_LINUX_UPDATE=1 writes *-linux.png baselines (vitest --update). --update
+# rewrites every scene in the named files, so follow it with
+# scripts/vrt-revert-outside.sh <spec>... to drop PNGs outside the named set.
 # This script does not read or write *-darwin.png.
 #
 # vrt-marketplace and vrt each run in their own container. One container
@@ -102,6 +105,9 @@ run_project() {
   cmd+="npx vitest run --project ${project}"
   if [ "$#" -gt 0 ]; then
     cmd+="$(quote_list "$@")"
+  fi
+  if [ "${VRT_LINUX_UPDATE:-}" = 1 ]; then
+    cmd+=" --update"
   fi
   echo "vrt-linux: container ${project}"
   docker run --rm \

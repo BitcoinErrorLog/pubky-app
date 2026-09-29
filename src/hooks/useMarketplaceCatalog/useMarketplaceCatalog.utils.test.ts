@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
+import type { CommerceCatalogEntryModelSchema } from '@/models/commerce/commerce.schema';
 import {
   COMMERCE_FIXTURE_SELLER,
   createCommerceCatalogEntryFixture,
@@ -10,14 +11,37 @@ import {
   applyMarketplaceAttributeFilters,
   buildMarketplaceCatalogItems,
   catalogItemFromCatalogEntry,
+  catalogItemState,
   collectMarketplaceAttributeFacets,
   filterMarketplaceCatalog,
+  isCatalogItemOpen,
   type MarketplaceCatalogFilters,
   type MarketplaceCatalogItem,
 } from './useMarketplaceCatalog.utils';
 
 function catalogItems(): MarketplaceCatalogItem[] {
   return buildMarketplaceCatalogItems(createCommerceSandboxCatalog().listings.map(toCommerceListingModel), []);
+}
+
+// The sandbox seeds its auctions with fixed dates (they end 2026-08-29), so
+// the tests that need them running pin the clock inside that window.
+const SANDBOX_AUCTIONS_OPEN_MS = Date.parse('2026-08-25T00:00:00.000Z');
+
+function auctionEntryItem(listingId: string, endsAt: string, overrides: Partial<CommerceCatalogEntryModelSchema> = {}) {
+  return catalogItemFromCatalogEntry(
+    createCommerceCatalogEntryFixture({
+      id: `${COMMERCE_FIXTURE_SELLER}:${listingId}`,
+      listing_id: listingId,
+      sale_format: 'auction',
+      auction: {
+        startsAt: '2026-08-01T00:00:00.000Z',
+        endsAt,
+        buyNowPrice: null,
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      },
+      ...overrides,
+    }),
+  );
 }
 
 function filters(overrides: Partial<MarketplaceCatalogFilters> = {}): MarketplaceCatalogFilters {
@@ -177,7 +201,11 @@ describe('filterMarketplaceCatalog', () => {
   });
 
   it('puts active auctions before fixed-price listings for ending-soon', () => {
-    const results = filterMarketplaceCatalog(catalogItems(), filters({ sort: 'ending_soon' }));
+    const results = filterMarketplaceCatalog(
+      catalogItems(),
+      filters({ sort: 'ending_soon' }),
+      SANDBOX_AUCTIONS_OPEN_MS,
+    );
 
     expect(results.slice(0, 2).every(({ saleFormat }) => saleFormat === 'auction')).toBe(true);
   });
@@ -192,7 +220,11 @@ describe('filterMarketplaceCatalog', () => {
       }),
     );
 
-    const results = filterMarketplaceCatalog([...catalogItems(), staleAuction], filters({ sort: 'ending_soon' }));
+    const results = filterMarketplaceCatalog(
+      [...catalogItems(), staleAuction],
+      filters({ sort: 'ending_soon' }),
+      SANDBOX_AUCTIONS_OPEN_MS,
+    );
     const order = results.map(({ listingId }) => listingId);
     const staleIndex = order.indexOf('mystery_auction');
     const knownAuctionIndexes = results
@@ -204,6 +236,57 @@ describe('filterMarketplaceCatalog', () => {
 
     expect(knownAuctionIndexes.every((index) => index < staleIndex)).toBe(true);
     expect(fixedPriceIndexes.every((index) => index > staleIndex)).toBe(true);
+  });
+});
+
+describe('ended auctions', () => {
+  const endsAt = '2026-09-09T11:00:00.000Z';
+  const endMs = Date.parse(endsAt);
+
+  it('reads an auction stored as active as ended from its end time on', () => {
+    const auction = auctionEntryItem('closing', endsAt);
+
+    expect(auction.state).toBe('active');
+    expect(catalogItemState(auction, endMs - 1)).toBe('active');
+    expect(catalogItemState(auction, endMs)).toBe('ended');
+    expect(isCatalogItemOpen(auction, endMs - 1)).toBe(true);
+    expect(isCatalogItemOpen(auction, endMs)).toBe(false);
+  });
+
+  it('drops closed auctions from the grid whatever the sort, including the exact end time', () => {
+    const closed = auctionEntryItem('closed', endsAt);
+    const running = auctionEntryItem('running', '2026-09-30T00:00:00.000Z');
+    const fixedPrice = catalogItemFromCatalogEntry(createCommerceCatalogEntryFixture());
+    const items = [closed, fixedPrice, running];
+
+    for (const sort of ['newest', 'price_low', 'price_high', 'ending_soon', 'recommended'] as const) {
+      const ids = filterMarketplaceCatalog(items, filters({ sort }), endMs).map(({ listingId }) => listingId);
+      expect(ids).not.toContain('closed');
+      expect(ids).toContain('running');
+    }
+    expect(filterMarketplaceCatalog(items, filters(), endMs - 1).map(({ listingId }) => listingId)).toContain('closed');
+  });
+
+  it('starts ending-soon with the auction closing next, not the one that closed weeks ago', () => {
+    const closedLongAgo = auctionEntryItem('closed_long_ago', '2026-08-29T08:00:00.000Z');
+    const closingNext = auctionEntryItem('closing_next', '2026-09-30T08:00:00.000Z');
+    const closingLater = auctionEntryItem('closing_later', '2026-10-15T08:00:00.000Z');
+
+    const results = filterMarketplaceCatalog(
+      [closingLater, closedLongAgo, closingNext],
+      filters({ sort: 'ending_soon' }),
+      Date.parse('2026-09-29T12:00:00.000Z'),
+    );
+
+    expect(results.map(({ listingId }) => listingId)).toEqual(['closing_next', 'closing_later']);
+  });
+
+  it('keeps paused and fixed-price listings on their own state', () => {
+    const paused = auctionEntryItem('paused_auction', endsAt, { state: 'paused' });
+    const fixedPrice = catalogItemFromCatalogEntry(createCommerceCatalogEntryFixture());
+
+    expect(catalogItemState(paused, endMs + 1)).toBe('paused');
+    expect(catalogItemState(fixedPrice, endMs + 365 * 86_400_000)).toBe('active');
   });
 });
 
