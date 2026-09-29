@@ -26,11 +26,11 @@ import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import {
   buildMuteChange,
   foldMuteChanges,
+  LEGACY_MUTE_LIST_ENTRY_ID,
+  MUTE_CHANGE_KIND,
   type MuteChange,
   MUTED_PEOPLE_MAX,
   mutedPubkys,
-  LEGACY_MUTE_LIST_ENTRY_ID,
-  MUTE_CHANGE_KIND,
   type MuteState,
   parseLegacyMuteList,
   parseMuteChange,
