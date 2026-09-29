@@ -88,6 +88,14 @@ export interface CommerceMessagingLinkModelSchema {
   snapshot: Uint8Array;
   /** At-rest wrap format of `snapshot`: absent/0 = legacy plaintext, 1 = AES-GCM-256. */
   wrap_version?: number;
+  /**
+   * Set before a message is sent on this link and cleared by the snapshot
+   * saved after it. Still set on a restore, it means a send may have left
+   * after `snapshot` was saved, so this snapshot's send counter may already
+   * have been used and the link must not send from it. Not indexed, so it
+   * needed no Dexie version.
+   */
+  send_pending?: boolean;
   created_at: number;
   updated_at: number;
 }

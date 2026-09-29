@@ -153,8 +153,26 @@ export class LocalMessagingService {
       snapshot: wrapped,
       wrap_version: WRAP_VERSION_AES_GCM_256,
       status,
+      send_pending: false,
       updated_at: now,
     });
+  }
+
+  /**
+   * Marks the pair's link as about to send, before the ciphertext leaves.
+   * The snapshot saved after the send clears it ({@link updateLinkSnapshot}).
+   * Touches only the flag: the stored snapshot bytes stay as they are.
+   * Throws when the mark cannot be written, so nothing is sent.
+   */
+  static async markSendPending(ownerId: string, counterpartyPubky: string): Promise<void> {
+    const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    if (!row) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'No messaging link row exists for this counterparty.', {
+        service: ErrorService.Local,
+        operation: 'markSendPending',
+      });
+    }
+    await CommerceMessagingLinkModel.upsert({ ...row, send_pending: true });
   }
 
   /**

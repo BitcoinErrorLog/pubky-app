@@ -55,6 +55,7 @@ export class CommerceMessagingLinkModel
   remote_noise_public_key: string;
   snapshot: Uint8Array;
   wrap_version?: number;
+  send_pending?: boolean;
   created_at: number;
   updated_at: number;
 
@@ -69,6 +70,7 @@ export class CommerceMessagingLinkModel
     this.remote_noise_public_key = link.remote_noise_public_key;
     this.snapshot = link.snapshot;
     this.wrap_version = link.wrap_version;
+    this.send_pending = link.send_pending;
     this.created_at = link.created_at;
     this.updated_at = link.updated_at;
   }

@@ -110,7 +110,7 @@ export type MessagingLinkState =
   | { status: 'handshaking'; role: 'initiator' | 'responder' }
   | {
       status: 'recovery-needed';
-      reason: 'counterparty-key-changed' | 'handshake-restore-failed' | 'link-restore-failed';
+      reason: 'counterparty-key-changed' | 'handshake-restore-failed' | 'link-restore-failed' | 'send-state-unknown';
     }
   | { status: 'ready' };
 
@@ -202,6 +202,14 @@ export class PaykitMessagingService {
   private static restoreInFlight: { pubky: string; done: Promise<boolean> } | null = null;
   private static client: PubkyClient | null = null;
   private static links = new Map<string, EncryptedLinkHandle>();
+  /**
+   * Pairs whose live handle sent a message after its last saved snapshot,
+   * because saving the snapshot after the send failed. Restoring such a
+   * pair from the saved snapshot would send again under a counter the peer
+   * already received, so the handle is kept and the snapshot is saved
+   * before anything else runs on the pair.
+   */
+  private static unsavedSends = new Set<string>();
   private static handshakes = new Map<string, ActiveHandshake>();
   private static queues = new Map<string, Promise<unknown>>();
   // Automatic retries are spaced by MESSAGING_RETRY_POLICY, never by the
@@ -456,6 +464,7 @@ export class PaykitMessagingService {
     for (const link of this.links.values()) closeQuietly(() => void link.close());
     for (const handshake of this.handshakes.values()) closeQuietly(() => handshake.handle.free());
     this.links.clear();
+    this.unsavedSends.clear();
     this.handshakes.clear();
     this.queues.clear();
     this.linkRetry.clear();
@@ -555,6 +564,7 @@ export class PaykitMessagingService {
   ): Promise<MarketplaceChatMessage> {
     return await this.withQueue(counterpartyPubky, async () => {
       assertListingConversationBound(ownerPubky, counterpartyPubky, input, 'sendChatMessage');
+      await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendChatMessage');
       const { message, json } = buildChatMessage({
         eventId: input.eventId ?? crypto.randomUUID(),
@@ -563,8 +573,7 @@ export class PaykitMessagingService {
         sentAt: Date.now(),
         body: input.body,
       });
-      await link.sendPrivateApplicationMessageJson(json);
-      await this.persistSentMessage(ownerPubky, counterpartyPubky, link, {
+      await this.sendOnLink(ownerPubky, counterpartyPubky, link, json, {
         kind: 'listing',
         eventId: message.event_id,
         conversationId: message.conversation_id,
@@ -589,14 +598,14 @@ export class PaykitMessagingService {
     input: { body: string; eventId?: string },
   ): Promise<PubkyAppDmMessage> {
     return await this.withQueue(counterpartyPubky, async () => {
+      await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendDmMessage');
       const { message, json } = buildDmMessage({
         eventId: input.eventId ?? crypto.randomUUID(),
         sentAt: Date.now(),
         body: input.body,
       });
-      await link.sendPrivateApplicationMessageJson(json);
-      await this.persistSentMessage(ownerPubky, counterpartyPubky, link, {
+      await this.sendOnLink(ownerPubky, counterpartyPubky, link, json, {
         kind: 'dm',
         eventId: message.event_id,
         conversationId: buildDmConversationId(counterpartyPubky),
@@ -637,6 +646,7 @@ export class PaykitMessagingService {
       const key = this.linkKey(ownerPubky, counterpartyPubky);
       const link = this.links.get(key);
       if (!link) return [];
+      await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const received: ReceivedMessage[] = [];
       await this.reprocessUnprocessed(ownerPubky, counterpartyPubky, gate, received);
       try {
@@ -898,11 +908,28 @@ export class PaykitMessagingService {
     return link;
   }
 
-  /** Persists a sent message row + conversation touch, THEN the advanced snapshot. */
-  private static async persistSentMessage(
+  /**
+   * Sends one message and saves what it changed, in an order that can never
+   * let a later restore reuse the link's send counter:
+   *
+   * 1. A durable "send pending" mark goes on the link row BEFORE the
+   *    ciphertext leaves. A restore that finds it set cannot know whether
+   *    the counter advanced past the saved snapshot, so that pair never
+   *    sends from that snapshot (see the restore in `stepLink`).
+   * 2. The message is sent. The binding may advance its counter even when
+   *    the send fails, so the snapshot is saved either way.
+   * 3. After a successful send, the message row and its conversation are
+   *    stored, then the snapshot is saved, which clears the mark.
+   *
+   * If the snapshot cannot be saved, the pair is recorded as having an
+   * unsaved send: its live handle is kept, and every later send or receive
+   * on the pair saves the snapshot first ({@link settleUnsavedSend}).
+   */
+  private static async sendOnLink(
     ownerPubky: string,
     counterpartyPubky: string,
     link: EncryptedLinkHandle,
+    json: string,
     sent: {
       kind: 'listing' | 'dm';
       eventId: string;
@@ -912,27 +939,66 @@ export class PaykitMessagingService {
       body: string;
     },
   ): Promise<void> {
-    const now = Date.now();
-    await LocalMessagingService.upsertMessage(sent.eventId, {
-      owner_id: ownerPubky,
-      conversation_id: sent.conversationId,
-      listing_ref: sent.listingRef,
-      counterparty_pubky: counterpartyPubky,
-      direction: 'sent',
-      body: sent.body,
-      sent_at: sent.sentAt,
-      recorded_at: now,
-    });
-    await LocalMessagingService.touchConversation({
-      owner_id: ownerPubky,
-      conversation_id: sent.conversationId,
-      kind: sent.kind,
-      listing_ref: sent.listingRef,
-      counterparty_pubky: counterpartyPubky,
-      last_message_at: now,
-      updated_at: now,
-    });
+    await LocalMessagingService.markSendPending(ownerPubky, counterpartyPubky);
+    let failure: { error: unknown } | null = null;
+    try {
+      await link.sendPrivateApplicationMessageJson(json);
+    } catch (error) {
+      failure = { error };
+    }
+    if (!failure) {
+      try {
+        const now = Date.now();
+        await LocalMessagingService.upsertMessage(sent.eventId, {
+          owner_id: ownerPubky,
+          conversation_id: sent.conversationId,
+          listing_ref: sent.listingRef,
+          counterparty_pubky: counterpartyPubky,
+          direction: 'sent',
+          body: sent.body,
+          sent_at: sent.sentAt,
+          recorded_at: now,
+        });
+        await LocalMessagingService.touchConversation({
+          owner_id: ownerPubky,
+          conversation_id: sent.conversationId,
+          kind: sent.kind,
+          listing_ref: sent.listingRef,
+          counterparty_pubky: counterpartyPubky,
+          last_message_at: now,
+          updated_at: now,
+        });
+      } catch (error) {
+        failure = { error };
+      }
+    }
+    try {
+      await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
+    } catch (error) {
+      this.unsavedSends.add(this.linkKey(ownerPubky, counterpartyPubky));
+      Logger.warn('Could not save the link after a send; the pair waits until it is saved', {
+        reason: 'send_snapshot_unsaved',
+      });
+      throw error;
+    }
+    if (failure) throw failure.error;
+  }
+
+  /**
+   * Saves the snapshot of a pair whose last send was not saved, before the
+   * pair is used again. Throws while it still cannot be saved, so nothing
+   * sends or receives on a handle that is ahead of its saved state.
+   */
+  private static async settleUnsavedSend(ownerPubky: string, counterpartyPubky: string): Promise<void> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    if (!this.unsavedSends.has(key)) return;
+    const link = this.links.get(key);
+    if (!link) {
+      this.unsavedSends.delete(key);
+      return;
+    }
     await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
+    this.unsavedSends.delete(key);
   }
 
   // --- internals -----------------------------------------------------------
@@ -988,6 +1054,15 @@ export class PaykitMessagingService {
     const receiver = await this.requireReceiver(ownerPubky);
 
     if (stored?.status === 'established') {
+      if (stored.send_pending) {
+        // A send may have left after this snapshot was saved; its counter
+        // is unknown, and sending from here could reuse it. Nothing is
+        // deleted, and queued messages stay queued.
+        Logger.warn('A link was saved before a send finished; it will not send from that snapshot', {
+          reason: 'send_state_unknown',
+        });
+        return this.deferLink(key, { status: 'recovery-needed', reason: 'send-state-unknown' });
+      }
       try {
         const link = (await wasmModule.restoreEncryptedLink(
           session.handle,
