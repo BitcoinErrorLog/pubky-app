@@ -20,6 +20,15 @@ type RetryDependencies = {
   now?: () => number;
 };
 
+const installedDependencies: RetryDependencies = {};
+
+/** Test-only clock. Production callers leave this unset and keep real jitter. */
+export function installHomeserverWriteRetryDependenciesForTests(dependencies: RetryDependencies | null): void {
+  installedDependencies.sleep = dependencies?.sleep;
+  installedDependencies.random = dependencies?.random;
+  installedDependencies.now = dependencies?.now;
+}
+
 function retryableStatus(status: number): boolean {
   return (
     status === HttpStatusCode.TOO_MANY_REQUESTS ||
@@ -86,21 +95,31 @@ function delayMs(metadata: RetryMetadata, retry: number, random: () => number): 
     return Math.min(Math.max(0, metadata.retryAfterSeconds * 1_000), MAX_RETRY_AFTER_MS);
   }
   const exponential = Math.min(BASE_DELAY_MS * 2 ** retry, MAX_BACKOFF_MS);
-  return Math.round(exponential * (0.5 + random()));
+  // Full jitter stays inside the exponential cap. random() is [0, 1).
+  return Math.min(MAX_BACKOFF_MS, Math.round(exponential * (0.5 + random())));
 }
 
 /**
  * Repeats one idempotent homeserver PUT or DELETE in the caller's current
  * critical section. The operation must replay the same path and body.
+ *
+ * This helper does not acquire or release a lock. A caller that already holds
+ * one — the watchlist Web Lock, or the messaging per-counterparty queue —
+ * keeps that hold across every attempt.
  */
 export async function retryHomeserverWrite<T>(
   method: HttpMethod.PUT | HttpMethod.DELETE,
   operation: () => Promise<T>,
   dependencies: RetryDependencies = {},
 ): Promise<T> {
-  const sleep = dependencies.sleep ?? ((delay: number) => new Promise<void>((resolve) => setTimeout(resolve, delay)));
-  const random = dependencies.random ?? Math.random;
-  const now = dependencies.now ?? Date.now;
+  if (method !== HttpMethod.PUT && method !== HttpMethod.DELETE) return await operation();
+
+  const sleep =
+    dependencies.sleep ??
+    installedDependencies.sleep ??
+    ((delay: number) => new Promise<void>((resolve) => setTimeout(resolve, delay)));
+  const random = dependencies.random ?? installedDependencies.random ?? Math.random;
+  const now = dependencies.now ?? installedDependencies.now ?? Date.now;
 
   for (let attempt = 0; ; attempt += 1) {
     let result: T;

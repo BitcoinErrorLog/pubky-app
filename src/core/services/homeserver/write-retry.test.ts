@@ -58,6 +58,34 @@ describe('retryHomeserverWrite', () => {
     expect(operation).toHaveBeenCalledTimes(HOMESERVER_WRITE_MAX_ATTEMPTS);
   });
 
+  it('clamps a pathological Retry-After to the bounded wait', async () => {
+    const operation = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(requestError(429, { retryAfter: '999999' }))
+      .mockResolvedValueOnce();
+    const sleep = vi.fn<(delayMs: number) => Promise<void>>().mockResolvedValue();
+
+    await retryHomeserverWrite(HttpMethod.PUT, operation, { sleep, random: () => 0 });
+
+    expect(operation).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(30_000);
+  });
+
+  it('does not retry a status-less paykit publish error', async () => {
+    // Proven artifact: paykit-wasm `js_err` throws `Error` whose message is
+    // `context: Display(PaykitError)`. Display of a transport failure does not
+    // include the HTTP status, and the JS error has no `data.statusCode`.
+    const error = new Error(
+      'failed to publish receiver marker: transport error: publish_paykit_receiver_marker: put Paykit receiver marker',
+    );
+    const operation = vi.fn<() => Promise<void>>().mockRejectedValue(error);
+    const sleep = vi.fn<(delayMs: number) => Promise<void>>();
+
+    await expect(retryHomeserverWrite(HttpMethod.PUT, operation, { sleep })).rejects.toBe(error);
+    expect(operation).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it('does not retry a 400', async () => {
     const error = requestError(400);
     const operation = vi.fn<() => Promise<void>>().mockRejectedValue(error);

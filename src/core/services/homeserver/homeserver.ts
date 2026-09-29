@@ -941,7 +941,7 @@ export class HomeserverService {
     if (owned) {
       try {
         await retryHomeserverWrite(HttpMethod.PUT, () =>
-          owned.session.storage.putBytes(toSdkPath(owned.path), retryBody),
+          owned.session.storage.putBytes(toSdkPath(owned.path), retryBody.slice()),
         );
         return;
       } catch (error) {
@@ -962,7 +962,7 @@ export class HomeserverService {
     }
 
     const response = await retryHomeserverWrite(HttpMethod.PUT, () =>
-      this.fetch({ url, logUrl, options: { method: HttpMethod.PUT, body: retryBody } }),
+      this.fetch({ url, logUrl, options: { method: HttpMethod.PUT, body: retryBody.slice() } }),
     );
     await assertOk({ response, url: contextUrl, operation: 'putBlob' });
   }
