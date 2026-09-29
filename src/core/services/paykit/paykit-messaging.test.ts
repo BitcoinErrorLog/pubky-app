@@ -22,6 +22,7 @@ import { MESSAGING_RETRY_POLICY } from '@/libs/messaging/retry-backoff';
 import { CommerceMessagingLinkModel, CommerceMessagingMessageModel } from '@/models/messaging/messaging.models';
 import {
   CommerceMessagingConversationModel,
+  CommerceMessagingOutboxModel,
   CommerceMessagingReceiverModel,
   CommerceMessagingUnprocessedModel,
 } from '@/models/messaging/messaging.models';
@@ -89,6 +90,16 @@ function createFakeWorld() {
     restoreHandshakeFailures: 0,
     // Scripted `restoreEncryptedLink` rejections (consumed one per call).
     restoreLinkFailures: 0,
+    // Every send counter any link used, in order, across restores.
+    sentCounters: [] as number[],
+    // Scripted send failures after the counter was spent (consumed one per send).
+    sendFailures: 0,
+    // Scripted receive failures after the read position moved (consumed one per receive).
+    receiveFailures: 0,
+    // When set, a receive waits on it after draining.
+    receiveHold: null as Promise<void> | null,
+    // Counterparties whose inbound handshake completes on the responder's first advance.
+    responderCompletes: new Set<string>(),
   };
 
   let keyCounter = 0;
@@ -105,29 +116,51 @@ function createFakeWorld() {
     free() {}
   }
 
+  // Models the binding's send counter (the Noise nonce): every send uses the
+  // next value, the snapshot carries it, and a restore resumes from it.
   class FakeLink {
     sent: string[] = [];
     inboundQueue: { version: number; kind: string; rawJson: string }[] = [];
     snapshotCounter = 0;
-    constructor(public readonly counterparty: string) {
+    constructor(
+      public readonly counterparty: string,
+      public sendCounter = 0,
+    ) {
       world.links.push(this);
     }
     async sendPrivateApplicationMessageJson(rawJson: string) {
       if (new TextEncoder().encode(rawJson).byteLength > 1000) throw new Error('exceeds max Noise message size');
-      this.sent.push(rawJson);
       world.calls.push('link.send');
+      const counter = this.sendCounter;
+      this.sendCounter += 1;
+      world.sentCounters.push(counter);
+      if (world.sendFailures > 0) {
+        // The ciphertext was built under this counter before the upload
+        // failed, so the counter is spent either way.
+        world.sendFailures -= 1;
+        throw new Error('outbox upload failed (scripted transient homeserver error)');
+      }
+      this.sent.push(rawJson);
     }
     async receivePrivateApplicationMessages() {
       world.calls.push('link.receive');
       const drained = [...this.inboundQueue];
       this.inboundQueue = [];
+      if (world.receiveHold) await world.receiveHold;
+      if (world.receiveFailures > 0) {
+        world.receiveFailures -= 1;
+        throw new Error('outbox read failed (scripted transient homeserver error)');
+      }
       return drained;
     }
     snapshot() {
       this.snapshotCounter += 1;
-      return new Uint8Array([76, this.snapshotCounter]);
+      return new Uint8Array([76, this.snapshotCounter, this.sendCounter]);
     }
-    async close() {}
+    closed = false;
+    async close() {
+      this.closed = true;
+    }
     free() {}
   }
 
@@ -142,6 +175,9 @@ function createFakeWorld() {
       if (this.role === 'responder') {
         // An accept-probe only progresses when an inbound handshake exists.
         if (!world.inboundFrom.has(this.counterparty)) return { status: 'pending' };
+        if (world.responderCompletes.has(this.counterparty)) {
+          return { status: 'complete', link: new FakeLink(this.counterparty) };
+        }
         this.advanced += 1;
         return { status: 'pending' };
       }
@@ -244,7 +280,8 @@ function createFakeWorld() {
         throw new Error('link restore failed (scripted transient homeserver error)');
       }
       const counterparty = args[2] as string;
-      return new FakeLink(counterparty);
+      const snapshot = args[6] as Uint8Array;
+      return new FakeLink(counterparty, snapshot[2] ?? 0);
     },
     restoreEncryptedLinkHandshake: async (...args: unknown[]) => {
       world.calls.push('restoreEncryptedLinkHandshake');
@@ -1123,6 +1160,254 @@ describe('PaykitMessagingService', () => {
   // The link authenticates exactly two pubkys: OWNER and the counterparty the
   // handshake was bound to. Here that counterparty is ATTACKER, a contact with
   // a ready link who tries to file text inside OWNER's thread with VICTIM.
+  describe('a send counter is never used twice', () => {
+    const MARKER = { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) };
+    const sendChat = (body: string, eventId?: string) =>
+      PaykitMessagingService.sendChatMessage(OWNER, COUNTERPARTY, {
+        conversationId: CONVERSATION_ID,
+        listingRef: LISTING_REF,
+        body,
+        eventId,
+      });
+    const reload = async () => {
+      MessagingApplication.clearMessagingSession();
+      await enableMessaging(world);
+    };
+    const expectNoCounterReused = () => expect(new Set(world.sentCounters).size).toBe(world.sentCounters.length);
+    const queueChat = async (body: string) => {
+      const id = crypto.randomUUID();
+      await LocalMessagingService.enqueueOutboxMessage({
+        id,
+        owner_pubky: OWNER,
+        counterparty_pubky: COUNTERPARTY,
+        kind: 'chat',
+        conversation_id: CONVERSATION_ID,
+        listing_ref: LISTING_REF,
+        body,
+        queued_at: Date.now(),
+        attempts: 0,
+        last_attempt_at: null,
+        last_error: null,
+      });
+      return id;
+    };
+
+    beforeEach(async () => {
+      MessagingApplication.clearMessagingSession();
+      await CommerceMessagingOutboxModel.clear();
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, MARKER);
+    });
+
+    describe('on an established link', () => {
+      beforeEach(async () => {
+        world.advanceScript.push('complete');
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      });
+
+      it('marks the link as sending before the ciphertext leaves, and the saved snapshot clears the mark', async () => {
+        const markSendPending = LocalMessagingService.markSendPending.bind(LocalMessagingService);
+        vi.spyOn(LocalMessagingService, 'markSendPending').mockImplementation(async (owner, counterparty) => {
+          world.calls.push('markSendPending');
+          await markSendPending(owner, counterparty);
+          const row = await LocalMessagingService.getLink(owner, counterparty);
+          world.calls.push(`pending:${String(row?.send_pending)}`);
+        });
+
+        await sendChat('first');
+
+        const order = world.calls.filter((call) => ['markSendPending', 'pending:true', 'link.send'].includes(call));
+        expect(order).toEqual(['markSendPending', 'pending:true', 'link.send']);
+        await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          send_pending: false,
+        });
+      });
+
+      it('sends nothing when the mark cannot be written', async () => {
+        vi.spyOn(LocalMessagingService, 'markSendPending').mockRejectedValueOnce(new Error('disk full'));
+
+        await expect(sendChat('first')).rejects.toThrow('disk full');
+
+        expect(world.sentCounters).toEqual([]);
+        expect(world.calls).not.toContain('link.send');
+      });
+
+      it('saves the snapshot after a failed send, so a restore resumes past its counter', async () => {
+        world.sendFailures = 1;
+        await expect(sendChat('first')).rejects.toThrow(/outbox upload failed/);
+        await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          send_pending: false,
+        });
+
+        await reload();
+        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+        await sendChat('second');
+
+        expect(world.sentCounters).toEqual([0, 1]);
+      });
+
+      it('in the same tab, saves the unsaved send before the next send and never reuses its counter', async () => {
+        vi.spyOn(LocalMessagingService, 'updateLinkSnapshot').mockRejectedValueOnce(new Error('disk full'));
+        await expect(sendChat('first')).rejects.toThrow('disk full');
+        await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          send_pending: true,
+        });
+
+        await sendChat('second');
+        await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          send_pending: false,
+        });
+
+        await reload();
+        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+        await sendChat('third');
+
+        expect(world.sentCounters).toEqual([0, 1, 2]);
+        expectNoCounterReused();
+      });
+
+      it('refuses to send or receive while the unsaved send still cannot be saved', async () => {
+        vi.spyOn(LocalMessagingService, 'updateLinkSnapshot')
+          .mockRejectedValueOnce(new Error('disk full'))
+          .mockRejectedValueOnce(new Error('disk full'))
+          .mockRejectedValueOnce(new Error('disk full'))
+          .mockRejectedValueOnce(new Error('disk full'));
+        await expect(sendChat('first')).rejects.toThrow('disk full');
+
+        await expect(sendChat('second')).rejects.toThrow('disk full');
+        await expect(
+          PaykitMessagingService.sendDmMessage(OWNER, COUNTERPARTY, { body: 'a direct message' }),
+        ).rejects.toThrow('disk full');
+        await expect(PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE)).rejects.toThrow(
+          'disk full',
+        );
+
+        expect(world.sentCounters).toEqual([0]);
+        expect(world.calls).not.toContain('link.receive');
+      });
+
+      it('after a restart, never sends from a snapshot saved before a send finished: the counter cannot be reused', async () => {
+        vi.spyOn(LocalMessagingService, 'updateLinkSnapshot').mockRejectedValueOnce(new Error('disk full'));
+        await expect(sendChat('first')).rejects.toThrow('disk full');
+        const queuedId = await queueChat('queued before the restart');
+
+        await reload();
+        const restoresBefore = world.calls.filter((call) => call === 'restoreEncryptedLink').length;
+        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({
+          status: 'recovery-needed',
+          reason: 'send-state-unknown',
+        });
+        await expect(sendChat('second')).rejects.toThrow();
+        const flushed = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
+
+        expect(flushed).toEqual({ delivered: 0, remaining: 1 });
+        expect(world.calls.filter((call) => call === 'restoreEncryptedLink')).toHaveLength(restoresBefore);
+        expect(world.sentCounters).toEqual([0]);
+        expectNoCounterReused();
+        // Nothing is deleted: the link row and the queued message stay.
+        await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          status: 'established',
+          send_pending: true,
+        });
+        const queued = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+        expect(queued.map((row) => row.id)).toEqual([queuedId]);
+      });
+
+      it('a queued send whose snapshot is not saved stays queued, and its retry uses the next counter', async () => {
+        const queuedId = await queueChat('queued');
+        vi.spyOn(LocalMessagingService, 'updateLinkSnapshot').mockRejectedValueOnce(new Error('disk full'));
+
+        await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY)).resolves.toEqual({
+          delivered: 0,
+          remaining: 1,
+        });
+
+        advanceClock(MESSAGING_RETRY_POLICY.maxMs);
+        await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY)).resolves.toEqual({
+          delivered: 1,
+          remaining: 0,
+        });
+
+        const link = world.links.at(-1)!;
+        expect(link.sent.map((json) => JSON.parse(json).event_id)).toEqual([queuedId, queuedId]);
+        expect(world.sentCounters).toEqual([0, 1]);
+        expectNoCounterReused();
+        await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          send_pending: false,
+        });
+      });
+
+      it('a failed receive drops only its own handle, never one a sign-out and sign-in put in its place', async () => {
+        let release!: () => void;
+        world.receiveHold = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        world.receiveFailures = 1;
+        const heldReceive = PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+        await vi.waitFor(() => expect(world.calls).toContain('link.receive'));
+
+        await reload();
+        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+        const replacement = world.links.at(-1)!;
+        const restores = world.calls.filter((call) => call === 'restoreEncryptedLink').length;
+        world.receiveHold = null;
+        release();
+        await expect(heldReceive).rejects.toThrow(/outbox read failed/);
+
+        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+        expect(world.calls.filter((call) => call === 'restoreEncryptedLink')).toHaveLength(restores);
+        await sendChat('after sign-in');
+        expect(replacement.sent).toHaveLength(1);
+        expect(replacement.closed).toBe(false);
+      });
+    });
+
+    it('registers a completed handshake only after its snapshot is saved', async () => {
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      world.advanceScript.push('complete');
+      vi.spyOn(LocalMessagingService, 'updateLinkSnapshot').mockRejectedValueOnce(new Error('disk full'));
+
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({
+        status: 'handshaking',
+        role: 'initiator',
+      });
+      const unsaved = world.links.at(-1)!;
+      expect(unsaved.closed).toBe(true);
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.not.toEqual({ status: 'ready' });
+      await expect(sendChat('too early')).rejects.toThrow();
+      expect(world.sentCounters).toEqual([]);
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        status: 'handshaking',
+      });
+
+      advanceClock(MESSAGING_RETRY_POLICY.maxMs);
+      world.advanceScript.push('complete');
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+      expect(world.calls).toContain('restoreEncryptedLinkHandshake');
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        status: 'established',
+      });
+    });
+
+    it('registers an adopted inbound link only after its row is saved', async () => {
+      world.inboundFrom.add(COUNTERPARTY);
+      world.responderCompletes.add(COUNTERPARTY);
+      vi.spyOn(LocalMessagingService, 'upsertLink').mockRejectedValueOnce(new Error('disk full'));
+
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).rejects.toThrow('disk full');
+      const unsaved = world.links.at(-1)!;
+      expect(unsaved.closed).toBe(true);
+
+      world.inboundFrom.delete(COUNTERPARTY);
+      world.responderCompletes.delete(COUNTERPARTY);
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({
+        status: 'handshaking',
+        role: 'initiator',
+      });
+      expect(unsaved.sent).toEqual([]);
+    });
+  });
+
   describe('inbound thread binding', () => {
     const ATTACKER = COUNTERPARTY;
     const VICTIM = 'y'.repeat(52);
