@@ -233,7 +233,7 @@ describe('journey: a stranger asks a seller about a listing', () => {
     // request, and shows the listing thread before any message arrives.
     await actAs(SELLER);
     await MessagingController.syncInbox();
-    const [requestRow] = await MessagingController.getConversations();
+    const [requestRow] = (await MessagingController.getConversations()).conversations;
     expect(requestRow).toMatchObject({ conversation_id: THREAD, counterparty_pubky: BUYER, origin: 'request' });
     expect(requestRow.lastMessage).toBeNull();
 
@@ -243,7 +243,7 @@ describe('journey: a stranger asks a seller about a listing', () => {
     await MessagingController.syncInbox();
 
     await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
-    const [row] = await MessagingController.getConversations();
+    const [row] = (await MessagingController.getConversations()).conversations;
     expect(row.origin).toBe('request');
     await expect(MessagingController.refreshUnreadCount()).resolves.toBe(0);
     expect(useMessagingStore.getState().unreadConversations).toBe(0);
@@ -347,7 +347,7 @@ describe('journey: the seller accepts a request', () => {
 
     await MessagingController.acceptRequest(BUYER);
 
-    const [row] = await MessagingController.getConversations();
+    const [row] = (await MessagingController.getConversations()).conversations;
     expect(row.origin).toBe('known');
     expect(useMessagingStore.getState().unreadConversations).toBe(1);
     await MessagingController.markConversationRead(THREAD);
@@ -384,7 +384,7 @@ describe('journey: the seller accepts a request', () => {
     await actAs(SELLER);
     await MessagingController.syncInbox();
 
-    const [row] = await MessagingController.getConversations();
+    const [row] = (await MessagingController.getConversations()).conversations;
     expect(row).toMatchObject({ conversation_id: THREAD, origin: 'known' });
     expect(useMessagingStore.getState().unreadConversations).toBe(1);
   });
@@ -413,7 +413,7 @@ describe('journey: the seller mutes a buyer', () => {
     expect(Object.keys(body as object).sort()).toEqual(['ct', 'enc', 'kid', 'nonce']);
     expect(JSON.stringify(body)).not.toContain(BUYER);
     expect(homeserver.unredacted).toEqual([]);
-    await expect(MessagingController.getConversations()).resolves.toEqual([]);
+    await expect(MessagingController.getConversations()).resolves.toMatchObject({ conversations: [] });
 
     await actAs(BUYER);
     await expect(MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Hello?')).resolves.toMatchObject({
@@ -452,7 +452,9 @@ describe('journey: the seller mutes a buyer', () => {
     await MessagingController.syncInbox();
 
     await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?', 'Sent while muted'].sort());
-    expect((await MessagingController.getConversations()).map((row) => row.counterparty_pubky)).toEqual([BUYER]);
+    expect((await MessagingController.getConversations()).conversations.map((row) => row.counterparty_pubky)).toEqual([
+      BUYER,
+    ]);
   });
 
   it('contacts nobody, stores nothing and shows nothing new while the mute list cannot be read', async () => {
@@ -491,8 +493,12 @@ describe('journey: the seller mutes a buyer', () => {
     expect(homeserver.log.filter((entry) => !entry.includes(SELLER))).toEqual([]);
     await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
     await expect(MessagingController.getQueuedConversationMessages(THREAD)).resolves.toEqual([]);
-    // The thread already held an unread message; while the list is unknown the badge shows nothing new.
+    // The thread already held an unread message; while the list is unknown the badge shows nothing new,
+    // and no conversation, preview, history or queued row is returned to any surface.
     await expect(MessagingController.refreshUnreadCount()).resolves.toBe(0);
+    await expect(MessagingController.getConversations()).resolves.toEqual({ mutes: 'error', conversations: [] });
+    await expect(MessagingController.getConversationMessages(THREAD)).resolves.toEqual([]);
+    await expect(MessagingController.getQueuedConversationMessages(THREAD)).resolves.toEqual([]);
 
     // Once the list reads again, the waiting message arrives.
     homeserver.files.delete(junk);
@@ -501,6 +507,29 @@ describe('journey: the seller mutes a buyer', () => {
       ['Is this still available?', 'While the list is unreadable'].sort(),
     );
     await expect(MessagingController.refreshUnreadCount()).resolves.toBe(1);
+    await expect(MessagingController.getConversationMessages(THREAD)).resolves.toHaveLength(2);
+  });
+
+  it('lists nothing on a first read that fails, and nothing a stale read would have allowed', async () => {
+    await strangerSendsFirstMessage();
+    await MessagingController.acceptRequest(BUYER);
+    // A fresh device whose very first read fails.
+    await actAs(SELLER);
+    homeserver.failNext(HttpMethod.GET, new RegExp(PRIV_V2_BASE_PATH), 503);
+    await expect(MessagingController.getConversations()).resolves.toEqual({ mutes: 'error', conversations: [] });
+
+    // This tab read the list; another device then mutes the buyer; the next read fails.
+    await expect(MessagingController.getConversations()).resolves.toMatchObject({ mutes: 'ready' });
+    plantMuteRecord(SELLER, BUYER, true);
+    homeserver.failNext(HttpMethod.GET, new RegExp(PRIV_V2_BASE_PATH), 503);
+    await expect(MessagingController.getConversations()).resolves.toEqual({ mutes: 'error', conversations: [] });
+    homeserver.failNext(HttpMethod.GET, new RegExp(PRIV_V2_BASE_PATH), 503);
+    await expect(MessagingController.getConversationMessages(THREAD)).resolves.toEqual([]);
+
+    // Once the list reads, the muted thread stays hidden and its history is not shown.
+    await expect(MessagingController.getConversations()).resolves.toEqual({ mutes: 'ready', conversations: [] });
+    await expect(MessagingController.getConversationMessages(THREAD)).resolves.toEqual([]);
+    await expect(MessagingController.refreshUnreadCount()).resolves.toBe(0);
   });
 
   it('never lets an earlier read authorize messages after another device mutes the sender', async () => {
@@ -528,7 +557,7 @@ describe('journey: the seller mutes a buyer', () => {
     });
     await expect(MessagingController.syncInbox()).resolves.toMatchObject({ mutes: 'ready' });
     await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
-    await expect(MessagingController.getConversations()).resolves.toEqual([]);
+    await expect(MessagingController.getConversations()).resolves.toMatchObject({ conversations: [] });
   });
 
   it.each([

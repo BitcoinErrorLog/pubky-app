@@ -20,6 +20,7 @@ const encryptedView = vi.hoisted(() => ({
   conversations: [] as unknown[],
   receiverProvisioned: false,
   errorMessage: null as string | null,
+  mutesStatus: 'ready' as string | null,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -54,6 +55,7 @@ vi.mock('@/hooks/useEncryptedInbox/useEncryptedInbox', () => ({
     conversations: encryptedView.conversations,
     receiverProvisioned: encryptedView.receiverProvisioned,
     errorMessage: encryptedView.errorMessage,
+    mutesStatus: encryptedView.mutesStatus,
     refresh: vi.fn(),
   }),
 }));
@@ -119,6 +121,7 @@ describe('MarketplaceInbox conversation query', () => {
     encryptedView.conversations = [];
     encryptedView.receiverProvisioned = false;
     encryptedView.errorMessage = null;
+    encryptedView.mutesStatus = 'ready';
   });
 
   it('shows the fail-closed copy for a malformed query and does not open a thread', async () => {
@@ -239,5 +242,15 @@ describe('MarketplaceInbox conversation query', () => {
     screen.getByRole('button', { name: `${MESSAGING_COPY.requestAccept} ${MESSAGING_COPY.thisBuyer}` }).click();
     await waitFor(() => expect(accept).toHaveBeenCalledWith(BUYER));
     expect(screen.getByRole('button', { name: `${MESSAGING_COPY.mute} ${MESSAGING_COPY.thisBuyer}` })).toBeEnabled();
+  });
+
+  it('shows only the paused notice, with no empty state or rows, while the mute list is unconfirmed', () => {
+    encryptedView.mutesStatus = 'error';
+    encryptedView.conversations = [];
+    render(<MarketplaceInbox />);
+
+    expect(screen.getByText(MESSAGING_COPY.mutesUnavailable)).toBeInTheDocument();
+    expect(screen.queryByText(MESSAGING_COPY.inboxEmptyTitle)).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: MESSAGING_COPY.requestsTitle })).not.toBeInTheDocument();
   });
 });

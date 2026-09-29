@@ -19,7 +19,11 @@ import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFal
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessagingEnableDialog } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
-import { MessagingMutesNotice, MessagingRequests } from '@/organisms/Messaging/MessagingRequests';
+import {
+  isMuteListUnconfirmed,
+  MessagingMutesNotice,
+  MessagingRequests,
+} from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
@@ -110,7 +114,7 @@ export function Messages() {
                   onChanged={inbox.refresh}
                 />
               </div>
-            ) : inbox.status === 'ready' ? (
+            ) : inbox.status === 'ready' && !isMuteListUnconfirmed(inbox.mutesStatus) ? (
               <EmptyState
                 title="No messages yet"
                 body="Open someone's profile and message them, or message a seller from a listing. Messages from people you don't know yet arrive under Requests."

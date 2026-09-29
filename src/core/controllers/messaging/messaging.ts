@@ -317,14 +317,7 @@ export class MessagingController {
     const ownerPubky = this.getCurrentUserPubky();
     const id = this.normalizeConversationId(conversationId);
     const dm = parseDmConversationId(id);
-    const listing = parseConversationAggregateId(id);
-    const counterpartyPubky = dm
-      ? dm.counterpartyPubky
-      : listing && (listing.sellerPubky === ownerPubky || listing.buyerPubky === ownerPubky)
-        ? listing.sellerPubky === ownerPubky
-          ? listing.buyerPubky
-          : listing.sellerPubky
-        : null;
+    const counterpartyPubky = this.counterpartyOf(ownerPubky, id);
     if (!counterpartyPubky || counterpartyPubky === ownerPubky) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'This conversation is not on this account.', {
         service: ErrorService.Local,
@@ -372,26 +365,47 @@ export class MessagingController {
     );
   }
 
-  /** Reads the mute list once if this session has not tried yet, so display paths know whom to hide. */
-  private static async ensureMutesRead(ownerPubky: string): Promise<void> {
-    if (FirstContactApplication.getMuteReadState(ownerPubky) === 'none') {
-      await FirstContactApplication.loadMutes(ownerPubky);
-    }
+  /**
+   * The muted people from a fresh read of the mute list, for surfaces that
+   * show message content, or `null` while the list cannot be confirmed: then
+   * no row, preview, thread or count is shown at all.
+   */
+  private static async displayMutes(ownerPubky: string): Promise<ReadonlySet<string> | null> {
+    const mutes = await FirstContactApplication.loadMutes(ownerPubky);
+    if (mutes.kind === 'ready') return mutes.muted;
+    return mutes.kind === 'unavailable' ? new Set<string>() : null;
   }
 
+  /** The history of one conversation; empty while the mute list is unconfirmed or the other person is muted. */
   static async getConversationMessages(conversationId: unknown) {
-    return await MessagingApplication.getConversationMessages(
-      this.getCurrentUserPubky(),
-      this.normalizeConversationId(conversationId),
-    );
+    const ownerPubky = this.getCurrentUserPubky();
+    const id = this.normalizeConversationId(conversationId);
+    if (!(await this.mayShowConversation(ownerPubky, id))) return [];
+    return await MessagingApplication.getConversationMessages(ownerPubky, id);
   }
 
-  /** Device-locally queued (not yet sent) messages of one conversation, oldest first. */
+  /** Device-locally queued (not yet sent) messages of one conversation, oldest first, gated like its history. */
   static async getQueuedConversationMessages(conversationId: unknown) {
-    return await MessagingApplication.getQueuedMessagesForConversation(
-      this.getCurrentUserPubky(),
-      this.normalizeConversationId(conversationId),
-    );
+    const ownerPubky = this.getCurrentUserPubky();
+    const id = this.normalizeConversationId(conversationId);
+    if (!(await this.mayShowConversation(ownerPubky, id))) return [];
+    return await MessagingApplication.getQueuedMessagesForConversation(ownerPubky, id);
+  }
+
+  private static async mayShowConversation(ownerPubky: string, conversationId: string): Promise<boolean> {
+    const muted = await this.displayMutes(ownerPubky);
+    const counterpartyPubky = this.counterpartyOf(ownerPubky, conversationId);
+    return muted !== null && counterpartyPubky !== null && !muted.has(counterpartyPubky);
+  }
+
+  /** The other person of one of the account's conversations, or `null` when it is not the account's. */
+  private static counterpartyOf(ownerPubky: string, conversationId: string): string | null {
+    const dm = parseDmConversationId(conversationId);
+    if (dm) return dm.counterpartyPubky === ownerPubky ? null : dm.counterpartyPubky;
+    const listing = parseConversationAggregateId(conversationId);
+    if (!listing) return null;
+    if (listing.sellerPubky === ownerPubky) return listing.buyerPubky === ownerPubky ? null : listing.buyerPubky;
+    return listing.buyerPubky === ownerPubky ? listing.sellerPubky : null;
   }
 
   /** Deletes one of the signed-in user's queued messages while it is still queued. */
@@ -400,15 +414,24 @@ export class MessagingController {
   }
 
   /**
-   * The account's conversations; threads with people it is known to have
-   * muted are left out, even while the list cannot be read right now.
+   * The account's conversations after a fresh read of the mute list, and
+   * that read's outcome. Threads with muted people are left out; while the
+   * list cannot be confirmed no conversation is returned at all, so no row,
+   * preview or sender is shown anywhere.
    */
-  static async getConversations() {
+  static async getConversations(): Promise<{
+    mutes: MessagingMutesState['kind'];
+    conversations: Awaited<ReturnType<typeof MessagingApplication.getConversations>>;
+  }> {
     const ownerPubky = this.getCurrentUserPubky();
-    await this.ensureMutesRead(ownerPubky);
-    const hidden = FirstContactApplication.getHiddenPubkys(ownerPubky);
+    const mutes = await FirstContactApplication.loadMutes(ownerPubky);
+    if (mutes.kind !== 'ready' && mutes.kind !== 'unavailable') return { mutes: mutes.kind, conversations: [] };
+    const muted = mutes.kind === 'ready' ? mutes.muted : new Set<string>();
     const conversations = await MessagingApplication.getConversations(ownerPubky);
-    return conversations.filter((conversation) => !hidden.has(conversation.counterparty_pubky));
+    return {
+      mutes: mutes.kind,
+      conversations: conversations.filter((conversation) => !muted.has(conversation.counterparty_pubky)),
+    };
   }
 
   /**
@@ -435,16 +458,8 @@ export class MessagingController {
       useMessagingStore.getState().setUnreadConversations(0);
       return 0;
     }
-    // The badge reads the list only if this session never has; after that
-    // it follows the last read, which every sync and poll refreshes.
-    await this.ensureMutesRead(ownerPubky);
-    const count =
-      FirstContactApplication.getMuteReadState(ownerPubky) === 'confirmed'
-        ? await MessagingApplication.getUnreadConversationCount(
-            ownerPubky,
-            FirstContactApplication.getHiddenPubkys(ownerPubky),
-          )
-        : 0;
+    const muted = await this.displayMutes(ownerPubky);
+    const count = muted === null ? 0 : await MessagingApplication.getUnreadConversationCount(ownerPubky, muted);
     useMessagingStore.getState().setUnreadConversations(count);
     return count;
   }

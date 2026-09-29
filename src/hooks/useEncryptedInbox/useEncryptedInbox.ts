@@ -22,8 +22,9 @@ export interface UseEncryptedInboxReturn {
   receiverProvisioned: boolean;
   errorMessage: string | null;
   /**
-   * Whether the last sync could read the mute list. Anything but `ready` or
-   * `unavailable` means new messages were not received this pass.
+   * The outcome of the latest read of the mute list. Anything but `ready`
+   * or `unavailable` means nothing was received and no conversation is
+   * listed until the list reads again.
    */
   mutesStatus: MessagingMutesState['kind'] | null;
   refresh: () => void;
@@ -65,7 +66,9 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
 
     const loadConversations = async () => {
       const next = await MessagingController.getConversations();
-      if (!cancelled) setConversations(next);
+      if (cancelled) return;
+      setConversations(next.conversations);
+      setMutesStatus(next.mutes);
     };
 
     const sync = async () => {
@@ -83,7 +86,6 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
         const synced = await MessagingController.syncInbox();
         await loadConversations();
         if (cancelled) return;
-        setMutesStatus(synced.mutes);
         setStatus('ready');
         if (synced.rateLimited > 0 && !rateCapToastShownRef.current) {
           rateCapToastShownRef.current = true;

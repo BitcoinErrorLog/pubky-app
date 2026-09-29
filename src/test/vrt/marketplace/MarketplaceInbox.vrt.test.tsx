@@ -327,10 +327,10 @@ describe('Marketplace inbox — visual regression', () => {
   });
 
   it('renders the paused-delivery notice when mutes need approval at desktop viewport', async () => {
-    const { buyer } = await fixtures;
     config.mode = 'transaction-service';
     encryptedView.mutesStatus = 'needs_approval';
-    encryptedView.conversations = [encryptedConversationFixture(buyer)];
+    // While the list is unconfirmed the controller returns no conversations at all.
+    encryptedView.conversations = [];
 
     await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
     await expect(expectVrtSurface('marketplace-inbox')).toMatchScreenshot('inbox-encrypted-mutes-paused-desktop');

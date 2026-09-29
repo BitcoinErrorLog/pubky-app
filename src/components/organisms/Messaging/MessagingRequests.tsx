@@ -142,9 +142,14 @@ function MessagingRequestRow({
   );
 }
 
+/** Whether a mute read outcome leaves the list unconfirmed (nothing is listed or received then). */
+export function isMuteListUnconfirmed(status: string | null | undefined): boolean {
+  return status === 'needs_approval' || status === 'needs_reauth' || status === 'error';
+}
+
 /**
- * Shown when the last sync could not read the mute list, so no new messages
- * were received: approval states offer the approval, other failures a retry.
+ * Shown while the mute list cannot be confirmed, so nothing is received or
+ * listed: approval states offer the approval, other failures a retry.
  */
 export function MessagingMutesNotice({
   status,
@@ -153,7 +158,7 @@ export function MessagingMutesNotice({
   status: 'ready' | 'unavailable' | 'needs_approval' | 'needs_reauth' | 'error' | null;
   onRetry: () => void;
 }) {
-  if (!status || status === 'ready' || status === 'unavailable') return null;
+  if (!isMuteListUnconfirmed(status)) return null;
   const approval = status === 'needs_approval' || status === 'needs_reauth';
   return (
     <div

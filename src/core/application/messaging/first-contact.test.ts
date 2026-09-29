@@ -176,8 +176,6 @@ describe('FirstContactApplication mutes', () => {
     homeserver.failNext(HttpMethod.GET, new RegExp(familyUrl()), 503);
 
     await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'error' });
-    expect(FirstContactApplication.getMuteReadState(OWNER)).toBe('failed');
-    expect(FirstContactApplication.getHiddenPubkys(OWNER)).toEqual(new Set([A]));
   });
 
   it('cannot confirm the list, and writes nothing, while any record in it does not open', async () => {

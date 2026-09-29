@@ -27,7 +27,11 @@ import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessagingEnableDialog } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
 import { MarketplaceSectionNav } from '@/organisms/Marketplace/MarketplaceSectionNav';
-import { MessagingMutesNotice, MessagingRequests } from '@/organisms/Messaging/MessagingRequests';
+import {
+  isMuteListUnconfirmed,
+  MessagingMutesNotice,
+  MessagingRequests,
+} from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 export function MarketplaceInbox() {
@@ -175,7 +179,7 @@ function EncryptedInbox() {
           ))}
           <MessagingRequests requests={requestRows} canMute onChanged={inbox.refresh} />
         </div>
-      ) : inbox.status === 'ready' ? (
+      ) : inbox.status === 'ready' && !isMuteListUnconfirmed(inbox.mutesStatus) ? (
         <EmptyState title={MESSAGING_COPY.inboxEmptyTitle} body={MESSAGING_COPY.inboxEmptyBody} />
       ) : null}
     </div>
