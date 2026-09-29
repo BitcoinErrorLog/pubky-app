@@ -29,7 +29,10 @@ import {
   type MuteChange,
   MUTED_PEOPLE_MAX,
   mutedPubkys,
+  LEGACY_MUTE_LIST_ENTRY_ID,
+  MUTE_CHANGE_KIND,
   type MuteState,
+  parseLegacyMuteList,
   parseMuteChange,
 } from '@/libs/messaging/mute-list';
 import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
@@ -138,6 +141,12 @@ export class FirstContactApplication {
     keyring: PrivKeyring,
   ): Promise<{ kind: 'log'; state: MuteState } | { kind: 'needs_reauth' | 'error' }> {
     try {
+      const legacyPayload = await CommercePrivStoreService.read(keyring, MUTES_FAMILY, LEGACY_MUTE_LIST_ENTRY_ID);
+      const legacy = legacyPayload === null ? [] : parseLegacyMuteList(legacyPayload, ownerPubky);
+      if (!legacy) {
+        Logger.warn('The earlier mute list is not valid; the mute list cannot be confirmed');
+        return { kind: 'error' };
+      }
       const names = await CommercePrivStoreService.listAllNames(keyring, MUTES_FAMILY);
       const known = this.muteRecords.get(ownerPubky) ?? new Map<string, MuteChange>();
       const records = new Map<string, MuteChange>();
@@ -159,7 +168,7 @@ export class FirstContactApplication {
         records.set(name, change);
       }
       this.muteRecords.set(ownerPubky, records);
-      return { kind: 'log', state: foldMuteChanges(records.values()) };
+      return { kind: 'log', state: foldMuteChanges([...legacy, ...records.values()]) };
     } catch (error) {
       if (this.isPrivateAccessDenied(error)) return { kind: 'needs_reauth' };
       Logger.warn('Could not read the mute list', privErrorSummary(error));
@@ -249,7 +258,12 @@ export class FirstContactApplication {
     const records = new Map(this.muteRecords.get(ownerPubky) ?? []);
     records.set(name, change);
     this.muteRecords.set(ownerPubky, records);
-    const state = foldMuteChanges(records.values());
+    const state = foldMuteChanges([
+      ...[...read.state].map(([counterparty, entry]) =>
+        buildFoldedChange(ownerPubky, counterparty, entry.muted, entry.changed_at),
+      ),
+      change,
+    ]);
     this.mutes.set(ownerPubky, state);
     this.muteReads.set(ownerPubky, 'confirmed');
     return { kind: 'ready', muted: mutedPubkys(state) };
@@ -538,4 +552,21 @@ export class FirstContactApplication {
     this.receiveLimiter.clear();
     this.rateLimitedCounts.clear();
   }
+}
+
+/** One entry of a folded state, as the change record it stands for. */
+function buildFoldedChange(
+  ownerPubky: string,
+  counterpartyPubky: string,
+  muted: boolean,
+  changedAt: number,
+): MuteChange {
+  return {
+    version: 1,
+    kind: MUTE_CHANGE_KIND,
+    owner_pubky: ownerPubky,
+    counterparty_pubky: counterpartyPubky,
+    muted,
+    changed_at: changedAt,
+  };
 }

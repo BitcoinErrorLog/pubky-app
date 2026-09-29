@@ -57,7 +57,7 @@ path           = /priv/pubky.app/marketplace/v2/s/{family segment}/{entry name}
 
 A badge checkpoint's plaintext is `{ "version": 1, "seenAt": <ms> }`; the checkpoint is the largest `seenAt`.
 
-Each mute change's plaintext is `{ "version": 1, "kind": "pubky_app.messaging_mute_change.v0", "owner_pubky": <your pubky>, "counterparty_pubky": <pubky>, "muted": <bool>, "changed_at": <ms> }`. List the family and open every entry; per person the change with the largest `changed_at` applies, and a mute wins a tie.
+Each mute change's plaintext is `{ "version": 1, "kind": "pubky_app.messaging_mute_change.v0", "owner_pubky": <your pubky>, "counterparty_pubky": <pubky>, "muted": <bool>, "changed_at": <ms> }`. List the family and open every entry; per person the change with the largest `changed_at` applies, and a mute wins a tie. An older list may also exist as one entry named by the entry segment for id `mutes`, with plaintext `{ "version": 1, "kind": "pubky_app.messaging_mutes.v0", "owner_pubky": <your pubky>, "entries": { <pubky>: { "muted": <bool>, "changed_at": <ms> } } }`; count each of its entries as one more change.
 
 To open a record, find the key whose `keyId` equals the envelope's `kid`. Decrypt `ct` with XChaCha20-Poly1305 under that key's record key, the envelope's `nonce`, and associated data built from the entry's own name (the last segment of its path):
 

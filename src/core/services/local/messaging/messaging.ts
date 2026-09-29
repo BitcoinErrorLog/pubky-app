@@ -397,18 +397,17 @@ export class LocalMessagingService {
       });
     }
     const id = this.unprocessedId(event.ownerId, event.counterpartyPubky, event.rawJson);
+    const sealed = JSON.stringify({ kind: event.kind.slice(0, 128), version: event.version, rawJson: event.rawJson });
     const payload = await this.wrapSecretField(
       UNPROCESSED_TABLE,
       id,
-      new TextEncoder().encode(event.rawJson),
+      new TextEncoder().encode(sealed),
       'storeUnprocessed',
     );
     const added = await CommerceMessagingUnprocessedModel.addIfAbsent({
       id,
       owner_id: event.ownerId,
       counterparty_pubky: event.counterpartyPubky,
-      kind: event.kind.slice(0, 128),
-      version: event.version,
       payload,
       wrap_version: WRAP_VERSION_AES_GCM_256,
       received_at: event.receivedAt,
@@ -433,7 +432,8 @@ export class LocalMessagingService {
       if (row.wrap_version !== WRAP_VERSION_AES_GCM_256) continue;
       const bytes = await this.unwrapSecretField(UNPROCESSED_TABLE, row.id, row.payload, 'getUnprocessed');
       if (!bytes) continue;
-      events.push({ id: row.id, kind: row.kind, version: row.version, rawJson: new TextDecoder().decode(bytes) });
+      const event = parseSealedUnprocessed(new TextDecoder().decode(bytes));
+      if (event) events.push({ id: row.id, ...event });
     }
     return events;
   }
@@ -588,4 +588,19 @@ function latest(left: number | null, right: number | null): number | null {
   if (left === null) return right;
   if (right === null) return left;
   return Math.max(left, right);
+}
+
+/** The sealed `{ kind, version, rawJson }` of an unprocessed row, or `null` when it is not that shape. */
+function parseSealedUnprocessed(json: string): { kind: string; version: number | null; rawJson: string } | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null) return null;
+  const { kind, version, rawJson } = value as { kind?: unknown; version?: unknown; rawJson?: unknown };
+  if (typeof kind !== 'string' || typeof rawJson !== 'string') return null;
+  if (version !== null && typeof version !== 'number') return null;
+  return { kind, version, rawJson };
 }

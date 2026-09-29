@@ -83,3 +83,43 @@ export function buildMuteChange(input: {
     changed_at: previous ? Math.max(input.now, previous.changed_at + 1) : input.now,
   });
 }
+
+/**
+ * The earlier format: one sealed document (derived entry id `mutes`) that
+ * held every person's latest change. Nothing writes it any more, but a
+ * list written that way is folded in on every read so no mute recorded in
+ * it is lost.
+ */
+export const LEGACY_MUTE_LIST_KIND = 'pubky_app.messaging_mutes.v0';
+export const LEGACY_MUTE_LIST_ENTRY_ID = 'mutes';
+
+const legacyMuteListSchema = z
+  .object({
+    version: z.literal(1),
+    kind: z.literal(LEGACY_MUTE_LIST_KIND),
+    owner_pubky: commercePubkySchema,
+    entries: z.record(
+      commercePubkySchema,
+      z.object({ muted: z.boolean(), changed_at: z.number().int().nonnegative() }).strict(),
+    ),
+  })
+  .strict();
+
+/** The legacy document's entries as change records, or `null` unless it is a valid list of `ownerPubky`. */
+export function parseLegacyMuteList(raw: unknown, ownerPubky: string): MuteChange[] | null {
+  const parsed = legacyMuteListSchema.safeParse(raw);
+  if (!parsed.success || parsed.data.owner_pubky !== ownerPubky) return null;
+  const changes: MuteChange[] = [];
+  for (const [counterparty, entry] of Object.entries(parsed.data.entries)) {
+    if (counterparty === ownerPubky) continue;
+    changes.push({
+      version: 1,
+      kind: MUTE_CHANGE_KIND,
+      owner_pubky: ownerPubky,
+      counterparty_pubky: counterparty,
+      muted: entry.muted,
+      changed_at: entry.changed_at,
+    });
+  }
+  return changes;
+}

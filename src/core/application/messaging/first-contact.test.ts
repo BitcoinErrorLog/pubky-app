@@ -4,6 +4,8 @@ import {
   decryptPrivRecord,
   encryptPrivRecord,
   newPrivEntryName,
+  privEntryName,
+  privEntryUrl,
   privFamilyUrl,
   privListedEntryUrl,
 } from '@/libs/commerce/priv-envelope';
@@ -222,6 +224,55 @@ describe('FirstContactApplication mutes', () => {
     expect(storedMutes(homeserver).size).toBe(MUTED_PEOPLE_MAX);
   });
 
+  it('folds in a list saved in the earlier single-document format, so none of its mutes is lost', async () => {
+    const keyring = releasedKeyring(OWNER);
+    const name = privEntryName(keyring, 'messaging_mutes', 'mutes');
+    homeserver.files.set(
+      privEntryUrl(keyring, 'messaging_mutes', 'mutes'),
+      encryptPrivRecord({
+        keyring,
+        family: 'messaging_mutes',
+        name,
+        record: {
+          version: 1,
+          kind: 'pubky_app.messaging_mutes.v0',
+          owner_pubky: OWNER,
+          entries: { [A]: { muted: true, changed_at: 10 }, [B]: { muted: false, changed_at: 11 } },
+        },
+      }),
+    );
+
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
+    await expect(FirstContactApplication.setMuted(OWNER, Z, true)).resolves.toEqual({
+      kind: 'ready',
+      muted: new Set([A, Z]),
+    });
+    // A later unmute record overrides the earlier document.
+    await expect(FirstContactApplication.setMuted(OWNER, A, false)).resolves.toEqual({
+      kind: 'ready',
+      muted: new Set([Z]),
+    });
+    freshDevice();
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([Z]) });
+  });
+
+  it('cannot confirm the list while an earlier-format document does not validate', async () => {
+    const keyring = releasedKeyring(OWNER);
+    homeserver.files.set(
+      privEntryUrl(keyring, 'messaging_mutes', 'mutes'),
+      encryptPrivRecord({
+        keyring,
+        family: 'messaging_mutes',
+        name: privEntryName(keyring, 'messaging_mutes', 'mutes'),
+        record: { version: 9 },
+      }),
+    );
+
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'error' });
+    await expect(FirstContactApplication.setMuted(OWNER, B, true)).resolves.toEqual({ kind: 'error' });
+    expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
+  });
+
   it('asks for approval when the marketplace session is not this owner’s', async () => {
     establishMarketplaceSession(OTHER_OWNER);
 
@@ -246,7 +297,7 @@ describe('FirstContactApplication mutes', () => {
         expect(homeserver.files.has(privListedEntryUrl(releasedKeyring(OWNER), 'messaging_mutes', planted))).toBe(true);
       },
     });
-    expect(requests).toBe(4);
+    expect(requests).toBe(5);
   });
 });
 

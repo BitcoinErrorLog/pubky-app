@@ -257,7 +257,7 @@ export const commerceMessagingOutboxTableSchema = [
  * again to the router on every later receive, so a build that understands
  * it can still process it.
  *
- * `payload` is the event's raw JSON, encrypted at rest like link snapshots
+ * `payload` holds the event, encrypted at rest like link snapshots
  * (AES-GCM-256 under the messaging keyring, AAD-bound to this table and
  * row id; `wrap_version` 1). It can carry anything the peer sent, so it is
  * never logged or synced. Cleared on sign-out with every other table.
@@ -267,11 +267,11 @@ export interface CommerceMessagingUnprocessedModelSchema {
   id: string;
   owner_id: string;
   counterparty_pubky: string;
-  /** The envelope kind as the link reported it, at most 128 characters. */
-  kind: string;
-  /** The envelope version as the link reported it, or `null` when none was given. */
-  version: number | null;
-  /** Wrapped raw JSON. SECRET-class — see above. */
+  /**
+   * Wrapped `{ kind, version, rawJson }`: the event's raw JSON and the kind
+   * and version the link reported for it. SECRET-class — see above. Nothing
+   * about the event, not even its kind, is stored in the clear.
+   */
   payload: Uint8Array;
   wrap_version: number;
   /** Local receipt time; events are offered again in this order. */

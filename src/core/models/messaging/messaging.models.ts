@@ -289,8 +289,6 @@ export class CommerceMessagingUnprocessedModel
 
   owner_id: string;
   counterparty_pubky: string;
-  kind: string;
-  version: number | null;
   payload: Uint8Array;
   wrap_version: number;
   received_at: number;
@@ -300,8 +298,6 @@ export class CommerceMessagingUnprocessedModel
     super(row);
     this.owner_id = row.owner_id;
     this.counterparty_pubky = row.counterparty_pubky;
-    this.kind = row.kind;
-    this.version = row.version;
     this.payload = row.payload;
     this.wrap_version = row.wrap_version;
     this.received_at = row.received_at;

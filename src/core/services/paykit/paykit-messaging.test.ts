@@ -907,8 +907,18 @@ describe('PaykitMessagingService', () => {
         ]);
         const rows = await CommerceMessagingUnprocessedModel.table.toArray();
         for (const row of rows) {
-          expect(new TextDecoder().decode(row.payload)).not.toContain('secret-ish');
-          expect(new TextDecoder().decode(row.payload)).not.toContain('newer client');
+          expect(Object.keys(row).sort()).toEqual([
+            'counterparty_pubky',
+            'id',
+            'owner_id',
+            'payload',
+            'position',
+            'received_at',
+            'wrap_version',
+          ]);
+          for (const plaintext of ['secret-ish', 'newer client', 'paykit', 'chat_message']) {
+            expect(new TextDecoder().decode(row.payload)).not.toContain(plaintext);
+          }
         }
         await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toEqual([]);
       });
