@@ -35,6 +35,11 @@ import type {
  *                             state, and every remote slot are kept; nothing
  *                             is restarted. Composed messages stay queued on
  *                             this device.
+ * - `unreachable`          — the other person's messaging setup could not be
+ *                             read right now (their homeserver did not
+ *                             answer, or what they publish is unusable).
+ *                             It is retried automatically; composed messages
+ *                             stay queued on this device.
  * - `ready`                 — the Encrypted Link is established; sending and
  *                             receiving are live.
  * - `paused`                — the mute list cannot be confirmed right now:
@@ -53,6 +58,7 @@ export type EncryptedConversationStatus =
   | 'handshaking-initiator'
   | 'handshaking-responder'
   | 'recovery-needed'
+  | 'unreachable'
   | 'ready'
   | 'error';
 

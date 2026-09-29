@@ -25,6 +25,13 @@ import {
 } from '@/libs/messaging/dm-contracts';
 import type { ConversationOrigin } from '@/libs/messaging/first-contact';
 import type { MessagingIntakeGate } from '@/libs/messaging/intake-gate';
+import {
+  isMarkerReadFailure,
+  type MarkerReadFailureReason,
+  type MarkerReadSleep,
+  readMarkerWithRetry,
+  realMarkerReadSleep,
+} from '@/libs/messaging/marker-read';
 import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
@@ -104,9 +111,16 @@ export type MessagingEnabledInfo = {
  *   remote slot is kept and the link is retried unchanged on an exponential,
  *   jittered, capped schedule (`MESSAGING_RETRY_POLICY`); nothing is
  *   deleted or restarted.
+ * - `unreachable`: the counterparty's receiver marker could not be read —
+ *   their homeserver did not resolve or answer, or the marker they publish is
+ *   unusable. This says nothing about whether they enabled messaging, so it
+ *   is neither `not-enrolled` nor a failure of this account. It is retried
+ *   on the same backoff schedule as `recovery-needed` and never stops other
+ *   counterparties from syncing.
  */
 export type MessagingLinkState =
   | { status: 'not-enrolled' }
+  | { status: 'unreachable'; reason: MarkerReadFailureReason }
   | { status: 'handshaking'; role: 'initiator' | 'responder' }
   | {
       status: 'recovery-needed';
@@ -217,6 +231,12 @@ export class PaykitMessagingService {
   private static linkRetry = new RetryBackoff<MessagingProbeState>();
   private static sessionRetry = new RetryBackoff<true>();
   private static receiverRetry = new RetryBackoff<true>();
+  private static markerReadSleep: MarkerReadSleep = realMarkerReadSleep;
+
+  /** Test seam: replaces the wait between marker read attempts. Never used in production. */
+  static setMarkerReadSleepForTests(sleep: MarkerReadSleep | null): void {
+    this.markerReadSleep = sleep ?? realMarkerReadSleep;
+  }
 
   /**
    * Starts the interactive enable flow: a fresh `pubkyauth://` URL for the
@@ -484,12 +504,7 @@ export class PaykitMessagingService {
    */
   static async getCounterpartyMarker(counterpartyPubky: string): Promise<CounterpartyMessagingMarker | null> {
     const wasmModule = await loadPaykitWasm();
-    const client = this.getClient(wasmModule);
-    const marker = (await wasmModule.getReceiverMarker(client, counterpartyPubky, PAYKIT_MESSAGING_RECEIVER_PATH)) as
-      | { receiverPath: string; noisePublicKey: string }
-      | undefined;
-    if (!marker) return null;
-    return { receiverPath: marker.receiverPath, noisePublicKey: marker.noisePublicKey };
+    return await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
   }
 
   /**
@@ -1017,7 +1032,17 @@ export class PaykitMessagingService {
     const waiting = this.linkRetry.waiting(key);
     if (waiting) return waiting;
 
-    const state = await this.stepLink(wasmModule, session, ownerPubky, counterpartyPubky, allowInitiate);
+    let state: MessagingProbeState;
+    try {
+      state = await this.stepLink(wasmModule, session, ownerPubky, counterpartyPubky, allowInitiate);
+    } catch (error) {
+      if (!isMarkerReadFailure(error)) throw error;
+      Logger.warn('Could not read the counterparty messaging marker; will retry later', {
+        error,
+        context: { counterparty: counterpartyPubky, reason: error.reason },
+      });
+      return this.deferLink(key, { status: 'unreachable', reason: error.reason });
+    }
     if (!this.linkRetry.holds(key, state)) this.linkRetry.succeed(key);
     return state;
   }
@@ -1230,7 +1255,12 @@ export class PaykitMessagingService {
     if (handshake.role === 'initiator' && ownerPubky < counterpartyPubky) {
       const session = this.requireSession(ownerPubky);
       const receiver = await this.requireReceiver(ownerPubky);
-      const marker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
+      // The crossed-handshake probe is best effort: an unreadable marker
+      // leaves this handshake pending for the next attempt.
+      const marker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky).catch((error: unknown) => {
+        if (isMarkerReadFailure(error)) return null;
+        throw error;
+      });
       if (marker) {
         const inbound = await this.probeInboundHandshake(wasmModule, session, receiver, counterpartyPubky, marker);
         if (inbound) {
@@ -1412,11 +1442,14 @@ export class PaykitMessagingService {
     wasmModule: PaykitWasmModule,
     counterpartyPubky: string,
   ): Promise<CounterpartyMessagingMarker | null> {
-    const marker = (await wasmModule.getReceiverMarker(
-      this.getClient(wasmModule),
-      counterpartyPubky,
-      PAYKIT_MESSAGING_RECEIVER_PATH,
-    )) as { receiverPath: string; noisePublicKey: string } | undefined;
+    const client = this.getClient(wasmModule);
+    const marker = await readMarkerWithRetry(
+      async () =>
+        (await wasmModule.getReceiverMarker(client, counterpartyPubky, PAYKIT_MESSAGING_RECEIVER_PATH)) as
+          | { receiverPath: string; noisePublicKey: string }
+          | undefined,
+      this.markerReadSleep,
+    );
     return marker ? { receiverPath: marker.receiverPath, noisePublicKey: marker.noisePublicKey } : null;
   }
 

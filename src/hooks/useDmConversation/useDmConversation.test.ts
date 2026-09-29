@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessagingController } from '@/controllers/messaging/messaging';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import type {
   CommerceMessagingMessageModelSchema,
   CommerceMessagingOutboxModelSchema,
@@ -138,6 +139,38 @@ describe('useDmConversation queued-message behavior', () => {
     const { result } = renderHook(() => useDmConversation(COUNTERPARTY, true));
 
     await waitFor(() => expect(result.current.status).toBe('recovery-needed'));
+  });
+
+  it('surfaces an unreachable counterparty as its own state so queued notes stay usable', async () => {
+    vi.mocked(MessagingController.openDmConversation).mockResolvedValue({
+      state: { status: 'unreachable', reason: 'unreachable' },
+      counterpartyPubky: COUNTERPARTY,
+    });
+
+    const { result } = renderHook(() => useDmConversation(COUNTERPARTY, true));
+
+    await waitFor(() => expect(result.current.status).toBe('unreachable'));
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('shows plain copy, not the binding text, when a poll rejects with a marker read failure', async () => {
+    vi.mocked(MessagingController.openDmConversation).mockResolvedValue({
+      state: { status: 'ready' },
+      counterpartyPubky: COUNTERPARTY,
+    });
+    vi.mocked(MessagingController.pollDmConversation).mockRejectedValue(
+      new Error(
+        'failed to fetch receiver marker: transport error: get_paykit_receiver_marker: fetch Paykit receiver marker',
+      ),
+    );
+    const { result } = renderHook(() => useDmConversation(COUNTERPARTY, true));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.errorMessage).toBe(MESSAGING_COPY.counterpartyUnreachable);
+    expect(result.current.errorMessage).not.toContain('Paykit');
   });
 
   it('send reports "delivered" when the link was ready and the binding actually sent it', async () => {

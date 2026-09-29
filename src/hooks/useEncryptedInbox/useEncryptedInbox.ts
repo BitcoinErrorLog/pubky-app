@@ -8,6 +8,7 @@ import { MessagingController } from '@/controllers/messaging/messaging';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
+import { isMarkerReadError } from '@/libs/messaging/marker-read';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
@@ -94,7 +95,7 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
       } catch (error) {
         if (cancelled) return;
         Logger.error('Encrypted inbox sync failed', { error });
-        setErrorMessage(getErrorMessage(error));
+        setErrorMessage(isMarkerReadError(error) ? MESSAGING_COPY.inboxSyncFailed : getErrorMessage(error));
         setStatus('error');
       } finally {
         syncing = false;

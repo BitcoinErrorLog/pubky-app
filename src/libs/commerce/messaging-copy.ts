@@ -24,6 +24,9 @@ export const MESSAGING_COPY = {
   handshakeResponder: 'Still opening this conversation. Your notes stay on this device until it is ready.',
   linkRecoveryNeeded:
     'This private conversation cannot finish connecting on this device. Nothing was deleted. Your notes stay on this device and are sent only if the connection recovers.',
+  counterpartyUnreachable:
+    "We could not reach this person's messaging setup right now. We will keep trying. Your notes stay on this device until then.",
+  inboxSyncFailed: 'Your messages could not be loaded right now. Check your connection and try again.',
   queued: 'Queued',
   composerOverLimit: 'Shorten this message to send it.',
   noAttachments: 'Images are not available in private messages yet.',

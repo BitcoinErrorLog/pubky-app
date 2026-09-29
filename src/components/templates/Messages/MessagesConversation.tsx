@@ -173,6 +173,22 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
               </EncryptedConversationBody>
             )}
 
+            {conversation.status === 'unreachable' && (
+              <EncryptedConversationBody
+                conversation={conversation}
+                composerPlaceholder={`Message ${displayName}`}
+                emptyPrompt=""
+              >
+                <Typography
+                  as="p"
+                  role="status"
+                  className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
+                >
+                  {MESSAGING_COPY.counterpartyUnreachable}
+                </Typography>
+              </EncryptedConversationBody>
+            )}
+
             {conversation.status === 'ready' && (
               <EncryptedConversationBody
                 conversation={conversation}
