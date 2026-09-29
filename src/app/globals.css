@@ -350,6 +350,22 @@ body {
   --z-sticky-header: 20;
 
   /**
+   * Z-index for page-level sticky sub-navigation (marketplace section tabs)
+   * - Pins under the site header while the page scrolls beneath it
+   * - Used by: the sticky wrapper around MarketplaceSectionNav
+   *
+   * Rationale for value 15:
+   * - The site header is a stacking context at --z-sticky-header, so the
+   *   search dropdown inside it can never outrank a sibling layer that sits
+   *   at the same value: equal values fall back to DOM order and the later
+   *   layer (the page content) wins. Sub-navigation must sit strictly below
+   *   the header layer.
+   * - Above card hover lift (10), so scrolled cards never draw over the tabs
+   * - Scale: content(0) < card hover(10) < sub-nav(15) < header(20) < mobile(30) < modal(50) < toast(100)
+   */
+  --z-sticky-subnav: 15;
+
+  /**
    * Z-index for mobile-specific UI elements
    * - Ensures mobile header and menu appear above sticky headers
    * - Used by: MobileHeader, ProfilePageMobileMenu
