@@ -64,6 +64,9 @@ function requestError(statusCode: number, extra: Record<string, unknown> = {}): 
 
 describe('homeserver writes route through the shared retry policy', () => {
   beforeEach(() => {
+    // The SDK client is a process-wide singleton. A previous test can leave a
+    // client whose fetch is not this file's mock.
+    (HomeserverService as unknown as { pubkySdk: unknown }).pubkySdk = null;
     mockState.currentSession = session();
     mockState.putJson.mockReset().mockResolvedValue(undefined);
     mockState.putBytes.mockReset().mockResolvedValue(undefined);
