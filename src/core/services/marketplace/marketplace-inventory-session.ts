@@ -247,7 +247,7 @@ export class MarketplaceInventorySessionService {
   /** Drops the session behind a bearer the service refused. */
   static clearRejectedBearer(bearer: InventoryBearer): void {
     if (bearer.source === 'purchase') {
-      MarketplaceSessionService.clearSession('rejected');
+      MarketplaceSessionService.clearSessionIfBearer(bearer.token, 'rejected');
       return;
     }
     this.clearSession('rejected');

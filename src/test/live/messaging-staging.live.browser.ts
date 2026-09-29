@@ -43,6 +43,8 @@ vi.mock('@/config/commerce', () => ({
 vi.mock('@/libs/runtime-config/runtime-config', () => ({
   // THE point of this suite: testnet=false, as on the staging deployment.
   getTestnet: () => false,
+  // messaging-contracts imports CAPABILITIES from config/app, which reads this.
+  getSingleApprovalSignIn: () => true,
   // Imported by the error factories' Sentry capture path; disabled here.
   getSentryDsn: () => undefined,
   getSentryEnvironment: () => undefined,

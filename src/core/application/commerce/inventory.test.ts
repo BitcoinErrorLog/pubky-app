@@ -326,7 +326,7 @@ describe('CommerceInventoryApplication', () => {
 
   it('drops the purchase session, not the Studio slot, when the service rejects its bearer', async () => {
     purchaseSessionOnly(capturedParity.parity_request.homeserver_verified);
-    const clearPurchase = vi.spyOn(MarketplaceSessionService, 'clearSession').mockImplementation(() => {});
+    const clearPurchase = vi.spyOn(MarketplaceSessionService, 'clearSessionIfBearer').mockImplementation(() => {});
     const clearStudio = vi.spyOn(MarketplaceInventorySessionService, 'clearSession').mockImplementation(() => {});
     vi.mocked(MarketplaceShopClientService.adjustInventory).mockResolvedValue({
       ok: false,
@@ -341,7 +341,7 @@ describe('CommerceInventoryApplication', () => {
     });
 
     expect(result.status).toBe('grant-needed');
-    expect(clearPurchase).toHaveBeenCalledWith('rejected');
+    expect(clearPurchase).toHaveBeenCalledWith(TOKEN, 'rejected');
     expect(clearStudio).not.toHaveBeenCalled();
   });
 
