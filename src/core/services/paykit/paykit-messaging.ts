@@ -12,7 +12,13 @@ import {
   PAYKIT_MESSAGING_RECEIVER_PATH,
 } from '@/libs/commerce/messaging-contracts';
 import { isAppError } from '@/libs/error/error';
-import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import {
+  AuthErrorCode,
+  ClientErrorCode,
+  DatabaseErrorCode,
+  ServerErrorCode,
+  ValidationErrorCode,
+} from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
@@ -27,6 +33,7 @@ import type { ConversationOrigin } from '@/libs/messaging/first-contact';
 import type { MessagingIntakeGate } from '@/libs/messaging/intake-gate';
 import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
+import type { CommerceMessagingReceiverModelSchema } from '@/models/messaging/messaging.schema';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 
 type PaykitWasmModule = typeof import('paykit-wasm');
@@ -1380,40 +1387,75 @@ export class PaykitMessagingService {
     );
   }
 
+  /**
+   * Gets or creates the account's receiver Noise key and publishes its
+   * marker, all while holding the account's receiver lock
+   * ({@link withReceiverLock}). Every tab of the origin therefore ends with
+   * the same key, the marker advertises that key, and the row is marked
+   * published only while it still holds the published key.
+   */
   private static async provisionReceiver(
     wasmModule: PaykitWasmModule,
     session: SessionHandle,
     pubky: string,
   ): Promise<MessagingEnabledInfo> {
+    return await this.withReceiverLock(pubky, async () => {
+      // Read only once the lock is held: another tab may have created,
+      // replaced or published the receiver while this one waited.
+      const receiver =
+        (await LocalMessagingService.getReceiver(pubky)) ?? (await this.createReceiver(wasmModule, pubky));
+      // Republishing is idempotent and heals a marker removed elsewhere. A
+      // messaging-only receiver advertises exactly the Encrypted Link
+      // capability (`privatePayments`) and none of the payment capabilities.
+      await wasmModule.publishReceiverMarker(
+        session,
+        receiver.receiver_path,
+        receiver.noise_public_key,
+        true,
+        false,
+        false,
+        false,
+      );
+      if (!(await LocalMessagingService.markReceiverPublished(pubky, receiver.noise_public_key, Date.now()))) {
+        throw Err.database(
+          DatabaseErrorCode.WRITE_FAILED,
+          'The messaging receiver changed while its marker was being published.',
+          { service: ErrorService.Local, operation: 'provisionReceiver' },
+        );
+      }
+      return { pubky, receiverPath: receiver.receiver_path, noisePublicKey: receiver.noise_public_key };
+    });
+  }
+
+  /**
+   * Creates the receiver key for an account with no readable receiver. A
+   * row that exists but cannot be opened (its wrapping key is lost, or it
+   * was tampered with) is replaced, as re-enabling always has; a row some
+   * other writer added meanwhile is adopted.
+   */
+  private static async createReceiver(
+    wasmModule: PaykitWasmModule,
+    pubky: string,
+  ): Promise<CommerceMessagingReceiverModelSchema> {
     const now = Date.now();
-    let receiver = await LocalMessagingService.getReceiver(pubky);
-    if (!receiver) {
-      const noiseSecret = wasmModule.generateNoiseSecretKey();
-      receiver = {
-        id: pubky,
-        noise_secret: noiseSecret,
-        noise_public_key: wasmModule.noisePublicKeyFromSecret(noiseSecret),
-        receiver_path: PAYKIT_MESSAGING_RECEIVER_PATH,
-        marker_published: false,
-        created_at: now,
-        updated_at: now,
-      };
-      await LocalMessagingService.upsertReceiver(receiver);
-    }
-    // Republishing is idempotent and heals a marker removed elsewhere. A
-    // messaging-only receiver advertises exactly the Encrypted Link
-    // capability (`privatePayments`) and none of the payment capabilities.
-    await wasmModule.publishReceiverMarker(
-      session,
-      receiver.receiver_path,
-      receiver.noise_public_key,
-      true,
-      false,
-      false,
-      false,
-    );
-    await LocalMessagingService.upsertReceiver({ ...receiver, marker_published: true, updated_at: Date.now() });
-    return { pubky, receiverPath: receiver.receiver_path, noisePublicKey: receiver.noise_public_key };
+    const noiseSecret = wasmModule.generateNoiseSecretKey();
+    const receiver: CommerceMessagingReceiverModelSchema = {
+      id: pubky,
+      noise_secret: noiseSecret,
+      noise_public_key: wasmModule.noisePublicKeyFromSecret(noiseSecret),
+      receiver_path: PAYKIT_MESSAGING_RECEIVER_PATH,
+      marker_published: false,
+      created_at: now,
+      updated_at: now,
+    };
+    if (await LocalMessagingService.addReceiver(receiver)) return receiver;
+    const stored = await LocalMessagingService.getReceiver(pubky);
+    if (stored) return stored;
+    Logger.warn('The stored messaging receiver cannot be opened; replacing it with a new key', {
+      reason: 'receiver_unreadable',
+    });
+    await LocalMessagingService.upsertReceiver(receiver);
+    return receiver;
   }
 
   private static async getCounterpartyMarkerWith(
@@ -1450,6 +1492,14 @@ export class PaykitMessagingService {
     const receiver = await LocalMessagingService.getReceiver(ownerPubky);
     if (!receiver) {
       throw Err.client(ClientErrorCode.BAD_REQUEST, 'Messaging is not provisioned on this device.', {
+        service: ErrorService.Paykit,
+        operation: 'requireReceiver',
+      });
+    }
+    // A key the marker may not advertise yet is never used: a peer would
+    // encrypt to whichever key the marker holds.
+    if (!receiver.marker_published) {
+      throw Err.client(ClientErrorCode.BAD_REQUEST, 'Messaging is still being set up on this device.', {
         service: ErrorService.Paykit,
         operation: 'requireReceiver',
       });
@@ -1542,34 +1592,34 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
-    if (typeof locks?.request !== 'function') {
-      throw Err.client(
-        ClientErrorCode.UNPROCESSABLE,
-        'Private messages are paused: this browser cannot keep your open tabs from sending at the same time.',
-        { service: ErrorService.Paykit, operation: 'withLinkLock', context: { reason: 'link_lock_unsupported' } },
-      );
-    }
-    let granted = false;
-    try {
-      return await locks.request(`pubky-messaging-link|${ownerPubky}|${counterpartyPubky}`, async () => {
-        granted = true;
-        await this.dropStateMovedByAnotherTab(ownerPubky, counterpartyPubky);
-        try {
-          return await operation();
-        } finally {
-          await this.recordLinkRevision(ownerPubky, counterpartyPubky);
-        }
-      });
-    } catch (error) {
-      if (granted) throw error;
-      Logger.warn('The messaging link lock was refused; nothing was sent or saved', { reason: 'link_lock_refused' });
-      throw Err.client(
-        ClientErrorCode.UNPROCESSABLE,
-        'Private messages are paused: this tab could not coordinate with your other tabs. Try again.',
-        { service: ErrorService.Paykit, operation: 'withLinkLock', context: { reason: 'link_lock_refused' } },
-      );
-    }
+    return await withWebLock(`pubky-messaging-link|${ownerPubky}|${counterpartyPubky}`, 'withLinkLock', async () => {
+      await this.dropStateMovedByAnotherTab(ownerPubky, counterpartyPubky);
+      try {
+        return await operation();
+      } finally {
+        await this.recordLinkRevision(ownerPubky, counterpartyPubky);
+      }
+    });
+  }
+
+  /**
+   * Runs receiver provisioning (reading, creating or replacing the receiver
+   * Noise key, publishing its marker and marking it published) while
+   * holding the account's receiver lock, which every tab of the origin
+   * shares. Without it, two tabs could each create a key, and the marker
+   * could end up advertising one while the device keeps the other.
+   * Nothing is kept in memory across it: each holder reads the receiver
+   * afresh.
+   *
+   * Lock order: a link operation may restore the session and so provision
+   * the receiver while it holds its pair lock, so the order is always pair
+   * lock, then receiver lock, then the keyring's own lock (taken while
+   * wrapping). Nothing under the receiver lock takes a pair lock or the
+   * receiver lock again, and nothing under the keyring lock takes another
+   * lock, so no two holders can wait on each other.
+   */
+  private static async withReceiverLock<T>(ownerPubky: string, operation: () => Promise<T>): Promise<T> {
+    return await withWebLock(`pubky-messaging-receiver|${ownerPubky}`, 'withReceiverLock', operation);
   }
 
   /**
@@ -1609,6 +1659,38 @@ export class PaykitMessagingService {
 
   private static linkKey(ownerPubky: string, counterpartyPubky: string): string {
     return `${ownerPubky}:${counterpartyPubky}`;
+  }
+}
+
+/**
+ * Runs `operation` holding the exclusive Web Lock `name`, shared by every
+ * tab of the origin. Without the Web Locks API, or when the browser refuses
+ * the lock, `operation` never runs and the call fails; an error thrown by
+ * `operation` itself is passed on as it is.
+ */
+async function withWebLock<T>(name: string, operation: string, run: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (typeof locks?.request !== 'function') {
+    throw Err.client(
+      ClientErrorCode.UNPROCESSABLE,
+      'Private messages are paused: this browser cannot keep your open tabs from sending at the same time.',
+      { service: ErrorService.Paykit, operation, context: { reason: 'lock_unsupported' } },
+    );
+  }
+  let granted = false;
+  try {
+    return await locks.request(name, async () => {
+      granted = true;
+      return await run();
+    });
+  } catch (error) {
+    if (granted) throw error;
+    Logger.warn('A messaging lock was refused; nothing was sent or saved', { reason: 'lock_refused', operation });
+    throw Err.client(
+      ClientErrorCode.UNPROCESSABLE,
+      'Private messages are paused: this tab could not coordinate with your other tabs. Try again.',
+      { service: ErrorService.Paykit, operation, context: { reason: 'lock_refused' } },
+    );
   }
 }
 
