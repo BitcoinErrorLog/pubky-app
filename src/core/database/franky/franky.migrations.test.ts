@@ -140,6 +140,28 @@ describe('migrateMessagingSecretsToWrappedStorage (DB 4 → 5)', () => {
     upgraded.close();
   });
 
+  it('never puts a legacy snapshot back over one another tab saved while it was being wrapped', async () => {
+    const name = `franky-mig-${crypto.randomUUID()}`;
+    await seedLegacyV4Database(name);
+    const upgraded = new AppDatabase(name, MESSAGING_WRAP_BASE_DB_VERSION + 1);
+    await upgraded.initialize();
+    await upgraded.commerce_messaging_links.put(legacyLinkRow());
+    const newer = { ...legacyLinkRow(), snapshot: new Uint8Array([1, 2, 3]), wrap_version: 1, write_id: 'other-tab' };
+    const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+      await upgraded.commerce_messaging_links.put(newer);
+      return await encrypt(...args);
+    });
+
+    await migrateMessagingSecretsToWrappedStorage(upgraded);
+
+    const link = (await upgraded.commerce_messaging_links.get(`${OWNER}:${COUNTERPARTY}`))!;
+    expect(link.write_id).toBe('other-tab');
+    expect([...link.snapshot]).toEqual([1, 2, 3]);
+    vi.restoreAllMocks();
+    upgraded.close();
+  });
+
   it('fails closed when WebCrypto is unavailable — never continues with plaintext', async () => {
     const name = `franky-mig-${crypto.randomUUID()}`;
     await seedLegacyV4Database(name);

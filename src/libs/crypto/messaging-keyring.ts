@@ -260,3 +260,16 @@ export async function resetMessagingKeyringForTests(): Promise<void> {
 export function dropCachedWrappingKeyForTests(): void {
   cachedKey = null;
 }
+
+/**
+ * Test seam: closes this module's keyring connection and drops its cache,
+ * simulating a closed tab, so another copy of the module can delete the
+ * keyring. The persisted key stays. Never used in production.
+ */
+export async function closeWrappingKeyStoreForTests(): Promise<void> {
+  cachedKey = null;
+  wrappingKeyPromise = null;
+  const pending = keyringDbPromise;
+  keyringDbPromise = null;
+  if (pending) (await pending).close();
+}
