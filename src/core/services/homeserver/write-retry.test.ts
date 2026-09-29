@@ -71,6 +71,22 @@ describe('retryHomeserverWrite', () => {
     expect(sleep).toHaveBeenCalledWith(30_000);
   });
 
+  it('revert-fail: does not sleep past a locked section total retry budget', async () => {
+    const error = requestError(429, { retryAfterSeconds: 30 });
+    const operation = vi.fn<() => Promise<void>>().mockRejectedValue(error);
+    const sleep = vi.fn<(delayMs: number) => Promise<void>>();
+
+    await expect(
+      retryHomeserverWrite(HttpMethod.PUT, operation, {
+        sleep,
+        maxTotalDelayMs: 2_000,
+      }),
+    ).rejects.toBe(error);
+
+    expect(operation).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it('does not retry a status-less paykit publish error', async () => {
     // Proven artifact: paykit-wasm `js_err` throws `Error` whose message is
     // `context: Display(PaykitError)`. Display of a transport failure does not

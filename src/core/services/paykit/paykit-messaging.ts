@@ -43,13 +43,15 @@ import {
 import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
 import type { CommerceMessagingReceiverModelSchema } from '@/models/messaging/messaging.schema';
-import { HOMESERVER_WRITE_MAX_RETRIES, retryHomeserverWrite } from '@/services/homeserver/write-retry';
+import { retryHomeserverWrite } from '@/services/homeserver/write-retry';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 
 type PaykitWasmModule = typeof import('paykit-wasm');
 
 let wasmModulePromise: Promise<PaykitWasmModule> | null = null;
 let moduleOverrideForTests: PaykitWasmModule | null = null;
+const LOCKED_WRITE_RETRY_BUDGET_MS = 2_000;
+const LOCKED_BINDING_RETRIES = 0;
 
 /**
  * Loads and initializes the vendored paykit-wasm binding exactly once. The dynamic
@@ -223,12 +225,16 @@ export class PaykitMessagingService {
   private constructor() {}
 
   private static configureLinkWriteRetries(link: EncryptedLinkHandle): EncryptedLinkHandle {
-    link.setMaxSendRetries?.(HOMESERVER_WRITE_MAX_RETRIES);
+    // The binding sleeps inside `send`, while the cross-tab pair lock is held.
+    // Let the durable outbox schedule the next attempt after this lock releases.
+    link.setMaxSendRetries?.(LOCKED_BINDING_RETRIES);
     return link;
   }
 
   private static configureHandshakeWriteRetries(handshake: LinkHandshakeHandle): LinkHandshakeHandle {
-    handshake.setMaxRecoveryAttempts?.(HOMESERVER_WRITE_MAX_RETRIES);
+    // A failed handshake step is restored on the pair's outer retry schedule.
+    // Never hold every tab out while the binding performs delayed recovery.
+    handshake.setMaxRecoveryAttempts?.(LOCKED_BINDING_RETRIES);
     return handshake;
   }
 
@@ -1461,16 +1467,19 @@ export class PaykitMessagingService {
       // Republishing is idempotent and heals a marker removed elsewhere. A
       // messaging-only receiver advertises exactly the Encrypted Link
       // capability (`privatePayments`) and none of the payment capabilities.
-      await retryHomeserverWrite(HttpMethod.PUT, () =>
-        wasmModule.publishReceiverMarker(
-          session,
-          receiver.receiver_path,
-          receiver.noise_public_key,
-          true,
-          false,
-          false,
-          false,
-        ),
+      await retryHomeserverWrite(
+        HttpMethod.PUT,
+        () =>
+          wasmModule.publishReceiverMarker(
+            session,
+            receiver.receiver_path,
+            receiver.noise_public_key,
+            true,
+            false,
+            false,
+            false,
+          ),
+        { maxTotalDelayMs: LOCKED_WRITE_RETRY_BUDGET_MS },
       );
       if (!(await LocalMessagingService.markReceiverPublished(pubky, receiver.noise_public_key, Date.now()))) {
         throw Err.database(

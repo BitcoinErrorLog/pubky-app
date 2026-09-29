@@ -29,7 +29,6 @@ import {
   CommerceMessagingReceiverModel,
   CommerceMessagingUnprocessedModel,
 } from '@/models/messaging/messaging.models';
-import { HOMESERVER_WRITE_MAX_RETRIES } from '@/services/homeserver/write-retry';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { ADMIT_ALL_GATE, ADMIT_ALL_POLICY, policyMuting } from '@/test-utils/messaging-gate';
 import { asOpaque } from '@/test-utils/type-assertions';
@@ -102,6 +101,7 @@ function createFakeWorld() {
     // Scripted marker-publish failures (consumed one per publish attempt).
     publishMarkerFailures: 0,
     publishMarkerFailureStatus: null as number | null,
+    publishMarkerRetryAfterSeconds: 0,
     // How long successive marker publishes take before the homeserver
     // accepts them (consumed one per publish; 0 when empty).
     publishAcceptDelays: [] as number[],
@@ -282,7 +282,10 @@ function createFakeWorld() {
           data:
             world.publishMarkerFailureStatus === null
               ? undefined
-              : { statusCode: world.publishMarkerFailureStatus, retryAfterSeconds: 0 },
+              : {
+                  statusCode: world.publishMarkerFailureStatus,
+                  retryAfterSeconds: world.publishMarkerRetryAfterSeconds,
+                },
         });
       }
       const acceptDelay = world.publishAcceptDelays.shift() ?? 0;
@@ -455,6 +458,18 @@ describe('PaykitMessagingService', () => {
 
       expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(2);
       await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(true);
+    });
+
+    it('revert-fail: releases the receiver lock instead of honoring a long Retry-After inside it', async () => {
+      world.publishMarkerFailures = 1;
+      world.publishMarkerFailureStatus = 429;
+      world.publishMarkerRetryAfterSeconds = 30;
+
+      await expect(enableMessaging(world)).rejects.toThrow('marker publish failed');
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(1);
+
+      await expect(enableMessaging(world)).resolves.toMatchObject({ pubky: OWNER });
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(2);
     });
 
     it('rejects an approval from a different identity than the signed-in user', async () => {
@@ -1407,9 +1422,9 @@ describe('PaykitMessagingService', () => {
         await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
       });
 
-      it('keeps binding-level outbox retries inside the link operation and uses the shared cap', () => {
-        expect(world.calls).toContain(`handshake.setMaxRecoveryAttempts:${HOMESERVER_WRITE_MAX_RETRIES}`);
-        expect(world.calls).toContain(`link.setMaxSendRetries:${HOMESERVER_WRITE_MAX_RETRIES}`);
+      it('revert-fail: defers binding retries until after the pair lock is released', () => {
+        expect(world.calls).toContain('handshake.setMaxRecoveryAttempts:0');
+        expect(world.calls).toContain('link.setMaxSendRetries:0');
       });
 
       it('marks the link as sending before the ciphertext leaves, and the saved snapshot clears the mark', async () => {
