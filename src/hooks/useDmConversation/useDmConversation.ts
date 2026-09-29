@@ -8,8 +8,8 @@ import { bodyByteSize } from '@/libs/commerce/messaging-contracts';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
-import { isMarkerReadError } from '@/libs/messaging/marker-read';
 import { buildDmConversationId, dmBodyBudget } from '@/libs/messaging/dm-contracts';
+import { isMarkerReadError } from '@/libs/messaging/marker-read';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import type {
