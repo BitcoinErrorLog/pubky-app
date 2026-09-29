@@ -97,30 +97,42 @@ installed=0
 run_project() {
   local project="$1"
   shift
-  local cmd=""
-  if [ "$installed" -eq 0 ]; then
-    cmd="npm ci && "
-    installed=1
-  fi
-  cmd+="npx vitest run --project ${project}"
-  if [ "$#" -gt 0 ]; then
-    cmd+="$(quote_list "$@")"
-  fi
-  if [ "${VRT_LINUX_UPDATE:-}" = 1 ]; then
-    cmd+=" --update"
-  fi
-  echo "vrt-linux: container ${project}"
-  docker run --rm \
-    --shm-size="${VRT_LINUX_SHM_SIZE:-2g}" \
-    -e COPYFILE_DISABLE=1 \
-    -e VRT_BROWSERS="${VRT_BROWSERS:-chromium,firefox}" \
-    -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    -e CI=true \
-    -v "$ROOT":/w \
-    -v "${VOLUME}:/w/node_modules" \
-    -w /w \
-    "$IMAGE" \
-    bash -lc "$cmd"
+  local browsers="${VRT_BROWSERS:-chromium,firefox}"
+  local browser cmd
+  local browser_list=()
+  IFS=',' read -r -a browser_list <<< "$browsers"
+
+  # Vite's browser dependency optimizer writes one shared cache. Starting
+  # Chromium and Firefox projects together can race while replacing that
+  # cache, leaving either browser with transiently missing generated files.
+  # Run each configured browser in its own container, against the same
+  # installed dependency volume.
+  for browser in "${browser_list[@]}"; do
+    cmd=""
+    if [ "$installed" -eq 0 ]; then
+      cmd="npm ci && "
+      installed=1
+    fi
+    cmd+="npx vitest run --project ${project}"
+    if [ "$#" -gt 0 ]; then
+      cmd+="$(quote_list "$@")"
+    fi
+    if [ "${VRT_LINUX_UPDATE:-}" = 1 ]; then
+      cmd+=" --update"
+    fi
+    echo "vrt-linux: container ${project} (${browser})"
+    docker run --rm \
+      --shm-size="${VRT_LINUX_SHM_SIZE:-2g}" \
+      -e COPYFILE_DISABLE=1 \
+      -e VRT_BROWSERS="${browser}" \
+      -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+      -e CI=true \
+      -v "$ROOT":/w \
+      -v "${VOLUME}:/w/node_modules" \
+      -w /w \
+      "$IMAGE" \
+      bash -lc "$cmd"
+  done
 }
 
 if [ "$#" -eq 0 ]; then
