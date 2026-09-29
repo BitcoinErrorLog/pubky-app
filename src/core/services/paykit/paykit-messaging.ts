@@ -659,7 +659,9 @@ export class PaykitMessagingService {
         // only the persisted snapshot did not. Dropping the handle makes the
         // next operation restore from that snapshot and read the batch
         // again, so nothing in it is skipped. Redeliveries are deduplicated.
-        this.links.delete(key);
+        // Only this handle is dropped: a sign-out and sign-in during the
+        // receive may already have put a new one under the same key.
+        if (this.links.get(key) === link) this.links.delete(key);
         closeQuietly(() => void link.close());
         throw error;
       }
