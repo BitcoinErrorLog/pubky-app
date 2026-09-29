@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { LocksGatewayService } from './locks';
 import {
   LOCKS_FRONTEND_SESSION_STORAGE_KEY,
@@ -19,6 +19,11 @@ const NEWER = { ...RECORD, token: 'locks-frontend-session-token-from-another-tab
 function stored(): string | null {
   return window.localStorage.getItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY);
 }
+
+beforeAll(async () => {
+  // The application graph is large; its first transform must not count against one test's timeout.
+  await import('@/application/commerce/commerce');
+}, 60_000);
 
 afterEach(() => {
   LocksFrontendSessionStore.clearForSignOut();
