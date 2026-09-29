@@ -44,8 +44,7 @@ describe('useSellerPaymentMethodGate', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     });
 
     const { result } = renderHook(() => useSellerPaymentMethodGate());
@@ -58,8 +57,7 @@ describe('useSellerPaymentMethodGate', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     });
 
     const { result } = renderHook(() => useSellerPaymentMethodGate());

@@ -179,8 +179,7 @@ vi.mock('@/controllers/commerce/commerce', async () => {
       getSellerPaymentConfig: vi.fn(async () => ({
         bitcoinAvailable: true,
         bitcoinOfferAvailable: true,
-        stripePaymentLink: 'https://buy.stripe.com/test_checkout',
-        paypalMerchantEmail: 'seller@example.com',
+        paypalAvailable: true,
       })),
       getIndicativeBtcRate: vi.fn(async () => null),
     },

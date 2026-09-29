@@ -151,8 +151,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getSellerPaymentConfig: vi.fn(async () => ({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     })),
     getIndicativeBtcRate: vi.fn(async () => null),
   },

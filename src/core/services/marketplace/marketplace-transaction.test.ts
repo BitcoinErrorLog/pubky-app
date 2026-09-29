@@ -1108,8 +1108,9 @@ describe('MarketplaceTransactionService read projections', () => {
       vi.mocked(fetch).mockResolvedValueOnce(
         jsonResponse(200, {
           bitcoin_available: true,
-          stripe_payment_link: 'https://buy.stripe.com/test_abc',
-          paypal_merchant_email: 'seller@example.com',
+          bitcoin_offer_available: true,
+          paypal_available: true,
+          stripe_available: true,
         }),
       );
 
@@ -1118,13 +1119,28 @@ describe('MarketplaceTransactionService read projections', () => {
       expect(configView).toEqual({
         bitcoinAvailable: true,
         bitcoinOfferAvailable: true,
-        stripePaymentLink: 'https://buy.stripe.com/test_abc',
-        paypalMerchantEmail: 'seller@example.com',
+        paypalAvailable: true,
       });
       const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       expect(url).toBe(`http://127.0.0.1:8080/v0/sellers/${OTHER_ACTOR}/payment-config`);
       expect(init.headers).toEqual(expect.not.objectContaining({ authorization: expect.anything() }));
       expect(init.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('drops payout identifiers from a service that still sends them', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          bitcoin_available: false,
+          bitcoin_offer_available: true,
+          stripe_payment_link: 'https://buy.stripe.com/test_abc',
+          paypal_merchant_email: 'seller@example.com',
+        }),
+      );
+
+      const configView = await MarketplaceTransactionService.getSellerPaymentConfig(OTHER_ACTOR);
+
+      expect(configView).toEqual({ bitcoinAvailable: false, bitcoinOfferAvailable: true, paypalAvailable: true });
+      expect(JSON.stringify(configView)).not.toMatch(/@|stripe\.com|example\.com/);
     });
 
     it('saves the own config with the bearer, omitting the key unless provided, and never gets it back', async () => {

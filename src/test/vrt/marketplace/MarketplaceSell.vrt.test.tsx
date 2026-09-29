@@ -72,22 +72,19 @@ const sellerPaymentConfig = vi.hoisted(() =>
     Promise.resolve({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null as string | null,
+      paypalAvailable: false,
     }),
   ),
 );
 const emptySellerPaymentConfig = {
   bitcoinAvailable: false,
   bitcoinOfferAvailable: true,
-  stripePaymentLink: null,
-  paypalMerchantEmail: null,
+  paypalAvailable: false,
 };
 const paidSellerPaymentConfig = {
   bitcoinAvailable: true,
   bitcoinOfferAvailable: true,
-  stripePaymentLink: null,
-  paypalMerchantEmail: null,
+  paypalAvailable: false,
 };
 
 vi.mock('@/config/commerce', async (importOriginal) => {
@@ -418,7 +415,7 @@ describe('Marketplace sell studio — visual regression', () => {
     view.pickupAvailable = true;
     view.digitalAvailable = true;
     sellerPaymentConfig.mockImplementation(() =>
-      Promise.resolve({ ...paidSellerPaymentConfig, paypalMerchantEmail: 'seller@example.com' }),
+      Promise.resolve({ ...paidSellerPaymentConfig, paypalAvailable: true }),
     );
 
     const screen = await renderForVRT(<MarketplaceSell />, { viewport: VRT_VIEWPORT_DESKTOP });

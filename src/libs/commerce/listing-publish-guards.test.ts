@@ -14,14 +14,12 @@ const OWNER = 'y'.repeat(52);
 const emptyConfig = {
   bitcoinAvailable: false,
   bitcoinOfferAvailable: true,
-  stripePaymentLink: null,
-  paypalMerchantEmail: null,
+  paypalAvailable: false,
 };
 const paidConfig = {
   bitcoinAvailable: true,
   bitcoinOfferAvailable: true,
-  stripePaymentLink: null,
-  paypalMerchantEmail: null,
+  paypalAvailable: false,
 };
 
 describe('evaluateDurableListingPublishGuards', () => {

@@ -118,8 +118,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getSellerPaymentConfig: vi.fn(async () => ({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     })),
   },
 }));
@@ -144,8 +143,7 @@ describe('useCreateMarketplaceListing', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     });
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('018f47d2-6a27-7c23-a49d-6b21bb770121');
   });
@@ -196,8 +194,7 @@ describe('useCreateMarketplaceListing', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     });
     const { result } = renderHook(() => useCreateMarketplaceListing());
 
@@ -423,8 +420,7 @@ describe('useCreateMarketplaceListing', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     });
     const { result } = renderHook(() => useCreateMarketplaceListing());
     await act(async () => {

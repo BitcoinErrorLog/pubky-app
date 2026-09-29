@@ -945,7 +945,8 @@ export class MarketplaceTransactionService {
    * bearer): buyers see a seller's available rails before committing to an
    * order. `bitcoinAvailable` is service-verified against paykit-server
    * (enabled AND actually claimed); a paykit outage surfaces as an error,
-   * never a silent `false`.
+   * never a silent `false`. The response carries availability booleans
+   * only, never the seller's PayPal email or Stripe link.
    */
   static async getSellerPaymentConfig(sellerPubky: string): Promise<SellerPaymentConfig> {
     this.assertTransactionServiceMode('getSellerPaymentConfig');

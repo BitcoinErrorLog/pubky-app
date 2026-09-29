@@ -34,8 +34,7 @@ export function createMarketplaceVrtCommerceController() {
     getSellerPaymentConfig: async () => ({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     }),
   };
 }

@@ -49,8 +49,7 @@ describe('useMarketplaceOrderPayment', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     });
     vi.mocked(CommerceController.bindPaymentMethod).mockRejectedValueOnce(appError('SENTINEL_ORDER_PAYMENT_ACTION'));
     const { result } = renderHook(() =>
@@ -70,8 +69,7 @@ describe('useMarketplaceOrderPayment', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: 'seller@example.com',
+      paypalAvailable: true,
     });
     vi.mocked(CommerceController.bindPaymentMethod).mockRejectedValueOnce(
       appError('SENTINEL_ORDER_PAYMENT_ACTION', 'method_unavailable'),
