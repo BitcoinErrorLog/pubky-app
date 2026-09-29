@@ -12,6 +12,7 @@ import {
 } from '@/libs/commerce/transaction-commands';
 import { getErrorMessage } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
+import { isMarkerReadError } from '@/libs/messaging/marker-read';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import type {
@@ -104,6 +105,7 @@ export function useEncryptedConversation(
       else if (state.status === 'ready') setStatus('ready');
       else if (state.status === 'not-enrolled') setStatus('not-enrolled');
       else if (state.status === 'recovery-needed') setStatus('recovery-needed');
+      else if (state.status === 'unreachable') setStatus('unreachable');
       else setStatus(state.role === 'initiator' ? 'handshaking-initiator' : 'handshaking-responder');
     };
 
@@ -130,7 +132,7 @@ export function useEncryptedConversation(
       } catch (error) {
         if (cancelled) return;
         Logger.error('Encrypted conversation poll failed', { error });
-        setErrorMessage(getErrorMessage(error));
+        setErrorMessage(isMarkerReadError(error) ? MESSAGING_COPY.counterpartyUnreachable : getErrorMessage(error));
         setStatus('error');
       }
     };
@@ -162,7 +164,7 @@ export function useEncryptedConversation(
       } catch (error) {
         if (cancelled) return;
         Logger.error('Failed to open the encrypted conversation', { error });
-        setErrorMessage(getErrorMessage(error));
+        setErrorMessage(isMarkerReadError(error) ? MESSAGING_COPY.counterpartyUnreachable : getErrorMessage(error));
         setStatus('error');
         return;
       }

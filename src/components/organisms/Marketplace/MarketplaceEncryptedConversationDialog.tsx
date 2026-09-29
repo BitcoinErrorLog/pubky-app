@@ -141,6 +141,18 @@ export function MarketplaceEncryptedConversationDialog({
           </EncryptedConversationBody>
         )}
 
+        {conversation.status === 'unreachable' && (
+          <EncryptedConversationBody conversation={conversation}>
+            <Typography
+              as="p"
+              role="status"
+              className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground"
+            >
+              {MESSAGING_COPY.counterpartyUnreachable}
+            </Typography>
+          </EncryptedConversationBody>
+        )}
+
         {conversation.status === 'ready' && <EncryptedConversationBody conversation={conversation} />}
 
         {conversation.status === 'error' && (

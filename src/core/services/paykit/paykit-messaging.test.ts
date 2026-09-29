@@ -31,6 +31,15 @@ import { ADMIT_ALL_GATE, ADMIT_ALL_POLICY, policyMuting } from '@/test-utils/mes
 import { asOpaque } from '@/test-utils/type-assertions';
 import { PaykitMessagingService, setPaykitWasmModuleForTests } from './paykit-messaging';
 
+// Verbatim from the vendored binding on the production Pubky network: a
+// counterparty whose homeserver does not resolve, 2026-09-29
+// (.evidence/issue59-receiver-marker/probe-marker-read.log). The binding
+// rejects with a plain Error carrying only this text.
+const RAW_MARKER_TRANSPORT_ERROR =
+  'failed to fetch receiver marker: transport error: get_paykit_receiver_marker: fetch Paykit receiver marker';
+const RAW_MARKER_INVALID_DATA_ERROR =
+  'failed to fetch receiver marker: invalid data: get_paykit_receiver_marker: Paykit receiver marker JSON is invalid: expected value at line 1 column 1';
+
 const advanceClock = (ms: number) => vi.setSystemTime(Date.now() + ms);
 const POLL_MS = 2_000;
 
@@ -100,6 +109,9 @@ function createFakeWorld() {
     receiveHold: null as Promise<void> | null,
     // Counterparties whose inbound handshake completes on the responder's first advance.
     responderCompletes: new Set<string>(),
+    // Scripted marker read rejections per owner: the binding's own message text,
+    // for `remaining` reads (Infinity = every read).
+    markerReadFailures: new Map<string, { message: string; remaining: number }>(),
   };
 
   let keyCounter = 0;
@@ -252,6 +264,11 @@ function createFakeWorld() {
     },
     getReceiverMarker: async (_client: unknown, ownerPubky: string, path?: string) => {
       world.calls.push(`getReceiverMarker:${ownerPubky.slice(0, 4)}`);
+      const scripted = world.markerReadFailures.get(ownerPubky);
+      if (scripted && scripted.remaining > 0) {
+        scripted.remaining -= 1;
+        throw new Error(scripted.message);
+      }
       const tree = world.receiverTrees.get(ownerPubky);
       if (tree && path !== undefined) return tree.get(path);
       return world.markers.get(ownerPubky);
@@ -787,6 +804,148 @@ describe('PaykitMessagingService', () => {
 
       expect(state).toEqual({ status: 'ready' });
       expect(world.calls).toContain('restoreEncryptedLink');
+    });
+  });
+
+  describe('counterparty receiver marker reads', () => {
+    const P_KEY = 'p'.repeat(52);
+    const OTHER = 'h'.repeat(52);
+    let sleeps: number[];
+
+    beforeEach(async () => {
+      await enableMessaging(world);
+      sleeps = [];
+      PaykitMessagingService.setMarkerReadSleepForTests(async (ms) => {
+        sleeps.push(ms);
+      });
+    });
+
+    afterEach(() => {
+      PaykitMessagingService.setMarkerReadSleepForTests(null);
+    });
+
+    const markerReads = (pubky: string) =>
+      world.calls.filter((call) => call === `getReceiverMarker:${pubky.slice(0, 4)}`);
+
+    it('reports an unreachable counterparty as a state, never as the raw binding error', async () => {
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'unreachable', reason: 'unreachable' });
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+    });
+
+    it('retries a transient read failure a bounded number of times, then stops', async () => {
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(markerReads(COUNTERPARTY)).toHaveLength(3);
+      expect(sleeps).toEqual([300, 900]);
+    });
+
+    it('recovers within a single call when the second read succeeds', async () => {
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: 1 });
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
+      // Two reads to discover the counterparty, one more for the initiator's crossed-handshake probe.
+      expect(markerReads(COUNTERPARTY)).toHaveLength(3);
+      expect(sleeps).toEqual([300]);
+    });
+
+    it('keeps an unreachable pair off the network until its backoff is due, then tries again', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      const readsAfterFirst = markerReads(COUNTERPARTY).length;
+
+      advanceClock(POLL_MS);
+      const waiting = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      expect(waiting).toEqual({ status: 'unreachable', reason: 'unreachable' });
+      expect(markerReads(COUNTERPARTY)).toHaveLength(readsAfterFirst);
+      expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('waiting');
+
+      advanceClock(MESSAGING_RETRY_POLICY.baseMs);
+      world.markerReadFailures.delete(COUNTERPARTY);
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+      const recovered = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      expect(recovered).toEqual({ status: 'handshaking', role: 'initiator' });
+    });
+
+    it('treats a genuinely absent marker as not-enrolled with one read and no retry', async () => {
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'not-enrolled' });
+      expect(markerReads(COUNTERPARTY)).toHaveLength(1);
+      expect(sleeps).toEqual([]);
+      expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('none');
+    });
+
+    it('does not retry a marker whose content is unusable, and reports it apart from unreachable', async () => {
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_INVALID_DATA_ERROR, remaining: Infinity });
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'unreachable', reason: 'unreadable' });
+      expect(markerReads(COUNTERPARTY)).toHaveLength(1);
+      expect(sleeps).toEqual([]);
+    });
+
+    it('rethrows a rejection that is not a marker read failure', async () => {
+      world.markerReadFailures.set(COUNTERPARTY, { message: 'something else entirely', remaining: Infinity });
+
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).rejects.toThrow('something else entirely');
+    });
+
+    it('inbox sync skips an unreachable counterparty and still drains a healthy one', async () => {
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+      world.markers.set(OTHER, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+      world.inboundFrom.add(OTHER);
+      world.responderCompletes.add(OTHER);
+
+      await expect(
+        MessagingApplication.syncCounterparties(OWNER, [COUNTERPARTY, OTHER], { policy: ADMIT_ALL_POLICY }),
+      ).resolves.toBeUndefined();
+
+      expect(await LocalMessagingService.getLink(OWNER, OTHER)).toMatchObject({ status: 'established' });
+      expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('waiting');
+    });
+
+    it('a repeated inbox sync does not re-read an unreachable counterparty before its backoff is due', async () => {
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+      await MessagingApplication.syncCounterparties(OWNER, [COUNTERPARTY], { policy: ADMIT_ALL_POLICY });
+      const reads = markerReads(COUNTERPARTY).length;
+
+      advanceClock(POLL_MS);
+      await MessagingApplication.syncCounterparties(OWNER, [COUNTERPARTY], { policy: ADMIT_ALL_POLICY });
+
+      expect(markerReads(COUNTERPARTY)).toHaveLength(reads);
+    });
+
+    it('a public marker lookup fails with a marker read failure, not the binding text', async () => {
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+
+      await expect(PaykitMessagingService.getCounterpartyMarker(COUNTERPARTY)).rejects.toMatchObject({
+        name: 'MarkerReadFailure',
+        reason: 'unreachable',
+        message: 'The messaging setup of this account could not be reached.',
+      });
+    });
+
+    it('a crossed-handshake probe that cannot read the marker leaves the pending handshake pending', async () => {
+      // OWNER ('a…') < COUNTERPARTY ('z…'): the owner is the side that probes for a crossed handshake.
+      world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+      advanceClock(POLL_MS);
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
     });
   });
 
