@@ -37,6 +37,7 @@ type AppModules = {
   listingToCanonicalRows: typeof import('@/application/commerce/inventory-listing-map').listingToCanonicalRows;
   DexieManifestStore: typeof import('@/services/marketplace/marketplace-import-store').DexieManifestStore;
   INVENTORY_GRANT: typeof import('@/services/marketplace/marketplace-inventory-grant').INVENTORY_GRANT;
+  MARKETPLACE_SESSION_GRANT: typeof import('@/services/marketplace/marketplace-session-grant').MARKETPLACE_SESSION_GRANT;
   MarketplaceShopClientService: typeof import('@/services/marketplace/marketplace-shop-client').MarketplaceShopClientService;
   MarketplaceSessionService: typeof import('@/services/marketplace/marketplace-session').MarketplaceSessionService;
   MarketplaceInventorySessionService: typeof import('@/services/marketplace/marketplace-inventory-session').MarketplaceInventorySessionService;
@@ -175,6 +176,8 @@ describe('inventory studio W4 staging proof', () => {
       listingToCanonicalRows: (await import('@/application/commerce/inventory-listing-map')).listingToCanonicalRows,
       DexieManifestStore: (await import('@/services/marketplace/marketplace-import-store')).DexieManifestStore,
       INVENTORY_GRANT: (await import('@/services/marketplace/marketplace-inventory-grant')).INVENTORY_GRANT,
+      MARKETPLACE_SESSION_GRANT: (await import('@/services/marketplace/marketplace-session-grant'))
+        .MARKETPLACE_SESSION_GRANT,
       MarketplaceShopClientService: (await import('@/services/marketplace/marketplace-shop-client'))
         .MarketplaceShopClientService,
       MarketplaceSessionService: (await import('@/services/marketplace/marketplace-session')).MarketplaceSessionService,
@@ -200,6 +203,7 @@ describe('inventory studio W4 staging proof', () => {
       MarketplaceSessionService,
       MarketplaceInventorySessionService,
       INVENTORY_GRANT,
+      MARKETPLACE_SESSION_GRANT,
       useAuthStore,
       sdk,
     } = modules;
@@ -212,13 +216,13 @@ describe('inventory studio W4 staging proof', () => {
     expect(useAuthStore.getState().selectSession()?.info?.publicKey?.z32()).toBe(sellerPubky);
 
     const identityFlow = MarketplaceSessionService.beginSessionFlow();
+    expect(new URL(identityFlow.authorizationUrl).searchParams.get('caps')).toBe(MARKETPLACE_SESSION_GRANT);
     await new sdk.Pubky().signer(keypair).approveAuthRequest(identityFlow.authorizationUrl);
     await identityFlow.awaitSession();
     expect(MarketplaceSessionService.getActiveSession()?.pubky).toBe(sellerPubky);
 
     const inventoryFlow = MarketplaceInventorySessionService.beginInventorySessionFlow(sellerPubky);
-    expect(inventoryFlow.authorizationUrl).toContain('marketplace-service');
-    expect(inventoryFlow.authorizationUrl).not.toMatch(/(?:^|[?&,])caps=\/:rw(?:&|$)/);
+    expect(new URL(inventoryFlow.authorizationUrl).searchParams.get('caps')).toBe(INVENTORY_GRANT);
     await new sdk.Pubky().signer(keypair).approveAuthRequest(inventoryFlow.authorizationUrl);
     const inventoryInfo = await inventoryFlow.awaitSession();
     expect(inventoryInfo.capabilities).toBe(INVENTORY_GRANT);

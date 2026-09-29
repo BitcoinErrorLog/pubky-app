@@ -2,12 +2,14 @@ import 'fake-indexeddb/auto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
 
 /**
- * LIVE STAGING PROOF for Inventory Studio W1: identity session, then the
- * seller step-up grant (`/pub/pubky.app/marketplace-service/v1/:rw`, never
- * `/:rw`), then one `inventory.adjust` through the Wave 3a client.
+ * LIVE STAGING PROOF for Inventory Studio W1: identity session on the
+ * marketplace session grant, then the seller step-up whose `caps` query
+ * parameter is the inventory grant (percent-encoded in the URL string,
+ * never `/:rw`), then one `inventory.adjust` through the Wave 3a client.
+ *
+ * Env is assigned before any `@/` import so validation sees these defaults.
  *
  *   MARKETPLACE_STAGING_DROP_IDENTITIES_FILE=/path/outside/the/repo.json \
  *   npm run test:marketplace:inventory
@@ -30,6 +32,8 @@ const IDENTITIES_FILE = process.env.MARKETPLACE_STAGING_DROP_IDENTITIES_FILE ?? 
 const LISTING_ID = process.env.INVENTORY_LIVE_LISTING_ID ?? '';
 
 type AppModules = {
+  INVENTORY_GRANT: typeof import('@/services/marketplace/marketplace-inventory-grant').INVENTORY_GRANT;
+  MARKETPLACE_SESSION_GRANT: typeof import('@/services/marketplace/marketplace-session-grant').MARKETPLACE_SESSION_GRANT;
   MarketplaceSessionService: typeof import('@/services/marketplace/marketplace-session').MarketplaceSessionService;
   MarketplaceInventorySessionService: typeof import('@/services/marketplace/marketplace-inventory-session').MarketplaceInventorySessionService;
   CommerceInventoryApplication: typeof import('@/application/commerce/inventory').CommerceInventoryApplication;
@@ -48,6 +52,9 @@ function hexToBytes(hex: string): Uint8Array {
 describe('inventory studio staging proof', () => {
   beforeAll(async () => {
     modules = {
+      INVENTORY_GRANT: (await import('@/services/marketplace/marketplace-inventory-grant')).INVENTORY_GRANT,
+      MARKETPLACE_SESSION_GRANT: (await import('@/services/marketplace/marketplace-session-grant'))
+        .MARKETPLACE_SESSION_GRANT,
       MarketplaceSessionService: (await import('@/services/marketplace/marketplace-session')).MarketplaceSessionService,
       MarketplaceInventorySessionService: (await import('@/services/marketplace/marketplace-inventory-session'))
         .MarketplaceInventorySessionService,
@@ -69,6 +76,8 @@ describe('inventory studio staging proof', () => {
       MarketplaceSessionService,
       MarketplaceInventorySessionService,
       CommerceInventoryApplication,
+      INVENTORY_GRANT,
+      MARKETPLACE_SESSION_GRANT,
       sdk,
     } = modules;
     const keypair = sdk.Keypair.fromSecret(hexToBytes(secretHex));
@@ -77,12 +86,13 @@ describe('inventory studio staging proof', () => {
     expect(signedIn, 'homeserver sign-in must succeed').not.toBeNull();
 
     const identityFlow = MarketplaceSessionService.beginSessionFlow();
+    expect(new URL(identityFlow.authorizationUrl).searchParams.get('caps')).toBe(MARKETPLACE_SESSION_GRANT);
     await new sdk.Pubky().signer(keypair).approveAuthRequest(identityFlow.authorizationUrl);
     await identityFlow.awaitSession();
     expect(MarketplaceSessionService.getActiveSession()?.pubky).toBe(pubky);
 
     const inventoryFlow = MarketplaceInventorySessionService.beginInventorySessionFlow(pubky);
-    expect(inventoryFlow.authorizationUrl).toContain('marketplace-service');
+    expect(new URL(inventoryFlow.authorizationUrl).searchParams.get('caps')).toBe(INVENTORY_GRANT);
     await new sdk.Pubky().signer(keypair).approveAuthRequest(inventoryFlow.authorizationUrl);
     const inventoryInfo = await inventoryFlow.awaitSession();
     expect(inventoryInfo.capabilities).toBe(INVENTORY_GRANT);
