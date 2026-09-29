@@ -123,6 +123,7 @@ export class LocalMessagingService {
       id,
       snapshot: wrapped,
       wrap_version: WRAP_VERSION_AES_GCM_256,
+      write_id: crypto.randomUUID(),
     });
   }
 
@@ -154,6 +155,7 @@ export class LocalMessagingService {
       wrap_version: WRAP_VERSION_AES_GCM_256,
       status,
       send_pending: false,
+      write_id: crypto.randomUUID(),
       updated_at: now,
     });
   }
@@ -172,7 +174,20 @@ export class LocalMessagingService {
         operation: 'markSendPending',
       });
     }
-    await CommerceMessagingLinkModel.upsert({ ...row, send_pending: true });
+    await CommerceMessagingLinkModel.upsert({ ...row, send_pending: true, write_id: crypto.randomUUID() });
+  }
+
+  /**
+   * Identifies the pair's link row as last written, without unwrapping its
+   * snapshot; `null` when no row exists. Any write changes it: this build
+   * replaces `write_id` on every write, and every snapshot write, from any
+   * build, re-wraps the snapshot under a fresh IV.
+   */
+  static async getLinkRevision(ownerId: string, counterpartyPubky: string): Promise<string | null> {
+    const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    if (!row) return null;
+    const snapshot = Array.from(row.snapshot, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${row.write_id ?? 'legacy'}|${row.status}|${row.send_pending ? 1 : 0}|${snapshot}`;
   }
 
   /**

@@ -96,6 +96,13 @@ export interface CommerceMessagingLinkModelSchema {
    * needed no Dexie version.
    */
   send_pending?: boolean;
+  /**
+   * Random id replaced by every write of this row, from any tab. A tab that
+   * finds a different id than its own last write or read knows another tab
+   * moved the link on, and drops its in-memory handle or handshake instead
+   * of sending or saving from a stale one. Not indexed.
+   */
+  write_id?: string;
   created_at: number;
   updated_at: number;
 }
