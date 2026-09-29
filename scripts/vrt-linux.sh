@@ -61,14 +61,14 @@ restore_nm() {
     return "$status"
   fi
   # Docker Desktop releases the nested volume mount after the container
-  # exits. rm of that mountpoint returns "Permission denied" until the
-  # share is gone, and a single attempt then fails the gate after the
-  # tests have already passed.
+  # exits. Never recursively delete this path: on some versions that reaches
+  # the still-mounted dependency volume and destroys its contents. `rmdir`
+  # fails safely while the non-empty mount is present and succeeds once
+  # Docker has released the empty host mountpoint.
   for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     if [ ! -e "$ROOT/node_modules" ] && [ ! -L "$ROOT/node_modules" ]; then
       break
     fi
-    rm -rf "$ROOT/node_modules" 2>/dev/null || true
     if [ -d "$ROOT/node_modules" ] && [ ! -L "$ROOT/node_modules" ]; then
       rmdir "$ROOT/node_modules" 2>/dev/null || true
     fi
