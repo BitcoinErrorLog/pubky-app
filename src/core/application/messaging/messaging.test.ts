@@ -7,12 +7,17 @@ import { CommerceMessagingConversationModel, CommerceMessagingOutboxModel } from
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { type MessagingLinkState, PaykitMessagingService } from '@/services/paykit/paykit-messaging';
 import { ADMIT_ALL_POLICY, policyMuting } from '@/test-utils/messaging-gate';
+import { installWebLocks, removeWebLocks } from '@/test-utils/web-locks';
 import {
   MESSAGING_SYNC_MAX_COUNTERPARTIES,
   MESSAGING_SYNC_MAX_RECOVERY_PROBES,
   MESSAGING_SYNC_RESERVED_NEW_PROBES,
   MessagingApplication,
 } from './messaging';
+
+// Every read and write of wrapped messaging state holds the key fence.
+beforeEach(installWebLocks);
+afterEach(removeWebLocks);
 
 const advanceClock = (ms: number) => vi.setSystemTime(Date.now() + ms);
 

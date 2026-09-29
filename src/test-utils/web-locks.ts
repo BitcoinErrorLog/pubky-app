@@ -1,22 +1,67 @@
+type LockMode = 'exclusive' | 'shared';
+type PendingRequest = { mode: LockMode; grant: () => void };
+type LockState = { held: LockMode | null; holders: number; queue: PendingRequest[] };
+
 /**
- * A Web Locks stand-in shared by every "tab" of a test: one exclusive holder
- * per name, granted in request order. jsdom has no `navigator.locks`.
+ * A Web Locks stand-in shared by every "tab" of a test, with the browser's
+ * grant rules: per name, requests are granted in order; an exclusive
+ * request waits for every holder, and a shared request waits for an
+ * exclusive holder and for any request queued ahead of it. `signal`
+ * aborts a request still waiting. jsdom has no `navigator.locks`.
  */
 export function installWebLocks(): void {
-  const tails = new Map<string, Promise<void>>();
-  const request = async <T>(name: string, callback: () => Promise<T>): Promise<T> => {
-    const previous = tails.get(name) ?? Promise.resolve();
-    let release = () => {};
-    const next = new Promise<void>((resolve) => (release = resolve));
-    tails.set(
-      name,
-      previous.then(() => next),
-    );
-    await previous;
+  const states = new Map<string, LockState>();
+  const stateOf = (name: string): LockState => {
+    let state = states.get(name);
+    if (!state) {
+      state = { held: null, holders: 0, queue: [] };
+      states.set(name, state);
+    }
+    return state;
+  };
+  const drain = (state: LockState) => {
+    while (state.queue.length > 0) {
+      const next = state.queue[0];
+      const grantable = state.holders === 0 || (state.held === 'shared' && next.mode === 'shared');
+      if (!grantable) return;
+      state.queue.shift();
+      state.held = next.mode;
+      state.holders += 1;
+      next.grant();
+      if (next.mode === 'exclusive') return;
+    }
+  };
+  const request = async <T>(
+    name: string,
+    optionsOrCallback: { mode?: LockMode; signal?: AbortSignal } | (() => Promise<T>),
+    maybeCallback?: () => Promise<T>,
+  ): Promise<T> => {
+    const options = typeof optionsOrCallback === 'function' ? {} : optionsOrCallback;
+    const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback!;
+    const mode = options.mode ?? 'exclusive';
+    const state = stateOf(name);
+    await new Promise<void>((resolve, reject) => {
+      const pending: PendingRequest = { mode, grant: resolve };
+      if (options.signal?.aborted) {
+        reject(new DOMException('The lock request was aborted.', 'AbortError'));
+        return;
+      }
+      options.signal?.addEventListener('abort', () => {
+        const index = state.queue.indexOf(pending);
+        if (index === -1) return;
+        state.queue.splice(index, 1);
+        reject(new DOMException('The lock request was aborted.', 'AbortError'));
+        drain(state);
+      });
+      state.queue.push(pending);
+      drain(state);
+    });
     try {
       return await callback();
     } finally {
-      release();
+      state.holders -= 1;
+      if (state.holders === 0) state.held = null;
+      drain(state);
     }
   };
   Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true });
