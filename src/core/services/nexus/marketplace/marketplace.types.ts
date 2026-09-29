@@ -153,6 +153,12 @@ export type NexusListingStreamSorting = 'timeline' | 'ends_at';
  * listings indexed before Nexus carried these fields serve `null` for all
  * five until re-indexed, so an auction row with null terms is a legal stale
  * state, not a protocol violation.
+ *
+ * `state` is the state the index serves. A seller's record keeps `active`
+ * after an auction closes, so an index that derives state reports the auction
+ * as `ended` from `auction_ends_at` on, while an index that does not still
+ * reports `active`. Read it through `effectiveListingState`, which applies the
+ * same rule on the client.
  */
 export type NexusListingDetails = {
   id: string;
@@ -199,7 +205,9 @@ export type NexusListingDetails = {
  * them unless `currency` is also provided. `category` is an exact match on
  * the kebab-case category id. `limit` is capped server-side at 30.
  * `sorting=ends_at` returns only auction listings; combine with
- * `order=ascending` for an "ending soon" stream.
+ * `order=ascending` for an "ending soon" stream. `state=active` excludes an
+ * auction whose end time has passed on an index that derives state; the
+ * catalog also drops such rows itself because cached rows outlive the query.
  */
 export type TListingStreamParams = {
   seller_id?: string;

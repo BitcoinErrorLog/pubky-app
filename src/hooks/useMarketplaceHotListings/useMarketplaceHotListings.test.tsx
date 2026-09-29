@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { catalogItemFromCatalogEntry } from '@/hooks/useMarketplaceCatalog/useMarketplaceCatalog.utils';
 import { COMMERCE_FIXTURE_SELLER, createCommerceCatalogEntryFixture } from '@/test/fixtures/commerce/commerce';
 import { useMarketplaceHotListings } from './useMarketplaceHotListings';
@@ -47,11 +47,18 @@ function auctionEntry(listingId: string, endsAt: string) {
 describe('useMarketplaceHotListings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The auction fixtures end in August 2026; run the hook while they are open.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse('2026-08-20T00:00:00.000Z'));
     mockGetCommerceAdapterMode.mockReturnValue('transaction-service');
     mockGetAllListings.mockReturnValue([]);
     mockGetAllCatalogEntries.mockReturnValue([]);
     mockGetAllShops.mockReturnValue([]);
     mockFetchCatalogListings.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('is inert when the marketplace adapter mode is unavailable (the nav-entry gate)', () => {
@@ -78,6 +85,20 @@ describe('useMarketplaceHotListings', () => {
     expect(result.current.endingSoon).toEqual([catalogItemFromCatalogEntry(auction)]);
     // The auction is already shown by the ending-soon module, so "fresh"
     // holds only the remaining active listing.
+    expect(result.current.fresh).toEqual([catalogItemFromCatalogEntry(fixedPrice)]);
+  });
+
+  it('leaves an auction that closed without a seller edit out of both modules', async () => {
+    vi.setSystemTime(Date.parse('2026-09-29T12:00:00.000Z'));
+    const closed = auctionEntry('closed_weeks_ago', '2026-08-29T08:00:00.000Z');
+    const fixedPrice = createCommerceCatalogEntryFixture();
+    mockGetAllCatalogEntries.mockReturnValue([closed, fixedPrice]);
+
+    const { result } = renderHook(() => useMarketplaceHotListings());
+
+    await waitFor(() => expect(mockFetchCatalogListings).toHaveBeenCalledTimes(2));
+    expect(closed.state).toBe('active');
+    expect(result.current.endingSoon).toEqual([]);
     expect(result.current.fresh).toEqual([catalogItemFromCatalogEntry(fixedPrice)]);
   });
 

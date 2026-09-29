@@ -1,4 +1,5 @@
 import { truncateByGraphemes } from '@/libs/utils/truncate';
+import { listingDisplayState } from './auction-phase';
 import { formatCommerceCondition, formatCommerceMoney } from './format';
 import type { CommerceListingRecord, CommerceShopRecord } from './marketplace-records';
 
@@ -28,11 +29,13 @@ export function listingPriceLabel(listing: CommerceListingRecord): string {
 
 /**
  * Human notice for non-active listing states, or `null` for active listings.
+ * An auction past its end time reads as ended even when the record still
+ * says `active`.
  * `removed` never reaches the builders (the data layer refuses to preview
  * removed listings), but it maps honestly anyway rather than throwing.
  */
-export function listingStateNotice(listing: CommerceListingRecord): string | null {
-  switch (listing.state) {
+export function listingStateNotice(listing: CommerceListingRecord, nowMs: number = Date.now()): string | null {
+  switch (listingDisplayState(listing.state, listing.sale, nowMs)) {
     case 'active':
       return null;
     case 'paused':

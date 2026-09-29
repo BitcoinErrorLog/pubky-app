@@ -1,3 +1,4 @@
+import { effectiveListingState } from '@/libs/commerce/auction-phase';
 import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-records';
 import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
@@ -176,15 +177,33 @@ export function buildMarketplaceCatalogItems(
   return [...items.values()];
 }
 
+/**
+ * The state a card is shown in at `nowMs`. Cached index rows and canonical
+ * records keep `active` after an auction closes, so an auction whose end time
+ * has been reached reads as `ended` here, whatever the source held.
+ */
+export function catalogItemState(
+  item: MarketplaceCatalogItem,
+  nowMs: number = Date.now(),
+): MarketplaceCatalogItem['state'] {
+  return effectiveListingState(item.state, item.auction?.endsAt, nowMs);
+}
+
+/** True for listings a buyer can act on at `nowMs`: active, and no closed auction. */
+export function isCatalogItemOpen(item: MarketplaceCatalogItem, nowMs: number = Date.now()): boolean {
+  return catalogItemState(item, nowMs) === 'active';
+}
+
 export function filterMarketplaceCatalog(
   items: MarketplaceCatalogItem[],
   filters: MarketplaceCatalogFilters,
+  nowMs: number = Date.now(),
 ): MarketplaceCatalogItem[] {
   const query = filters.query.trim().toLocaleLowerCase('en-US');
   const filtered = items.filter((item) => {
     const searchable = [item.title, item.description, ...item.tags].join(' ').toLocaleLowerCase('en-US');
     return (
-      item.state === 'active' &&
+      isCatalogItemOpen(item, nowMs) &&
       (query === '' || searchable.includes(query)) &&
       (filters.categoryId === null ||
         item.categoryId === filters.categoryId ||

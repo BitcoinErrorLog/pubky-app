@@ -22,13 +22,17 @@ function auctionItem(listingId: string, endsAt: string, overrides: Parameters<ty
   });
 }
 
+// The auction fixtures end in August 2026; the tests that need them running
+// pin the clock before that.
+const AUCTIONS_RUNNING_MS = Date.parse('2026-08-20T00:00:00.000Z');
+
 describe('composeEndingSoonListings', () => {
   it('orders active auctions by soonest end and caps the module', () => {
     const endsLater = auctionItem('ends_later', '2026-08-29T20:00:00.000Z');
     const endsSoonest = auctionItem('ends_soonest', '2026-08-22T20:00:00.000Z');
     const endsMiddle = auctionItem('ends_middle', '2026-08-25T20:00:00.000Z');
 
-    const result = composeEndingSoonListings([endsLater, endsSoonest, endsMiddle], 2);
+    const result = composeEndingSoonListings([endsLater, endsSoonest, endsMiddle], 2, AUCTIONS_RUNNING_MS);
 
     expect(result.map(({ id }) => id)).toEqual([endsSoonest.id, endsMiddle.id]);
   });
@@ -43,7 +47,20 @@ describe('composeEndingSoonListings', () => {
       auction: null,
     });
 
-    expect(composeEndingSoonListings([fixedPrice, endedAuction, termlessAuction], 4)).toEqual([]);
+    expect(composeEndingSoonListings([fixedPrice, endedAuction, termlessAuction], 4, AUCTIONS_RUNNING_MS)).toEqual([]);
+  });
+
+  it('excludes auctions past their end time even when the cached row still says active', () => {
+    const closedWeeksAgo = auctionItem('closed_weeks_ago', '2026-08-29T08:00:00.000Z');
+    const closesAtNow = auctionItem('closes_at_now', '2026-09-29T12:00:00.000Z');
+    const closesNext = auctionItem('closes_next', '2026-09-30T12:00:00.000Z');
+    const now = Date.parse('2026-09-29T12:00:00.000Z');
+
+    expect(closedWeeksAgo.state).toBe('active');
+    const result = composeEndingSoonListings([closedWeeksAgo, closesNext, closesAtNow], 4, now);
+
+    expect(result.map(({ id }) => id)).toEqual([closesNext.id]);
+    expect(composeEndingSoonListings([closesAtNow], 4, now - 1).map(({ id }) => id)).toEqual([closesAtNow.id]);
   });
 });
 
@@ -57,6 +74,15 @@ describe('composeFreshListings', () => {
     const result = composeFreshListings([stale, shownElsewhere, fresh, paused], new Set([shownElsewhere.id]), 4);
 
     expect(result.map(({ id }) => id)).toEqual([fresh.id, stale.id]);
+  });
+
+  it('skips auctions past their end time', () => {
+    const closed = auctionItem('closed', '2026-08-29T08:00:00.000Z', { updated_at: 5_000 });
+    const fresh = item({ id: `${COMMERCE_FIXTURE_SELLER}:fresh`, listing_id: 'fresh', updated_at: 2_000 });
+    const now = Date.parse('2026-09-29T12:00:00.000Z');
+
+    expect(composeFreshListings([closed, fresh], new Set(), 4, now).map(({ id }) => id)).toEqual([fresh.id]);
+    expect(composeFreshListings([closed, fresh], new Set(), 4, Date.parse(closed.auction!.endsAt) - 1)).toHaveLength(2);
   });
 
   it('caps the module and returns empty when nothing is active', () => {

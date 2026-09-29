@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getAuctionPhase, isAuctionSaleEnded, listingDisplayState } from './auction-phase';
+import { effectiveListingState, getAuctionPhase, isAuctionSaleEnded, listingDisplayState } from './auction-phase';
 
 const startsAt = '2026-09-09T10:00:00.000Z';
 const endsAt = '2026-09-09T11:00:00.000Z';
@@ -41,5 +41,31 @@ describe('listingDisplayState', () => {
       'active',
     );
     expect(listingDisplayState('active', { format: 'auction', startsAt, endsAt }, Date.parse(endsAt))).toBe('ended');
+  });
+});
+
+describe('effectiveListingState', () => {
+  const endMs = Date.parse(endsAt);
+
+  it('reads an active auction as ended once the end time is reached, not one millisecond before', () => {
+    expect(effectiveListingState('active', endsAt, endMs - 1)).toBe('active');
+    expect(effectiveListingState('active', endsAt, endMs)).toBe('ended');
+    expect(effectiveListingState('active', endsAt, endMs + 1)).toBe('ended');
+  });
+
+  it('reads an auction that closed weeks ago as ended', () => {
+    expect(effectiveListingState('active', endsAt, endMs + 31 * 86_400_000)).toBe('ended');
+  });
+
+  it('never overrides a state the seller chose', () => {
+    for (const state of ['paused', 'removed', 'ended'] as const) {
+      expect(effectiveListingState(state, endsAt, endMs + 1)).toBe(state);
+    }
+  });
+
+  it('never expires a listing without a usable end time', () => {
+    expect(effectiveListingState('active', null, endMs + 1)).toBe('active');
+    expect(effectiveListingState('active', undefined, endMs + 1)).toBe('active');
+    expect(effectiveListingState('active', 'not a date', endMs + 1)).toBe('active');
   });
 });
