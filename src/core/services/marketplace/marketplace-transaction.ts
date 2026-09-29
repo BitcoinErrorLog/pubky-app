@@ -958,13 +958,9 @@ export class MarketplaceTransactionService {
       'getSellerPaymentConfig',
     );
     await this.throwPaymentMethodError(response, 'getSellerPaymentConfig');
-    const raw = await parseResponseOrThrow<unknown>(
-      response,
-      ErrorService.Marketplace,
-      'getSellerPaymentConfig',
-      url,
-      PARSE_JSON_WITH_BODY_EXCERPT,
-    );
+    // No body excerpt: a service that predates the boolean rails sends the
+    // seller's PayPal email in this body.
+    const raw = await parseResponseOrThrow<unknown>(response, ErrorService.Marketplace, 'getSellerPaymentConfig', url);
     return this.parseProjection(
       'getSellerPaymentConfig',
       sellerPaymentConfigSchema,
