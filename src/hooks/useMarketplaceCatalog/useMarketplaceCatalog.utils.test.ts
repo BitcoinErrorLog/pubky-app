@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { createCommerceSandboxCatalog } from '@/libs/commerce/sandbox-catalog';
+import type { CommerceCatalogEntryModelSchema } from '@/models/commerce/commerce.schema';
 import {
   COMMERCE_FIXTURE_SELLER,
   createCommerceCatalogEntryFixture,
   createCommerceListingFixture,
 } from '@/test/fixtures/commerce/commerce';
-import type { CommerceCatalogEntryModelSchema } from '@/models/commerce/commerce.schema';
 import { toCommerceListingModel } from '@/test/fixtures/commerce/listing-models';
 import {
   applyMarketplaceAttributeFilters,
   buildMarketplaceCatalogItems,
   catalogItemFromCatalogEntry,
-  collectMarketplaceAttributeFacets,
   catalogItemState,
+  collectMarketplaceAttributeFacets,
   filterMarketplaceCatalog,
   isCatalogItemOpen,
   type MarketplaceCatalogFilters,
