@@ -46,6 +46,7 @@ function SuggestionList({
   activeIndex,
   onSelect,
   onHover,
+  className,
 }: {
   id: string;
   testId: string;
@@ -53,13 +54,17 @@ function SuggestionList({
   activeIndex: number;
   onSelect: (id: string) => void;
   onHover: (index: number) => void;
+  className?: string;
 }) {
   return (
     <ul
       id={id}
       role="listbox"
       data-testid={testId}
-      className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-md"
+      className={cn(
+        'absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-md',
+        className,
+      )}
     >
       {items.map((item, index) => (
         <li
@@ -293,6 +298,7 @@ export function MarketplaceAddressFields<T extends FieldValues>({
                 activeIndex={suggestIndex}
                 onSelect={applySuggestion}
                 onHover={setSuggestIndex}
+                className="top-full"
               />
             ) : null}
           </Container>
