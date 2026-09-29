@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessagingApplication } from '@/application/messaging/messaging';
 import { DB_NAME } from '@/config/database';
+import { resumePendingMessagingTeardown } from '@/database/franky/franky.helpers';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
@@ -44,6 +45,7 @@ const RAW_MARKER_INVALID_DATA_ERROR =
   'failed to fetch receiver marker: invalid data: get_paykit_receiver_marker: Paykit receiver marker JSON is invalid: expected value at line 1 column 1';
 
 const advanceClock = (ms: number) => vi.setSystemTime(Date.now() + ms);
+const TEARDOWN_PENDING = 'pubky-messaging-keys-teardown-pending';
 const POLL_MS = 2_000;
 
 const OWNER = 'a'.repeat(52);
@@ -351,6 +353,7 @@ describe('PaykitMessagingService', () => {
     wasm = fake.module;
     setPaykitWasmModuleForTests(fake.module);
     installWebLocks();
+    window.localStorage.removeItem(TEARDOWN_PENDING);
     config.mode = 'transaction-service';
     PaykitMessagingService.clearSession();
     await Promise.all([
@@ -1605,6 +1608,8 @@ describe('PaykitMessagingService', () => {
       signOut: () => Promise<void>;
       /** Drops the tab's cached wrapping key, as a reload does. */
       forgetKeys: () => void;
+      /** How long this tab's sign-out waits for other tabs before it returns. */
+      setTeardownWait: (ms: number) => void;
       close: () => Promise<void>;
     };
     const tabA = { service: PaykitMessagingService, application: MessagingApplication };
@@ -1632,6 +1637,7 @@ describe('PaykitMessagingService', () => {
           await helpers.clearDatabase();
         },
         forgetKeys: () => keyring.dropCachedWrappingKeyForTests(),
+        setTeardownWait: (ms) => keyring.setTeardownLockWaitForTests(ms),
         close: async () => {
           application.MessagingApplication.clearMessagingSession();
           service.setPaykitWasmModuleForTests(null);
@@ -2087,6 +2093,59 @@ describe('PaykitMessagingService', () => {
         expect(world.calls).not.toContain('link.send');
         await expect(LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY)).resolves.toBe(revisionBefore);
         expect(tabA.service.hasActiveSession(OWNER)).toBe(false);
+      });
+
+      it('never clears while a writer that passed the check is suspended past sign-out’s wait', async () => {
+        tabB!.setTeardownWait(20);
+        let resume!: () => void;
+        const suspended = new Promise<void>((resolve) => {
+          resume = resolve;
+        });
+        let reached!: () => void;
+        const atWrap = new Promise<void>((resolve) => {
+          reached = resolve;
+        });
+        const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+        vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+          reached();
+          await suspended;
+          return await encrypt(...args);
+        });
+        const sending = tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('suspended mid-save'));
+        await atWrap;
+
+        await tabB!.signOut();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        // Sign-out returned, but nothing key-wrapped was cleared while the writer holds the fence.
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(1);
+        expect(window.localStorage.getItem(TEARDOWN_PENDING)).not.toBeNull();
+
+        resume();
+        await sending.catch(() => undefined);
+        await vi.waitFor(async () => {
+          expect(window.localStorage.getItem(TEARDOWN_PENDING)).toBeNull();
+        });
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(0);
+        await expect(CommerceMessagingReceiverModel.table.count()).resolves.toBe(0);
+        await expectEveryWrappedRowOpens();
+      });
+
+      it('finishes a sign-out a closed tab left pending, and reads and writes nothing until then', async () => {
+        window.localStorage.setItem(TEARDOWN_PENDING, '1');
+        world.calls.length = 0;
+
+        await expect(tabA.service.sendChatMessage(OWNER, COUNTERPARTY, chat('before the cleanup'))).rejects.toThrow(
+          /reset in another tab/,
+        );
+        expect(world.sentCounters).toEqual([]);
+        expect(world.calls).not.toContain('link.send');
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(1);
+
+        await resumePendingMessagingTeardown();
+
+        expect(window.localStorage.getItem(TEARDOWN_PENDING)).toBeNull();
+        await expect(CommerceMessagingLinkModel.table.count()).resolves.toBe(0);
+        await expect(CommerceMessagingReceiverModel.table.count()).resolves.toBe(0);
       });
 
       it('treats a keyring an older build deleted as stale, and writes nothing under it', async () => {
