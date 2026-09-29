@@ -122,7 +122,10 @@ export class HomeserverService {
     url: string,
     method: HttpMethod,
   ): void {
-    if (useAuthStore.getState().selectSession() === expectedSession && readAuthEpoch() === expectedEpoch) return;
+    const authState = useAuthStore.getState();
+    if (!authState.isLoggingOut && authState.selectSession() === expectedSession && readAuthEpoch() === expectedEpoch) {
+      return;
+    }
     throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Session ended before the homeserver write completed.', {
       service: ErrorService.Homeserver,
       operation: 'write',

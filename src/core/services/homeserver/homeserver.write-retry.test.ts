@@ -1,15 +1,17 @@
 import type { Session } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthApplication } from '@/application/auth/auth';
+import { AuthController } from '@/controllers/auth/auth';
 import { AUTH_EPOCH_KEY } from '@/controllers/auth/auth-epoch';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { HttpMethod } from '@/libs/http/http.types';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { CommerceHomeserverService } from './commerce/commerce';
 import { HomeserverService } from './homeserver';
 import { installHomeserverWriteRetryDependenciesForTests } from './write-retry';
 
 const mockState = vi.hoisted(() => ({
-  currentSession: null as Session | null,
   putJson: vi.fn(),
   putBytes: vi.fn(),
   delete: vi.fn(),
@@ -20,14 +22,6 @@ vi.mock('@/libs/logger/logger', () => ({
   Logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: {
-    getState: () => ({
-      selectSession: () => mockState.currentSession,
-    }),
-  },
-}));
-
 vi.mock('@synonymdev/pubky', () => {
   const createSdk = () => ({
     client: { fetch: (...args: unknown[]) => mockState.fetch(...args) },
@@ -36,6 +30,8 @@ vi.mock('@synonymdev/pubky', () => {
   const MockPubky = vi.fn().mockImplementation(createSdk);
   // @ts-expect-error testnet is a static constructor on the SDK class
   MockPubky.testnet = vi.fn().mockImplementation(createSdk);
+  // @ts-expect-error withClient is a static constructor on the SDK class
+  MockPubky.withClient = vi.fn().mockImplementation(createSdk);
   return { Pubky: MockPubky, Client: vi.fn(), resolvePubky: (url: string) => url };
 });
 
@@ -70,7 +66,13 @@ describe('homeserver writes route through the shared retry policy', () => {
     // client whose fetch is not this file's mock.
     Reflect.set(HomeserverService, 'pubkySdk', null);
     localStorage.removeItem(AUTH_EPOCH_KEY);
-    mockState.currentSession = session();
+    useAuthStore.setState({
+      session: session(),
+      currentUserPubky: 'user',
+      sessionExport: null,
+      grantSessionRecordId: null,
+      isLoggingOut: false,
+    });
     mockState.putJson.mockReset().mockResolvedValue(undefined);
     mockState.putBytes.mockReset().mockResolvedValue(undefined);
     mockState.delete.mockReset().mockResolvedValue(undefined);
@@ -80,6 +82,8 @@ describe('homeserver writes route through the shared retry policy', () => {
 
   afterEach(() => {
     installHomeserverWriteRetryDependenciesForTests(null);
+    useAuthStore.setState({ session: null, currentUserPubky: null, isLoggingOut: false });
+    vi.restoreAllMocks();
   });
 
   it('retries a listing PUT on 429 with Retry-After and replays the same JSON', async () => {
@@ -103,30 +107,50 @@ describe('homeserver writes route through the shared retry policy', () => {
     });
   });
 
-  it('revert-fail: aborts a retry when sign-out advances the auth epoch during backoff', async () => {
+  it('revert-fail: aborts a retry while real logout is in progress before the auth epoch advances', async () => {
     mockState.putJson.mockRejectedValueOnce(requestError(500)).mockResolvedValueOnce(undefined);
+    let releaseRetry!: () => void;
+    const retryHeld = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
     installHomeserverWriteRetryDependenciesForTests({
-      sleep: async () => localStorage.setItem(AUTH_EPOCH_KEY, '1'),
+      sleep: async () => await retryHeld,
       random: () => 0,
       now: () => 0,
     });
 
-    await expect(
-      HomeserverService.request({
-        method: HttpMethod.PUT,
-        url: PROFILE_URL,
-        bodyJson: { name: 'Ada' },
-      }),
-    ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+    let releaseLogout!: () => void;
+    const logoutHeld = new Promise<void>((resolve) => {
+      releaseLogout = resolve;
+    });
+    vi.spyOn(AuthApplication, 'logout').mockImplementation(async () => await logoutHeld);
+    vi.spyOn(AuthApplication, 'clearGrantSessions').mockResolvedValue(undefined);
+
+    const write = HomeserverService.request({
+      method: HttpMethod.PUT,
+      url: PROFILE_URL,
+      bodyJson: { name: 'Ada' },
+    });
+    await vi.waitFor(() => expect(mockState.putJson).toHaveBeenCalledOnce());
+
+    const logout = AuthController.logout();
+    await vi.waitFor(() => expect(useAuthStore.getState().isLoggingOut).toBe(true));
+    expect(localStorage.getItem(AUTH_EPOCH_KEY)).toBeNull();
+
+    releaseRetry();
+    await expect(write).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
 
     expect(mockState.putJson).toHaveBeenCalledOnce();
+
+    releaseLogout();
+    await logout;
   });
 
   it('aborts a retry when the current session object is replaced during backoff', async () => {
     mockState.putJson.mockRejectedValueOnce(requestError(500)).mockResolvedValueOnce(undefined);
     installHomeserverWriteRetryDependenciesForTests({
       sleep: async () => {
-        mockState.currentSession = session();
+        useAuthStore.setState({ session: session() });
       },
       random: () => 0,
       now: () => 0,
@@ -186,7 +210,7 @@ describe('homeserver writes route through the shared retry policy', () => {
   });
 
   it('retries a non-owned PUT when the fetch response is 429 and stops on 400', async () => {
-    mockState.currentSession = null;
+    useAuthStore.setState({ session: null });
     const url = 'https://homeserver.example/pub/file.json';
     mockState.fetch
       .mockResolvedValueOnce(new Response(null, { status: 429, headers: { 'retry-after': '1' } }))
