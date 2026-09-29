@@ -634,23 +634,34 @@ export class PaykitMessagingService {
     gate: MessagingIntakeGate,
   ): Promise<ReceivedMessage[]> {
     return await this.withQueue(counterpartyPubky, async () => {
-      const link = this.links.get(this.linkKey(ownerPubky, counterpartyPubky));
+      const key = this.linkKey(ownerPubky, counterpartyPubky);
+      const link = this.links.get(key);
       if (!link) return [];
       const received: ReceivedMessage[] = [];
       await this.reprocessUnprocessed(ownerPubky, counterpartyPubky, gate, received);
-      const inbound = (await link.receivePrivateApplicationMessages()) as InboundEvent[];
-      const now = Date.now();
-      for (const [position, item] of inbound.entries()) {
-        const classified = this.classifyInbound(item, ownerPubky, counterpartyPubky);
-        if (classified.type === 'invalid') continue;
-        if (classified.type === 'unknown') {
-          await this.keepUnprocessed(ownerPubky, counterpartyPubky, item, classified, gate, { now, position });
-          continue;
+      try {
+        const inbound = (await link.receivePrivateApplicationMessages()) as InboundEvent[];
+        const now = Date.now();
+        for (const [position, item] of inbound.entries()) {
+          const classified = this.classifyInbound(item, ownerPubky, counterpartyPubky);
+          if (classified.type === 'invalid') continue;
+          if (classified.type === 'unknown') {
+            await this.keepUnprocessed(ownerPubky, counterpartyPubky, item, classified, gate, { now, position });
+            continue;
+          }
+          await this.intakeMessage(ownerPubky, counterpartyPubky, classified.message, gate, now, received);
         }
-        await this.intakeMessage(ownerPubky, counterpartyPubky, classified.message, gate, now, received);
-      }
-      if (inbound.length > 0) {
-        await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
+        if (inbound.length > 0) {
+          await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
+        }
+      } catch (error) {
+        // The live handle's read position already moved past this batch;
+        // only the persisted snapshot did not. Dropping the handle makes the
+        // next operation restore from that snapshot and read the batch
+        // again, so nothing in it is skipped. Redeliveries are deduplicated.
+        this.links.delete(key);
+        closeQuietly(() => void link.close());
+        throw error;
       }
       return received;
     });

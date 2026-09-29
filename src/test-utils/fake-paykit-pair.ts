@@ -6,8 +6,9 @@ import { asOpaque } from './type-assertions';
  * handshake (initiate, answer, complete) and one ordered mailbox per
  * direction. Every handle is bound to the session that created it, so the
  * peer of a link is the account on the other end, never anything a message
- * says. Link and handshake snapshots encode only those two endpoints, so a
- * reload restores the same pair.
+ * says. Like the binding, a link handle keeps its own read position and
+ * advances it when it returns a batch; its snapshot records that position,
+ * so a handle restored from an older snapshot reads again what came after.
  *
  * The cryptography is not simulated here; it is proven against the real
  * artifact in `paykit-messaging.realcrypto.test.ts`.
@@ -18,14 +19,12 @@ export function createFakePaykitPair() {
   const initiations = new Map<string, boolean>();
   // `${from}>${to}` → every message sent in that direction, in order.
   const mailboxes = new Map<string, string[]>();
-  // `${reader}<${from}` → how many of that mailbox the reader has consumed.
-  const cursors = new Map<string, number>();
   const log: string[] = [];
   let keyCounter = 0;
 
   const encode = (value: object) => new TextEncoder().encode(JSON.stringify(value));
   const decode = (bytes: Uint8Array) =>
-    JSON.parse(new TextDecoder().decode(bytes)) as { owner: string; peer: string; role: string };
+    JSON.parse(new TextDecoder().decode(bytes)) as { owner: string; peer: string; role: string; cursor?: number };
 
   class FakeSessionHandle {
     constructor(private readonly owner: string) {}
@@ -42,6 +41,7 @@ export function createFakePaykitPair() {
     constructor(
       private readonly owner: string,
       private readonly peer: string,
+      private cursor = 0,
     ) {}
     async sendPrivateApplicationMessageJson(rawJson: string) {
       if (new TextEncoder().encode(rawJson).byteLength > 1000) throw new Error('exceeds max Noise message size');
@@ -51,14 +51,13 @@ export function createFakePaykitPair() {
     }
     async receivePrivateApplicationMessages() {
       const box = mailboxes.get(`${this.peer}>${this.owner}`) ?? [];
-      const cursorKey = `${this.owner}<${this.peer}`;
-      const from = cursors.get(cursorKey) ?? 0;
-      cursors.set(cursorKey, box.length);
+      const from = this.cursor;
+      this.cursor = box.length;
       log.push(`receive ${this.owner.slice(0, 4)}<${this.peer.slice(0, 4)} ${box.length - from}`);
       return box.slice(from).map((rawJson) => ({ rawJson }));
     }
     snapshot() {
-      return encode({ owner: this.owner, peer: this.peer, role: 'link' });
+      return encode({ owner: this.owner, peer: this.peer, role: 'link', cursor: this.cursor });
     }
     async close() {}
     free() {}
@@ -134,7 +133,7 @@ export function createFakePaykitPair() {
     restoreEncryptedLink: async (session: unknown, _secret: unknown, peer: string, ...rest: unknown[]) => {
       const snapshot = decode(rest[rest.length - 1] as Uint8Array);
       if (snapshot.owner !== sessionOwner(session) || snapshot.peer !== peer) throw new Error('snapshot mismatch');
-      return new FakeLink(snapshot.owner, snapshot.peer);
+      return new FakeLink(snapshot.owner, snapshot.peer, snapshot.cursor ?? 0);
     },
     restoreEncryptedLinkHandshake: async (session: unknown, _secret: unknown, peer: string, ...rest: unknown[]) => {
       const snapshot = decode(rest[rest.length - 1] as Uint8Array);

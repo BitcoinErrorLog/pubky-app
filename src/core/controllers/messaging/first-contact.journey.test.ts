@@ -531,6 +531,37 @@ describe('journey: the seller mutes a buyer', () => {
     await expect(MessagingController.getConversations()).resolves.toEqual([]);
   });
 
+  it.each([
+    ['an open conversation', () => MessagingController.pollConversation(SELLER, BUYER, LISTING)],
+    ['the inbox sync', () => MessagingController.syncInbox()],
+  ])(
+    'reads an event again after failing to store it, before any later event moves the link on, through %s',
+    async (_path, receive) => {
+      await strangerSendsFirstMessage();
+      const unknown = JSON.stringify({ version: 1, kind: 'paykit.private_payment_list.v0', endpoints: [] });
+      pair.inject(BUYER, SELLER, unknown);
+      vi.spyOn(LocalMessagingService, 'storeUnprocessed').mockRejectedValueOnce(new Error('storage failed'));
+
+      await expect(receive()).rejects.toThrow('storage failed');
+      await expect(LocalMessagingService.getUnprocessed(SELLER, BUYER)).resolves.toEqual([]);
+
+      // A later event arrives, and the same tab receives again without a reload.
+      const { json } = buildChatMessage({
+        eventId: crypto.randomUUID(),
+        conversationId: THREAD,
+        listingRef: buildMarketplaceListingAggregateId(SELLER, LISTING),
+        sentAt: Date.now(),
+        body: 'later',
+      });
+      pair.inject(BUYER, SELLER, json);
+      await receive();
+
+      const kept = await LocalMessagingService.getUnprocessed(SELLER, BUYER);
+      expect(kept.map((event) => event.rawJson)).toEqual([unknown]);
+      await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?', 'later']);
+    },
+  );
+
   it('keeps an event of a kind it cannot read across a restart, without showing it', async () => {
     await strangerSendsFirstMessage();
     const unknown = JSON.stringify({ version: 1, kind: 'paykit.private_payment_list.v0', endpoints: [] });
