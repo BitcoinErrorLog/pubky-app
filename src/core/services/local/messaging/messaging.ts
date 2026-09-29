@@ -75,6 +75,40 @@ export class LocalMessagingService {
     return row;
   }
 
+  /**
+   * Stores a new receiver only if the account has none: `false` when a row
+   * already exists (created by another tab, or one this tab cannot open),
+   * and nothing is written.
+   */
+  static async addReceiver(receiver: CommerceMessagingReceiverModelSchema): Promise<boolean> {
+    const wrapped = await this.wrapSecretField(RECEIVERS_TABLE, receiver.id, receiver.noise_secret, 'addReceiver');
+    try {
+      await CommerceMessagingReceiverModel.table.add({
+        ...receiver,
+        noise_secret: wrapped,
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+      });
+      return true;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'ConstraintError') return false;
+      throw error;
+    }
+  }
+
+  /**
+   * Marks the account's receiver as published, only if its stored public key
+   * is still the one that was published: `false`, with nothing written, when
+   * the row is gone (signed out) or holds another key.
+   */
+  static async markReceiverPublished(ownerId: string, noisePublicKey: string, now: number): Promise<boolean> {
+    return await db.transaction('rw', CommerceMessagingReceiverModel.table, async () => {
+      const row = await CommerceMessagingReceiverModel.table.get(ownerId);
+      if (!row || row.noise_public_key !== noisePublicKey) return false;
+      await CommerceMessagingReceiverModel.table.put({ ...row, marker_published: true, updated_at: now });
+      return true;
+    });
+  }
+
   static async upsertReceiver(receiver: CommerceMessagingReceiverModelSchema): Promise<void> {
     const wrapped = await this.wrapSecretField(RECEIVERS_TABLE, receiver.id, receiver.noise_secret, 'upsertReceiver');
     await CommerceMessagingReceiverModel.upsert({
@@ -186,8 +220,7 @@ export class LocalMessagingService {
   static async getLinkRevision(ownerId: string, counterpartyPubky: string): Promise<string | null> {
     const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
     if (!row) return null;
-    const snapshot = Array.from(row.snapshot, (byte) => byte.toString(16).padStart(2, '0')).join('');
-    return `${row.write_id ?? 'legacy'}|${row.status}|${row.send_pending ? 1 : 0}|${snapshot}`;
+    return `${row.write_id ?? 'legacy'}|${row.status}|${row.send_pending ? 1 : 0}|${bytesToHex(row.snapshot)}`;
   }
 
   /**
