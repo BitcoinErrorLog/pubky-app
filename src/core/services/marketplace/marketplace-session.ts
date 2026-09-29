@@ -122,10 +122,10 @@ type StoredMarketplaceSession = {
  *    signs out.
  *  - Never IndexedDB, never cookies, never logged.
  *  - Restore is account-scoped: {@link restorePersistedSession} validates the
- *    stored blob and drops it unless its pubky matches the account whose app
- *    session was just restored. Sign-out (and account switch, which funnels
- *    through the same cleanup) clears it via
- *    `CommerceApplication.clearMarketplaceSession()`.
+ *    stored blob and adopts it only when its pubky matches the account whose
+ *    app session was just restored. Sign-out (and account switch, which
+ *    funnels through the same cleanup) clears it via
+ *    `CommerceApplication.clearMarketplaceSessionForSignOut()`.
  *  - A restored token the service no longer accepts surfaces as a 401, which
  *    clears the session and re-shows the reconnect affordance — expiry is the
  *    service's call, not this cache's.
@@ -351,10 +351,11 @@ export class MarketplaceSessionService {
    * Restores a persisted session from `localStorage` for the given account.
    * Called once the app's own session restore has identified who is signed in
    * (`AuthController.restorePersistedSession`), and again by Seller Studio and
-   * own-drop loads. Anything that does not validate — malformed blob, wrong
-   * account, already past the expiry margin, non-durable mode, a grant no
-   * writer may store — removes the stored value and returns null, so a stale
-   * token can never outlive its checks.
+   * own-drop loads. Anything that does not validate — malformed blob, already
+   * past the expiry margin, a grant no writer may store — removes the stored
+   * value while the slot still holds exactly what was read, and returns null,
+   * so a stale token can never outlive its checks. Another account's record
+   * is not this caller's: it is left for its owner, and sign-out removes it.
    *
    * `localStorage` is shared across tabs, so the slot can hold another tab's
    * narrower session. A restore never replaces a wider in-memory session for
@@ -370,10 +371,11 @@ export class MarketplaceSessionService {
     if (raw === null) return null;
 
     const parsed = sessionResponseSchema.safeParse(this.parseJson(raw));
-    if (!parsed.success || parsed.data.pubky !== expectedPubky) {
+    if (!parsed.success) {
       this.removePersistedRecordIfUnchanged(raw);
       return null;
     }
+    if (parsed.data.pubky !== expectedPubky) return null;
     const { token, sessionId, pubky, capabilities, expiresAt } = parsed.data;
     const expiresAtMs = Date.parse(expiresAt);
     if (Date.now() >= expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {

@@ -172,6 +172,34 @@ describe('purchase-session persistence: a tab only removes the record it owns', 
     expect(bffDeletes()).toEqual(['/api/marketplace/session']);
   });
 
+  it('old memory at its expiry margin with a newer valid record: restore adopts it and it survives the next reload', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    thisTabHolds(HOUR);
+    vi.setSystemTime(Date.now() + HOUR - 30_000);
+    const newer = otherTabPersists(24 * HOUR);
+
+    expect(MarketplaceSessionService.restorePersistedSession(PUBKY)?.capabilities).toBe(parity);
+    expect(MarketplaceSessionService.getActiveSession()?.token).toBe(OTHER_TAB.token);
+    expect(stored()).toBe(newer);
+
+    vi.resetModules();
+    const { MarketplaceSessionService: afterReload } = await import('./marketplace-session');
+    expect(afterReload.restorePersistedSession(PUBKY)?.capabilities).toBe(parity);
+    expect(afterReload.getActiveSession()?.token).toBe(OTHER_TAB.token);
+  });
+
+  it('restore leaves another account’s record in place', () => {
+    const foreign = JSON.stringify({
+      ...OTHER_TAB,
+      pubky: 'z'.repeat(52),
+      capabilities: parity,
+      expiresAt: iso(Date.now() + 24 * HOUR),
+    });
+    window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, foreign);
+    expect(MarketplaceSessionService.restorePersistedSession(PUBKY)).toBeNull();
+    expect(stored()).toBe(foreign);
+  });
+
   it('restore drops an expired record it read, and only that record', () => {
     vi.useFakeTimers();
     const expired = otherTabPersists(10_000);
