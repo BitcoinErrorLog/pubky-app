@@ -22,6 +22,7 @@ import {
 } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import {
   buildDmConversationId,
@@ -42,12 +43,15 @@ import {
 import { RetryBackoff } from '@/libs/messaging/retry-backoff';
 import { getTestnet } from '@/libs/runtime-config/runtime-config';
 import type { CommerceMessagingReceiverModelSchema } from '@/models/messaging/messaging.schema';
+import { retryHomeserverWrite } from '@/services/homeserver/write-retry';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 
 type PaykitWasmModule = typeof import('paykit-wasm');
 
 let wasmModulePromise: Promise<PaykitWasmModule> | null = null;
 let moduleOverrideForTests: PaykitWasmModule | null = null;
+const LOCKED_WRITE_RETRY_BUDGET_MS = 2_000;
+const LOCKED_BINDING_RETRIES = 0;
 
 /**
  * Loads and initializes the vendored paykit-wasm binding exactly once. The dynamic
@@ -219,6 +223,20 @@ export const MESSAGING_SESSION_STORAGE_KEY = 'pubky.messaging.session.v1';
  */
 export class PaykitMessagingService {
   private constructor() {}
+
+  private static configureLinkWriteRetries(link: EncryptedLinkHandle): EncryptedLinkHandle {
+    // The binding sleeps inside `send`, while the cross-tab pair lock is held.
+    // Let the durable outbox schedule the next attempt after this lock releases.
+    link.setMaxSendRetries?.(LOCKED_BINDING_RETRIES);
+    return link;
+  }
+
+  private static configureHandshakeWriteRetries(handshake: LinkHandshakeHandle): LinkHandshakeHandle {
+    // A failed handshake step is restored on the pair's outer retry schedule.
+    // Never hold every tab out while the binding performs delayed recovery.
+    handshake.setMaxRecoveryAttempts?.(LOCKED_BINDING_RETRIES);
+    return handshake;
+  }
 
   private static session: ActiveSession | null = null;
   private static restoreInFlight: { pubky: string; done: Promise<boolean> } | null = null;
@@ -1107,15 +1125,17 @@ export class PaykitMessagingService {
         return this.deferLink(key, { status: 'recovery-needed', reason: 'send-state-unknown' });
       }
       try {
-        const link = (await wasmModule.restoreEncryptedLink(
-          session.handle,
-          receiver.noise_secret,
-          counterpartyPubky,
-          stored.local_receiver_path,
-          stored.remote_receiver_path,
-          this.getClient(wasmModule),
-          stored.snapshot,
-        )) as EncryptedLinkHandle;
+        const link = this.configureLinkWriteRetries(
+          (await wasmModule.restoreEncryptedLink(
+            session.handle,
+            receiver.noise_secret,
+            counterpartyPubky,
+            stored.local_receiver_path,
+            stored.remote_receiver_path,
+            this.getClient(wasmModule),
+            stored.snapshot,
+          )) as EncryptedLinkHandle,
+        );
         this.links.set(key, link);
         return { status: 'ready' };
       } catch (error) {
@@ -1134,15 +1154,17 @@ export class PaykitMessagingService {
       // retried unchanged on the pair's backoff schedule.
       let handle: LinkHandshakeHandle;
       try {
-        handle = (await wasmModule.restoreEncryptedLinkHandshake(
-          session.handle,
-          receiver.noise_secret,
-          counterpartyPubky,
-          stored.local_receiver_path,
-          stored.remote_receiver_path,
-          this.getClient(wasmModule),
-          stored.snapshot,
-        )) as LinkHandshakeHandle;
+        handle = this.configureHandshakeWriteRetries(
+          (await wasmModule.restoreEncryptedLinkHandshake(
+            session.handle,
+            receiver.noise_secret,
+            counterpartyPubky,
+            stored.local_receiver_path,
+            stored.remote_receiver_path,
+            this.getClient(wasmModule),
+            stored.snapshot,
+          )) as LinkHandshakeHandle,
+        );
       } catch (error) {
         Logger.warn('Failed to restore a mid-handshake snapshot; keeping it for the next attempt', { error });
         return this.deferLink(key, { status: 'recovery-needed', reason: 'handshake-restore-failed' });
@@ -1201,14 +1223,16 @@ export class PaykitMessagingService {
 
     if (!allowInitiate) return { status: 'none' };
 
-    const handle = wasmModule.initiateEncryptedLink(
-      session.handle,
-      receiver.noise_secret,
-      counterpartyPubky,
-      marker.noisePublicKey,
-      receiver.receiver_path,
-      marker.receiverPath,
-      this.getClient(wasmModule),
+    const handle = this.configureHandshakeWriteRetries(
+      wasmModule.initiateEncryptedLink(
+        session.handle,
+        receiver.noise_secret,
+        counterpartyPubky,
+        marker.noisePublicKey,
+        receiver.receiver_path,
+        marker.receiverPath,
+        this.getClient(wasmModule),
+      ),
     );
     const handshake: ActiveHandshake = { handle, role: 'initiator' };
     this.handshakes.set(this.linkKey(ownerPubky, counterpartyPubky), handshake);
@@ -1253,6 +1277,7 @@ export class PaykitMessagingService {
     }
 
     if (result.status === 'complete' && result.link) {
+      result.link = this.configureLinkWriteRetries(result.link);
       this.handshakes.delete(key);
       // Saved before it is used: a link registered ahead of its saved
       // state could send, and a later restore would then reuse its counter.
@@ -1312,14 +1337,16 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     marker: CounterpartyMessagingMarker,
   ): Promise<{ handshake?: ActiveHandshake; link?: EncryptedLinkHandle } | null> {
-    const handle = wasmModule.acceptEncryptedLink(
-      session.handle,
-      receiver.noise_secret,
-      counterpartyPubky,
-      marker.noisePublicKey,
-      receiver.receiver_path,
-      marker.receiverPath,
-      this.getClient(wasmModule),
+    const handle = this.configureHandshakeWriteRetries(
+      wasmModule.acceptEncryptedLink(
+        session.handle,
+        receiver.noise_secret,
+        counterpartyPubky,
+        marker.noisePublicKey,
+        receiver.receiver_path,
+        marker.receiverPath,
+        this.getClient(wasmModule),
+      ),
     );
     const before = handle.snapshot();
     let result: { status: string; link?: EncryptedLinkHandle };
@@ -1331,7 +1358,7 @@ export class PaykitMessagingService {
       return null;
     }
     if (result.status === 'complete' && result.link) {
-      return { link: result.link };
+      return { link: this.configureLinkWriteRetries(result.link) };
     }
     const after = handle.snapshot();
     if (bytesEqual(before, after)) {
@@ -1440,14 +1467,19 @@ export class PaykitMessagingService {
       // Republishing is idempotent and heals a marker removed elsewhere. A
       // messaging-only receiver advertises exactly the Encrypted Link
       // capability (`privatePayments`) and none of the payment capabilities.
-      await wasmModule.publishReceiverMarker(
-        session,
-        receiver.receiver_path,
-        receiver.noise_public_key,
-        true,
-        false,
-        false,
-        false,
+      await retryHomeserverWrite(
+        HttpMethod.PUT,
+        () =>
+          wasmModule.publishReceiverMarker(
+            session,
+            receiver.receiver_path,
+            receiver.noise_public_key,
+            true,
+            false,
+            false,
+            false,
+          ),
+        { maxTotalDelayMs: LOCKED_WRITE_RETRY_BUDGET_MS },
       );
       if (!(await LocalMessagingService.markReceiverPublished(pubky, receiver.noise_public_key, Date.now()))) {
         throw Err.database(

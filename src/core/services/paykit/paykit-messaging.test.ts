@@ -100,6 +100,8 @@ function createFakeWorld() {
     cookieResumePubkyOverride: null as string | null,
     // Scripted marker-publish failures (consumed one per publish attempt).
     publishMarkerFailures: 0,
+    publishMarkerFailureStatus: null as number | null,
+    publishMarkerRetryAfterSeconds: 0,
     // How long successive marker publishes take before the homeserver
     // accepts them (consumed one per publish; 0 when empty).
     publishAcceptDelays: [] as number[],
@@ -167,6 +169,9 @@ function createFakeWorld() {
       }
       this.sent.push(rawJson);
     }
+    setMaxSendRetries(max: number) {
+      world.calls.push(`link.setMaxSendRetries:${max}`);
+    }
     async receivePrivateApplicationMessages() {
       world.calls.push('link.receive');
       const drained = [...this.inboundQueue];
@@ -216,7 +221,9 @@ function createFakeWorld() {
       // detector compares them).
       return new Uint8Array([72, this.role === 'initiator' ? 1 : 2, this.advanced]);
     }
-    setMaxRecoveryAttempts() {}
+    setMaxRecoveryAttempts(max: number) {
+      world.calls.push(`handshake.setMaxRecoveryAttempts:${max}`);
+    }
     free() {}
   }
 
@@ -271,7 +278,15 @@ function createFakeWorld() {
       world.calls.push('publishReceiverMarker');
       if (world.publishMarkerFailures > 0) {
         world.publishMarkerFailures -= 1;
-        throw new Error('marker publish failed (scripted transient homeserver error)');
+        throw Object.assign(new Error('marker publish failed (scripted transient homeserver error)'), {
+          data:
+            world.publishMarkerFailureStatus === null
+              ? undefined
+              : {
+                  statusCode: world.publishMarkerFailureStatus,
+                  retryAfterSeconds: world.publishMarkerRetryAfterSeconds,
+                },
+        });
       }
       const acceptDelay = world.publishAcceptDelays.shift() ?? 0;
       if (acceptDelay > 0) await new Promise((resolve) => setTimeout(resolve, acceptDelay));
@@ -433,6 +448,28 @@ describe('PaykitMessagingService', () => {
       const receiver = await LocalMessagingService.getReceiver(OWNER);
       expect(receiver?.noise_secret).toHaveLength(32);
       expect(receiver?.marker_published).toBe(true);
+    });
+
+    it('retries a rate-limited receiver marker before reporting it published', async () => {
+      world.publishMarkerFailures = 1;
+      world.publishMarkerFailureStatus = 429;
+
+      await enableMessaging(world);
+
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(2);
+      await expect(PaykitMessagingService.isReceiverProvisioned(OWNER)).resolves.toBe(true);
+    });
+
+    it('revert-fail: releases the receiver lock instead of honoring a long Retry-After inside it', async () => {
+      world.publishMarkerFailures = 1;
+      world.publishMarkerFailureStatus = 429;
+      world.publishMarkerRetryAfterSeconds = 30;
+
+      await expect(enableMessaging(world)).rejects.toThrow('marker publish failed');
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(1);
+
+      await expect(enableMessaging(world)).resolves.toMatchObject({ pubky: OWNER });
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(2);
     });
 
     it('rejects an approval from a different identity than the signed-in user', async () => {
@@ -1383,6 +1420,11 @@ describe('PaykitMessagingService', () => {
       beforeEach(async () => {
         world.advanceScript.push('complete');
         await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      });
+
+      it('revert-fail: defers binding retries until after the pair lock is released', () => {
+        expect(world.calls).toContain('handshake.setMaxRecoveryAttempts:0');
+        expect(world.calls).toContain('link.setMaxSendRetries:0');
       });
 
       it('marks the link as sending before the ciphertext leaves, and the saved snapshot clears the mark', async () => {

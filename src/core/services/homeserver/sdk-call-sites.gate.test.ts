@@ -47,4 +47,15 @@ describe('@synonymdev/pubky 0.11 call sites', () => {
     expect(pkg.dependencies['@synonymdev/pubky']).toBe('0.11.0');
     expect(pkg.overrides['@bitcoinerrorlog/pubky-shop']['@synonymdev/pubky']).toBe('0.11.0');
   });
+
+  it('routes every direct session-storage write through HomeserverService retry policy', () => {
+    const offenders = files
+      .filter(({ path, text }) => {
+        if (path === 'src/core/services/homeserver/homeserver.ts') return false;
+        return /\.storage\.(?:putJson|putBytes|delete)\(/.test(text);
+      })
+      .map(({ path }) => path);
+
+    expect(offenders).toEqual([]);
+  });
 });
