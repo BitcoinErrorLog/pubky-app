@@ -23,9 +23,10 @@ import { CommerceMessagingLinkModel, CommerceMessagingMessageModel } from '@/mod
 import {
   CommerceMessagingConversationModel,
   CommerceMessagingReceiverModel,
+  CommerceMessagingUnprocessedModel,
 } from '@/models/messaging/messaging.models';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
-import { ADMIT_ALL_GATE } from '@/test-utils/messaging-gate';
+import { ADMIT_ALL_GATE, ADMIT_ALL_POLICY, policyMuting } from '@/test-utils/messaging-gate';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { PaykitMessagingService, setPaykitWasmModuleForTests } from './paykit-messaging';
 
@@ -286,6 +287,7 @@ describe('PaykitMessagingService', () => {
       CommerceMessagingLinkModel.clear(),
       CommerceMessagingConversationModel.clear(),
       CommerceMessagingMessageModel.clear(),
+      CommerceMessagingUnprocessedModel.clear(),
     ]);
   });
 
@@ -712,7 +714,7 @@ describe('PaykitMessagingService', () => {
           const restoresBefore = world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length;
           const receivesBefore = world.calls.filter((call) => call === 'link.receive').length;
           const markerReadsBefore = recoveringMarkerReads();
-          await MessagingApplication.syncCounterparties(OWNER, [...recovering, HEALTHY], { gate: ADMIT_ALL_GATE });
+          await MessagingApplication.syncCounterparties(OWNER, [...recovering, HEALTHY], { policy: ADMIT_ALL_POLICY });
           restoresPerPass.push(
             world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length - restoresBefore,
           );
@@ -802,7 +804,7 @@ describe('PaykitMessagingService', () => {
       await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toHaveLength(0);
     });
 
-    it('persists received chat messages, skips foreign kinds, and dedupes replays by event id', async () => {
+    it('persists received chat messages, keeps foreign kinds out of history, and dedupes replays by event id', async () => {
       const eventId = crypto.randomUUID();
       const rawJson = JSON.stringify({
         version: 1,
@@ -862,6 +864,133 @@ describe('PaykitMessagingService', () => {
 
       await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
       expect(order).toEqual(['message', 'snapshot']);
+    });
+
+    describe('events this build cannot interpret', () => {
+      const payment = JSON.stringify({ version: 1, kind: 'paykit.private_payment_list.v0', endpoints: ['secret-ish'] });
+      const futureChat = JSON.stringify({
+        version: 2,
+        kind: 'marketplace.chat_message.v0',
+        event_id: crypto.randomUUID(),
+        conversation_id: CONVERSATION_ID,
+        listing_ref: LISTING_REF,
+        sent_at: 1_787_565_600_000,
+        body: 'from a newer client',
+      });
+
+      it('stores them, sealed at rest, before the advanced snapshot, and keeps them out of history', async () => {
+        const order: string[] = [];
+        const store = LocalMessagingService.storeUnprocessed.bind(LocalMessagingService);
+        vi.spyOn(LocalMessagingService, 'storeUnprocessed').mockImplementation(async (event) => {
+          order.push('store');
+          return await store(event);
+        });
+        const snapshot = LocalMessagingService.updateLinkSnapshot.bind(LocalMessagingService);
+        vi.spyOn(LocalMessagingService, 'updateLinkSnapshot').mockImplementation(async (...args) => {
+          order.push('snapshot');
+          await snapshot(...args);
+        });
+        world.links
+          .at(-1)!
+          .inboundQueue.push(
+            { version: 1, kind: 'paykit.private_payment_list.v0', rawJson: payment },
+            { version: 2, kind: 'marketplace.chat_message.v0', rawJson: futureChat },
+          );
+
+        await expect(PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE)).resolves.toEqual([]);
+
+        expect(order).toEqual(['store', 'store', 'snapshot']);
+        const stored = await LocalMessagingService.getUnprocessed(OWNER, COUNTERPARTY);
+        expect(stored.map(({ kind, version, rawJson }) => ({ kind, version, rawJson }))).toEqual([
+          { kind: 'paykit.private_payment_list.v0', version: 1, rawJson: payment },
+          { kind: 'marketplace.chat_message.v0', version: 2, rawJson: futureChat },
+        ]);
+        const rows = await CommerceMessagingUnprocessedModel.table.toArray();
+        for (const row of rows) {
+          expect(new TextDecoder().decode(row.payload)).not.toContain('secret-ish');
+          expect(new TextDecoder().decode(row.payload)).not.toContain('newer client');
+        }
+        await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toEqual([]);
+      });
+
+      it('never advances past an event it could not store', async () => {
+        const snapshotSpy = vi.spyOn(LocalMessagingService, 'updateLinkSnapshot');
+        vi.spyOn(LocalMessagingService, 'storeUnprocessed').mockRejectedValue(new Error('disk full'));
+        world.links.at(-1)!.inboundQueue.push({ version: 1, kind: 'paykit.private_payment_list.v0', rawJson: payment });
+
+        await expect(PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE)).rejects.toThrow();
+
+        expect(snapshotSpy).not.toHaveBeenCalled();
+      });
+
+      it('never advances past one on a database without the table (NEXT_PUBLIC_DB_VERSION below 8)', async () => {
+        vi.spyOn(CommerceMessagingUnprocessedModel, 'isAvailable').mockReturnValue(false);
+        const snapshotSpy = vi.spyOn(LocalMessagingService, 'updateLinkSnapshot');
+        world.links.at(-1)!.inboundQueue.push({ version: 1, kind: 'paykit.private_payment_list.v0', rawJson: payment });
+
+        await expect(PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE)).rejects.toThrow(
+          /cannot keep messages/,
+        );
+        expect(snapshotSpy).not.toHaveBeenCalled();
+      });
+
+      it('stores a redelivered event once and does not put it to the gate again', async () => {
+        const gate = { admit: vi.fn(ADMIT_ALL_GATE.admit) };
+        world.links.at(-1)!.inboundQueue.push({ version: 1, kind: 'paykit.private_payment_list.v0', rawJson: payment });
+        await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, gate);
+        world.links.at(-1)!.inboundQueue.push({ version: 1, kind: 'paykit.private_payment_list.v0', rawJson: payment });
+        await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, gate);
+
+        expect(gate.admit).toHaveBeenCalledOnce();
+        await expect(LocalMessagingService.getUnprocessed(OWNER, COUNTERPARTY)).resolves.toHaveLength(1);
+      });
+
+      it('stores nothing from a muted person', async () => {
+        world.links.at(-1)!.inboundQueue.push({ version: 1, kind: 'paykit.private_payment_list.v0', rawJson: payment });
+
+        await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, policyMuting(COUNTERPARTY).gate);
+
+        await expect(LocalMessagingService.getUnprocessed(OWNER, COUNTERPARTY)).resolves.toEqual([]);
+      });
+
+      it('keeps them across a restart until a build that understands them processes them', async () => {
+        world.links.at(-1)!.inboundQueue.push({ version: 2, kind: 'marketplace.chat_message.v0', rawJson: futureChat });
+        await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+
+        // Restart: every in-memory handle is gone and the link restores from its snapshot.
+        PaykitMessagingService.clearSession();
+        world.cookieResume = 'success';
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+        await expect(LocalMessagingService.getUnprocessed(OWNER, COUNTERPARTY)).resolves.toHaveLength(1);
+
+        // A later build learns version 2 of the chat kind.
+        const parsed = JSON.parse(futureChat) as { event_id: string; body: string; sent_at: number };
+        const later = asOpaque<{ classifyInbound: (item: { rawJson: string }) => unknown }>(PaykitMessagingService);
+        const original = later.classifyInbound.bind(PaykitMessagingService);
+        vi.spyOn(later, 'classifyInbound').mockImplementation((item: { rawJson: string }, ...rest: unknown[]) =>
+          item.rawJson === futureChat
+            ? {
+                type: 'message',
+                message: {
+                  kind: 'listing',
+                  event_id: parsed.event_id,
+                  conversation_id: CONVERSATION_ID,
+                  listing_ref: LISTING_REF,
+                  sent_at: parsed.sent_at,
+                  body: parsed.body,
+                  counterpartyPubky: COUNTERPARTY,
+                },
+              }
+            : (original as (...args: unknown[]) => unknown)(item, ...rest),
+        );
+
+        const received = await PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+
+        expect(received.map((message) => message.body)).toEqual(['from a newer client']);
+        await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toHaveLength(1);
+        await expect(LocalMessagingService.getUnprocessed(OWNER, COUNTERPARTY)).resolves.toEqual([]);
+      });
     });
 
     describe('intake gate', () => {

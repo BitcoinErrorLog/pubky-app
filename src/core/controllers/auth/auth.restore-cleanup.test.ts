@@ -80,6 +80,7 @@ const EXPECTED_PRIVATE_TABLES = [
   'commerce_messaging_conversations',
   'commerce_messaging_messages',
   'commerce_messaging_outbox',
+  'commerce_messaging_unprocessed',
   'marketplace_tags',
   'hot_tags',
   'feeds',

@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { listingConversationBetween } from '@/libs/commerce/messaging-contracts';
 import { getOrCreateWrappingKey } from '@/libs/crypto/messaging-keyring';
 import {
@@ -20,6 +22,7 @@ import {
   CommerceMessagingMessageModel,
   CommerceMessagingOutboxModel,
   CommerceMessagingReceiverModel,
+  CommerceMessagingUnprocessedModel,
 } from '@/models/messaging/messaging.models';
 import type {
   CommerceMessagingConversationModelSchema,
@@ -31,6 +34,7 @@ import type {
 
 const RECEIVERS_TABLE = 'commerce_messaging_receivers';
 const LINKS_TABLE = 'commerce_messaging_links';
+const UNPROCESSED_TABLE = 'commerce_messaging_unprocessed';
 
 /**
  * Account-scoped Dexie persistence for encrypted marketplace messaging.
@@ -354,6 +358,92 @@ export class LocalMessagingService {
    */
   static async upsertMessage(eventId: string, message: Omit<CommerceMessagingMessageModelSchema, 'id'>): Promise<void> {
     await CommerceMessagingMessageModel.upsert({ ...message, id: `${message.owner_id}:${eventId}` });
+  }
+
+  // --- unprocessed inbound events --------------------------------------------
+  // Events of a kind or version this build cannot interpret. They are stored
+  // before the link's read position moves past them and offered again later.
+
+  /** The row id of one raw event from one peer; identical bytes share an id. */
+  static unprocessedId(ownerId: string, counterpartyPubky: string, rawJson: string): string {
+    const digest = bytesToHex(sha256(new TextEncoder().encode(rawJson)));
+    return `${ownerId}:${counterpartyPubky}:${digest}`;
+  }
+
+  static async hasUnprocessed(id: string): Promise<boolean> {
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) return false;
+    return (await CommerceMessagingUnprocessedModel.findById(id)) !== null;
+  }
+
+  /**
+   * Stores one event, wrapped at rest. Throws when it cannot be stored
+   * (including on a database without the table), so the caller never
+   * advances the link past it.
+   */
+  static async storeUnprocessed(event: {
+    ownerId: string;
+    counterpartyPubky: string;
+    kind: string;
+    version: number | null;
+    rawJson: string;
+    receivedAt: number;
+    position: number;
+  }): Promise<'stored' | 'duplicate'> {
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) {
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'This device cannot keep messages it cannot read yet.', {
+        service: ErrorService.Local,
+        operation: 'storeUnprocessed',
+        context: { reason: 'unprocessed_table_missing' },
+      });
+    }
+    const id = this.unprocessedId(event.ownerId, event.counterpartyPubky, event.rawJson);
+    const payload = await this.wrapSecretField(
+      UNPROCESSED_TABLE,
+      id,
+      new TextEncoder().encode(event.rawJson),
+      'storeUnprocessed',
+    );
+    const added = await CommerceMessagingUnprocessedModel.addIfAbsent({
+      id,
+      owner_id: event.ownerId,
+      counterparty_pubky: event.counterpartyPubky,
+      kind: event.kind.slice(0, 128),
+      version: event.version,
+      payload,
+      wrap_version: WRAP_VERSION_AES_GCM_256,
+      received_at: event.receivedAt,
+      position: event.position,
+    });
+    return added ? 'stored' : 'duplicate';
+  }
+
+  /**
+   * The stored events from one peer, oldest first, unwrapped. A row whose
+   * ciphertext no longer opens (lost wrapping key, tampered row) is left in
+   * place and skipped.
+   */
+  static async getUnprocessed(
+    ownerId: string,
+    counterpartyPubky: string,
+  ): Promise<{ id: string; kind: string; version: number | null; rawJson: string }[]> {
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) return [];
+    const rows = await CommerceMessagingUnprocessedModel.findByOwnerAndCounterparty(ownerId, counterpartyPubky);
+    const events: { id: string; kind: string; version: number | null; rawJson: string }[] = [];
+    for (const row of rows) {
+      if (row.wrap_version !== WRAP_VERSION_AES_GCM_256) continue;
+      const bytes = await this.unwrapSecretField(UNPROCESSED_TABLE, row.id, row.payload, 'getUnprocessed');
+      if (!bytes) continue;
+      events.push({ id: row.id, kind: row.kind, version: row.version, rawJson: new TextDecoder().decode(bytes) });
+    }
+    return events;
+  }
+
+  /** Deletes one stored event once it has been processed; only the owner's own rows. */
+  static async deleteUnprocessed(ownerId: string, id: string): Promise<void> {
+    if (!CommerceMessagingUnprocessedModel.isAvailable()) return;
+    const row = await CommerceMessagingUnprocessedModel.findById(id);
+    if (!row || row.owner_id !== ownerId) return;
+    await CommerceMessagingUnprocessedModel.deleteById(id);
   }
 
   // --- queued-message outbox -------------------------------------------------

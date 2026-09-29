@@ -6,6 +6,7 @@ import {
   buildChatMessage,
   decodeChatMessage,
   isListingConversationBound,
+  MARKETPLACE_CHAT_MESSAGE_KIND,
   type MarketplaceChatMessage,
   PAYKIT_MESSAGING_CAPABILITY,
   PAYKIT_MESSAGING_RECEIVER_PATH,
@@ -19,6 +20,7 @@ import {
   buildDmConversationId,
   buildDmMessage,
   decodeDmMessage,
+  PUBKY_APP_DM_KIND,
   type PubkyAppDmMessage,
 } from '@/libs/messaging/dm-contracts';
 import type { ConversationOrigin } from '@/libs/messaging/first-contact';
@@ -607,17 +609,23 @@ export class PaykitMessagingService {
   }
 
   /**
-   * Receives pending inbound messages on an established link and routes them
+   * Receives pending inbound events on an established link and routes them
    * by kind: `marketplace.chat_message.v0` lands in its envelope's listing
    * conversation, `pubky_app.dm.v0` lands in the counterparty's DM
-   * conversation. BOTH kinds are always persisted in one drain — the
-   * binding's read checkpoint advances past everything returned, so a kind
-   * skipped here would be lost. Unknown kinds are skipped (legal on a shared
-   * link). Message rows and conversation rows are persisted BEFORE the
-   * advanced snapshot.
+   * conversation. Everything the binding returns in one drain is dealt with
+   * before the advanced snapshot is persisted, because the binding's read
+   * position moves past all of it:
    *
-   * Every new message passes `gate` (Shop policy: mutes, the receive cap,
-   * Requests) before it is stored. A refused message is consumed like any
+   * - a message of a known kind is stored (or refused by `gate`, or dropped
+   *   when its envelope is invalid or names another thread);
+   * - an event of a kind or version this build cannot interpret is stored
+   *   unprocessed, wrapped at rest, and offered to the router again at the
+   *   start of every later receive, so a build that understands it can still
+   *   process it. If it cannot be stored, this throws and the snapshot is not
+   *   advanced.
+   *
+   * Every new event passes `gate` (Shop policy: mutes, the receive cap,
+   * Requests) before it is stored. A refused event is consumed like any
    * other: the snapshot still advances past it, so it is never stored later.
    */
   static async receiveMessages(
@@ -628,68 +636,176 @@ export class PaykitMessagingService {
     return await this.withQueue(counterpartyPubky, async () => {
       const link = this.links.get(this.linkKey(ownerPubky, counterpartyPubky));
       if (!link) return [];
-      const inbound = (await link.receivePrivateApplicationMessages()) as { rawJson: string }[];
       const received: ReceivedMessage[] = [];
+      await this.reprocessUnprocessed(ownerPubky, counterpartyPubky, gate, received);
+      const inbound = (await link.receivePrivateApplicationMessages()) as InboundEvent[];
       const now = Date.now();
-      for (const item of inbound) {
-        const routed = this.routeInboundMessage(item.rawJson, ownerPubky, counterpartyPubky);
-        if (!routed) continue;
-        // A redelivery of a stored message is not new traffic, so it is not
-        // put to the gate (it must not use up the receive cap). Its thread
-        // row is normally there already; if a crash lost it, the row is
-        // recreated under Requests until the next sync reclassifies it.
-        let origin: ConversationOrigin = 'request';
-        if (!(await LocalMessagingService.hasMessage(ownerPubky, routed.event_id))) {
-          const decision = await gate.admit({
-            counterpartyPubky,
-            kind: routed.kind,
-            conversationId: routed.conversation_id,
-          });
-          if (!decision.store) {
-            Logger.info('Skipped an inbound message', { reason: decision.reason });
-            continue;
-          }
-          origin = decision.origin;
-        }
-        // `event_id` is sender-chosen too, so a stored row is never
-        // overwritten: an exact redelivery is a no-op and any other reuse of
-        // the id is dropped.
-        const stored = await LocalMessagingService.insertReceivedMessage(routed.event_id, {
-          owner_id: ownerPubky,
-          conversation_id: routed.conversation_id,
-          listing_ref: routed.listing_ref,
-          counterparty_pubky: counterpartyPubky,
-          body: routed.body,
-          sent_at: routed.sent_at,
-          recorded_at: now,
-        });
-        if (stored.status === 'conflict') {
-          Logger.warn('Dropped an inbound message that reuses the id of a different stored message', {
-            reason: 'event_id_collision',
-          });
+      for (const [position, item] of inbound.entries()) {
+        const classified = this.classifyInbound(item, ownerPubky, counterpartyPubky);
+        if (classified.type === 'invalid') continue;
+        if (classified.type === 'unknown') {
+          await this.keepUnprocessed(ownerPubky, counterpartyPubky, item, classified, gate, { now, position });
           continue;
         }
-        // A replay still ensures the conversation row exists (the first
-        // delivery may have crashed before this write) but never moves its
-        // timestamps past the original receipt.
-        const touchedAt = stored.status === 'replay' ? stored.recordedAt : now;
-        await LocalMessagingService.touchConversation({
-          owner_id: ownerPubky,
-          conversation_id: routed.conversation_id,
-          kind: routed.kind,
-          listing_ref: routed.listing_ref,
-          counterparty_pubky: counterpartyPubky,
-          last_message_at: touchedAt,
-          updated_at: touchedAt,
-          origin,
-        });
-        if (stored.status === 'inserted') received.push(routed);
+        await this.intakeMessage(ownerPubky, counterpartyPubky, classified.message, gate, now, received);
       }
       if (inbound.length > 0) {
         await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
       }
       return received;
     });
+  }
+
+  /**
+   * Offers every stored unprocessed event from this peer to the router
+   * again, oldest first. One this build now understands is taken in like a
+   * new message and its row is removed; one refused by the mute policy or
+   * no longer valid is removed too. One still unknown, or only held back by
+   * the receive cap, stays for a later receive.
+   */
+  private static async reprocessUnprocessed(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    gate: MessagingIntakeGate,
+    received: ReceivedMessage[],
+  ): Promise<void> {
+    for (const event of await LocalMessagingService.getUnprocessed(ownerPubky, counterpartyPubky)) {
+      const classified = this.classifyInbound(event, ownerPubky, counterpartyPubky);
+      if (classified.type === 'unknown') continue;
+      if (classified.type === 'message') {
+        const outcome = await this.intakeMessage(
+          ownerPubky,
+          counterpartyPubky,
+          classified.message,
+          gate,
+          Date.now(),
+          received,
+        );
+        if (outcome === 'rate_limited') continue;
+      }
+      await LocalMessagingService.deleteUnprocessed(ownerPubky, event.id);
+    }
+  }
+
+  /** Stores one event this build cannot interpret, unless the gate refuses it or it is already stored. */
+  private static async keepUnprocessed(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    item: InboundEvent,
+    classified: { kind: string; version: number | null },
+    gate: MessagingIntakeGate,
+    at: { now: number; position: number },
+  ): Promise<void> {
+    const id = LocalMessagingService.unprocessedId(ownerPubky, counterpartyPubky, item.rawJson);
+    if (await LocalMessagingService.hasUnprocessed(id)) return;
+    const decision = await gate.admit({ counterpartyPubky, kind: 'unknown', conversationId: null });
+    if (!decision.store) {
+      Logger.info('Skipped an inbound event', { reason: decision.reason });
+      return;
+    }
+    await LocalMessagingService.storeUnprocessed({
+      ownerId: ownerPubky,
+      counterpartyPubky,
+      kind: classified.kind,
+      version: classified.version,
+      rawJson: item.rawJson,
+      receivedAt: at.now,
+      position: at.position,
+    });
+  }
+
+  /**
+   * Takes one routed message in: puts a new one to the gate, stores it
+   * first-write-wins, and makes sure its conversation row exists.
+   */
+  private static async intakeMessage(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    routed: ReceivedMessage,
+    gate: MessagingIntakeGate,
+    now: number,
+    received: ReceivedMessage[],
+  ): Promise<'stored' | 'replay' | 'muted' | 'rate_limited' | 'conflict'> {
+    // A redelivery of a stored message is not new traffic, so it is not
+    // put to the gate (it must not use up the receive cap). Its thread
+    // row is normally there already; if a crash lost it, the row is
+    // recreated under Requests until the next sync reclassifies it.
+    let origin: ConversationOrigin = 'request';
+    if (!(await LocalMessagingService.hasMessage(ownerPubky, routed.event_id))) {
+      const decision = await gate.admit({
+        counterpartyPubky,
+        kind: routed.kind,
+        conversationId: routed.conversation_id,
+      });
+      if (!decision.store) {
+        Logger.info('Skipped an inbound message', { reason: decision.reason });
+        return decision.reason;
+      }
+      origin = decision.origin;
+    }
+    // `event_id` is sender-chosen too, so a stored row is never
+    // overwritten: an exact redelivery is a no-op and any other reuse of
+    // the id is dropped.
+    const stored = await LocalMessagingService.insertReceivedMessage(routed.event_id, {
+      owner_id: ownerPubky,
+      conversation_id: routed.conversation_id,
+      listing_ref: routed.listing_ref,
+      counterparty_pubky: counterpartyPubky,
+      body: routed.body,
+      sent_at: routed.sent_at,
+      recorded_at: now,
+    });
+    if (stored.status === 'conflict') {
+      Logger.warn('Dropped an inbound message that reuses the id of a different stored message', {
+        reason: 'event_id_collision',
+      });
+      return 'conflict';
+    }
+    // A replay still ensures the conversation row exists (the first
+    // delivery may have crashed before this write) but never moves its
+    // timestamps past the original receipt.
+    const touchedAt = stored.status === 'replay' ? stored.recordedAt : now;
+    await LocalMessagingService.touchConversation({
+      owner_id: ownerPubky,
+      conversation_id: routed.conversation_id,
+      kind: routed.kind,
+      listing_ref: routed.listing_ref,
+      counterparty_pubky: counterpartyPubky,
+      last_message_at: touchedAt,
+      updated_at: touchedAt,
+      origin,
+    });
+    if (stored.status === 'inserted') {
+      received.push(routed);
+      return 'stored';
+    }
+    return 'replay';
+  }
+
+  /**
+   * What one inbound event is. A known kind at a known version is decoded:
+   * a valid one is a `message`, anything else about it (a malformed body, a
+   * listing thread that does not name both link ends) is `invalid` and
+   * dropped. Any other kind, or a known kind at a version this build does
+   * not know, is `unknown` and kept. An event with no kind at all is not an
+   * application message and is `invalid`.
+   */
+  private static classifyInbound(
+    item: InboundEvent,
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ):
+    | { type: 'message'; message: ReceivedMessage }
+    | { type: 'invalid' }
+    | { type: 'unknown'; kind: string; version: number | null } {
+    const envelope = readEnvelopeHeader(item.rawJson);
+    const kind = envelope.kind ?? (typeof item.kind === 'string' && item.kind.length > 0 ? item.kind : null);
+    const version = envelope.kind ? envelope.version : typeof item.version === 'number' ? item.version : null;
+    if (kind === null) return { type: 'invalid' };
+    const known = kind === MARKETPLACE_CHAT_MESSAGE_KIND || kind === PUBKY_APP_DM_KIND;
+    if (!known || version !== 1) return { type: 'unknown', kind, version };
+    const message = this.routeInboundMessage(item.rawJson, ownerPubky, counterpartyPubky);
+    return message ? { type: 'message', message } : { type: 'invalid' };
   }
 
   /**
@@ -1349,4 +1465,23 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+/** One event as the binding returns it (`{ version, kind, rawJson }`), or as stored unprocessed. */
+type InboundEvent = { rawJson: string; kind?: unknown; version?: unknown };
+
+/** The `kind` and `version` a JSON envelope declares, when it declares a kind. */
+function readEnvelopeHeader(rawJson: string): { kind: string | null; version: number | null } {
+  let value: unknown;
+  try {
+    value = JSON.parse(rawJson);
+  } catch {
+    return { kind: null, version: null };
+  }
+  if (typeof value !== 'object' || value === null) return { kind: null, version: null };
+  const { kind, version } = value as { kind?: unknown; version?: unknown };
+  return {
+    kind: typeof kind === 'string' && kind.length > 0 ? kind : null,
+    version: typeof version === 'number' ? version : null,
+  };
 }

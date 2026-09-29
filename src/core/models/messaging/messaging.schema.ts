@@ -248,3 +248,41 @@ export const commerceMessagingOutboxTableSchema = [
   'queued_at',
   '[owner_pubky+counterparty_pubky]',
 ].join(', ');
+
+/**
+ * An authenticated inbound event this build cannot interpret: a kind or
+ * version it has no handler for (for example a Paykit payment kind riding
+ * the same link, or a newer chat version). It is stored before the link's
+ * read position moves past it, left unprocessed, never shown, and offered
+ * again to the router on every later receive, so a build that understands
+ * it can still process it.
+ *
+ * `payload` is the event's raw JSON, encrypted at rest like link snapshots
+ * (AES-GCM-256 under the messaging keyring, AAD-bound to this table and
+ * row id; `wrap_version` 1). It can carry anything the peer sent, so it is
+ * never logged or synced. Cleared on sign-out with every other table.
+ */
+export interface CommerceMessagingUnprocessedModelSchema {
+  /** `${owner_id}:${counterparty_pubky}:${digest}`, where `digest` is the SHA-256 of the raw bytes: an identical redelivery stores nothing new. */
+  id: string;
+  owner_id: string;
+  counterparty_pubky: string;
+  /** The envelope kind as the link reported it, at most 128 characters. */
+  kind: string;
+  /** The envelope version as the link reported it, or `null` when none was given. */
+  version: number | null;
+  /** Wrapped raw JSON. SECRET-class — see above. */
+  payload: Uint8Array;
+  wrap_version: number;
+  /** Local receipt time; events are offered again in this order. */
+  received_at: number;
+  /** Position within the drain that returned it, so events of one drain keep their stream order. */
+  position: number;
+}
+
+export const commerceMessagingUnprocessedTableSchema = [
+  '&id',
+  'owner_id',
+  'received_at',
+  '[owner_id+counterparty_pubky]',
+].join(', ');

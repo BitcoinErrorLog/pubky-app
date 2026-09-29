@@ -67,6 +67,7 @@ import {
   commerceMessagingOutboxTableSchema,
   type CommerceMessagingReceiverModelSchema,
   commerceMessagingReceiverTableSchema,
+  commerceMessagingUnprocessedTableSchema,
 } from '@/models/messaging/messaging.schema';
 import type { Pubky } from '@/models/models.types';
 import { type ModerationModelSchema, moderationTableSchema } from '@/models/moderation/moderation.schema';
@@ -334,14 +335,21 @@ export class AppDatabase extends Dexie {
       const webhookStores = {
         commerce_webhooks: commerceWebhookTableSchema,
       };
+      const unprocessedStores = {
+        // Inbound events this build cannot interpret, kept unprocessed so
+        // the link never reads past them. Added at version 8 (7 shipped).
+        commerce_messaging_unprocessed: commerceMessagingUnprocessedTableSchema,
+      };
       const storesWithoutImport = stores;
       const storesAt6 = { ...storesWithoutImport, ...importStores };
-      const storesAtDeclared = { ...storesAt6, ...webhookStores };
+      const storesAt7 = { ...storesAt6, ...webhookStores };
+      const storesAtDeclared = { ...storesAt7, ...unprocessedStores };
 
       if (this.declaredVersion > MESSAGING_WRAP_BASE_DB_VERSION) {
-        // Version chain for 4 → 5 → 6 → 7: 4 and 5 share the wrap-era schema
-        // (no import tables). 6 adds Inventory Studio import stores in place.
-        // 7 adds commerce_webhooks ({id,url} only) in place.
+        // Version chain for 4 → 5 → 6 → 7 → 8: 4 and 5 share the wrap-era
+        // schema (no import tables). 6 adds Inventory Studio import stores in
+        // place. 7 adds commerce_webhooks ({id,url} only) in place. 8 adds
+        // commerce_messaging_unprocessed in place.
         this.version(MESSAGING_WRAP_BASE_DB_VERSION).stores(storesWithoutImport);
         if (this.declaredVersion >= 5) {
           this.version(5).stores(storesWithoutImport);
@@ -350,9 +358,12 @@ export class AppDatabase extends Dexie {
           this.version(6).stores(storesAt6);
         }
         if (this.declaredVersion >= 7) {
-          this.version(7).stores(storesAtDeclared);
+          this.version(7).stores(storesAt7);
         }
-        if (this.declaredVersion > 7) {
+        if (this.declaredVersion >= 8) {
+          this.version(8).stores(storesAtDeclared);
+        }
+        if (this.declaredVersion > 8) {
           this.version(this.declaredVersion).stores(storesAtDeclared);
         }
       } else {
