@@ -284,7 +284,8 @@ export class CommerceController {
   static clearMarketplaceSessionForSignOut(): void {
     CommerceApplication.clearMarketplaceSessionForSignOut();
     this.clearMarketplaceSessionStore();
-    this.clearInventorySession();
+    CommerceApplication.clearInventorySessionForSignOut();
+    this.clearInventorySessionStore();
   }
 
   /** Identity checkout bearer only. Leaves `pubky.marketplace.inventory-session.v1` in place. */

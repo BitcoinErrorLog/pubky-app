@@ -1201,6 +1201,10 @@ export class CommerceApplication {
     CommerceInventoryApplication.clearInventorySession();
   }
 
+  static clearInventorySessionForSignOut(): void {
+    CommerceInventoryApplication.clearInventorySessionForSignOut();
+  }
+
   /**
    * Controllers subscribe here so a transport-side `clearSession` (TTL, 401,
    * sign-out) can null the zustand copy without the service touching stores.
