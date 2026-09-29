@@ -537,6 +537,21 @@ describe('journey: the seller mutes a buyer', () => {
     await expect(MessagingController.getConversationMessages(THREAD)).resolves.toHaveLength(2);
   });
 
+  it('shows none of the buyer’s own queued messages while the buyer’s mute list is unreadable', async () => {
+    await actAs(SELLER);
+    await actAs(BUYER);
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+    await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Waiting for the seller');
+    await expect(MessagingController.getQueuedConversationMessages(THREAD)).resolves.toHaveLength(1);
+
+    const junk = plantJunkMuteRecord(BUYER);
+    await expect(MessagingController.getQueuedConversationMessages(THREAD)).resolves.toEqual([]);
+    await expect(MessagingController.getConversations()).resolves.toEqual({ mutes: 'error', conversations: [] });
+
+    homeserver.files.delete(junk);
+    await expect(MessagingController.getQueuedConversationMessages(THREAD)).resolves.toHaveLength(1);
+  });
+
   it('lists nothing on a first read that fails, and nothing a stale read would have allowed', async () => {
     await strangerSendsFirstMessage();
     await MessagingController.acceptRequest(BUYER);
