@@ -164,6 +164,41 @@ describe('migrateMessagingSecretsToWrappedStorage (DB 4 → 5)', () => {
     upgraded.close();
   });
 
+  it.each([
+    ['a wrapped key this build saved', { wrap_version: 1 }],
+    ['a plaintext key an older build saved', {}],
+  ])(
+    'never puts a legacy receiver key back over %s in another tab while it was being wrapped',
+    async (_label, saved) => {
+      const name = `franky-mig-${crypto.randomUUID()}`;
+      await seedLegacyV4Database(name);
+      const upgraded = new AppDatabase(name, MESSAGING_WRAP_BASE_DB_VERSION + 1);
+      await upgraded.initialize();
+      await upgraded.commerce_messaging_receivers.put(legacyReceiverRow());
+      const newer = {
+        ...legacyReceiverRow(),
+        noise_secret: new Uint8Array(32).fill(3),
+        noise_public_key: 'q'.repeat(52),
+        ...saved,
+      };
+      const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+      vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+        await upgraded.commerce_messaging_receivers.put(newer);
+        return await encrypt(...args);
+      });
+
+      await migrateMessagingSecretsToWrappedStorage(upgraded);
+
+      const receiver = (await upgraded.commerce_messaging_receivers.get(OWNER))!;
+      expect({ ...receiver, noise_secret: [...receiver.noise_secret] }).toEqual({
+        ...newer,
+        noise_secret: [...newer.noise_secret],
+      });
+      vi.restoreAllMocks();
+      upgraded.close();
+    },
+  );
+
   it('fails closed when WebCrypto is unavailable — never continues with plaintext', async () => {
     const name = `franky-mig-${crypto.randomUUID()}`;
     await seedLegacyV4Database(name);
