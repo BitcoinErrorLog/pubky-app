@@ -11,6 +11,7 @@ import {
   PAYKIT_MESSAGING_CAPABILITY,
   PAYKIT_MESSAGING_RECEIVER_PATH,
 } from '@/libs/commerce/messaging-contracts';
+import { isMessagingKeyringChanged } from '@/libs/crypto/messaging-keyring';
 import { isAppError } from '@/libs/error/error';
 import {
   AuthErrorCode,
@@ -388,7 +389,7 @@ export class PaykitMessagingService {
    */
   private static async ensureReceiverProvisioned(pubky: string): Promise<void> {
     if (this.session?.pubky !== pubky) return;
-    const receiver = await LocalMessagingService.getReceiver(pubky);
+    const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(pubky));
     if (receiver?.marker_published) return;
     if (this.receiverRetry.status(pubky) === 'waiting') return;
     try {
@@ -1592,14 +1593,16 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    return await withWebLock(`pubky-messaging-link|${ownerPubky}|${counterpartyPubky}`, 'withLinkLock', async () => {
-      await this.dropStateMovedByAnotherTab(ownerPubky, counterpartyPubky);
-      try {
-        return await operation();
-      } finally {
-        await this.recordLinkRevision(ownerPubky, counterpartyPubky);
-      }
-    });
+    return await this.endSessionIfKeyringChanged(() =>
+      withWebLock(`pubky-messaging-link|${ownerPubky}|${counterpartyPubky}`, 'withLinkLock', async () => {
+        await this.dropStateMovedByAnotherTab(ownerPubky, counterpartyPubky);
+        try {
+          return await operation();
+        } finally {
+          await this.recordLinkRevision(ownerPubky, counterpartyPubky);
+        }
+      }),
+    );
   }
 
   /**
@@ -1613,13 +1616,33 @@ export class PaykitMessagingService {
    *
    * Lock order: a link operation may restore the session and so provision
    * the receiver while it holds its pair lock, so the order is always pair
-   * lock, then receiver lock, then the keyring's own lock (taken while
-   * wrapping). Nothing under the receiver lock takes a pair lock or the
-   * receiver lock again, and nothing under the keyring lock takes another
-   * lock, so no two holders can wait on each other.
+   * lock, then receiver lock, then the key fence (shared, held only around
+   * one database read or write of wrapped state, see
+   * `withCurrentWrappingKey`), then the keyring's create lock. Nothing under
+   * the receiver lock takes a pair lock or the receiver lock again, nothing
+   * under the key fence takes the fence again or any lock but the create
+   * lock, the create lock takes none, and sign-out holds only the fence, so
+   * no two holders can wait on each other.
    */
   private static async withReceiverLock<T>(ownerPubky: string, operation: () => Promise<T>): Promise<T> {
-    return await withWebLock(`pubky-messaging-receiver|${ownerPubky}`, 'withReceiverLock', operation);
+    return await this.endSessionIfKeyringChanged(() =>
+      withWebLock(`pubky-messaging-receiver|${ownerPubky}`, 'withReceiverLock', operation),
+    );
+  }
+
+  /**
+   * Another tab signed out or reset this account's messaging keys while this
+   * tab still held its session: every handle, handshake and session this tab
+   * holds belongs to state that no longer exists, so all of it is dropped.
+   * Messaging resumes only through a fresh session restore.
+   */
+  private static async endSessionIfKeyringChanged<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (isMessagingKeyringChanged(error)) this.clearSession();
+      throw error;
+    }
   }
 
   /**
