@@ -1136,8 +1136,17 @@ export class PaykitMessagingService {
 
     if (result.status === 'complete' && result.link) {
       this.handshakes.delete(key);
+      // Saved before it is used: a link registered ahead of its saved
+      // state could send, and a later restore would then reuse its counter.
+      try {
+        await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, result.link);
+      } catch (error) {
+        const unsaved = result.link;
+        closeQuietly(() => void unsaved.close());
+        Logger.warn('Could not save a completed handshake; it restarts from its saved state', { error });
+        return this.deferLink(key, { status: 'handshaking', role: handshake.role });
+      }
       this.links.set(key, result.link);
-      await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, result.link);
       return { status: 'ready' };
     }
 
@@ -1220,19 +1229,25 @@ export class PaykitMessagingService {
     const key = this.linkKey(ownerPubky, counterpartyPubky);
     const now = Date.now();
     if (inbound.link) {
-      this.links.set(key, inbound.link);
-      await LocalMessagingService.upsertLink({
-        owner_id: ownerPubky,
-        counterparty_pubky: counterpartyPubky,
-        role: 'responder',
-        status: 'established',
-        local_receiver_path: localReceiverPath,
-        remote_receiver_path: marker.receiverPath,
-        remote_noise_public_key: marker.noisePublicKey,
-        snapshot: inbound.link.snapshot(),
-        created_at: now,
-        updated_at: now,
-      });
+      const adopted = inbound.link;
+      try {
+        await LocalMessagingService.upsertLink({
+          owner_id: ownerPubky,
+          counterparty_pubky: counterpartyPubky,
+          role: 'responder',
+          status: 'established',
+          local_receiver_path: localReceiverPath,
+          remote_receiver_path: marker.receiverPath,
+          remote_noise_public_key: marker.noisePublicKey,
+          snapshot: adopted.snapshot(),
+          created_at: now,
+          updated_at: now,
+        });
+      } catch (error) {
+        closeQuietly(() => void adopted.close());
+        throw error;
+      }
+      this.links.set(key, adopted);
       return { status: 'ready' };
     }
     if (inbound.handshake) {
