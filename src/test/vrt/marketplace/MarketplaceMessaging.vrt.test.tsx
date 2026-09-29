@@ -75,6 +75,7 @@ const conversationView = vi.hoisted(() => ({
   sendError: null as string | null,
   followOnSend: false,
   firstContactNotice: null as string | null,
+  pausedReason: null as string | null,
 }));
 
 const enableView = vi.hoisted(() => ({
@@ -131,6 +132,7 @@ vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
     refresh: vi.fn(),
     followOnSend: conversationView.followOnSend,
     firstContactNotice: conversationView.firstContactNotice,
+    pausedReason: conversationView.pausedReason,
   }),
 }));
 
@@ -206,6 +208,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     conversationView.sendError = null;
     conversationView.followOnSend = false;
     conversationView.firstContactNotice = null;
+    conversationView.pausedReason = null;
     enableView.status = 'awaiting';
     enableView.authorizationUrl = '';
     enableView.errorMessage = null;
@@ -494,6 +497,15 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
       'messaging-follow-failed-desktop',
     );
+  });
+
+  it('renders a paused conversation while the mute list cannot be read at desktop viewport', async () => {
+    conversationView.status = 'paused';
+    conversationView.pausedReason = 'error';
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot('messaging-paused-desktop');
   });
 
   it('renders a muted conversation with the way to unmute at desktop viewport', async () => {

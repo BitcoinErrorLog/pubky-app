@@ -119,7 +119,7 @@ export function installFakeHomeserver(): FakeHomeserver {
   });
 
   const performList = async (params: THomeserverListParams): Promise<string[]> => {
-    const { baseDirectory, limit, logUrl } = params;
+    const { baseDirectory, limit, logUrl, cursor } = params;
     log.push(`LIST ${baseDirectory}`);
     if (baseDirectory.includes('/priv/') && logUrl === undefined) unredacted.push(`LIST ${baseDirectory}`);
     const failure = failures.findIndex((entry) => entry.method === HttpMethod.GET && matches(entry.url, baseDirectory));
@@ -127,7 +127,11 @@ export function installFakeHomeserver(): FakeHomeserver {
       const [{ statusCode }] = failures.splice(failure, 1);
       throw homeserverHttpError(statusCode, baseDirectory, logUrl);
     }
-    const result = [...files.keys()].filter((url) => url.startsWith(baseDirectory)).slice(0, limit);
+    // Like the homeserver: sorted, and a cursor starts after that URL.
+    const result = [...files.keys()]
+      .filter((url) => url.startsWith(baseDirectory) && (cursor === undefined || url > cursor))
+      .sort()
+      .slice(0, limit);
     if (held) await new Promise<void>((release) => held?.push(release));
     return result;
   };

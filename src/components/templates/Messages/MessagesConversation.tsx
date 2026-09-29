@@ -17,6 +17,7 @@ import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceMessagingEnablePanel } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
 import { ConversationSafetyActions, MutedConversationPanel } from '@/organisms/Messaging/ConversationSafetyActions';
 import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
+import { MessagingMutesNotice } from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
@@ -82,7 +83,9 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
           </Typography>
         ) : (
           <div className="flex flex-col gap-4">
-            {conversation.status !== 'loading' && conversation.status !== 'muted' ? (
+            {conversation.status !== 'loading' &&
+            conversation.status !== 'muted' &&
+            conversation.status !== 'paused' ? (
               <ConversationSafetyActions
                 counterpartyPubky={counterpartyPubky}
                 conversationId={buildDmConversationId(counterpartyPubky)}
@@ -93,6 +96,10 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
             ) : null}
 
             {conversation.status === 'loading' && <Skeleton className="h-48 w-full" />}
+
+            {conversation.status === 'paused' && (
+              <MessagingMutesNotice status={conversation.pausedReason ?? 'error'} onRetry={conversation.refresh} />
+            )}
 
             {conversation.status === 'muted' && (
               <MutedConversationPanel

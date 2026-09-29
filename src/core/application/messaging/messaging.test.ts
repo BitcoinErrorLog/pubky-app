@@ -6,7 +6,7 @@ import { MESSAGING_RETRY_POLICY } from '@/libs/messaging/retry-backoff';
 import { CommerceMessagingConversationModel, CommerceMessagingOutboxModel } from '@/models/messaging/messaging.models';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { type MessagingLinkState, PaykitMessagingService } from '@/services/paykit/paykit-messaging';
-import { ADMIT_ALL_GATE } from '@/test-utils/messaging-gate';
+import { ADMIT_ALL_POLICY, policyMuting } from '@/test-utils/messaging-gate';
 import {
   MESSAGING_SYNC_MAX_COUNTERPARTIES,
   MESSAGING_SYNC_MAX_RECOVERY_PROBES,
@@ -77,7 +77,12 @@ describe('MessagingApplication queued-message outbox', () => {
     mockLinkState(HANDSHAKING);
     const sendSpy = mockChatSend();
 
-    const outcome = await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('hold this'));
+    const outcome = await MessagingApplication.sendOrQueueMessage(
+      OWNER,
+      COUNTERPARTY,
+      chatInput('hold this'),
+      ADMIT_ALL_POLICY,
+    );
 
     expect(outcome.delivered).toBe(false);
     if (outcome.delivered) throw new Error('unreachable');
@@ -101,7 +106,7 @@ describe('MessagingApplication queued-message outbox', () => {
     const sendSpy = mockChatSend();
 
     await expect(
-      MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('x'.repeat(2000))),
+      MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('x'.repeat(2000)), ADMIT_ALL_POLICY),
     ).rejects.toThrow(/Message is too long/);
 
     expect(sendSpy).not.toHaveBeenCalled();
@@ -113,7 +118,12 @@ describe('MessagingApplication queued-message outbox', () => {
     const sendSpy = mockChatSend();
 
     await expect(
-      MessagingApplication.sendOrQueueMessage(OWNER, OTHER_OWNER, chatInput('meant for someone else')),
+      MessagingApplication.sendOrQueueMessage(
+        OWNER,
+        OTHER_OWNER,
+        chatInput('meant for someone else'),
+        ADMIT_ALL_POLICY,
+      ),
     ).rejects.toThrow(/not between you and the person you are messaging/);
 
     expect(sendSpy).not.toHaveBeenCalled();
@@ -124,7 +134,12 @@ describe('MessagingApplication queued-message outbox', () => {
     mockLinkState(READY);
     const sendSpy = mockChatSend();
 
-    const outcome = await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('live send'));
+    const outcome = await MessagingApplication.sendOrQueueMessage(
+      OWNER,
+      COUNTERPARTY,
+      chatInput('live send'),
+      ADMIT_ALL_POLICY,
+    );
 
     expect(outcome.delivered).toBe(true);
     if (!outcome.delivered) throw new Error('unreachable');
@@ -137,12 +152,17 @@ describe('MessagingApplication queued-message outbox', () => {
     mockLinkState(HANDSHAKING);
     const dmSpy = mockDmSend();
 
-    const outcome = await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'dm in waiting');
+    const outcome = await MessagingApplication.sendOrQueueDmMessage(
+      OWNER,
+      COUNTERPARTY,
+      'dm in waiting',
+      ADMIT_ALL_POLICY,
+    );
     expect(outcome.delivered).toBe(false);
     if (outcome.delivered) throw new Error('unreachable');
     expect(outcome.queued).toMatchObject({ kind: 'dm', conversation_id: null, listing_ref: null });
 
-    const result = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+    const result = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
     expect(result).toEqual({ delivered: 1, remaining: 0 });
     expect(dmSpy).toHaveBeenCalledWith(OWNER, COUNTERPARTY, { body: 'dm in waiting', eventId: outcome.queued.id });
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
@@ -152,13 +172,18 @@ describe('MessagingApplication queued-message outbox', () => {
     mockLinkState(HANDSHAKING);
     const queued: string[] = [];
     for (const body of ['first', 'second', 'third']) {
-      const outcome = await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput(body));
+      const outcome = await MessagingApplication.sendOrQueueMessage(
+        OWNER,
+        COUNTERPARTY,
+        chatInput(body),
+        ADMIT_ALL_POLICY,
+      );
       if (outcome.delivered) throw new Error('unreachable');
       queued.push(outcome.queued.id);
     }
     const sendSpy = mockChatSend();
 
-    const result = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+    const result = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
 
     expect(result).toEqual({ delivered: 3, remaining: 0 });
     expect(sendSpy.mock.calls.map(([, , input]) => input.body)).toEqual(['first', 'second', 'third']);
@@ -170,14 +195,14 @@ describe('MessagingApplication queued-message outbox', () => {
   it('stops at the first failed send, records the error, and a later flush resumes from that row', async () => {
     mockLinkState(HANDSHAKING);
     for (const body of ['first', 'second', 'third']) {
-      await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput(body));
+      await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput(body), ADMIT_ALL_POLICY);
     }
     const sendSpy = vi
       .spyOn(PaykitMessagingService, 'sendChatMessage')
       .mockImplementationOnce(async (_owner, _counterparty, input) => chatMessage(input.body, input.eventId))
       .mockRejectedValueOnce(new Error('homeserver write failed'));
 
-    const firstPass = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+    const firstPass = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
 
     expect(firstPass).toEqual({ delivered: 1, remaining: 2 });
     expect(sendSpy).toHaveBeenCalledTimes(2);
@@ -191,21 +216,21 @@ describe('MessagingApplication queued-message outbox', () => {
     const resendSpy = mockChatSend();
     const callsBefore = resendSpy.mock.calls.length;
     advanceClock(2_000);
-    await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY)).resolves.toEqual({
+    await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY)).resolves.toEqual({
       delivered: 0,
       remaining: 2,
     });
     expect(resendSpy.mock.calls.length).toBe(callsBefore);
 
     advanceClock(MESSAGING_RETRY_POLICY.baseMs);
-    const secondPass = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+    const secondPass = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
     expect(secondPass).toEqual({ delivered: 2, remaining: 0 });
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
   });
 
   it('two concurrent flushes share one pass — every message is sent exactly once', async () => {
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('only once'));
+    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('only once'), ADMIT_ALL_POLICY);
     let releaseSend!: () => void;
     const gate = new Promise<void>((resolve) => {
       releaseSend = resolve;
@@ -217,8 +242,8 @@ describe('MessagingApplication queued-message outbox', () => {
         return chatMessage(input.body, input.eventId);
       });
 
-    const firstFlush = MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
-    const secondFlush = MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+    const firstFlush = MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
+    const secondFlush = MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
     releaseSend();
     const [first, second] = await Promise.all([firstFlush, secondFlush]);
 
@@ -229,7 +254,12 @@ describe('MessagingApplication queued-message outbox', () => {
 
   it('cancelQueuedMessage removes a still-queued row', async () => {
     mockLinkState(HANDSHAKING);
-    const outcome = await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('changed my mind'));
+    const outcome = await MessagingApplication.sendOrQueueMessage(
+      OWNER,
+      COUNTERPARTY,
+      chatInput('changed my mind'),
+      ADMIT_ALL_POLICY,
+    );
     if (outcome.delivered) throw new Error('unreachable');
 
     await MessagingApplication.cancelQueuedMessage(OWNER, outcome.queued.id);
@@ -239,12 +269,12 @@ describe('MessagingApplication queued-message outbox', () => {
 
   it("one owner's flush never touches another owner's rows toward the same counterparty", async () => {
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('owner A message'));
-    await MessagingApplication.sendOrQueueDmMessage(OTHER_OWNER, COUNTERPARTY, 'owner B message');
+    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('owner A message'), ADMIT_ALL_POLICY);
+    await MessagingApplication.sendOrQueueDmMessage(OTHER_OWNER, COUNTERPARTY, 'owner B message', ADMIT_ALL_POLICY);
     const chatSpy = mockChatSend();
     const dmSpy = mockDmSend();
 
-    const result = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+    const result = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
 
     expect(result).toEqual({ delivered: 1, remaining: 0 });
     expect(chatSpy).toHaveBeenCalledOnce();
@@ -256,11 +286,16 @@ describe('MessagingApplication queued-message outbox', () => {
 
   it('queues behind older stuck rows even when the link is ready, so thread order never lies', async () => {
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('stuck first'));
+    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('stuck first'), ADMIT_ALL_POLICY);
     mockLinkState(READY);
     vi.spyOn(PaykitMessagingService, 'sendChatMessage').mockRejectedValue(new Error('still failing'));
 
-    const outcome = await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('composed later'));
+    const outcome = await MessagingApplication.sendOrQueueMessage(
+      OWNER,
+      COUNTERPARTY,
+      chatInput('composed later'),
+      ADMIT_ALL_POLICY,
+    );
 
     expect(outcome.delivered).toBe(false);
     const rows = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
@@ -272,15 +307,15 @@ describe('MessagingApplication queued-message outbox', () => {
     vi.spyOn(PaykitMessagingService, 'receiveMessages').mockResolvedValue([]);
     const flushSpy = vi.spyOn(MessagingApplication, 'flushOutbox');
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('poll delivers me'));
+    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('poll delivers me'), ADMIT_ALL_POLICY);
     mockLinkState(READY);
     mockChatSend();
 
-    const { state, flushed } = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+    const { state, flushed } = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
 
     expect(state).toEqual(READY);
     expect(flushed).toBe(1);
-    expect(flushSpy).toHaveBeenCalledWith(OWNER, COUNTERPARTY);
+    expect(flushSpy).toHaveBeenCalledWith(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
   });
 
@@ -288,7 +323,7 @@ describe('MessagingApplication queued-message outbox', () => {
     mockLinkState(HANDSHAKING);
     const flushSpy = vi.spyOn(MessagingApplication, 'flushOutbox');
 
-    const { flushed } = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY, ADMIT_ALL_GATE);
+    const { flushed } = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
 
     expect(flushed).toBe(0);
     expect(flushSpy).not.toHaveBeenCalled();
@@ -296,28 +331,28 @@ describe('MessagingApplication queued-message outbox', () => {
 
   it('opening a conversation (listing or DM) flushes when it finds the link already ready', async () => {
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('open delivers me'));
+    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('open delivers me'), ADMIT_ALL_POLICY);
     mockLinkState(READY);
     mockChatSend();
-    await MessagingApplication.openConversation(OWNER, COUNTERPARTY, CONVERSATION_ID, LISTING_REF);
+    await MessagingApplication.openConversation(OWNER, COUNTERPARTY, CONVERSATION_ID, LISTING_REF, ADMIT_ALL_POLICY);
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
 
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'dm open delivers me');
+    await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'dm open delivers me', ADMIT_ALL_POLICY);
     mockLinkState(READY);
     mockDmSend();
-    await MessagingApplication.openDmConversation(OWNER, COUNTERPARTY);
+    await MessagingApplication.openDmConversation(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
   });
 
   it('syncCounterparties flushes per counterparty that reaches ready, before receiving', async () => {
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'sync delivers me');
+    await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'sync delivers me', ADMIT_ALL_POLICY);
     vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue(READY);
     vi.spyOn(PaykitMessagingService, 'receiveMessages').mockResolvedValue([]);
     mockDmSend();
 
-    await MessagingApplication.syncCounterparties(OWNER, [COUNTERPARTY], { gate: ADMIT_ALL_GATE });
+    await MessagingApplication.syncCounterparties(OWNER, [COUNTERPARTY], { policy: ADMIT_ALL_POLICY });
 
     await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(0);
   });
@@ -333,7 +368,12 @@ describe('MessagingApplication queued-message outbox', () => {
       updated_at: 100,
     });
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('newest and queued'));
+    await MessagingApplication.sendOrQueueMessage(
+      OWNER,
+      COUNTERPARTY,
+      chatInput('newest and queued'),
+      ADMIT_ALL_POLICY,
+    );
 
     const [summary] = await MessagingApplication.getConversations(OWNER);
 
@@ -357,11 +397,11 @@ describe('MessagingApplication retry spacing', () => {
   it('retries a failing queued send on a capped exponential schedule, not on every 2 s poll', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('keeps failing'));
+    await MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('keeps failing'), ADMIT_ALL_POLICY);
     const sendSpy = vi.spyOn(PaykitMessagingService, 'sendChatMessage').mockRejectedValue(new Error('write failed'));
 
     for (let elapsed = 0; elapsed <= 30 * 60_000; elapsed += 2_000) {
-      await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
+      await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
       advanceClock(2_000);
     }
 
@@ -373,15 +413,18 @@ describe('MessagingApplication retry spacing', () => {
   it("a failing pair never delays another pair's flush", async () => {
     const HEALTHY = 'h'.repeat(52);
     mockLinkState(HANDSHAKING);
-    await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'stuck');
-    await MessagingApplication.sendOrQueueDmMessage(OWNER, HEALTHY, 'fine');
+    await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'stuck', ADMIT_ALL_POLICY);
+    await MessagingApplication.sendOrQueueDmMessage(OWNER, HEALTHY, 'fine', ADMIT_ALL_POLICY);
     vi.spyOn(PaykitMessagingService, 'sendDmMessage').mockImplementation(async (_owner, counterparty, input) => {
       if (counterparty === COUNTERPARTY) throw new Error('write failed');
       return dmMessage(input.body, input.eventId);
     });
 
-    await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY);
-    await expect(MessagingApplication.flushOutbox(OWNER, HEALTHY)).resolves.toEqual({ delivered: 1, remaining: 0 });
+    await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
+    await expect(MessagingApplication.flushOutbox(OWNER, HEALTHY, ADMIT_ALL_POLICY)).resolves.toEqual({
+      delivered: 1,
+      remaining: 0,
+    });
   });
 
   it('keeps retries out of the healthy sync budget and runs at most the capped number of due retries per pass', async () => {
@@ -398,7 +441,9 @@ describe('MessagingApplication retry spacing', () => {
     const probeSpy = vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue(READY);
     const receiveSpy = vi.spyOn(PaykitMessagingService, 'receiveMessages').mockResolvedValue([]);
 
-    await MessagingApplication.syncCounterparties(OWNER, [...due, ...waiting, ...healthy], { gate: ADMIT_ALL_GATE });
+    await MessagingApplication.syncCounterparties(OWNER, [...due, ...waiting, ...healthy], {
+      policy: ADMIT_ALL_POLICY,
+    });
 
     const probed = probeSpy.mock.calls.map(([, counterparty]) => counterparty);
     expect(probed.slice(0, healthy.length)).toEqual(healthy);
@@ -443,7 +488,7 @@ describe('MessagingApplication probe budget', () => {
     const follower = 'f'.repeat(52);
     const probeSpy = vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue({ status: 'none' });
 
-    await MessagingApplication.syncCounterparties(OWNER, [follower], { gate: ADMIT_ALL_GATE });
+    await MessagingApplication.syncCounterparties(OWNER, [follower], { policy: ADMIT_ALL_POLICY });
 
     const probed = probeSpy.mock.calls.map(([, counterparty]) => counterparty);
     expect(probed).toHaveLength(MESSAGING_SYNC_MAX_COUNTERPARTIES);
@@ -460,7 +505,7 @@ describe('MessagingApplication probe budget', () => {
 
     await MessagingApplication.syncCounterparties(OWNER, followers, {
       priorityPubkys: [requester],
-      gate: ADMIT_ALL_GATE,
+      policy: ADMIT_ALL_POLICY,
     });
 
     const probed = probeSpy.mock.calls.map(([, counterparty]) => counterparty);
@@ -469,14 +514,50 @@ describe('MessagingApplication probe budget', () => {
     expect(fresh[0]).toBe(requester);
   });
 
-  it('never probes an excluded person and receives nothing without a gate', async () => {
+  it('never probes, flushes toward or receives from a muted person', async () => {
     const [muted, other] = await seedExisting(2);
     const probeSpy = vi.spyOn(PaykitMessagingService, 'probeCounterparty').mockResolvedValue(READY);
     const receiveSpy = vi.spyOn(PaykitMessagingService, 'receiveMessages').mockResolvedValue([]);
 
-    await MessagingApplication.syncCounterparties(OWNER, [muted], { excludedPubkys: new Set([muted]), gate: null });
+    await MessagingApplication.syncCounterparties(OWNER, [muted], { policy: policyMuting(muted) });
 
     expect(probeSpy.mock.calls.map(([, counterparty]) => counterparty)).toEqual([other]);
-    expect(receiveSpy).not.toHaveBeenCalled();
+    expect(receiveSpy.mock.calls.map(([, counterparty]) => counterparty)).toEqual([other]);
+  });
+
+  it('refuses every contact with a muted person on its own, whatever the caller checked', async () => {
+    const ensureSpy = mockLinkState(READY);
+    const sendSpy = mockChatSend();
+    const policy = policyMuting(COUNTERPARTY);
+
+    await expect(
+      MessagingApplication.openConversation(OWNER, COUNTERPARTY, CONVERSATION_ID, LISTING_REF, policy),
+    ).rejects.toThrow(/muted/);
+    await expect(MessagingApplication.openDmConversation(OWNER, COUNTERPARTY, policy)).rejects.toThrow(/muted/);
+    await expect(MessagingApplication.pollConversation(OWNER, COUNTERPARTY, policy)).rejects.toThrow(/muted/);
+    await expect(MessagingApplication.sendOrQueueMessage(OWNER, COUNTERPARTY, chatInput('x'), policy)).rejects.toThrow(
+      /muted/,
+    );
+    await expect(MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'x', policy)).rejects.toThrow(/muted/);
+
+    expect(ensureSpy).not.toHaveBeenCalled();
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps messages queued toward a muted person instead of sending them', async () => {
+    mockLinkState(HANDSHAKING);
+    await MessagingApplication.sendOrQueueMessage(
+      OWNER,
+      COUNTERPARTY,
+      chatInput('queued before the mute'),
+      ADMIT_ALL_POLICY,
+    );
+    const sendSpy = mockChatSend();
+
+    await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, policyMuting(COUNTERPARTY))).resolves.toEqual({
+      delivered: 0,
+      remaining: 1,
+    });
+    expect(sendSpy).not.toHaveBeenCalled();
   });
 });

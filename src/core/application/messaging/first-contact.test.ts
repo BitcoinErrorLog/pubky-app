@@ -1,9 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
-import { decryptPrivRecord, encryptPrivRecord, privEntryName, privEntryUrl } from '@/libs/commerce/priv-envelope';
+import {
+  decryptPrivRecord,
+  encryptPrivRecord,
+  newPrivEntryName,
+  privFamilyUrl,
+  privListedEntryUrl,
+} from '@/libs/commerce/priv-envelope';
 import { HttpMethod } from '@/libs/http/http.types';
 import { conversationRequestUrl } from '@/libs/messaging/first-contact';
-import { applyMuteChange, emptyMuteList, MUTE_LIST_MAX_ENTRIES, parseMuteList } from '@/libs/messaging/mute-list';
+import {
+  foldMuteChanges,
+  MUTE_CHANGE_KIND,
+  type MuteChange,
+  MUTED_PEOPLE_MAX,
+  mutedPubkys,
+  parseMuteChange,
+} from '@/libs/messaging/mute-list';
 import { CommerceMessagingConversationModel, CommerceMessagingMessageModel } from '@/models/messaging/messaging.models';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { type FakeHomeserver, installFakeHomeserver } from '@/test-utils/fake-homeserver';
@@ -23,36 +36,51 @@ const OWNER = 'o'.repeat(52);
 const OTHER_OWNER = 'p'.repeat(52);
 const A = 'a'.repeat(52);
 const B = 'b'.repeat(52);
+const Z = 'z'.repeat(52);
 const LISTING = '0033GVVN22HJ0FYQGZZS8R2BFC';
 
-const muteUrl = () => privEntryUrl(releasedKeyring(OWNER), 'messaging_mutes', 'mutes');
+const familyUrl = () => privFamilyUrl(releasedKeyring(OWNER), 'messaging_mutes');
 
-function plantMuteList(homeserver: FakeHomeserver, record: unknown) {
+const change = (counterparty: string, muted: boolean, changedAt: number): MuteChange => ({
+  version: 1,
+  kind: MUTE_CHANGE_KIND,
+  owner_pubky: OWNER,
+  counterparty_pubky: counterparty,
+  muted,
+  changed_at: changedAt,
+});
+
+/** Writes one sealed record the way another device or tab would. */
+function plantMuteChange(homeserver: FakeHomeserver, record: unknown, name = newPrivEntryName()) {
   const keyring = releasedKeyring(OWNER);
   homeserver.files.set(
-    muteUrl(),
-    encryptPrivRecord({
-      keyring,
-      family: 'messaging_mutes',
-      name: privEntryName(keyring, 'messaging_mutes', 'mutes'),
-      record,
-    }),
+    privListedEntryUrl(keyring, 'messaging_mutes', name),
+    encryptPrivRecord({ keyring, family: 'messaging_mutes', name, record }),
   );
+  return name;
 }
 
-function storedMuteList(homeserver: FakeHomeserver) {
+/** Everyone the stored log says is muted, read with the owner's real keys. */
+function storedMutes(homeserver: FakeHomeserver): Set<string> {
   const keyring = releasedKeyring(OWNER);
-  const envelope = homeserver.files.get(muteUrl());
-  if (envelope === undefined) return null;
-  return parseMuteList(
-    decryptPrivRecord({
-      keyring,
-      family: 'messaging_mutes',
-      name: privEntryName(keyring, 'messaging_mutes', 'mutes'),
-      envelope,
-    }),
-    OWNER,
-  );
+  const records: MuteChange[] = [];
+  for (const [url, envelope] of homeserver.files) {
+    if (!url.startsWith(familyUrl())) continue;
+    const name = url.slice(url.lastIndexOf('/') + 1);
+    const record = parseMuteChange(decryptPrivRecord({ keyring, family: 'messaging_mutes', name, envelope }), OWNER);
+    if (record) records.push(record);
+  }
+  return mutedPubkys(foldMuteChanges(records));
+}
+
+const muteRecordCount = (homeserver: FakeHomeserver) =>
+  [...homeserver.files.keys()].filter((url) => url.startsWith(familyUrl())).length;
+
+/** A new device or a reload: nothing this tab knew survives. */
+function freshDevice() {
+  FirstContactApplication.clear();
+  CommercePrivKeyringApplication.clear();
+  establishMarketplaceSession(OWNER);
 }
 
 let homeserver: FakeHomeserver;
@@ -76,139 +104,120 @@ afterEach(() => {
 });
 
 describe('FirstContactApplication mutes', () => {
-  it('merges a new mute into the stored list and keeps earlier ones', async () => {
-    plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), A, true, 10));
+  it('adds one sealed record per change and never rewrites an earlier one', async () => {
+    const earlier = plantMuteChange(homeserver, change(A, true, 10));
+    const earlierBytes = structuredClone(
+      homeserver.files.get(privListedEntryUrl(releasedKeyring(OWNER), 'messaging_mutes', earlier)),
+    );
 
-    const state = await FirstContactApplication.setMuted(OWNER, B, true);
+    await expect(FirstContactApplication.setMuted(OWNER, B, true)).resolves.toEqual({
+      kind: 'ready',
+      muted: new Set([A, B]),
+    });
 
-    expect(state).toEqual({ kind: 'ready', muted: new Set([A, B]) });
-    expect(storedMuteList(homeserver)?.entries).toMatchObject({ [A]: { muted: true }, [B]: { muted: true } });
+    expect(muteRecordCount(homeserver)).toBe(2);
+    expect(homeserver.files.get(privListedEntryUrl(releasedKeyring(OWNER), 'messaging_mutes', earlier))).toEqual(
+      earlierBytes,
+    );
+    expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toHaveLength(1);
+    expect(homeserver.log.filter((entry) => entry.startsWith('DELETE'))).toEqual([]);
+    expect(storedMutes(homeserver)).toEqual(new Set([A, B]));
   });
 
-  it('leaves a stored list it cannot open untouched', async () => {
-    plantMuteList(homeserver, { version: 2, surprise: true });
-    const before = structuredClone(homeserver.files.get(muteUrl()));
+  it('keeps every acknowledged mute across two devices when the first is gone before they reconcile', async () => {
+    // Device A mutes Z and is then closed for good.
+    await expect(FirstContactApplication.setMuted(OWNER, Z, true)).resolves.toMatchObject({ kind: 'ready' });
+    freshDevice();
+    // Device B had read the list before A's change and now mutes B.
+    await expect(FirstContactApplication.setMuted(OWNER, B, true)).resolves.toMatchObject({ kind: 'ready' });
+    freshDevice();
 
+    // A third device, knowing nothing, reads both.
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([Z, B]) });
+  });
+
+  it('keeps both changes when two tabs write at the same time', async () => {
+    const parked = homeserver.holdNext(HttpMethod.PUT, new RegExp(familyUrl()));
+    const tabOne = FirstContactApplication.setMuted(OWNER, A, true);
+    await parked.reached;
+    // The other tab adds its own record while this tab's write is in flight.
+    plantMuteChange(homeserver, change(B, true, Date.now()));
+    parked.release();
+    await expect(tabOne).resolves.toMatchObject({ kind: 'ready' });
+
+    freshDevice();
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A, B]) });
+  });
+
+  it('never loses or half-writes a mute when the page reloads in the middle of the change', async () => {
+    const parked = homeserver.holdNext(HttpMethod.PUT, new RegExp(familyUrl()));
+    const muting = FirstContactApplication.setMuted(OWNER, A, true);
+    await parked.reached;
+    freshDevice();
+    parked.release();
+    // The record landed but could not be read back under the revoked keys, so the change is not acknowledged here.
+    await expect(muting).resolves.toEqual({ kind: 'error' });
+
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
+
+    homeserver.failNext(HttpMethod.PUT, new RegExp(familyUrl()), 503);
     await expect(FirstContactApplication.setMuted(OWNER, B, true)).resolves.toEqual({ kind: 'error' });
-    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'error' });
+    freshDevice();
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
+  });
 
-    expect(homeserver.files.get(muteUrl())).toEqual(before);
+  it('never reports an earlier read as current when the latest read fails', async () => {
+    plantMuteChange(homeserver, change(A, true, 10));
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
+    // Another device mutes B, and this tab's next read fails.
+    plantMuteChange(homeserver, change(B, true, 11));
+    homeserver.failNext(HttpMethod.GET, new RegExp(familyUrl()), 503);
+
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'error' });
+    expect(FirstContactApplication.getMuteReadState(OWNER)).toBe('failed');
+    expect(FirstContactApplication.getHiddenPubkys(OWNER)).toEqual(new Set([A]));
+  });
+
+  it('cannot confirm the list, and writes nothing, while any record in it does not open', async () => {
+    plantMuteChange(homeserver, change(A, true, 10));
+    plantMuteChange(homeserver, { version: 2, surprise: true });
+
+    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'error' });
+    await expect(FirstContactApplication.setMuted(OWNER, B, true)).resolves.toEqual({ kind: 'error' });
     expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
   });
 
-  it('keeps using the list it read when a later read fails', async () => {
-    plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), A, true, 10));
-    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
-
-    homeserver.failNext(HttpMethod.GET, muteUrl(), 503);
+  it('reads every record past one page of the list', async () => {
+    for (let index = 0; index < 505; index += 1) plantMuteChange(homeserver, change(A, index % 2 === 0, index));
 
     await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
   });
 
-  it('restores a mute another device overwrote the next time this device loads the list', async () => {
-    plantMuteList(homeserver, emptyMuteList(OWNER));
-    await FirstContactApplication.setMuted(OWNER, A, true);
-    // Another device read the list before that write and saved its own change over it.
-    plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), B, true, Date.now()));
+  it('writes nothing for a change already in effect', async () => {
+    plantMuteChange(homeserver, change(A, true, 10));
 
-    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A, B]) });
+    await expect(FirstContactApplication.setMuted(OWNER, A, true)).resolves.toMatchObject({ kind: 'ready' });
+    await expect(FirstContactApplication.setMuted(OWNER, B, false)).resolves.toMatchObject({ kind: 'ready' });
 
-    expect(storedMuteList(homeserver)?.entries).toMatchObject({ [A]: { muted: true }, [B]: { muted: true } });
+    expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
   });
 
-  it('keeps this device’s earlier changes when it writes over another device’s list', async () => {
-    plantMuteList(homeserver, emptyMuteList(OWNER));
-    await FirstContactApplication.setMuted(OWNER, A, true);
-    plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), B, true, Date.now()));
-
-    await FirstContactApplication.setMuted(OWNER, 'z'.repeat(52), true);
-
-    expect(Object.keys(storedMuteList(homeserver)?.entries ?? {}).sort()).toEqual([A, B, 'z'.repeat(52)].sort());
-  });
-
-  it('refuses a mute past the limit without writing, so the list stays readable', async () => {
+  it('refuses a new mute past the limit without writing, and still unmutes', async () => {
     const z32 = 'ybndrfg8ejkmcpqxot1uwisza345h769';
     const pubkyFor = (n: number) =>
       [3, 2, 1, 0]
         .map((power) => z32[Math.floor(n / 32 ** power) % 32])
         .join('')
         .padStart(52, 'y');
-    let full = emptyMuteList(OWNER);
-    for (let index = 0; index < MUTE_LIST_MAX_ENTRIES; index += 1)
-      full = applyMuteChange(full, pubkyFor(index), true, 1);
-    plantMuteList(homeserver, full);
+    for (let index = 0; index < MUTED_PEOPLE_MAX; index += 1)
+      plantMuteChange(homeserver, change(pubkyFor(index), true, 1));
 
     await expect(FirstContactApplication.setMuted(OWNER, A, true)).resolves.toEqual({ kind: 'full' });
-
     expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
-    const state = await FirstContactApplication.loadMutes(OWNER);
-    expect(state.kind).toBe('ready');
-  });
-
-  it('never lets a load’s write-back land between a mute’s read and write', async () => {
-    plantMuteList(homeserver, emptyMuteList(OWNER));
-    await FirstContactApplication.setMuted(OWNER, A, true);
-    plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), B, true, Date.now()));
-    const heal = homeserver.holdNext(HttpMethod.PUT, muteUrl());
-
-    const loading = FirstContactApplication.loadMutes(OWNER);
-    await heal.reached;
-    const muting = FirstContactApplication.setMuted(OWNER, 'z'.repeat(52), true);
-    // Give the mute every chance to run while the write-back is parked.
-    const first = await Promise.race([
-      muting.then(() => 'mute finished'),
-      new Promise((resolve) => setTimeout(() => resolve('mute waiting'), 100)),
-    ]);
-    heal.release();
-    await Promise.all([loading, muting]);
-
-    expect(first).toBe('mute waiting');
-
-    expect(Object.keys(storedMuteList(homeserver)?.entries ?? {}).sort()).toEqual([A, B, 'z'.repeat(52)].sort());
-  });
-
-  it('writes nothing on load when the stored list already holds every change', async () => {
-    plantMuteList(homeserver, emptyMuteList(OWNER));
-    await FirstContactApplication.setMuted(OWNER, A, true);
-    homeserver.log.length = 0;
-
-    await FirstContactApplication.loadMutes(OWNER);
-
-    expect(homeserver.log.filter((entry) => entry.startsWith('PUT'))).toEqual([]);
-  });
-
-  it('stays ready when a write-back fails and retries it on the next load', async () => {
-    plantMuteList(homeserver, emptyMuteList(OWNER));
-    await FirstContactApplication.setMuted(OWNER, A, true);
-    plantMuteList(homeserver, emptyMuteList(OWNER));
-    homeserver.failNext(HttpMethod.PUT, muteUrl(), 503);
-
-    await expect(FirstContactApplication.loadMutes(OWNER)).resolves.toEqual({ kind: 'ready', muted: new Set([A]) });
-    expect(storedMuteList(homeserver)?.entries[A]).toBeUndefined();
-
-    await FirstContactApplication.loadMutes(OWNER);
-    expect(storedMuteList(homeserver)?.entries[A]).toMatchObject({ muted: true });
-  });
-
-  it('still unmutes on a full list, and mutes again once an unmute record can be dropped', async () => {
-    const z32 = 'ybndrfg8ejkmcpqxot1uwisza345h769';
-    const pubkyFor = (n: number) =>
-      [3, 2, 1, 0]
-        .map((power) => z32[Math.floor(n / 32 ** power) % 32])
-        .join('')
-        .padStart(52, 'y');
-    let full = emptyMuteList(OWNER);
-    for (let index = 0; index < MUTE_LIST_MAX_ENTRIES; index += 1)
-      full = applyMuteChange(full, pubkyFor(index), true, 1);
-    plantMuteList(homeserver, full);
 
     await expect(FirstContactApplication.setMuted(OWNER, pubkyFor(0), false)).resolves.toMatchObject({ kind: 'ready' });
     await expect(FirstContactApplication.setMuted(OWNER, A, true)).resolves.toMatchObject({ kind: 'ready' });
-
-    const stored = storedMuteList(homeserver);
-    expect(Object.keys(stored?.entries ?? {})).toHaveLength(MUTE_LIST_MAX_ENTRIES);
-    expect(stored?.entries[pubkyFor(0)]).toBeUndefined();
-    expect(stored?.entries[A]).toMatchObject({ muted: true });
+    expect(storedMutes(homeserver).size).toBe(MUTED_PEOPLE_MAX);
   });
 
   it('asks for approval when the marketplace session is not this owner’s', async () => {
@@ -219,46 +228,55 @@ describe('FirstContactApplication mutes', () => {
     expect(homeserver.log).toEqual([]);
   });
 
-  it('never seals a mute under revoked keys or loses a mute when the session is replaced mid-write', async () => {
+  it('never seals a mute under revoked keys or loses one when the session is replaced mid-write', async () => {
+    let planted = '';
     const requests = await expectSafeAtEverySessionReplacement({
       homeserver,
       ownerPubky: OWNER,
       otherPubky: OTHER_OWNER,
       plant: () => {
         FirstContactApplication.clear();
-        plantMuteList(homeserver, applyMuteChange(emptyMuteList(OWNER), A, true, 10));
+        planted = plantMuteChange(homeserver, change(A, true, 10));
       },
       flow: () => FirstContactApplication.setMuted(OWNER, B, true),
       check: () => {
-        expect(storedMuteList(homeserver)?.entries[A]).toEqual({ muted: true, changed_at: 10 });
+        expect(storedMutes(homeserver).has(A)).toBe(true);
+        expect(homeserver.files.has(privListedEntryUrl(releasedKeyring(OWNER), 'messaging_mutes', planted))).toBe(true);
       },
     });
-    expect(requests).toBe(3);
+    expect(requests).toBe(4);
   });
 });
 
-describe('FirstContactApplication intake gate', () => {
-  it('has no gate while the mute list is unknown', () => {
-    expect(FirstContactApplication.intakeGate(OWNER, { kind: 'error' })).toBeNull();
-    expect(FirstContactApplication.intakeGate(OWNER, { kind: 'needs_approval' })).toBeNull();
-    expect(FirstContactApplication.intakeGate(OWNER, { kind: 'unavailable' })).not.toBeNull();
+describe('FirstContactApplication policy', () => {
+  it('gives no policy unless the mute list was just confirmed', () => {
+    expect(FirstContactApplication.policyFor(OWNER, { kind: 'error' })).toBeNull();
+    expect(FirstContactApplication.policyFor(OWNER, { kind: 'needs_approval' })).toBeNull();
+    expect(FirstContactApplication.policyFor(OWNER, { kind: 'needs_reauth' })).toBeNull();
+    expect(FirstContactApplication.policyFor(OWNER, { kind: 'unavailable' })).not.toBeNull();
   });
 
   it('refuses muted people and files strangers under Requests, known people in the inbox', async () => {
-    const gate = FirstContactApplication.intakeGate(OWNER, { kind: 'ready', muted: new Set([A]) });
+    const policy = FirstContactApplication.policyFor(OWNER, { kind: 'ready', muted: new Set([A]) });
     FirstContactApplication.setKnownContacts(OWNER, { following: [], orderCounterparties: [B] });
 
-    await expect(gate?.admit({ counterpartyPubky: A, kind: 'dm', conversationId: `dm:${A}` })).resolves.toEqual({
+    expect(policy?.isMuted(A)).toBe(true);
+    await expect(policy?.gate.admit({ counterpartyPubky: A, kind: 'dm', conversationId: `dm:${A}` })).resolves.toEqual({
       store: false,
       reason: 'muted',
     });
-    await expect(gate?.admit({ counterpartyPubky: B, kind: 'dm', conversationId: `dm:${B}` })).resolves.toEqual({
+    await expect(policy?.gate.admit({ counterpartyPubky: B, kind: 'dm', conversationId: `dm:${B}` })).resolves.toEqual({
       store: true,
       origin: 'known',
     });
-    await expect(
-      gate?.admit({ counterpartyPubky: 'z'.repeat(52), kind: 'dm', conversationId: `dm:${'z'.repeat(52)}` }),
-    ).resolves.toEqual({ store: true, origin: 'request' });
+    await expect(policy?.gate.admit({ counterpartyPubky: Z, kind: 'dm', conversationId: `dm:${Z}` })).resolves.toEqual({
+      store: true,
+      origin: 'request',
+    });
+    await expect(policy?.gate.admit({ counterpartyPubky: A, kind: 'unknown', conversationId: null })).resolves.toEqual({
+      store: false,
+      reason: 'muted',
+    });
   });
 });
 

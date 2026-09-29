@@ -13,7 +13,12 @@ import { MessagingApplication } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
 import { buildChatMessage, MARKETPLACE_CHAT_MESSAGE_KIND } from '@/libs/commerce/messaging-contracts';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
-import { PRIV_V2_BASE_PATH } from '@/libs/commerce/priv-envelope';
+import {
+  encryptPrivRecord,
+  newPrivEntryName,
+  PRIV_V2_BASE_PATH,
+  privListedEntryUrl,
+} from '@/libs/commerce/priv-envelope';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
@@ -25,14 +30,17 @@ import {
   FIRST_CONTACT_WINDOW_MS,
   RECEIVE_CAP_MAX_MESSAGES,
 } from '@/libs/messaging/first-contact';
+import { MUTE_CHANGE_KIND } from '@/libs/messaging/mute-list';
 import {
   CommerceMessagingConversationModel,
   CommerceMessagingLinkModel,
   CommerceMessagingMessageModel,
   CommerceMessagingOutboxModel,
   CommerceMessagingReceiverModel,
+  CommerceMessagingUnprocessedModel,
 } from '@/models/messaging/messaging.models';
 import type { Pubky } from '@/models/models.types';
+import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import { MarketplaceGatewayService } from '@/services/marketplace/marketplace';
 import { setPaykitWasmModuleForTests } from '@/services/paykit/paykit-messaging';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -80,6 +88,35 @@ function followGraph(pubky: string, reach: 'following' | 'followers'): string[] 
     if (reach === 'followers' && followee === pubky) out.push(follower);
   }
   return out;
+}
+
+/** A sealed mute record written by another device of `owner`. */
+function plantMuteRecord(owner: string, counterparty: string, muted: boolean) {
+  const keyring = releasedKeyring(owner);
+  const name = newPrivEntryName();
+  homeserver.files.set(
+    privListedEntryUrl(keyring, 'messaging_mutes', name),
+    encryptPrivRecord({
+      keyring,
+      family: 'messaging_mutes',
+      name,
+      record: {
+        version: 1,
+        kind: MUTE_CHANGE_KIND,
+        owner_pubky: owner,
+        counterparty_pubky: counterparty,
+        muted,
+        changed_at: Date.now() + 1,
+      },
+    }),
+  );
+}
+
+/** A record in `owner`'s mute log that does not open. Returns its URL. */
+function plantJunkMuteRecord(owner: string): string {
+  const url = privListedEntryUrl(releasedKeyring(owner), 'messaging_mutes', newPrivEntryName());
+  homeserver.files.set(url, { enc: 'pubky-priv-aead/v1', kid: 'd'.repeat(32), nonce: 'AAAA', ct: 'AAAA' });
+  return url;
 }
 
 /** Signs in as `pubky` on a fresh device session: nothing in memory survives. */
@@ -157,6 +194,7 @@ beforeEach(async () => {
     CommerceMessagingConversationModel.clear(),
     CommerceMessagingMessageModel.clear(),
     CommerceMessagingOutboxModel.clear(),
+    CommerceMessagingUnprocessedModel.clear(),
   ]);
 });
 
@@ -417,23 +455,94 @@ describe('journey: the seller mutes a buyer', () => {
     expect((await MessagingController.getConversations()).map((row) => row.counterparty_pubky)).toEqual([BUYER]);
   });
 
-  it('receives nothing new while the mute list cannot be read, and says why', async () => {
+  it('contacts nobody, stores nothing and shows nothing new while the mute list cannot be read', async () => {
     await strangerSendsFirstMessage();
+    await MessagingController.acceptRequest(BUYER);
     await actAs(BUYER);
     await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'While the list is unreadable');
 
+    // Something in the seller's mute log does not open: the list cannot be confirmed.
     await actAs(SELLER);
-    homeserver.failNext(HttpMethod.GET, new RegExp(PRIV_V2_BASE_PATH), 503);
-    const synced = await MessagingController.syncInbox();
+    const junk = plantJunkMuteRecord(SELLER);
+    pair.log.length = 0;
+    homeserver.log.length = 0;
 
-    expect(synced.mutes).toBe('error');
+    await expect(MessagingController.syncInbox()).resolves.toEqual({ mutes: 'error', rateLimited: 0 });
+    await expect(MessagingController.openConversation(SELLER, BUYER, LISTING)).resolves.toMatchObject({
+      state: { status: 'paused', reason: 'error' },
+    });
+    await expect(MessagingController.pollConversation(SELLER, BUYER, LISTING)).resolves.toMatchObject({
+      state: { status: 'paused' },
+      received: [],
+    });
+    await expect(MessagingController.openDmConversation(BUYER)).resolves.toMatchObject({
+      state: { status: 'paused' },
+    });
+    await expect(MessagingController.pollDmConversation(BUYER)).resolves.toMatchObject({ state: { status: 'paused' } });
+    await expect(MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'reply')).rejects.toThrow(
+      MESSAGING_COPY.sendPausedForMutes,
+    );
+    await expect(MessagingController.sendOrQueueDmMessage(BUYER, 'dm')).rejects.toThrow(
+      MESSAGING_COPY.sendPausedForMutes,
+    );
+
+    // No handshake step, send or receive with anyone, and no read of anyone else's homeserver.
+    expect(pair.log).toEqual([]);
+    expect(homeserver.log.filter((entry) => !entry.includes(SELLER))).toEqual([]);
     await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
+    await expect(MessagingController.getQueuedConversationMessages(THREAD)).resolves.toEqual([]);
+    // The thread already held an unread message; while the list is unknown the badge shows nothing new.
+    await expect(MessagingController.refreshUnreadCount()).resolves.toBe(0);
 
-    // The message was left on the homeserver, so the next readable pass stores it.
+    // Once the list reads again, the waiting message arrives.
+    homeserver.files.delete(junk);
     await expect(MessagingController.syncInbox()).resolves.toMatchObject({ mutes: 'ready' });
     await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(
       ['Is this still available?', 'While the list is unreadable'].sort(),
     );
+    await expect(MessagingController.refreshUnreadCount()).resolves.toBe(1);
+  });
+
+  it('never lets an earlier read authorize messages after another device mutes the sender', async () => {
+    await strangerSendsFirstMessage();
+    await expect(MessagingController.getMutes()).resolves.toEqual({ kind: 'ready', muted: new Set() });
+    // The buyer writes again, and another device of the seller mutes the buyer.
+    const { json } = buildChatMessage({
+      eventId: crypto.randomUUID(),
+      conversationId: THREAD,
+      listingRef: buildMarketplaceListingAggregateId(SELLER, LISTING),
+      sentAt: Date.now(),
+      body: 'After the mute elsewhere',
+    });
+    pair.inject(BUYER, SELLER, json);
+    plantMuteRecord(SELLER, BUYER, true);
+
+    // This tab's next read fails: what it read earlier must not let the message in.
+    homeserver.failNext(HttpMethod.GET, new RegExp(PRIV_V2_BASE_PATH), 503);
+    await expect(MessagingController.syncInbox()).resolves.toMatchObject({ mutes: 'error' });
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
+
+    // The next reads see the mute.
+    await expect(MessagingController.pollConversation(SELLER, BUYER, LISTING)).resolves.toMatchObject({
+      state: { status: 'muted' },
+    });
+    await expect(MessagingController.syncInbox()).resolves.toMatchObject({ mutes: 'ready' });
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
+    await expect(MessagingController.getConversations()).resolves.toEqual([]);
+  });
+
+  it('keeps an event of a kind it cannot read across a restart, without showing it', async () => {
+    await strangerSendsFirstMessage();
+    const unknown = JSON.stringify({ version: 1, kind: 'paykit.private_payment_list.v0', endpoints: [] });
+    pair.inject(BUYER, SELLER, unknown);
+
+    await MessagingController.syncInbox();
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+
+    const kept = await LocalMessagingService.getUnprocessed(SELLER, BUYER);
+    expect(kept.map((event) => event.rawJson)).toEqual([unknown]);
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
   });
 
   it('never replaces a mute list it could not read', async () => {
@@ -449,6 +558,7 @@ describe('journey: the seller mutes a buyer', () => {
       1,
     );
     expect(homeserver.files).toEqual(before);
+    await expect(MessagingController.getMutes()).resolves.toEqual({ kind: 'ready', muted: new Set([BUYER]) });
   });
 });
 

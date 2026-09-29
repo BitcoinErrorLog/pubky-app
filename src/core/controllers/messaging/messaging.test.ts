@@ -52,6 +52,7 @@ describe('MessagingController inbox naming set', () => {
     syncCounterpartiesSpy = vi.spyOn(MessagingApplication, 'syncCounterparties').mockResolvedValue();
     vi.spyOn(MessagingApplication, 'getUnreadConversationCount').mockResolvedValue(0);
     vi.spyOn(FirstContactApplication, 'discoverRequests').mockResolvedValue([]);
+    vi.spyOn(FirstContactApplication, 'loadMutes').mockResolvedValue({ kind: 'ready', muted: new Set() });
     vi.spyOn(FirstContactApplication, 'promoteKnownRequests').mockResolvedValue();
   });
 
@@ -183,6 +184,7 @@ describe('MessagingController listing conversation ownership', () => {
   });
 
   it('resolves the counterparty from the thread when the signed-in account is the buyer', async () => {
+    vi.spyOn(FirstContactApplication, 'loadMutes').mockResolvedValue({ kind: 'ready', muted: new Set() });
     vi.spyOn(FirstContactApplication, 'prepareFirstContact').mockResolvedValue({ kind: 'ready', firstMessage: false });
     vi.spyOn(FirstContactApplication, 'accept').mockResolvedValue();
     const sendSpy = vi
@@ -191,10 +193,15 @@ describe('MessagingController listing conversation ownership', () => {
 
     await MessagingController.sendOrQueueMessage(SELLER, OWNER, LISTING_ID, 'hello');
 
-    expect(sendSpy).toHaveBeenCalledWith(OWNER, SELLER, {
-      conversationId: `conversation:${SELLER}_${OWNER}_${LISTING_ID}`,
-      listingRef: `listing:${SELLER}_${LISTING_ID}`,
-      body: 'hello',
-    });
+    expect(sendSpy).toHaveBeenCalledWith(
+      OWNER,
+      SELLER,
+      {
+        conversationId: `conversation:${SELLER}_${OWNER}_${LISTING_ID}`,
+        listingRef: `listing:${SELLER}_${LISTING_ID}`,
+        body: 'hello',
+      },
+      expect.objectContaining({ gate: expect.anything() }),
+    );
   });
 });

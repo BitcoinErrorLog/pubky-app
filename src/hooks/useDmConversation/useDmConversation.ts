@@ -44,6 +44,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [pausedReason, setPausedReason] = useState<UseEncryptedConversationReturn['pausedReason']>(null);
   // The "your message is queued" toast fires once per surface, not per send.
   const queuedToastShownRef = useRef(false);
   const rateCapToastShownRef = useRef(false);
@@ -78,10 +79,15 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
 
     let cancelled = false;
     let timer: number | null = null;
+    // False until the thread opened on a confirmed mute list; while paused,
+    // each poll retries the open instead of polling.
+    let opened = false;
 
     const applyLinkState = (state: MessagingThreadState) => {
       if (cancelled) return;
-      if (state.status === 'muted') setStatus('muted');
+      setPausedReason(state.status === 'paused' ? state.reason : null);
+      if (state.status === 'paused') setStatus('paused');
+      else if (state.status === 'muted') setStatus('muted');
       else if (state.status === 'ready') setStatus('ready');
       else if (state.status === 'not-enrolled') setStatus('not-enrolled');
       else if (state.status === 'recovery-needed') setStatus('recovery-needed');
@@ -90,6 +96,10 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
 
     const poll = async () => {
       if (cancelled || document.hidden) return;
+      if (!opened) {
+        await open();
+        return;
+      }
       try {
         const { state, received, flushed, rateLimited } =
           await MessagingController.pollDmConversation(counterpartyPubky);
@@ -109,6 +119,15 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
       }
     };
 
+    const open = async () => {
+      const result = await MessagingController.openDmConversation(counterpartyPubky);
+      applyLinkState(result.state);
+      if (result.state.status === 'muted' || result.state.status === 'paused') return;
+      opened = true;
+      // Opening flushes queued rows when the link is ready — show the result.
+      if (result.state.status === 'ready') await loadThread();
+    };
+
     const begin = async () => {
       setStatus('loading');
       setErrorMessage(null);
@@ -121,11 +140,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
           setStatus('needs-enable');
           return;
         }
-        const opened = await MessagingController.openDmConversation(counterpartyPubky);
-        applyLinkState(opened.state);
-        if (opened.state.status === 'muted') return;
-        // Opening flushes queued rows when the link is ready — show the result.
-        if (opened.state.status === 'ready') await loadThread();
+        await open();
       } catch (error) {
         if (cancelled) return;
         Logger.error('Failed to open the DM conversation', { error });
@@ -208,5 +223,6 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
     send,
     cancelQueued,
     refresh,
+    pausedReason,
   };
 }

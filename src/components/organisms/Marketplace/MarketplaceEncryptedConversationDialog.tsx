@@ -13,6 +13,7 @@ import { marketplaceCounterpartyLabel, MESSAGING_COPY } from '@/libs/commerce/me
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ConversationSafetyActions, MutedConversationPanel } from '@/organisms/Messaging/ConversationSafetyActions';
 import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
+import { MessagingMutesNotice } from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceMessagingEnablePanel } from './MarketplaceMessagingEnableDialog';
 
@@ -64,7 +65,7 @@ export function MarketplaceEncryptedConversationDialog({
           <DialogTitle>{counterpartyLabel}</DialogTitle>
         </DialogHeader>
 
-        {conversation.status !== 'loading' && conversation.status !== 'muted' ? (
+        {conversation.status !== 'loading' && conversation.status !== 'muted' && conversation.status !== 'paused' ? (
           <ConversationSafetyActions
             counterpartyPubky={counterpartyPubky}
             conversationId={buildMarketplaceConversationAggregateId(sellerPubky, buyerPubky, listingId)}
@@ -75,6 +76,10 @@ export function MarketplaceEncryptedConversationDialog({
         ) : null}
 
         {conversation.status === 'loading' && <Skeleton className="h-40 w-full" />}
+
+        {conversation.status === 'paused' && (
+          <MessagingMutesNotice status={conversation.pausedReason ?? 'error'} onRetry={conversation.refresh} />
+        )}
 
         {conversation.status === 'muted' && (
           <MutedConversationPanel

@@ -53,11 +53,11 @@ path           = /priv/pubky.app/marketplace/v2/s/{family segment}/{entry name}
 | Order receipt             | `order_receipt`           | entry segment for the receipt id (a UUID) |
 | Activity badge checkpoint | `attention_seen/activity` | a random 32-character lowercase hex name  |
 | Orders badge checkpoint   | `attention_seen/orders`   | a random 32-character lowercase hex name  |
-| Messaging mutes           | `messaging_mutes`         | entry segment for id `mutes`              |
+| Messaging mute changes    | `messaging_mutes`         | a random 32-character lowercase hex name  |
 
 A badge checkpoint's plaintext is `{ "version": 1, "seenAt": <ms> }`; the checkpoint is the largest `seenAt`.
 
-The mute list's plaintext is `{ "version": 1, "kind": "pubky_app.messaging_mutes.v0", "owner_pubky": <your pubky>, "entries": { <pubky>: { "muted": <bool>, "changed_at": <ms> } } }`. A person is muted when their entry says `"muted": true`; `false` records an unmute.
+Each mute change's plaintext is `{ "version": 1, "kind": "pubky_app.messaging_mute_change.v0", "owner_pubky": <your pubky>, "counterparty_pubky": <pubky>, "muted": <bool>, "changed_at": <ms> }`. List the family and open every entry; per person the change with the largest `changed_at` applies, and a mute wins a tie.
 
 To open a record, find the key whose `keyId` equals the envelope's `kid`. Decrypt `ct` with XChaCha20-Poly1305 under that key's record key, the envelope's `nonce`, and associated data built from the entry's own name (the last segment of its path):
 

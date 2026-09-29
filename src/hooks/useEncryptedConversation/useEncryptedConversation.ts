@@ -46,6 +46,7 @@ export function useEncryptedConversation(
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [pausedReason, setPausedReason] = useState<UseEncryptedConversationReturn['pausedReason']>(null);
   const [followOnSend, setFollowOnSend] = useState(false);
   const [firstContactNotice, setFirstContactNotice] = useState<string | null>(null);
   // The "your message is queued" toast fires once per surface, not per send.
@@ -91,10 +92,15 @@ export function useEncryptedConversation(
 
     let cancelled = false;
     let timer: number | null = null;
+    // False until the thread opened on a confirmed mute list; while paused,
+    // each poll retries the open instead of polling.
+    let opened = false;
 
     const applyLinkState = (state: MessagingThreadState) => {
       if (cancelled) return;
-      if (state.status === 'muted') setStatus('muted');
+      setPausedReason(state.status === 'paused' ? state.reason : null);
+      if (state.status === 'paused') setStatus('paused');
+      else if (state.status === 'muted') setStatus('muted');
       else if (state.status === 'ready') setStatus('ready');
       else if (state.status === 'not-enrolled') setStatus('not-enrolled');
       else if (state.status === 'recovery-needed') setStatus('recovery-needed');
@@ -103,6 +109,10 @@ export function useEncryptedConversation(
 
     const poll = async () => {
       if (cancelled || document.hidden) return;
+      if (!opened) {
+        await open();
+        return;
+      }
       try {
         const { state, received, flushed, rateLimited } = await MessagingController.pollConversation(
           sellerPubky,
@@ -125,6 +135,17 @@ export function useEncryptedConversation(
       }
     };
 
+    const open = async () => {
+      const result = await MessagingController.openConversation(sellerPubky, buyerPubky, listingId);
+      applyLinkState(result.state);
+      if (result.state.status === 'muted' || result.state.status === 'paused') return;
+      opened = true;
+      // Opening flushes queued rows when the link is ready — show the result.
+      if (result.state.status === 'ready') await loadThread();
+      const willFollow = await MessagingController.willFollowOnSend(sellerPubky, buyerPubky, listingId);
+      if (!cancelled) setFollowOnSend(willFollow);
+    };
+
     const begin = async () => {
       setStatus('loading');
       setErrorMessage(null);
@@ -137,13 +158,7 @@ export function useEncryptedConversation(
           setStatus('needs-enable');
           return;
         }
-        const opened = await MessagingController.openConversation(sellerPubky, buyerPubky, listingId);
-        applyLinkState(opened.state);
-        if (opened.state.status === 'muted') return;
-        // Opening flushes queued rows when the link is ready — show the result.
-        if (opened.state.status === 'ready') await loadThread();
-        const willFollow = await MessagingController.willFollowOnSend(sellerPubky, buyerPubky, listingId);
-        if (!cancelled) setFollowOnSend(willFollow);
+        await open();
       } catch (error) {
         if (cancelled) return;
         Logger.error('Failed to open the encrypted conversation', { error });
@@ -228,6 +243,7 @@ export function useEncryptedConversation(
     send,
     cancelQueued,
     refresh,
+    pausedReason,
     followOnSend,
     firstContactNotice,
   };

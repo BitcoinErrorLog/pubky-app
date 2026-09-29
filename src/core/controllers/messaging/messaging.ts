@@ -26,6 +26,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { buildDmConversationId, parseDmConversationId } from '@/libs/messaging/dm-contracts';
+import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import type { Pubky } from '@/models/models.types';
 import { buildUserCompositeId } from '@/models/stream/user/userStream.helper';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
@@ -81,7 +82,8 @@ export class MessagingController {
    * Opens the encrypted conversation for a listing between the signed-in user
    * and a counterparty. The conversation id is the same aggregate reference
    * the sandbox transport uses (`conversation:{seller}_{buyer}_{listingId}`).
-   * Nothing is opened with someone this account muted.
+   * Nothing is opened with someone this account muted, and nothing at all
+   * while the mute list cannot be confirmed (`paused`).
    */
   static async openConversation(
     sellerPubky: unknown,
@@ -93,14 +95,14 @@ export class MessagingController {
       buyerPubky,
       listingId,
     );
-    if (await this.isMuted(ownerPubky, counterpartyPubky)) {
-      return { state: { status: 'muted' }, conversationId, counterpartyPubky };
-    }
+    const confirmed = await this.confirmPolicy(ownerPubky, counterpartyPubky);
+    if (!confirmed.policy) return { state: confirmed.state, conversationId, counterpartyPubky };
     const state = await MessagingApplication.openConversation(
       ownerPubky,
       counterpartyPubky,
       conversationId,
       listingRef,
+      confirmed.policy,
     );
     return { state, conversationId, counterpartyPubky };
   }
@@ -116,12 +118,13 @@ export class MessagingController {
       buyerPubky,
       listingId,
     );
-    await this.assertNotMuted(ownerPubky, counterpartyPubky, 'sendMessage');
-    const message = await MessagingApplication.sendMessage(ownerPubky, counterpartyPubky, {
-      conversationId,
-      listingRef,
-      body,
-    });
+    const policy = await this.requirePolicy(ownerPubky, counterpartyPubky, 'sendMessage');
+    const message = await MessagingApplication.sendMessage(
+      ownerPubky,
+      counterpartyPubky,
+      { conversationId, listingRef, body },
+      policy,
+    );
     await FirstContactApplication.accept(ownerPubky, counterpartyPubky);
     return message;
   }
@@ -143,18 +146,19 @@ export class MessagingController {
   static async sendOrQueueMessage(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown, body: string) {
     const resolved = this.resolveConversation(sellerPubky, buyerPubky, listingId);
     const { ownerPubky, counterpartyPubky, conversationId, listingRef } = resolved;
-    await this.assertNotMuted(ownerPubky, counterpartyPubky, 'sendOrQueueMessage');
+    const policy = await this.requirePolicy(ownerPubky, counterpartyPubky, 'sendOrQueueMessage');
     // A message that cannot be sent must not follow anyone or publish anything.
     MessagingApplication.assertSendableChat(ownerPubky, counterpartyPubky, { conversationId, listingRef, body });
     const firstContact =
       ownerPubky === resolved.buyerPubky
         ? await this.runFirstContact(ownerPubky, counterpartyPubky, resolved.listingId)
         : null;
-    const outcome = await MessagingApplication.sendOrQueueMessage(ownerPubky, counterpartyPubky, {
-      conversationId,
-      listingRef,
-      body,
-    });
+    const outcome = await MessagingApplication.sendOrQueueMessage(
+      ownerPubky,
+      counterpartyPubky,
+      { conversationId, listingRef, body },
+      policy,
+    );
     await FirstContactApplication.accept(ownerPubky, counterpartyPubky);
     return { ...outcome, firstContact };
   }
@@ -229,10 +233,9 @@ export class MessagingController {
   ): Promise<{ state: MessagingThreadState; counterpartyPubky: string }> {
     const ownerPubky = this.getCurrentUserPubky();
     const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
-    if (await this.isMuted(ownerPubky, counterparty)) {
-      return { state: { status: 'muted' }, counterpartyPubky: counterparty };
-    }
-    const state = await MessagingApplication.openDmConversation(ownerPubky, counterparty);
+    const confirmed = await this.confirmPolicy(ownerPubky, counterparty);
+    if (!confirmed.policy) return { state: confirmed.state, counterpartyPubky: counterparty };
+    const state = await MessagingApplication.openDmConversation(ownerPubky, counterparty, confirmed.policy);
     return { state, counterpartyPubky: counterparty };
   }
 
@@ -245,8 +248,8 @@ export class MessagingController {
   static async sendDmMessage(counterpartyPubky: unknown, body: string) {
     const ownerPubky = this.getCurrentUserPubky();
     const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
-    await this.assertNotMuted(ownerPubky, counterparty, 'sendDmMessage');
-    const message = await MessagingApplication.sendDmMessage(ownerPubky, counterparty, body);
+    const policy = await this.requirePolicy(ownerPubky, counterparty, 'sendDmMessage');
+    const message = await MessagingApplication.sendDmMessage(ownerPubky, counterparty, body, policy);
     await FirstContactApplication.accept(ownerPubky, counterparty);
     return message;
   }
@@ -255,16 +258,16 @@ export class MessagingController {
   static async sendOrQueueDmMessage(counterpartyPubky: unknown, body: string) {
     const ownerPubky = this.getCurrentUserPubky();
     const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
-    await this.assertNotMuted(ownerPubky, counterparty, 'sendOrQueueDmMessage');
-    const outcome = await MessagingApplication.sendOrQueueDmMessage(ownerPubky, counterparty, body);
+    const policy = await this.requirePolicy(ownerPubky, counterparty, 'sendOrQueueDmMessage');
+    const outcome = await MessagingApplication.sendOrQueueDmMessage(ownerPubky, counterparty, body, policy);
     await FirstContactApplication.accept(ownerPubky, counterparty);
     return outcome;
   }
 
   /**
-   * One poll step with one counterparty. A muted person is not contacted at
-   * all; with the mute list unknown, handshakes and queued sends advance but
-   * nothing new is received.
+   * One poll step with one counterparty, on a fresh read of the mute list.
+   * A muted person is not contacted at all, and while the list cannot be
+   * confirmed nobody is: no handshake step, queued send or receive runs.
    */
   private static async pollCounterparty(
     ownerPubky: string,
@@ -275,15 +278,9 @@ export class MessagingController {
     flushed: number;
     rateLimited: number;
   }> {
-    const mutes = await this.currentMutes(ownerPubky);
-    if (mutes.kind === 'ready' && mutes.muted.has(counterpartyPubky)) {
-      return { state: { status: 'muted' }, received: [], flushed: 0, rateLimited: 0 };
-    }
-    const result = await MessagingApplication.pollConversation(
-      ownerPubky,
-      counterpartyPubky,
-      FirstContactApplication.intakeGate(ownerPubky, mutes),
-    );
+    const confirmed = await this.confirmPolicy(ownerPubky, counterpartyPubky);
+    if (!confirmed.policy) return { state: confirmed.state, received: [], flushed: 0, rateLimited: 0 };
+    const result = await MessagingApplication.pollConversation(ownerPubky, counterpartyPubky, confirmed.policy);
     return { ...result, rateLimited: FirstContactApplication.takeRateLimitedCount(ownerPubky) };
   }
 
@@ -340,22 +337,46 @@ export class MessagingController {
     });
   }
 
-  private static async currentMutes(ownerPubky: string): Promise<MessagingMutesState> {
-    return FirstContactApplication.getCachedMutes(ownerPubky) ?? (await FirstContactApplication.loadMutes(ownerPubky));
+  /**
+   * The confirmed policy for one operation with one person, from a fresh
+   * read of the mute list, or the state to show instead: `paused` while the
+   * list cannot be confirmed, `muted` for a muted person.
+   */
+  private static async confirmPolicy(
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): Promise<{ policy: MessagingPolicy; state: null } | { policy: null; state: MessagingThreadState }> {
+    const mutes = await FirstContactApplication.loadMutes(ownerPubky);
+    const policy = FirstContactApplication.policyFor(ownerPubky, mutes);
+    if (!policy) {
+      const reason = mutes.kind === 'needs_approval' || mutes.kind === 'needs_reauth' ? mutes.kind : 'error';
+      return { policy: null, state: { status: 'paused', reason } };
+    }
+    if (policy.isMuted(counterpartyPubky)) return { policy: null, state: { status: 'muted' } };
+    return { policy, state: null };
   }
 
-  private static async isMuted(ownerPubky: string, counterpartyPubky: string): Promise<boolean> {
-    const mutes = await this.currentMutes(ownerPubky);
-    return mutes.kind === 'ready' && mutes.muted.has(counterpartyPubky);
+  /** {@link confirmPolicy} for a send: refuses with the reason instead of returning a state. */
+  private static async requirePolicy(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    operation: string,
+  ): Promise<MessagingPolicy> {
+    const confirmed = await this.confirmPolicy(ownerPubky, counterpartyPubky);
+    if (confirmed.policy) return confirmed.policy;
+    const muted = confirmed.state.status === 'muted';
+    throw Err.validation(
+      ValidationErrorCode.INVALID_INPUT,
+      muted ? MESSAGING_COPY.mutedSendRefused : MESSAGING_COPY.sendPausedForMutes,
+      { service: ErrorService.Local, operation, context: { reason: muted ? 'muted' : 'mutes_unconfirmed' } },
+    );
   }
 
-  private static async assertNotMuted(ownerPubky: string, counterpartyPubky: string, operation: string) {
-    if (!(await this.isMuted(ownerPubky, counterpartyPubky))) return;
-    throw Err.validation(ValidationErrorCode.INVALID_INPUT, MESSAGING_COPY.mutedSendRefused, {
-      service: ErrorService.Local,
-      operation,
-      context: { reason: 'muted' },
-    });
+  /** Reads the mute list once if this session has not tried yet, so display paths know whom to hide. */
+  private static async ensureMutesRead(ownerPubky: string): Promise<void> {
+    if (FirstContactApplication.getMuteReadState(ownerPubky) === 'none') {
+      await FirstContactApplication.loadMutes(ownerPubky);
+    }
   }
 
   static async getConversationMessages(conversationId: unknown) {
@@ -378,13 +399,16 @@ export class MessagingController {
     await MessagingApplication.cancelQueuedMessage(this.getCurrentUserPubky(), this.normalizeOutboxId(id));
   }
 
-  /** The account's conversations; threads with people it muted are left out. */
+  /**
+   * The account's conversations; threads with people it is known to have
+   * muted are left out, even while the list cannot be read right now.
+   */
   static async getConversations() {
     const ownerPubky = this.getCurrentUserPubky();
+    await this.ensureMutesRead(ownerPubky);
+    const hidden = FirstContactApplication.getHiddenPubkys(ownerPubky);
     const conversations = await MessagingApplication.getConversations(ownerPubky);
-    const mutes = await this.currentMutes(ownerPubky);
-    if (mutes.kind !== 'ready') return conversations;
-    return conversations.filter((conversation) => !mutes.muted.has(conversation.counterparty_pubky));
+    return conversations.filter((conversation) => !hidden.has(conversation.counterparty_pubky));
   }
 
   /**
@@ -402,7 +426,8 @@ export class MessagingController {
    * Recomputes the device-local unread conversation count and mirrors it into
    * the messaging store (the header/footer badges subscribe there). Honest by
    * construction: only messages already persisted on this device count.
-   * Requests and muted people never count.
+   * Requests and muted people never count, and nothing counts while the
+   * mute list cannot be confirmed.
    */
   static async refreshUnreadCount(): Promise<number> {
     const ownerPubky = useAuthStore.getState().currentUserPubky;
@@ -410,13 +435,16 @@ export class MessagingController {
       useMessagingStore.getState().setUnreadConversations(0);
       return 0;
     }
-    // The badge path never reads the network: the list read by the last
-    // sync or mute change is used, and nothing muted is stored after a mute.
-    const mutes = FirstContactApplication.getCachedMutes(ownerPubky);
-    const count = await MessagingApplication.getUnreadConversationCount(
-      ownerPubky,
-      mutes?.kind === 'ready' ? mutes.muted : undefined,
-    );
+    // The badge reads the list only if this session never has; after that
+    // it follows the last read, which every sync and poll refreshes.
+    await this.ensureMutesRead(ownerPubky);
+    const count =
+      FirstContactApplication.getMuteReadState(ownerPubky) === 'confirmed'
+        ? await MessagingApplication.getUnreadConversationCount(
+            ownerPubky,
+            FirstContactApplication.getHiddenPubkys(ownerPubky),
+          )
+        : 0;
     useMessagingStore.getState().setUnreadConversations(count);
     return count;
   }
@@ -436,8 +464,8 @@ export class MessagingController {
    *
    * People this account does not follow and shares no order or offer with
    * land in Requests. Muted people are never probed. When the mute list
-   * cannot be read, handshakes and queued sends advance but nothing new is
-   * received, and `mutes` says why.
+   * cannot be confirmed, nobody is contacted at all (no request discovery,
+   * probe, handshake step, queued send or receive), and `mutes` says why.
    *
    * Any source failing to read degrades to the remaining sources instead of
    * failing the sync. Ends by refreshing the device-local unread fact.
@@ -445,7 +473,11 @@ export class MessagingController {
   static async syncInbox(): Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }> {
     const ownerPubky = this.getCurrentUserPubky();
     const mutes = await FirstContactApplication.loadMutes(ownerPubky);
-    const gate = FirstContactApplication.intakeGate(ownerPubky, mutes);
+    const policy = FirstContactApplication.policyFor(ownerPubky, mutes);
+    if (!policy) {
+      await this.refreshUnreadCount();
+      return { mutes: mutes.kind, rateLimited: 0 };
+    }
     const muted = mutes.kind === 'ready' ? mutes.muted : new Set<string>();
     const orderCounterparties = isDurableCommerceMode(getCommerceAdapterMode())
       ? await this.getMarketplaceCounterpartyCandidates(ownerPubky)
@@ -455,13 +487,12 @@ export class MessagingController {
       following,
       orderCounterparties: orderCounterparties.filter((pubky) => pubky !== ownerPubky),
     });
-    const requesters = gate ? await FirstContactApplication.discoverRequests(ownerPubky, followers, muted) : [];
+    const requesters = await FirstContactApplication.discoverRequests(ownerPubky, followers, muted);
     const candidates = new Set([...orderCounterparties, ...following, ...followers]);
     candidates.delete(ownerPubky);
     await MessagingApplication.syncCounterparties(ownerPubky, [...candidates], {
       priorityPubkys: requesters,
-      excludedPubkys: muted,
-      gate,
+      policy,
     });
     await FirstContactApplication.promoteKnownRequests(ownerPubky);
     await this.refreshUnreadCount();

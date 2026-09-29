@@ -1,7 +1,7 @@
 import { followUriBuilder } from 'pubky-app-specs';
 import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
-import { privErrorSummary, type PrivKeyring } from '@/libs/commerce/priv-envelope';
+import { newPrivEntryName, privErrorSummary, type PrivKeyring } from '@/libs/commerce/priv-envelope';
 import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
@@ -22,23 +22,21 @@ import {
   parseBoundConversationRequest,
   ReceiveRateLimiter,
 } from '@/libs/messaging/first-contact';
-import type { MessagingIntakeGate } from '@/libs/messaging/intake-gate';
+import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import {
-  applyMuteChange,
-  emptyMuteList,
-  mergeMuteLists,
+  buildMuteChange,
+  foldMuteChanges,
+  type MuteChange,
+  MUTED_PEOPLE_MAX,
   mutedPubkys,
-  type MuteList,
-  muteListSchema,
-  muteListsEqual,
-  parseMuteList,
+  type MuteState,
+  parseMuteChange,
 } from '@/libs/messaging/mute-list';
 import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 import { LocalMessagingService } from '@/services/local/messaging/messaging';
 
 const MUTES_FAMILY = 'messaging_mutes';
-const MUTES_ENTRY_ID = 'mutes';
 
 /** Followers whose request directories one sync lists. */
 export const FIRST_CONTACT_MAX_REQUEST_SOURCES = 20;
@@ -55,8 +53,9 @@ export const FIRST_CONTACT_MAX_REQUESTS_PER_BUYER = 10;
  *   approves again (the private keys, or the homeserver session).
  * - `error`: the read failed or the stored list could not be opened.
  *
- * Only `ready` and `unavailable` let messages be received: in every other
- * state the policy cannot tell who is muted, so nothing new is stored.
+ * Only a fresh `ready` or `unavailable` lets anything contact a counterparty:
+ * in every other state the policy cannot tell who is muted, so nothing is
+ * opened, sent, flushed or received.
  */
 export type MessagingMutesState =
   | { kind: 'ready'; muted: ReadonlySet<string> }
@@ -80,7 +79,7 @@ export type ConversationRequestWrite = 'written' | 'kept' | 'failed';
  * Shop policy for first contact, above the message transport: who lands in
  * Requests, who is muted, the buyer's public conversation request, and the
  * limits on new people and inbound volume. It never sends, receives or
- * decrypts. The transport sees it only through {@link MessagingIntakeGate}.
+ * decrypts. The transport sees it only through the intake gate of a {@link MessagingPolicy}.
  *
  * All caches are in memory, per owner, and dropped by {@link clear} at
  * sign-out.
@@ -88,7 +87,12 @@ export type ConversationRequestWrite = 'written' | 'kept' | 'failed';
 export class FirstContactApplication {
   private constructor() {}
 
-  private static mutes = new Map<string, MuteList>();
+  /** The last confirmed fold of the mute log: hides threads, never authorizes intake. */
+  private static mutes = new Map<string, MuteState>();
+  /** Decrypted mute records by entry name. Records are never rewritten, so a name always holds the same change. */
+  private static muteRecords = new Map<string, Map<string, MuteChange>>();
+  /** Whether the most recent read of the mute log succeeded. */
+  private static muteReads = new Map<string, 'confirmed' | 'failed'>();
   private static muteQueue = new Map<string, Promise<unknown>>();
   private static knownContacts = new Map<string, ReadonlySet<string>>();
   private static orderCounterparties = new Map<string, ReadonlySet<string>>();
@@ -99,45 +103,71 @@ export class FirstContactApplication {
   // --- mutes --------------------------------------------------------------
 
   /**
-   * Reads the mute list from `/priv`. A list read earlier in this session is
-   * kept when a later read fails, so a passing network error does not stop
-   * delivery; a first read that fails leaves the state unknown.
-   *
-   * The stored list is merged with every change this session already knows.
-   * There is no conditional write on the homeserver, so another device can
-   * overwrite a change made here; when the merge finds one missing, it is
-   * written back, and the lost mute returns on this device's next sync.
+   * Reads the mute log from `/priv` now. Only a read that lists the log and
+   * opens every record in it is `ready`; any failure is reported as such,
+   * even when an earlier read of this session succeeded, because a mute
+   * added on another device since then would be missing.
    */
   static async loadMutes(ownerPubky: string): Promise<MessagingMutesState> {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return { kind: 'unavailable' };
-    return await this.inMuteQueue(ownerPubky, () => this.readAndHealMutes(ownerPubky));
+    return await this.inMuteQueue(ownerPubky, () => this.readMutes(ownerPubky));
   }
 
-  private static async readAndHealMutes(ownerPubky: string): Promise<MessagingMutesState> {
+  private static async readMutes(ownerPubky: string): Promise<MessagingMutesState> {
     const keys = await CommercePrivKeyringApplication.get(ownerPubky);
-    const result =
+    const read =
       keys.kind === 'keys'
-        ? await this.readMuteList(ownerPubky, keys.keyring)
+        ? await this.readMuteLog(ownerPubky, keys.keyring)
         : ({ kind: keys.kind === 'needs_reauth' ? 'needs_approval' : 'error' } as const);
-    const cached = this.mutes.get(ownerPubky);
-    if (result.kind === 'list') {
-      const merged = cached ? mergeMuteLists(result.list, cached) : result.list;
-      this.mutes.set(ownerPubky, merged);
-      if (keys.kind === 'keys' && !muteListsEqual(merged, result.list) && muteListSchema.safeParse(merged).success) {
-        // A failed heal is retried by the next load: the cache still holds the change.
-        await this.writeMuteList(keys.keyring, merged);
-      }
-      return { kind: 'ready', muted: mutedPubkys(merged) };
+    if (read.kind !== 'log') {
+      this.muteReads.set(ownerPubky, 'failed');
+      return { kind: read.kind };
     }
-    if (cached) return { kind: 'ready', muted: mutedPubkys(cached) };
-    return { kind: result.kind };
+    this.mutes.set(ownerPubky, read.state);
+    this.muteReads.set(ownerPubky, 'confirmed');
+    return { kind: 'ready', muted: mutedPubkys(read.state) };
   }
 
   /**
-   * Runs mute list reads and writes of one owner one after another in this
-   * tab, so a load's write-back can never land between another change's
-   * read and write.
+   * Lists the log and opens every record in it. A record that does not open
+   * or is not a valid change of this owner makes the whole read fail: the
+   * list cannot be confirmed while any mute in it is unreadable.
    */
+  private static async readMuteLog(
+    ownerPubky: string,
+    keyring: PrivKeyring,
+  ): Promise<{ kind: 'log'; state: MuteState } | { kind: 'needs_reauth' | 'error' }> {
+    try {
+      const names = await CommercePrivStoreService.listAllNames(keyring, MUTES_FAMILY);
+      const known = this.muteRecords.get(ownerPubky) ?? new Map<string, MuteChange>();
+      const records = new Map<string, MuteChange>();
+      for (const name of names) {
+        let change = known.get(name);
+        if (!change) {
+          const payload = await CommercePrivStoreService.readListed(keyring, MUTES_FAMILY, name);
+          if (payload === null) {
+            Logger.warn('A listed mute record is missing; the mute list cannot be confirmed');
+            return { kind: 'error' };
+          }
+          const parsed = parseMuteChange(payload, ownerPubky);
+          if (!parsed) {
+            Logger.warn('A mute record is not valid; the mute list cannot be confirmed');
+            return { kind: 'error' };
+          }
+          change = parsed;
+        }
+        records.set(name, change);
+      }
+      this.muteRecords.set(ownerPubky, records);
+      return { kind: 'log', state: foldMuteChanges(records.values()) };
+    } catch (error) {
+      if (this.isPrivateAccessDenied(error)) return { kind: 'needs_reauth' };
+      Logger.warn('Could not read the mute list', privErrorSummary(error));
+      return { kind: 'error' };
+    }
+  }
+
+  /** Runs one owner's mute reads and changes one after another in this tab. */
   private static async inMuteQueue<T>(ownerPubky: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.muteQueue.get(ownerPubky) ?? Promise.resolve();
     const run = previous.then(operation, operation);
@@ -148,19 +178,28 @@ export class FirstContactApplication {
     return await run;
   }
 
-  /** The list this session last read or wrote, without a network call. */
-  static getCachedMutes(ownerPubky: string): MessagingMutesState | null {
-    if (!isDurableCommerceMode(getCommerceAdapterMode())) return { kind: 'unavailable' };
-    const cached = this.mutes.get(ownerPubky);
-    return cached ? { kind: 'ready', muted: mutedPubkys(cached) } : null;
+  /**
+   * People to hide from lists: the mutes of the last confirmed read, plus
+   * changes made since. Display only; nothing is received or sent on it.
+   */
+  static getHiddenPubkys(ownerPubky: string): ReadonlySet<string> {
+    const state = this.mutes.get(ownerPubky);
+    return state ? mutedPubkys(state) : new Set<string>();
+  }
+
+  /** Whether the most recent read of this owner's mute log succeeded, failed, or has not run. */
+  static getMuteReadState(ownerPubky: string): 'confirmed' | 'failed' | 'none' {
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return 'confirmed';
+    return this.muteReads.get(ownerPubky) ?? 'none';
   }
 
   /**
-   * Mutes or unmutes one person: reads the stored list, applies the change,
-   * writes it sealed and reads it back. A failed read writes nothing, so a
-   * list that could not be opened is never replaced, and a change that would
-   * take the list past its limit is refused (`full`). Loads and changes
-   * from one tab run one after another.
+   * Mutes or unmutes one person by adding one sealed record to the log,
+   * after reading the whole log: a log that cannot be read is not written
+   * to, a change that is already in effect adds nothing, and a new mute past
+   * {@link MUTED_PEOPLE_MAX} is refused (`full`). The change counts only
+   * once the record reads back. Records are never rewritten, so a change
+   * made on another device or tab at the same time is never lost.
    */
   static async setMuted(ownerPubky: string, counterpartyPubky: string, muted: boolean): Promise<MuteChangeResult> {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return { kind: 'unavailable' };
@@ -170,67 +209,50 @@ export class FirstContactApplication {
         operation: 'setMuted',
       });
     }
-    return await this.inMuteQueue(ownerPubky, () => this.writeMuteChange(ownerPubky, counterpartyPubky, muted));
+    return await this.inMuteQueue(ownerPubky, () => this.addMuteChange(ownerPubky, counterpartyPubky, muted));
   }
 
-  private static async writeMuteChange(
+  private static async addMuteChange(
     ownerPubky: string,
     counterpartyPubky: string,
     muted: boolean,
   ): Promise<MuteChangeResult> {
     const keys = await CommercePrivKeyringApplication.get(ownerPubky);
-    if (keys.kind !== 'keys') return { kind: keys.kind === 'needs_reauth' ? 'needs_approval' : 'error' };
-    const stored = await this.readMuteList(ownerPubky, keys.keyring);
-    if (stored.kind !== 'list') return { kind: stored.kind };
-    const cached = this.mutes.get(ownerPubky);
-    const base = cached ? mergeMuteLists(stored.list, cached) : stored.list;
-    const next = applyMuteChange(base, counterpartyPubky, muted, Date.now());
-    // A list readers would reject must never be written: it would stop every
-    // later read, and so all receiving, until it was repaired by hand.
-    if (!muteListSchema.safeParse(next).success) {
+    if (keys.kind !== 'keys') {
+      this.muteReads.set(ownerPubky, 'failed');
+      return { kind: keys.kind === 'needs_reauth' ? 'needs_approval' : 'error' };
+    }
+    const read = await this.readMuteLog(ownerPubky, keys.keyring);
+    if (read.kind !== 'log') {
+      this.muteReads.set(ownerPubky, 'failed');
+      return { kind: read.kind };
+    }
+    const current = mutedPubkys(read.state);
+    if ((read.state.get(counterpartyPubky)?.muted ?? false) === muted) {
+      this.mutes.set(ownerPubky, read.state);
+      this.muteReads.set(ownerPubky, 'confirmed');
+      return { kind: 'ready', muted: current };
+    }
+    if (muted && current.size >= MUTED_PEOPLE_MAX) {
       Logger.warn('The mute list is full; nothing was changed', { reason: 'mute_list_full' });
       return { kind: 'full' };
     }
-    const written = await this.writeMuteList(keys.keyring, next);
-    if (written !== 'written') return { kind: written };
-    this.mutes.set(ownerPubky, next);
-    return { kind: 'ready', muted: mutedPubkys(next) };
-  }
-
-  /** Seals and writes `list`, reading it back; never throws. */
-  private static async writeMuteList(
-    keyring: PrivKeyring,
-    list: MuteList,
-  ): Promise<'written' | 'needs_reauth' | 'error'> {
+    const change = buildMuteChange({ ownerPubky, counterpartyPubky, muted, now: Date.now(), state: read.state });
+    const name = newPrivEntryName();
     try {
-      await CommercePrivStoreService.write(keyring, MUTES_FAMILY, MUTES_ENTRY_ID, list);
-      return 'written';
-    } catch (error) {
-      if (this.isPrivateAccessDenied(error)) return 'needs_reauth';
-      Logger.warn('Could not save the mute list', privErrorSummary(error));
-      return 'error';
-    }
-  }
-
-  /** The stored list (empty when absent), or why it could not be opened. */
-  private static async readMuteList(
-    ownerPubky: string,
-    keyring: PrivKeyring,
-  ): Promise<{ kind: 'list'; list: MuteList } | { kind: 'needs_reauth' | 'error' }> {
-    try {
-      const payload = await CommercePrivStoreService.read(keyring, MUTES_FAMILY, MUTES_ENTRY_ID);
-      if (payload === null) return { kind: 'list', list: emptyMuteList(ownerPubky) };
-      const list = parseMuteList(payload, ownerPubky);
-      if (!list) {
-        Logger.warn('The stored mute list is not valid; leaving it unchanged');
-        return { kind: 'error' };
-      }
-      return { kind: 'list', list };
+      await CommercePrivStoreService.writeListed(keys.keyring, MUTES_FAMILY, name, change);
     } catch (error) {
       if (this.isPrivateAccessDenied(error)) return { kind: 'needs_reauth' };
-      Logger.warn('Could not read the mute list', privErrorSummary(error));
+      Logger.warn('Could not save the mute change', privErrorSummary(error));
       return { kind: 'error' };
     }
+    const records = new Map(this.muteRecords.get(ownerPubky) ?? []);
+    records.set(name, change);
+    this.muteRecords.set(ownerPubky, records);
+    const state = foldMuteChanges(records.values());
+    this.mutes.set(ownerPubky, state);
+    this.muteReads.set(ownerPubky, 'confirmed');
+    return { kind: 'ready', muted: mutedPubkys(state) };
   }
 
   /**
@@ -246,23 +268,26 @@ export class FirstContactApplication {
   // --- intake -------------------------------------------------------------
 
   /**
-   * The gate inbound messages pass before they are stored, or `null` when
-   * the mute list is unknown (nothing new is received then). Muted people
-   * are refused, each person gets at most the receive cap per minute on this
-   * device's clock, and a message that starts a thread with someone this
-   * account does not know lands in Requests.
+   * The confirmed policy for one operation, or `null` when `mutes` is not a
+   * fresh successful read (nothing may contact anyone then). Its gate refuses
+   * muted people, caps each person at the receive cap per minute on this
+   * device's clock, and files a message that starts a thread with someone
+   * this account does not know under Requests.
    */
-  static intakeGate(ownerPubky: string, mutes: MessagingMutesState): MessagingIntakeGate | null {
+  static policyFor(ownerPubky: string, mutes: MessagingMutesState): MessagingPolicy | null {
     if (mutes.kind !== 'ready' && mutes.kind !== 'unavailable') return null;
-    const muted = mutes.kind === 'ready' ? mutes.muted : new Set<string>();
+    const muted = mutes.kind === 'ready' ? new Set(mutes.muted) : new Set<string>();
     return {
-      admit: async ({ counterpartyPubky }) => {
-        if (muted.has(counterpartyPubky)) return { store: false, reason: 'muted' };
-        if (!this.receiveLimiter.admit(`${ownerPubky}:${counterpartyPubky}`, Date.now())) {
-          this.rateLimitedCounts.set(ownerPubky, (this.rateLimitedCounts.get(ownerPubky) ?? 0) + 1);
-          return { store: false, reason: 'rate_limited' };
-        }
-        return { store: true, origin: await this.originFor(ownerPubky, counterpartyPubky) };
+      isMuted: (counterpartyPubky) => muted.has(counterpartyPubky),
+      gate: {
+        admit: async ({ counterpartyPubky }) => {
+          if (muted.has(counterpartyPubky)) return { store: false, reason: 'muted' };
+          if (!this.receiveLimiter.admit(`${ownerPubky}:${counterpartyPubky}`, Date.now())) {
+            this.rateLimitedCounts.set(ownerPubky, (this.rateLimitedCounts.get(ownerPubky) ?? 0) + 1);
+            return { store: false, reason: 'rate_limited' };
+          }
+          return { store: true, origin: await this.originFor(ownerPubky, counterpartyPubky) };
+        },
       },
     };
   }
@@ -505,6 +530,8 @@ export class FirstContactApplication {
   static clear(): void {
     this.mutes.clear();
     this.muteQueue.clear();
+    this.muteRecords.clear();
+    this.muteReads.clear();
     this.knownContacts.clear();
     this.orderCounterparties.clear();
     this.seenRequests.clear();
