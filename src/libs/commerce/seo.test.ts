@@ -72,6 +72,31 @@ describe('buildListingDescription', () => {
   });
 });
 
+describe('listingStateNotice for auctions', () => {
+  const endsAt = '2026-01-08T11:00:00.000Z';
+  const auction = createCommerceListingFixture({
+    sale: {
+      format: 'auction',
+      startingPrice: { amountMinor: 4_500, currency: 'USD', exponent: 2 },
+      minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      startsAt: '2026-01-01T11:00:00.000Z',
+      endsAt,
+      antiSnipingWindowSeconds: 120,
+      antiSnipingExtensionSeconds: 120,
+    },
+  });
+
+  it('says an auction stored as active has ended once its end time is reached', () => {
+    expect(auction.state).toBe('active');
+    expect(listingStateNotice(auction, Date.parse(endsAt) - 1)).toBeNull();
+    expect(listingStateNotice(auction, Date.parse(endsAt))).toBe('Listing ended');
+  });
+
+  it('prefixes the unfurl description of a closed auction', () => {
+    expect(buildListingDescription(auction).startsWith('Listing ended. ')).toBe(true);
+  });
+});
+
 describe('listingStateNotice', () => {
   it('returns null for active listings', () => {
     expect(listingStateNotice(createCommerceListingFixture())).toBeNull();

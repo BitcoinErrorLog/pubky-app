@@ -158,6 +158,33 @@ describe('MarketplaceWatchlist', () => {
     expect(screen.getByText('Proof of Film')).toBeInTheDocument();
   });
 
+  it('labels a watched auction Ended once its end time passes although the index row says active', () => {
+    const entry = watchlistEntry();
+    entry.item = {
+      ...entry.item!,
+      saleFormat: 'auction',
+      auction: {
+        startsAt: '2026-01-01T00:00:00.000Z',
+        endsAt: '2026-01-08T00:00:00.000Z',
+        buyNowPrice: null,
+        minimumIncrement: { amountMinor: 500, currency: 'USD', exponent: 2 },
+      },
+    };
+    expect(entry.item.state).toBe('active');
+    view.entries = [entry];
+
+    render(<MarketplaceWatchlist />);
+
+    expect(screen.getAllByText('Ended').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Active')).not.toBeInTheDocument();
+  });
+
+  it('labels a watched fixed-price listing Active', () => {
+    render(<MarketplaceWatchlist />);
+
+    expect(screen.getByText('Active')).toBeInTheDocument();
+  });
+
   it('shows no unavailable notice once sync succeeds', () => {
     render(<MarketplaceWatchlist />);
 
