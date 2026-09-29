@@ -43,10 +43,18 @@ export async function migrateMessagingSecretsToWrappedStorage(database: AppDatab
         buildWrapAad('commerce_messaging_receivers', receiver.id),
         receiver.noise_secret,
       );
-      await database.commerce_messaging_receivers.put({
-        ...receiver,
-        noise_secret: wrapped,
-        wrap_version: WRAP_VERSION_AES_GCM_256,
+      // As for links below: another tab may have replaced this receiver
+      // since it was read, and putting the older key back would leave the
+      // published marker advertising a key the device no longer holds.
+      await database.transaction('rw', database.commerce_messaging_receivers, async () => {
+        const current = await database.commerce_messaging_receivers.get(receiver.id);
+        if (!current || current.wrap_version === WRAP_VERSION_AES_GCM_256) return;
+        if (!sameBytes(current.noise_secret, receiver.noise_secret)) return;
+        await database.commerce_messaging_receivers.put({
+          ...current,
+          noise_secret: wrapped,
+          wrap_version: WRAP_VERSION_AES_GCM_256,
+        });
       });
     }
     for (const link of legacyLinks) {
