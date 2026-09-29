@@ -1,0 +1,1 @@
+Private messages stay safe with Shop open in several tabs: only one tab at a time sends, receives or connects on a conversation, and each tab picks up where the others left off. A browser that cannot coordinate its tabs pauses private messages instead of sending.

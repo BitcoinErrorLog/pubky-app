@@ -224,6 +224,11 @@ export class PaykitMessagingService {
    * before anything else runs on the pair.
    */
   private static unsavedSends = new Set<string>();
+  /**
+   * The link row revision this tab last wrote or read for each pair, taken
+   * while holding the pair's lock (see {@link withLinkLock}).
+   */
+  private static linkRevisions = new Map<string, string | null>();
   private static handshakes = new Map<string, ActiveHandshake>();
   private static queues = new Map<string, Promise<unknown>>();
   // Automatic retries are spaced by MESSAGING_RETRY_POLICY, never by the
@@ -485,6 +490,7 @@ export class PaykitMessagingService {
     for (const handshake of this.handshakes.values()) closeQuietly(() => handshake.handle.free());
     this.links.clear();
     this.unsavedSends.clear();
+    this.linkRevisions.clear();
     this.handshakes.clear();
     this.queues.clear();
     this.linkRetry.clear();
@@ -542,7 +548,7 @@ export class PaykitMessagingService {
    * step allows and reports the truthful state. Serialized per counterparty.
    */
   static async ensureLink(ownerPubky: string, counterpartyPubky: string): Promise<MessagingLinkState> {
-    return await this.withQueue(counterpartyPubky, async () => {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
       const state = await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true);
       // `allowInitiate` guarantees the probe-only 'none' branch is unreachable.
       return state as MessagingLinkState;
@@ -557,7 +563,9 @@ export class PaykitMessagingService {
    * (existing conversations/links plus marketplace order/offer participants).
    */
   static async probeCounterparty(ownerPubky: string, counterpartyPubky: string): Promise<MessagingProbeState> {
-    return await this.withQueue(counterpartyPubky, () => this.ensureLinkLocked(ownerPubky, counterpartyPubky, false));
+    return await this.withQueue(ownerPubky, counterpartyPubky, () =>
+      this.ensureLinkLocked(ownerPubky, counterpartyPubky, false),
+    );
   }
 
   /**
@@ -577,7 +585,7 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     input: { conversationId: string; listingRef: string; body: string; eventId?: string },
   ): Promise<MarketplaceChatMessage> {
-    return await this.withQueue(counterpartyPubky, async () => {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
       assertListingConversationBound(ownerPubky, counterpartyPubky, input, 'sendChatMessage');
       await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendChatMessage');
@@ -612,7 +620,7 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     input: { body: string; eventId?: string },
   ): Promise<PubkyAppDmMessage> {
-    return await this.withQueue(counterpartyPubky, async () => {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
       await this.settleUnsavedSend(ownerPubky, counterpartyPubky);
       const link = await this.requireReadyLink(ownerPubky, counterpartyPubky, 'sendDmMessage');
       const { message, json } = buildDmMessage({
@@ -657,7 +665,7 @@ export class PaykitMessagingService {
     counterpartyPubky: string,
     gate: MessagingIntakeGate,
   ): Promise<ReceivedMessage[]> {
-    return await this.withQueue(counterpartyPubky, async () => {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
       const key = this.linkKey(ownerPubky, counterpartyPubky);
       const link = this.links.get(key);
       if (!link) return [];
@@ -1531,16 +1539,105 @@ export class PaykitMessagingService {
   /**
    * Serializes operations per counterparty: the binding rejects overlapping
    * operations on one link, and interleaved persistence would break the
-   * messages-before-snapshot ordering.
+   * messages-before-snapshot ordering. Each operation also holds the pair's
+   * lock shared with every other tab ({@link withLinkLock}).
    */
-  private static async withQueue<T>(counterpartyPubky: string, operation: () => Promise<T>): Promise<T> {
+  private static async withQueue<T>(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
     const previous = this.queues.get(counterpartyPubky) ?? Promise.resolve();
-    const next = previous.then(operation, operation);
+    const locked = () => this.withLinkLock(ownerPubky, counterpartyPubky, operation);
+    const next = previous.then(locked, locked);
     this.queues.set(
       counterpartyPubky,
       next.catch(() => undefined),
     );
     return await next;
+  }
+
+  /**
+   * Runs one link operation while holding the pair's lock, which every tab
+   * of this origin shares. Each tab restores its own handle from the same
+   * saved snapshot, so without the lock two tabs could send under the same
+   * counter, complete the same handshake twice, or save a snapshot older
+   * than another tab's send. Every send, snapshot save, receive and
+   * handshake step runs here.
+   *
+   * Holding the lock, the tab first drops any in-memory handle or handshake
+   * whose row another tab has written since this tab last did, so the
+   * operation continues from the saved state instead of a stale one.
+   * Without the Web Locks API, or when the lock is refused, nothing runs.
+   */
+  private static async withLinkLock<T>(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+    if (typeof locks?.request !== 'function') {
+      throw Err.client(
+        ClientErrorCode.UNPROCESSABLE,
+        'Private messages are paused: this browser cannot keep your open tabs from sending at the same time.',
+        { service: ErrorService.Paykit, operation: 'withLinkLock', context: { reason: 'link_lock_unsupported' } },
+      );
+    }
+    let granted = false;
+    try {
+      return await locks.request(`pubky-messaging-link|${ownerPubky}|${counterpartyPubky}`, async () => {
+        granted = true;
+        await this.dropStateMovedByAnotherTab(ownerPubky, counterpartyPubky);
+        try {
+          return await operation();
+        } finally {
+          await this.recordLinkRevision(ownerPubky, counterpartyPubky);
+        }
+      });
+    } catch (error) {
+      if (granted) throw error;
+      Logger.warn('The messaging link lock was refused; nothing was sent or saved', { reason: 'link_lock_refused' });
+      throw Err.client(
+        ClientErrorCode.UNPROCESSABLE,
+        'Private messages are paused: this tab could not coordinate with your other tabs. Try again.',
+        { service: ErrorService.Paykit, operation: 'withLinkLock', context: { reason: 'link_lock_refused' } },
+      );
+    }
+  }
+
+  /**
+   * Drops this tab's in-memory handle and handshake for the pair when the
+   * stored row is no longer the one this tab last wrote or read. Runs under
+   * the pair's lock, so no other tab is mid-operation on it.
+   */
+  private static async dropStateMovedByAnotherTab(ownerPubky: string, counterpartyPubky: string): Promise<void> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    const link = this.links.get(key);
+    const handshake = this.handshakes.get(key);
+    if (!link && !handshake) return;
+    const revision = await LocalMessagingService.getLinkRevision(ownerPubky, counterpartyPubky);
+    if (this.linkRevisions.has(key) && this.linkRevisions.get(key) === revision) return;
+    Logger.warn('Another tab moved this link on; continuing from its saved state', {
+      reason: 'link_moved_by_another_tab',
+    });
+    this.links.delete(key);
+    this.handshakes.delete(key);
+    this.unsavedSends.delete(key);
+    if (link) closeQuietly(() => void link.close());
+    if (handshake) closeQuietly(() => handshake.handle.free());
+  }
+
+  /**
+   * Records the row revision this tab leaves behind. If it cannot be read,
+   * the record is dropped, so the next operation treats the row as changed.
+   */
+  private static async recordLinkRevision(ownerPubky: string, counterpartyPubky: string): Promise<void> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    try {
+      this.linkRevisions.set(key, await LocalMessagingService.getLinkRevision(ownerPubky, counterpartyPubky));
+    } catch {
+      this.linkRevisions.delete(key);
+    }
   }
 
   private static linkKey(ownerPubky: string, counterpartyPubky: string): string {
