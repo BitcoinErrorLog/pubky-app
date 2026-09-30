@@ -4364,10 +4364,16 @@ function ownAuctionReserveFileUrl(directory: string, entry: string): string | nu
   return entry.startsWith(directory) ? entry : `${directory}${name}`;
 }
 
+/**
+ * Matches what `JSON.stringify` writes: an object key whose value is
+ * `undefined` is omitted (the homeserver never sees it), while an
+ * `undefined` array element is `null`.
+ */
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (isPlainRecord(value)) {
     return `{${Object.keys(value)
+      .filter((key) => value[key] !== undefined)
       .sort()
       .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
       .join(',')}}`;
