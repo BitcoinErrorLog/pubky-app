@@ -1025,6 +1025,45 @@ describe('CommerceApplication', () => {
     expect(result).toEqual({ registered: true });
   });
 
+  it.each(['unavailable', 'transaction-service'] as const)(
+    'publishes a composer record whose optional fields are undefined, verified against its JSON read-back (%s)',
+    async (mode) => {
+      // The composer leaves these undefined by default: a blank region, a final sale, no item specifics.
+      const fixture = createCommerceListingFixture();
+      const record = {
+        ...fixture,
+        location: { countryCode: 'US', region: undefined },
+        attributes: undefined,
+        returnPolicy: { ...fixture.returnPolicy, acceptsReturns: false, returnWindowDays: undefined },
+      } as typeof fixture;
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue(mode);
+      vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+      vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+      vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementation(async (_actor, command) =>
+        listingRegisteredResponse(command),
+      );
+      // The homeserver stores what JSON carries: keys whose value is undefined are gone on read-back.
+      let stored: unknown = null;
+      const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockImplementation(async (url, body) => {
+        if (url === LISTING_URL) stored = JSON.parse(JSON.stringify(body));
+      });
+      vi.mocked(CommerceHomeserverService.fetchJson).mockImplementation(async (url) => {
+        if (url === LISTING_URL && stored) return stored;
+        throw Err.client(ClientErrorCode.NOT_FOUND, 'Not found', {
+          service: ErrorService.Homeserver,
+          operation: 'fetchJson',
+        });
+      });
+
+      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+        registered: mode === 'transaction-service',
+      });
+      expect(put).toHaveBeenCalledOnce();
+      expect(stored).not.toHaveProperty('attributes');
+      expect(stored).toMatchObject({ location: { countryCode: 'US' } });
+    },
+  );
+
   it('publishes a listing without registration when the marketplace adapter is unavailable', async () => {
     const record = createCommerceListingFixture();
     const listingId = `${record.ownerPubky}:${record.listingId}`;
