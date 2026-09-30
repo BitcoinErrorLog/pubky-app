@@ -108,6 +108,12 @@ export class CommerceController {
     return await CommerceApplication.getOrFetchListing(owner, id);
   }
 
+  static async isListingConfirmedRemoved(ownerPubky: unknown, listingId: unknown, fetchError: unknown) {
+    const owner = CommerceRecordNormalizer.pubky(ownerPubky);
+    const id = CommerceRecordNormalizer.entityId(listingId);
+    return await CommerceApplication.isListingConfirmedRemoved(owner, id, fetchError);
+  }
+
   static async getListingsBySeller(sellerPubky: unknown) {
     return await CommerceApplication.getListingsBySeller(CommerceRecordNormalizer.pubky(sellerPubky));
   }

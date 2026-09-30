@@ -136,6 +136,7 @@ describe('useMarketplaceProjection', () => {
     expect(result.current.error).toBe(
       'This listing could not be prepared for checkout. It may have been removed by the seller.',
     );
+    expect(result.current.listingRemoved).toBe(false);
   });
 
   it('says the listing was removed when the sync reports the seller deleted it', async () => {
@@ -159,6 +160,7 @@ describe('useMarketplaceProjection', () => {
     expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalledTimes(1);
     expect(result.current.projection).toBeNull();
     expect(result.current.error).toBe('This listing was removed.');
+    expect(result.current.listingRemoved).toBe(true);
   });
 
   it('never attempts a sync in sandbox mode', async () => {

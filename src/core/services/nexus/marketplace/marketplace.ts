@@ -12,7 +12,7 @@ import type {
   TShopTagsParams,
 } from '@/services/nexus/marketplace/marketplace.types';
 import type { NexusTag } from '@/services/nexus/nexus.types';
-import { queryNexus } from '@/services/nexus/nexus.utils';
+import { fetchNexus, queryNexus } from '@/services/nexus/nexus.utils';
 
 /**
  * Nexus Marketplace Service
@@ -44,6 +44,20 @@ export class NexusMarketplaceService {
    */
   static async fetchListingDetails(params: TListingDetailsParams): Promise<NexusListingDetails> {
     return await queryNexus<NexusListingDetails>({ url: marketplaceApi.listingDetails(params) });
+  }
+
+  /**
+   * Single-attempt read of one indexed listing projection. `queryNexus`
+   * retries a 404 five times with backoff because Nexus indexes
+   * asynchronously; a caller that already holds a homeserver 404 and only
+   * needs to know whether the index still lists the record cannot wait out
+   * that backoff. Errors propagate unchanged.
+   *
+   * @param params - Seller/listing path params
+   * @returns The listing projection as currently indexed by Nexus
+   */
+  static async fetchListingDetailsOnce(params: TListingDetailsParams): Promise<NexusListingDetails> {
+    return await fetchNexus<NexusListingDetails>({ url: marketplaceApi.listingDetails(params) });
   }
 
   /**

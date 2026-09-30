@@ -276,6 +276,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getListing: () => view.listing,
     getShop: () => view.shop,
     getOrFetchListing: () => (view.fetchFails ? Promise.reject(new Error('offline')) : Promise.resolve(null)),
+    isListingConfirmedRemoved: () => Promise.resolve(false),
     getListingTags: () => view.listingTags,
     fetchListingTags: () => Promise.resolve([]),
     getMarketplaceMediaOwnerHomeserver: (_ownerPubky: unknown) => Promise.resolve(null),
