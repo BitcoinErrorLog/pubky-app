@@ -11,7 +11,7 @@ import { CommerceController } from '@/controllers/commerce/commerce';
 import { marketplaceCommandResponseSchema } from '@/libs/commerce/transaction-commands';
 import { UNLIMITED_STOCK_REFUSAL, UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/libs/commerce/unlimited-stock';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
-import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { httpStatusCodeToError } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
@@ -501,7 +501,10 @@ describe('CommerceApplication', () => {
       listingRegisteredResponse(command),
     );
 
-    await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: true });
+    await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+      registered: true,
+      verified: true,
+    });
 
     expect(put.mock.calls[0][1]).not.toHaveProperty('registration_status');
     await expect(LocalCommerceService.getListing(`${record.ownerPubky}:${record.listingId}`)).resolves.toMatchObject({
@@ -558,8 +561,14 @@ describe('CommerceApplication', () => {
         futureField: { keep: true, nested: [{ reserve_price: null, keepToo: 'yes' }] },
       };
     });
-    await expect(CommerceApplication.commitUpsertListing(listing, reserve)).resolves.toEqual({ registered: true });
-    await expect(CommerceApplication.commitUpsertListing(listing)).resolves.toEqual({ registered: true });
+    await expect(CommerceApplication.commitUpsertListing(listing, reserve)).resolves.toEqual({
+      registered: true,
+      verified: true,
+    });
+    await expect(CommerceApplication.commitUpsertListing(listing)).resolves.toEqual({
+      registered: true,
+      verified: true,
+    });
 
     const privateWrites = writes.filter(([url]) => url.includes('/auction_reserves/'));
     const publicWrites = writes.filter(([url]) => url.includes('/pub/'));
@@ -626,6 +635,75 @@ describe('CommerceApplication', () => {
       code: ClientErrorCode.CONFLICT,
     });
     expect(put).not.toHaveBeenCalled();
+  });
+
+  // Production 2026-09-30: a seller's publish wrote the record (it indexed a
+  // second later), but the verify read ran 410ms after the write and got a
+  // 404 — so the app reported "Could not publish this listing." and the seller
+  // nearly re-posted a live listing as a duplicate. An acked write that reads
+  // back late is a truth to report, never a publish to fail. The read-back
+  // retries run on real, fixed short waits here (250ms / 500ms / 1s) — no fake
+  // timers, which the fake-IndexedDB stack does not survive.
+  describe('the acked-write read-back', () => {
+    const missing = () =>
+      Err.client(ClientErrorCode.NOT_FOUND, 'Not found', {
+        service: ErrorService.Homeserver,
+        operation: 'fetchJson',
+      });
+    const publishableSession = () => {
+      vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+      vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+      vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
+      vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+      vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementation(async (_actor, command) =>
+        listingRegisteredResponse(command),
+      );
+    };
+
+    it('confirms the publish once a lagging read-back catches up', async () => {
+      const record = createCommerceListingFixture();
+      publishableSession();
+      vi.spyOn(CommerceHomeserverService, 'fetchJson')
+        .mockRejectedValueOnce(missing()) // pre-write read: nothing published yet
+        .mockRejectedValueOnce(missing()) // fresh-base read before the PUT
+        .mockRejectedValueOnce(missing()) // read-back: the acked write is not visible yet
+        .mockResolvedValueOnce({ ...record }); // read-back retry: now visible
+
+      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+        registered: true,
+        verified: true,
+      });
+    });
+
+    it('reports an acked publish as unverified, never as failed, while the homeserver has not served it back', async () => {
+      const record = createCommerceListingFixture();
+      publishableSession();
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async () => {
+        throw missing();
+      });
+
+      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+        registered: true,
+        verified: false,
+      });
+      await expect(LocalCommerceService.getListing(`${record.ownerPubky}:${record.listingId}`)).resolves.toMatchObject({
+        sync_status: 'synced',
+      });
+    });
+
+    it('still refuses when the homeserver serves a record that is not what the seller wrote', async () => {
+      const record = createCommerceListingFixture();
+      publishableSession();
+      vi.spyOn(CommerceHomeserverService, 'fetchJson')
+        .mockRejectedValueOnce(missing())
+        .mockRejectedValueOnce(missing())
+        .mockResolvedValueOnce({ ...record, title: 'Not the record the seller signed' });
+
+      await expect(CommerceApplication.commitUpsertListing(record)).rejects.toMatchObject({
+        code: ServerErrorCode.INVALID_RESPONSE,
+        message: 'The published listing did not match the verified candidate.',
+      });
+    });
   });
 
   // Sol round 3: the unlimited cap is refused on physical stock where every
@@ -730,7 +808,10 @@ describe('CommerceApplication', () => {
       .spyOn(MarketplaceGatewayService, 'execute')
       .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
 
-    await expect(CommerceApplication.commitUpsertListing(listing)).resolves.toEqual({ registered: true });
+    await expect(CommerceApplication.commitUpsertListing(listing)).resolves.toEqual({
+      registered: true,
+      verified: true,
+    });
 
     expect(put.mock.calls.map(([url]) => url).some((url) => url.includes('/auction_reserves/'))).toBe(false);
     expect(remove).toHaveBeenCalledTimes(1);
@@ -768,7 +849,10 @@ describe('CommerceApplication', () => {
       .spyOn(MarketplaceGatewayService, 'execute')
       .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
 
-    await expect(CommerceApplication.commitUpsertListing(listing, null)).resolves.toEqual({ registered: true });
+    await expect(CommerceApplication.commitUpsertListing(listing, null)).resolves.toEqual({
+      registered: true,
+      verified: true,
+    });
 
     expect(put.mock.calls.map(([url]) => url).some((url) => url.includes('/auction_reserves/'))).toBe(false);
     expect(execute).toHaveBeenCalledOnce();
@@ -786,7 +870,10 @@ describe('CommerceApplication', () => {
       .mockRejectedValueOnce(new Error('registration unavailable'))
       .mockImplementationOnce(async (_actor, command) => listingRegisteredResponse(command));
 
-    await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: false });
+    await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+      registered: false,
+      verified: true,
+    });
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
       registration_status: 'unregistered',
     });
@@ -822,7 +909,7 @@ describe('CommerceApplication', () => {
     });
 
     releaseRegistration?.();
-    await expect(publish).resolves.toEqual({ registered: true });
+    await expect(publish).resolves.toEqual({ registered: true, verified: true });
     expect(execute).toHaveBeenCalledOnce();
   });
 
@@ -1149,13 +1236,19 @@ describe('CommerceApplication', () => {
         .mockResolvedValueOnce(LISTING_RECORD_NOT_FOUND_RESPONSE)
         .mockImplementationOnce(async (_actor, command) => listingRegisteredResponse(command));
 
-      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: false });
+      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+        registered: false,
+        verified: true,
+      });
       await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
         registration_status: 'not_found',
       });
 
       const edited = { ...record, revision: record.revision + 1, updatedAt: new Date().toISOString() };
-      await expect(CommerceApplication.commitUpsertListing(edited)).resolves.toEqual({ registered: true });
+      await expect(CommerceApplication.commitUpsertListing(edited)).resolves.toEqual({
+        registered: true,
+        verified: true,
+      });
       await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
         registration_status: 'registered',
       });
@@ -1208,7 +1301,10 @@ describe('CommerceApplication', () => {
         const staleAttempt = CommerceApplication.ensureListingRegistered(record);
         await vi.waitFor(() => expect(releaseStaleRead).toBeDefined());
         const republished = { ...record, revision: record.revision + 1, updatedAt: new Date().toISOString() };
-        await expect(CommerceApplication.commitUpsertListing(republished)).resolves.toEqual({ registered: true });
+        await expect(CommerceApplication.commitUpsertListing(republished)).resolves.toEqual({
+          registered: true,
+          verified: true,
+        });
         releaseStaleRead!();
         await expect(staleAttempt).resolves.toBe(false);
 
@@ -1247,7 +1343,7 @@ describe('CommerceApplication', () => {
         await vi.waitFor(() => expect(requested.filter(isRegistrationLock)).toHaveLength(2));
         releaseStaleRefusal!();
         await expect(staleAttempt).resolves.toBe(false);
-        await expect(republish).resolves.toEqual({ registered: true });
+        await expect(republish).resolves.toEqual({ registered: true, verified: true });
 
         await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
           revision: republished.revision,
@@ -1335,10 +1431,13 @@ describe('CommerceApplication', () => {
         await expect(staleAttempt).resolves.toBe(false);
         await vi.waitFor(() => expect(releaseNewer).toBeDefined());
         releaseNewer!();
-        await expect(newerPublish).resolves.toEqual({ registered: false });
+        await expect(newerPublish).resolves.toEqual({ registered: false, verified: true });
 
         // The retry replays the newer attempt's command only if the stale attempt left it in place.
-        await expect(CommerceApplication.commitUpsertListing(republished)).resolves.toEqual({ registered: true });
+        await expect(CommerceApplication.commitUpsertListing(republished)).resolves.toEqual({
+          registered: true,
+          verified: true,
+        });
         expect(execute).toHaveBeenCalledTimes(3);
         expect(execute.mock.calls[1][1].commandId).not.toBe(execute.mock.calls[0][1].commandId);
         expect(execute.mock.calls[2][1].commandId).toBe(execute.mock.calls[1][1].commandId);
@@ -1376,6 +1475,7 @@ describe('CommerceApplication', () => {
 
         await expect(CommerceApplication.commitUpsertListing(record, firstReserve)).resolves.toEqual({
           registered: false,
+          verified: true,
         });
         published = null;
         await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
@@ -1557,7 +1657,7 @@ describe('CommerceApplication', () => {
       await vi.waitFor(() => expect(inFlight.gate.release).toBeDefined());
       bumpAuthEpoch();
       inFlight.gate.release!();
-      await expect(publish).resolves.toEqual({ registered: false });
+      await expect(publish).resolves.toEqual({ registered: false, verified: true });
 
       expect(complete).not.toHaveBeenCalled();
       await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
@@ -1605,7 +1705,10 @@ describe('CommerceApplication', () => {
       expect(CommerceHomeserverService.fetchJson).not.toHaveBeenCalled();
 
       const edited = { ...record, revision: record.revision + 1, updatedAt: new Date().toISOString() };
-      await expect(CommerceApplication.commitUpsertListing(edited)).resolves.toEqual({ registered: false });
+      await expect(CommerceApplication.commitUpsertListing(edited)).resolves.toEqual({
+        registered: false,
+        verified: true,
+      });
       expect(put).toHaveBeenCalledOnce();
       expect(execute).not.toHaveBeenCalled();
       await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
@@ -1626,7 +1729,10 @@ describe('CommerceApplication', () => {
         .mockImplementation(async (_actor, command) => listingRegisteredResponse(command));
       const requested = recordLockRequests();
 
-      await expect(CommerceApplication.commitUpsertListing(record, null)).resolves.toEqual({ registered: false });
+      await expect(CommerceApplication.commitUpsertListing(record, null)).resolves.toEqual({
+        registered: false,
+        verified: true,
+      });
       await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
 
       expect(requested.length).toBeGreaterThanOrEqual(3);
@@ -1729,7 +1835,7 @@ describe('CommerceApplication', () => {
         await vi.waitFor(() => expect(requested.filter(isRegistrationLock)).toHaveLength(2));
         newerPut.gate.release!();
 
-        await expect(newerPublish).resolves.toEqual({ registered: false });
+        await expect(newerPublish).resolves.toEqual({ registered: false, verified: true });
         await expect(stalePublish).resolves.toMatchObject({ code: ClientErrorCode.CONFLICT });
         expect(put.mock.calls.map(([, body]) => body.title)).toEqual([newer.title]);
         expect(state.published).toMatchObject({ title: newer.title });
@@ -1791,7 +1897,7 @@ describe('CommerceApplication', () => {
         await CommerceApplication.commitDeleteListing(record.ownerPubky, record.listingId);
         precheck.gate.release!();
 
-        await expect(publish).resolves.toEqual({ registered: false });
+        await expect(publish).resolves.toEqual({ registered: false, verified: true });
         expect(execute).not.toHaveBeenCalled();
         await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
       });
@@ -1921,7 +2027,7 @@ describe('CommerceApplication', () => {
       }),
       { signal: expect.any(AbortSignal) },
     );
-    expect(result).toEqual({ registered: true });
+    expect(result).toEqual({ registered: true, verified: true });
   });
 
   it.each(['unavailable', 'transaction-service'] as const)(
@@ -1956,6 +2062,7 @@ describe('CommerceApplication', () => {
 
       await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
         registered: mode === 'transaction-service',
+        verified: true,
       });
       expect(put).toHaveBeenCalledOnce();
       expect(stored).not.toHaveProperty('attributes');
@@ -1970,7 +2077,10 @@ describe('CommerceApplication', () => {
     const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
     const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
 
-    await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: false });
+    await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+      registered: false,
+      verified: true,
+    });
 
     expect(put).toHaveBeenCalledWith(LISTING_URL, record, { singleAttempt: true });
     expect(execute).not.toHaveBeenCalled();

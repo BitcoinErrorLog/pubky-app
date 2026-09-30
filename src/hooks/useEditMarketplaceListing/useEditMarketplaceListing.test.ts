@@ -79,7 +79,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: vi.fn(),
     getMarketplaceSellerListingProjection: vi.fn(),
     commitCreateMedia: vi.fn(),
-    commitUpsertListing: vi.fn(),
+    commitUpsertListing: vi.fn(async () => ({ registered: true, verified: true })),
     getMarketplaceMediaOwnerHomeserver: vi.fn(async () => null),
     getSellerPaymentConfig: vi.fn(async () => ({
       bitcoinAvailable: true,

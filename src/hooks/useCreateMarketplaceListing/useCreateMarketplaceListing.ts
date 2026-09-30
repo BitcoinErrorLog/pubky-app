@@ -331,11 +331,20 @@ export function useCreateMarketplaceListing(): UseCreateMarketplaceListingResult
           data.saleFormat === 'auction' && data.reservePrice !== ''
             ? amountInputToMoney(data.reservePrice, assetForListingCurrency(data.currency))
             : null;
-        const { registered } = await CommerceController.commitUpsertListing(listing, reservePrice);
+        const { registered, verified } = await CommerceController.commitUpsertListing(listing, reservePrice);
         await CommerceController.commitDeleteListingDraft(draftId);
         createdListingId = `${currentUserPubky}:${listing.listingId}`;
         pendingListingIdRef.current = null;
-        if (registered) {
+        if (!verified) {
+          // The homeserver accepted the write but has not served the record
+          // back yet. Say so instead of "failed": a seller who believes the
+          // publish failed re-posts it into a duplicate listing.
+          toast({
+            title: 'Listing published — confirmation pending',
+            description:
+              'Your homeserver accepted the listing but has not served it back yet. Check your seller dashboard in a moment before publishing it again.',
+          });
+        } else if (registered) {
           toast({ title: 'Listing published', description: 'Your owner-signed listing is now available.' });
         } else {
           toast({

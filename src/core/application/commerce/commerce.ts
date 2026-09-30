@@ -283,6 +283,15 @@ const WATCHLIST_PRIV_ENTRY_ID = 'watchlist';
 const RECEIPT_MIGRATION_BATCH = 100;
 
 /**
+ * Read-back retries for an acked listing write (see
+ * {@link CommerceApplication.readBackAckedWrite}). Homeserver reads can lag a
+ * just-acked write by a moment, so the verify read waits briefly before
+ * believing a lag; one publish that outlasted this budget is still reported
+ * as published (unverified), never as failed.
+ */
+const LISTING_READ_BACK_RETRY_DELAYS_MS = [250, 500, 1_000];
+
+/**
  * Outcome of one portable order-receipt publication pass, mirrored by the
  * controller into the commerce store for UI surfaces. Same honesty contract
  * as the watchlist sync status: capability is decided from session facts,
@@ -3354,7 +3363,7 @@ export class CommerceApplication {
   static async commitUpsertListing(
     record: CommerceListingRecord,
     reservePrice?: CommerceMoney | null,
-  ): Promise<{ registered: boolean }> {
+  ): Promise<{ registered: boolean; verified: boolean }> {
     if (isDurableCommerceMode(getCommerceAdapterMode()) && !this.hasActiveMarketplaceSession()) {
       throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Connect a marketplace session to publish a listing.', {
         service: ErrorService.Marketplace,
@@ -3390,7 +3399,7 @@ export class CommerceApplication {
         if (prepared === 'superseded') throw this.listingChangedConflict();
       });
     }
-    await this.putVerifiedPublicListing(record, url, attempt, async () => {
+    const verified = await this.putVerifiedPublicListing(record, url, attempt, async () => {
       await this.assertRowHoldsPublish(attempt);
     });
     this.assertListingRegistrationFence(attempt);
@@ -3407,17 +3416,20 @@ export class CommerceApplication {
     //
     // A registration failure must NOT unwind the publish that already
     // happened: the record is on the homeserver, and reporting the whole
-    // commit as failed made sellers retry into duplicate listings. The two
-    // truths (published / registered) are returned separately; an
+    // commit as failed made sellers retry into duplicate listings. The
+    // truths (published / verified / registered) are returned separately; an
     // unregistered listing self-heals through ensureListingRegistered /
     // listing.sync once a marketplace session exists.
     if (mode === 'unavailable') {
       await LocalCommerceService.completeSyncJob(publishJob.id);
-      return { registered: false };
+      return { registered: false, verified };
     }
     // Without Web Locks nothing registers; the listing stays `unregistered`.
-    if (!registering) return { registered: false };
-    return { registered: await this.runListingRegistration(record, attempt, 'publish', publishJob.id) };
+    if (!registering) return { registered: false, verified };
+    return {
+      registered: await this.runListingRegistration(record, attempt, 'publish', publishJob.id),
+      verified,
+    };
   }
 
   /**
@@ -3894,19 +3906,31 @@ export class CommerceApplication {
     return await MarketplaceMediaService.fetchMedia(uri);
   }
 
-  /** The only write of a public listing record: every Shop publisher, Inventory Studio included, reaches it. */
   /**
+   * The only write of a public listing record: every Shop publisher, Inventory
+   * Studio included, reaches it.
+   *
    * The PUT runs as the listing's lock holder, one attempt per hold, after
    * `guard` (the publish's row check) passes under the same hold; a
    * retryable failure backs off outside the lock. Reads before and after
    * stay outside it.
+   *
+   * Returns true when the homeserver served the written record back and it
+   * matched the candidate. Returns false when the write was acked but the
+   * homeserver has not made the record readable yet — reads lag just-acked
+   * writes (production 2026-09-30: a publish read back 410ms after the record
+   * was created still got a 404, and the same record served fine about a
+   * second later). A lag is reported as `false`, never thrown: a published
+   * listing must not read as a failed publish, or the seller re-posts it as a
+   * duplicate. Proven divergence — the homeserver serving something other than
+   * what was written — still throws.
    */
   private static async putVerifiedPublicListing(
     record: CommerceListingRecord,
     url: string,
     attempt: ListingRegistrationAttempt,
     guard?: () => Promise<void>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     assertPublishableListingStock(record, 'putVerifiedPublicListing');
     let current: Record<string, unknown> = {};
     let exists = false;
@@ -3981,7 +4005,19 @@ export class CommerceApplication {
       );
     }
 
-    const verified = requiresPut ? await CommerceHomeserverService.fetchJson(url) : current;
+    let verified: unknown;
+    if (requiresPut) {
+      const readBack = await this.readBackAckedWrite(url, record);
+      if (readBack === undefined) {
+        Logger.warn('Listing write was acked but the homeserver has not served the record back yet', {
+          listing: `${record.ownerPubky}:${record.listingId}`,
+        });
+        return false;
+      }
+      verified = readBack.record;
+    } else {
+      verified = current;
+    }
     assertReserveFreePublicRecord(verified);
     if (
       !isPlainRecord(verified) ||
@@ -4003,6 +4039,42 @@ export class CommerceApplication {
           operation: 'putVerifiedPublicListing',
         },
       );
+    }
+    return true;
+  }
+
+  /**
+   * Reads back an acked listing write until the homeserver serves the written
+   * revision, or reports that it cannot confirm the write.
+   *
+   * Reads can lag a just-acked write by a moment, so the two lag signatures —
+   * the record is not readable yet, or the previous revision is still being
+   * served — are retried (250ms, 500ms, 1s) before they are believed.
+   * Returning `undefined` means "acked but unconfirmed": a truth to report,
+   * not a failure to raise. Everything else — a readable record at the written
+   * revision, a concurrent writer's newer revision, an auth or transport
+   * error — is returned or thrown for the caller's normal checks.
+   */
+  private static async readBackAckedWrite(
+    url: string,
+    record: CommerceListingRecord,
+  ): Promise<{ record: unknown } | undefined> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const fetched = await CommerceHomeserverService.fetchJson(url);
+        const staleLag = isPlainRecord(fetched) && fetched.revision === record.revision - 1;
+        if (!staleLag || attempt >= LISTING_READ_BACK_RETRY_DELAYS_MS.length)
+          return staleLag ? undefined : { record: fetched };
+      } catch (error) {
+        const missing = isAppError(error) && isNotFound(error);
+        if (!missing || attempt >= LISTING_READ_BACK_RETRY_DELAYS_MS.length) {
+          if (missing) return undefined;
+          throw error;
+        }
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, LISTING_READ_BACK_RETRY_DELAYS_MS[attempt]);
+      });
     }
   }
 
