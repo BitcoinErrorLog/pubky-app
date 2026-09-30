@@ -3,6 +3,7 @@ import { MARKETPLACE_ROUTES } from '@/app/routes';
 import {
   buyerCheckoutStateLabel,
   extractCheckoutOrderIds,
+  formatRemainingHMmSs,
   formatRemainingMmSs,
   getMarketplaceCheckoutRoute,
   getMarketplaceDropCheckoutRoute,
@@ -118,6 +119,12 @@ describe('checkout-phase', () => {
     expect(formatRemainingMmSs('2026-09-28T11:59:59.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('59:59');
     expect(formatRemainingMmSs('2026-09-28T12:00:00.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('1:00:00');
     expect(formatRemainingMmSs('2026-09-29T10:53:06.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('23:53:06');
+    expect(formatRemainingHMmSs(null)).toBeNull();
+    expect(formatRemainingHMmSs('2026-09-28T11:00:01.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('0:00:01');
+    expect(formatRemainingHMmSs('2026-09-28T11:59:59.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('0:59:59');
+    expect(formatRemainingHMmSs('2026-09-28T12:00:00.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('1:00:00');
+    expect(formatRemainingHMmSs('2026-09-29T10:53:06.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('23:53:06');
+    expect(formatRemainingHMmSs('2026-09-28T10:00:00.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('0:00:00');
     expect(sellerReservationCopy('2099-01-01T00:10:00.000Z')).toMatch(/^Held for a buyer · restocks /);
   });
 

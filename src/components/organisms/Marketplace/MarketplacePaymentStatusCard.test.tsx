@@ -577,6 +577,12 @@ describe('MarketplacePaymentStatusCard', () => {
       expect(screen.getByTestId('bitcoin-hold-countdown')).toHaveTextContent('23:55:41 left');
     });
 
+    it('keeps H:MM:SS under one hour', () => {
+      vi.setSystemTime(new Date('2026-09-29T10:56:40.000Z'));
+      renderBitcoin({ requestState: 'awaiting_seller_confirmation' });
+      expect(screen.getByTestId('bitcoin-hold-countdown')).toHaveTextContent('0:00:01 left');
+    });
+
     it('drops the countdown once the confirmation window has ended', () => {
       vi.setSystemTime(new Date('2026-09-29T11:00:00.000Z'));
       renderBitcoin({ requestState: 'awaiting_seller_confirmation' });

@@ -143,18 +143,35 @@ export function buyerCheckoutStateLabel(order: { paymentMethod?: PaymentMethodKi
   return order.paymentMethod ? RESERVED_WHILE_YOU_PAY_LABEL : CHECKOUT_IN_PROGRESS_LABEL;
 }
 
-export function formatRemainingMmSs(holdExpiresAt: string | null | undefined, nowMs = Date.now()): string | null {
+function remainingParts(
+  holdExpiresAt: string | null | undefined,
+  nowMs: number,
+): { hours: number; minutes: number; seconds: number } | null {
   if (!holdExpiresAt) return null;
   const expires = Date.parse(holdExpiresAt);
   if (!Number.isFinite(expires)) return null;
-  const remainingMs = Math.max(0, expires - nowMs);
-  const totalSeconds = Math.floor(remainingMs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const ss = seconds.toString().padStart(2, '0');
-  if (hours > 0) return `${hours}:${minutes.toString().padStart(2, '0')}:${ss}`;
-  return `${minutes}:${ss}`;
+  const totalSeconds = Math.floor(Math.max(0, expires - nowMs) / 1000);
+  return {
+    hours: Math.floor(totalSeconds / 3600),
+    minutes: Math.floor((totalSeconds % 3600) / 60),
+    seconds: totalSeconds % 60,
+  };
+}
+
+export function formatRemainingMmSs(holdExpiresAt: string | null | undefined, nowMs = Date.now()): string | null {
+  const parts = remainingParts(holdExpiresAt, nowMs);
+  if (!parts) return null;
+  const mm = parts.minutes.toString().padStart(2, '0');
+  const ss = parts.seconds.toString().padStart(2, '0');
+  if (parts.hours > 0) return `${parts.hours}:${mm}:${ss}`;
+  return `${parts.minutes}:${ss}`;
+}
+
+/** Always `H:MM:SS`: one second left reads `0:00:01`. */
+export function formatRemainingHMmSs(holdExpiresAt: string | null | undefined, nowMs = Date.now()): string | null {
+  const parts = remainingParts(holdExpiresAt, nowMs);
+  if (!parts) return null;
+  return `${parts.hours}:${parts.minutes.toString().padStart(2, '0')}:${parts.seconds.toString().padStart(2, '0')}`;
 }
 
 export function reservedWhileYouPayCopy(holdExpiresAt: string | null | undefined, nowMs = Date.now()): string {

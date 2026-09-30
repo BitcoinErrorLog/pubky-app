@@ -5,7 +5,7 @@ import {
   satoshiCount,
 } from '@/libs/commerce/bitcoin-payment-code';
 import { CHECKOUT_HOLD_COPY, formatHoldDeadline } from '@/libs/commerce/checkout-hold';
-import { buyerCheckoutStateLabel, formatRemainingMmSs, reservedWhileYouPayCopy } from '@/libs/commerce/checkout-phase';
+import { buyerCheckoutStateLabel, formatRemainingHMmSs, reservedWhileYouPayCopy } from '@/libs/commerce/checkout-phase';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
@@ -327,7 +327,7 @@ export function holdCountdownCopy(deadline: string | null | undefined, nowMs = D
   if (!deadline) return null;
   const expires = Date.parse(deadline);
   if (!Number.isFinite(expires) || expires <= nowMs) return null;
-  const remaining = formatRemainingMmSs(deadline, nowMs);
+  const remaining = formatRemainingHMmSs(deadline, nowMs);
   return remaining ? `${remaining} left` : null;
 }
 

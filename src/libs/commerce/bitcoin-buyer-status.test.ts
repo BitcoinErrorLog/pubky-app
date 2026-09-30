@@ -83,7 +83,9 @@ describe('bitcoin buyer status', () => {
 
   it('counts down the seller-confirmation hold as H:MM:SS and drops it once the window ends', () => {
     expect(holdCountdownCopy(SELLER_DEADLINE, NOW)).toBe(COUNTDOWN);
-    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:56:40.000Z'))).toBe('0:01 left');
+    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:56:40.000Z'))).toBe('0:00:01 left');
+    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:06:41.000Z'))).toBe('0:50:00 left');
+    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:56:00.000Z'))).toBe('0:00:41 left');
     expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:56:41.980Z'))).toBeNull();
     expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-30T00:00:00.000Z'))).toBeNull();
     expect(holdCountdownCopy(null, NOW)).toBeNull();
