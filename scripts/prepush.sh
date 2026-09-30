@@ -38,14 +38,8 @@ if [ ! -t 0 ]; then
   fi
 fi
 
-sha="$(git rev-parse HEAD)"
-# shellcheck source=prepush-stamp.sh
-source "$ROOT/scripts/prepush-stamp.sh"
-if prepush_reuse "$sha"; then
-  exit 0
-fi
-
-# A broken dependency tree fails every later step with an unrelated error.
+# A broken dependency tree fails every later step with an unrelated error,
+# and must never pass through a reused stamp, so this runs before reuse.
 # The shared seed is read-only; a lane gates only on its own node_modules.
 # A .pnpm directory means pnpm ran in this npm tree, which leaves a second
 # copy of packages such as @sentry/core.
@@ -71,6 +65,13 @@ fi
 if [ -n "$deps_problem" ]; then
   echo "prepush: ${deps_problem}; rebuild this lane's node_modules (release skill §1)" >&2
   exit 1
+fi
+
+sha="$(git rev-parse HEAD)"
+# shellcheck source=prepush-stamp.sh
+source "$ROOT/scripts/prepush-stamp.sh"
+if prepush_reuse "$sha"; then
+  exit 0
 fi
 
 if [ -n "${PREPUSH_BASE:-}" ]; then
