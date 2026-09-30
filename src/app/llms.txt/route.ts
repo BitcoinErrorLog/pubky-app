@@ -8,7 +8,7 @@ export function GET() {
   return new Response(renderAgentGuide(indexUrl), {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'public, max-age=0, s-maxage=300, stale-while-revalidate=600',
+      'Cache-Control': 'public, max-age=0, must-revalidate',
     },
   });
 }
