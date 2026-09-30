@@ -13,7 +13,7 @@ import {
  * Server-injected synchronous runtime config.
  *
  * - Server: reads non-inlined `PUBKY_RUNTIME_*` env when the root layout renders (at build for
- *   prerendered routes, per request for dynamic ones and on Docker), validates, and memoizes.
+ *   routes Vercel prerenders, per request everywhere else), validates, and memoizes.
  *   The same memoized object is serialized into the HTML (see `serializeRuntimeConfig`).
  * - Client: reads the injected `window.__PUBKY_CONFIG__`, validates, and memoizes.
  * - dev/test: reads the same `PUBKY_RUNTIME_*` names leniently (honoring `.env.local` /
@@ -64,7 +64,8 @@ function isProductionBuildPhase(): boolean {
  * Vercel builds prerender static routes with the deployment's own env, and the
  * inlined runtime config ships in that HTML, so the build must parse strictly:
  * a missing variable fails the build instead of prerendering staging defaults.
- * Other builds (CI, Docker) stay lenient; Docker renders every route per request.
+ * Other builds (CI, Docker, local) stay lenient and render every route per
+ * request (`render-mode.ts`), so their HTML carries the server's config.
  */
 function isVercelBuild(): boolean {
   return process.env.VERCEL === '1';

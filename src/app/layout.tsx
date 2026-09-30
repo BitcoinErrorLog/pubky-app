@@ -1,9 +1,9 @@
 import './globals.css';
-import { connection } from 'next/server';
 import type { Viewport } from 'next';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
 import { buildMarketplacePromoPrepaintScript } from '@/libs/commerce/promo-prepaint';
+import { renderPerRequestOutsideVercel } from '@/libs/runtime-config/render-mode';
 import { RootContainer } from '@/molecules/ContainerRoot/ContainerRoot';
 import { Fab } from '@/molecules/Fab/Fab';
 import { Metadata } from '@/molecules/Metadata/Metadata';
@@ -35,10 +35,7 @@ export function generateMetadata() {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Docker images receive PUBKY_RUNTIME_* per container, after the build: every route
-  // renders per request there so RootContainer inlines the container's runtime config.
-  // Vercel bakes the deployment's env into prerendered routes (strict parse at build).
-  if (process.env.NEXT_STANDALONE === 'true') await connection();
+  await renderPerRequestOutsideVercel();
 
   return (
     <RootContainer>
