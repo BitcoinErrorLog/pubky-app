@@ -70,10 +70,27 @@ const nextConfig: NextConfig = {
   },
 };
 
+/**
+ * The precache downloads in the background on a first visit, competing with the page.
+ * It holds shell assets only (CSS, fonts, the manifest and the header logo). Route JS,
+ * WASM, images and video stay in the HTTP cache, which serves visited `/_next/static`
+ * files immutably.
+ */
+export const SW_PRECACHE_PUBLIC_PATTERNS = ['manifest.json', 'pubky-favicon.svg', 'pubky-logo.svg'];
+export const SW_PRECACHE_EXCLUDE = [
+  /\.map$/,
+  /^manifest.*\.js$/,
+  /^static\/chunks\//,
+  /\.wasm$/,
+  /^static\/media\/.*\.(png|jpe?g|gif|webp|avif|svg|mp4|webm)$/,
+];
+
 const withSerwist = withSerwistInit({
   swSrc: 'src/sw.ts',
   swDest: 'public/sw.js',
   disable: process.env.NODE_ENV === 'development',
+  globPublicPatterns: SW_PRECACHE_PUBLIC_PATTERNS,
+  exclude: SW_PRECACHE_EXCLUDE,
 });
 
 const composedConfig = withSerwist(nextConfig);
