@@ -242,7 +242,7 @@ describe('listing.sync on a listing the seller deleted', () => {
     revision: 2,
     eventIds: ['018f47d2-6a27-7c23-a62f-000000000745'],
     result: {
-      kind: 'listing_deleted',
+      kind: 'listing_deleted' as const,
       listing: {
         aggregateId,
         sellerPubky: 's'.repeat(52),
@@ -279,7 +279,7 @@ describe('listing.sync on a listing the seller deleted', () => {
   });
 
   it.each([
-    { ...tombstone, result: { kind: 'listing' } },
+    { ...tombstone, result: { kind: 'listing' as const } },
     { ok: false as const, error: { code: 'NOT_FOUND', message: 'The listing was not found.' } },
   ])('does not classify %j', (response) => {
     expect(isListingDeletedResponse(response, aggregateId)).toBe(false);
