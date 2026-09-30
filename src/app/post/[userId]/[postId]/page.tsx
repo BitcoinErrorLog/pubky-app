@@ -9,6 +9,9 @@ import { buildCompositeId } from '@/models/models.utils';
 import { Metadata } from '@/molecules/Metadata/Metadata';
 import { SinglePostPage } from '@/templates/Post/SinglePost/SinglePostPage';
 
+// Metadata reads the post and its author on every request; a prerendered page would pin a stale copy.
+export const dynamic = 'force-dynamic';
+
 export interface PostPageProps {
   params: Promise<{
     userId: string;

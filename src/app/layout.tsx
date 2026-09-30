@@ -2,6 +2,8 @@ import './globals.css';
 import type { Viewport } from 'next';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
+import { buildMarketplacePromoPrepaintScript } from '@/libs/commerce/promo-prepaint';
+import { renderPerRequestOutsideVercel } from '@/libs/runtime-config/render-mode';
 import { RootContainer } from '@/molecules/ContainerRoot/ContainerRoot';
 import { Fab } from '@/molecules/Fab/Fab';
 import { Metadata } from '@/molecules/Metadata/Metadata';
@@ -32,13 +34,16 @@ export function generateMetadata() {
   });
 }
 
-// Force dynamic rendering since RootContainer serializes runtime config per-request
-// (PUBKY_RUNTIME_* env vars must be read at request time, not baked in at build time)
-export const dynamic = 'force-dynamic';
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await renderPerRequestOutsideVercel();
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <RootContainer>
+      {/* Raw inline script: it must run during parsing, before the promo's first paint. */}
+      <script
+        id="marketplace-promo-prepaint-check"
+        dangerouslySetInnerHTML={{ __html: buildMarketplacePromoPrepaintScript() }}
+      />
       {/*
         Rendered as a sibling of the DatabaseProvider/RouteGuardProvider tree below (not a
         descendant): those are client components that gate {children} behind IndexedDB/auth

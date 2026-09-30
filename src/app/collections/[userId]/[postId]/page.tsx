@@ -7,6 +7,9 @@ import { buildCompositeId } from '@/models/models.utils';
 import { Metadata } from '@/molecules/Metadata/Metadata';
 import { Collection } from '@/templates/Collection/Collection';
 
+// Metadata reads the collection post and its author on every request; a prerendered page would pin a stale copy.
+export const dynamic = 'force-dynamic';
+
 export interface CollectionPageProps {
   params: Promise<{
     userId: string;

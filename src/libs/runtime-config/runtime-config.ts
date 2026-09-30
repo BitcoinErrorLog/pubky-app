@@ -12,7 +12,8 @@ import {
 /**
  * Server-injected synchronous runtime config.
  *
- * - Server: reads non-inlined `PUBKY_RUNTIME_*` env at request time, validates, and memoizes.
+ * - Server: reads non-inlined `PUBKY_RUNTIME_*` env when the root layout renders (at build for
+ *   routes Vercel prerenders, per request everywhere else), validates, and memoizes.
  *   The same memoized object is serialized into the HTML (see `serializeRuntimeConfig`).
  * - Client: reads the injected `window.__PUBKY_CONFIG__`, validates, and memoizes.
  * - dev/test: reads the same `PUBKY_RUNTIME_*` names leniently (honoring `.env.local` /
@@ -59,6 +60,17 @@ function isProductionBuildPhase(): boolean {
   return process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD;
 }
 
+/**
+ * Vercel builds prerender static routes with the deployment's own env, and the
+ * inlined runtime config ships in that HTML, so the build must parse strictly:
+ * a missing variable fails the build instead of prerendering staging defaults.
+ * Other builds (CI, Docker, local) stay lenient and render every route per
+ * request (`render-mode.ts`), so their HTML carries the server's config.
+ */
+function isVercelBuild(): boolean {
+  return process.env.VERCEL === '1';
+}
+
 /** Collect the raw `PUBKY_RUNTIME_*` string values keyed by config field name. */
 function readRuntimeEnvInput(): Record<string, string | undefined> {
   const input: Record<string, string | undefined> = {};
@@ -80,7 +92,7 @@ function parseLenientConfig(): RuntimeConfig {
 export function readServerConfig(): RuntimeConfig {
   // Deployed/required mode: strict parse — ALL required network values must be set and valid.
   // Partial deploy config fails loudly instead of silently resolving to staging defaults.
-  if (isRuntimeConfigRequired() && !isProductionBuildPhase()) {
+  if (isRuntimeConfigRequired() && (!isProductionBuildPhase() || isVercelBuild())) {
     const result = runtimeEnvInputSchema.safeParse(readRuntimeEnvInput());
     if (!result.success) {
       throw new Error(`Runtime config is incomplete or invalid. ${REQUIRED_NETWORK_ENV_MESSAGE}`, {
@@ -142,7 +154,7 @@ export function escapeForInlineScript(json: string): string {
 
 /**
  * Build the inline script body that publishes the resolved config to the browser.
- * Called from the dynamic root layout at request time (server only).
+ * Called from the root layout whenever it renders (server only).
  */
 export function serializeRuntimeConfig(): string {
   const config = getRuntimeConfig();

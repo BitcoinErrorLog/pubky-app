@@ -153,6 +153,7 @@ export function MobileFooter({ className }: MobileFooterProps) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={false}
               aria-label={
                 marketplaceLabel ??
                 (itemBadgeCount > 0

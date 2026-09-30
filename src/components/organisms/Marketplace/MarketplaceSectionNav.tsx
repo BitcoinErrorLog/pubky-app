@@ -98,6 +98,7 @@ export function MarketplaceSectionNav({
             <Link
               key={label}
               href={href}
+              prefetch={false}
               overrideDefaults
               aria-current={active ? 'page' : undefined}
               onClick={(event) => {

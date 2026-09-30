@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
-import { ExpirationPlugin, NetworkFirst, type PrecacheEntry, Serwist, type SerwistGlobalConfig } from 'serwist';
+import { type PrecacheEntry, Serwist, type SerwistGlobalConfig } from 'serwist';
+import { buildRuntimeCaching } from './sw.routes';
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -77,23 +78,7 @@ const serwist = new Serwist({
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: [
-    // API caching for Nexus
-    {
-      matcher: ({ url }) => /^https:\/\/nexus\..*\.pubky\.app\/.*$/i.test(url.href),
-      handler: new NetworkFirst({
-        cacheName: 'api-cache',
-        networkTimeoutSeconds: 10,
-        plugins: [
-          new ExpirationPlugin({
-            maxEntries: 50,
-            maxAgeSeconds: 60 * 5, // 5 minutes
-          }),
-        ],
-      }),
-    },
-    // Do not use `defaultCache` to prevent other origin services such as pkarr, homeserver and httprelay from being cached
-  ],
+  runtimeCaching: buildRuntimeCaching(),
   fallbacks: {
     entries: [
       {

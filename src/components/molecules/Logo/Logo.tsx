@@ -48,6 +48,7 @@ export function Logo({
   return !noLink ? (
     <Link
       href={href}
+      prefetch={false}
       data-cy="header-logo"
       onClick={(event) => {
         onClick?.(event);

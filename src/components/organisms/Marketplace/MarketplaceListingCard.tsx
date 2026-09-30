@@ -87,6 +87,7 @@ export function MarketplaceListingCard({ listing, shopName, layout = 'grid', ind
   return (
     <Link
       href={getMarketplaceListingRoute(listing.sellerId, listing.listingId)}
+      prefetch={false}
       overrideDefaults
       className="marketplace-card-enter group relative block rounded-xl transition-transform duration-300 ease-out outline-none hover:z-10 hover:scale-105 hover:rotate-(--card-hover-rotation) focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transform-none motion-reduce:transition-none"
       style={

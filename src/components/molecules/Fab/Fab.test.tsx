@@ -176,9 +176,9 @@ describe('Fab', () => {
   );
 
   describe('createPost action', () => {
-    it('renders the new post dialog and opens it on click', () => {
+    it('renders the new post dialog and opens it on click', async () => {
       render(<Fab />);
-      expect(screen.getByTestId('dialog-new-post')).toHaveAttribute('data-open', 'false');
+      expect(await screen.findByTestId('dialog-new-post')).toHaveAttribute('data-open', 'false');
       expect(screen.queryByTestId('new-collection-dialog')).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('new-post-cta'));
@@ -186,36 +186,36 @@ describe('Fab', () => {
       expect(screen.getByTestId('dialog-new-post')).toHaveAttribute('data-open', 'true');
     });
 
-    it('forwards onPostCreated to the new post dialog when the action binds it', () => {
+    it('forwards onPostCreated to the new post dialog when the action binds it', async () => {
       mockUseFabAction.mockReturnValue({
         kind: 'createPost',
         ariaLabel: 'New bookmark',
         onPostCreated: vi.fn(),
       });
       render(<Fab />);
-      expect(screen.getByTestId('dialog-new-post')).toHaveAttribute('data-has-on-post-created', 'true');
+      expect(await screen.findByTestId('dialog-new-post')).toHaveAttribute('data-has-on-post-created', 'true');
     });
 
-    it('does not forward onPostCreated for the default new post action', () => {
+    it('does not forward onPostCreated for the default new post action', async () => {
       render(<Fab />);
-      expect(screen.getByTestId('dialog-new-post')).toHaveAttribute('data-has-on-post-created', 'false');
+      expect(await screen.findByTestId('dialog-new-post')).toHaveAttribute('data-has-on-post-created', 'false');
     });
   });
 
   describe('createCollection action', () => {
-    it('renders the collection dialog instead of the post dialog', () => {
+    it('renders the collection dialog instead of the post dialog', async () => {
       mockUseFabAction.mockReturnValue({ kind: 'createCollection', ariaLabel: 'New collection' });
       render(<Fab />);
 
-      expect(screen.getByTestId('new-collection-dialog')).toBeInTheDocument();
+      expect(await screen.findByTestId('new-collection-dialog')).toBeInTheDocument();
       expect(screen.queryByTestId('dialog-new-post')).not.toBeInTheDocument();
       expect(screen.getByTestId('new-post-cta')).toHaveAttribute('aria-label', 'New collection');
     });
 
-    it('opens the collection dialog on click', () => {
+    it('opens the collection dialog on click', async () => {
       mockUseFabAction.mockReturnValue({ kind: 'createCollection', ariaLabel: 'New collection' });
       render(<Fab />);
-      expect(screen.getByTestId('new-collection-dialog')).toHaveAttribute('data-open', 'false');
+      expect(await screen.findByTestId('new-collection-dialog')).toHaveAttribute('data-open', 'false');
 
       fireEvent.click(screen.getByTestId('new-post-cta'));
 

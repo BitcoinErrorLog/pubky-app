@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { usePathname } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { MARKETPLACE_ROUTES } from '@/app/routes';
@@ -10,9 +11,21 @@ import { useFabAction } from '@/hooks/useFabAction/useFabAction';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { cn } from '@/libs/utils/utils';
-import { DialogNewCollection } from '@/organisms/Collections/DialogNewCollection/DialogNewCollection';
-import { DialogNewPost } from '@/organisms/DialogNewPost/DialogNewPost';
 import { useCollectionReorderStore } from '@/stores/collectionReorder/collectionReorder.store';
+
+// The Fab is in the root layout: loading the composers on demand keeps their editor,
+// markdown and syntax-highlighting code out of every page's first-paint bundle.
+const DialogNewPost = dynamic(
+  () => import('@/organisms/DialogNewPost/DialogNewPost').then((module) => module.DialogNewPost),
+  { ssr: false },
+);
+const DialogNewCollection = dynamic(
+  () =>
+    import('@/organisms/Collections/DialogNewCollection/DialogNewCollection').then(
+      (module) => module.DialogNewCollection,
+    ),
+  { ssr: false },
+);
 
 /**
  * Floating Action Button (FAB).
