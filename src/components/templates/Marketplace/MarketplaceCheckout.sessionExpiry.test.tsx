@@ -10,7 +10,10 @@ import { MARKETPLACE_SESSION_STORAGE_KEY, MarketplaceSessionService } from '@/se
 import { MARKETPLACE_SESSION_GRANT } from '@/services/marketplace/marketplace-session-grant';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
+import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { MarketplaceCheckout } from './MarketplaceCheckout';
+
+setHeavySuiteBudgets();
 
 const BUYER = 'b'.repeat(52);
 const EXPIRES_AT = '2099-01-01T00:00:00.000Z';

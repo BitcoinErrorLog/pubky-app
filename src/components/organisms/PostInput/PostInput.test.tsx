@@ -1,7 +1,7 @@
 import { createRef } from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { useReducedMotion } from 'motion/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, configure, fireEvent, getConfig, render, screen, waitFor, within } from '@testing-library/react';
+import { MotionGlobalConfig, useReducedMotion } from 'motion/react';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST_THREAD_CONNECTOR_VARIANTS } from '@/atoms/PostThreadConnector/PostThreadConnector.constants';
 import { POST_MAX_CHARACTER_LENGTH } from '@/config/posts';
 import { useEnterSubmit } from '@/hooks/useEnterSubmit/useEnterSubmit';
@@ -537,6 +537,25 @@ describe('PostInput', () => {
   const mockUsePostInput = vi.mocked(usePostInput);
   const mockUseEnterSubmit = vi.mocked(useEnterSubmit);
   const mockPostHeader = vi.mocked(PostHeader);
+
+  // Expand/collapse opacity, blur, and height are Motion animations driven by
+  // the wall clock. Several tests wait for their end state, so under CPU
+  // contention the default 1s `waitFor` can expire while an animation is still
+  // near its end. Instant animations settle at the target on the next frame and
+  // the wait is bounded by an explicit budget instead of animation duration.
+  const animationSettleTimeoutMs = 10_000;
+  let previousAsyncUtilTimeout = 0;
+
+  beforeAll(() => {
+    MotionGlobalConfig.instantAnimations = true;
+    previousAsyncUtilTimeout = getConfig().asyncUtilTimeout;
+    configure({ asyncUtilTimeout: animationSettleTimeoutMs });
+  });
+
+  afterAll(() => {
+    configure({ asyncUtilTimeout: previousAsyncUtilTimeout });
+    MotionGlobalConfig.instantAnimations = undefined;
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();

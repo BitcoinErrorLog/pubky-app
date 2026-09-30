@@ -1,8 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
+import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { MarketplaceAddressSettings } from './MarketplaceAddressSettings';
+
+setHeavySuiteBudgets();
 
 const routerPush = vi.hoisted(() => vi.fn());
 const saveAddress = vi.hoisted(() => vi.fn(async () => true));
@@ -54,7 +57,7 @@ describe('MarketplaceAddressSettings', () => {
     await user.type(screen.getByRole('textbox', { name: 'Country' }), 'US');
     await user.click(screen.getByRole('button', { name: 'Save address' }));
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(saveAddress).toHaveBeenCalled();
       expect(routerPush).toHaveBeenCalledWith(
         '/marketplace/drop/ssssssssssssssssssssssssssssssssssssssssssssssssssss/vol1',
