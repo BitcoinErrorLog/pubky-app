@@ -25,6 +25,7 @@ import {
   isListingRegistrationPending,
 } from '@/models/commerce/commerce.schema';
 import { toast } from '@/molecules/Toaster/use-toast';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 
 export interface MarketplaceListingOwnerPanelProps {
@@ -69,6 +70,9 @@ export function MarketplaceListingOwnerPanel({ record, registrationStatus }: Mar
   }, [record, registrationPending, marketplaceSession, canRegister]);
 
   const router = useRouter();
+  // A page opened in a fresh tab renders from the persisted pubky before the homeserver session is restored;
+  // a delete sent in that window fails with "Authenticated writes must target an owned path".
+  const hasHomeserverSession = useAuthStore((state) => state.session !== null);
   const [isMutating, setIsMutating] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const canToggleVisibility = record.sale.format === 'fixed_price' && ['active', 'paused'].includes(record.state);
@@ -95,6 +99,7 @@ export function MarketplaceListingOwnerPanel({ record, registrationStatus }: Mar
   };
 
   const deleteListing = async () => {
+    if (!hasHomeserverSession) return;
     setIsMutating(true);
     try {
       await CommerceController.commitDeleteListing(record.ownerPubky, record.listingId);
@@ -185,13 +190,18 @@ export function MarketplaceListingOwnerPanel({ record, registrationStatus }: Mar
             size="sm"
             variant="ghost"
             className="rounded-full text-destructive hover:text-destructive"
-            disabled={isMutating}
+            disabled={isMutating || !hasHomeserverSession}
             onClick={() => setConfirmingDelete(true)}
           >
             <Trash2 className="mr-2 size-4" />
             Delete
           </Button>
         </div>
+        {!hasHomeserverSession && (
+          <Typography as="p" className="text-xs text-muted-foreground" data-testid="listing-delete-waiting-for-session">
+            Delete is available once your session is restored.
+          </Typography>
+        )}
         {record.sale.format === 'auction' && (
           <Typography as="p" className="text-xs text-muted-foreground">
             Auctions cannot be unlisted: published auction terms stay live until the auction ends.
@@ -220,7 +230,7 @@ export function MarketplaceListingOwnerPanel({ record, registrationStatus }: Mar
             <Button
               variant="destructive"
               className="rounded-full"
-              disabled={isMutating}
+              disabled={isMutating || !hasHomeserverSession}
               onClick={() => void deleteListing()}
             >
               {isMutating ? 'Deleting…' : 'Delete listing'}
