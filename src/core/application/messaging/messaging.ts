@@ -118,6 +118,12 @@ export class MessagingApplication {
     this.outboxRetry.clear();
   }
 
+  /** Account switch without a sign-out: drops the messaging session of any account but `keepPubky`. */
+  static clearMessagingSessionsOfOtherAccounts(keepPubky: string): void {
+    PaykitMessagingService.clearOtherAccounts(keepPubky);
+    this.outboxRetry.clear();
+  }
+
   /** True when the counterparty has published a messaging receiver marker. */
   static async isCounterpartyEnrolled(counterpartyPubky: string): Promise<boolean> {
     return (await PaykitMessagingService.getCounterpartyMarker(counterpartyPubky)) !== null;

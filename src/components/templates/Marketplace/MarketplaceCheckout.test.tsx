@@ -238,8 +238,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getSellerPaymentConfig: vi.fn(async () => ({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: 'https://buy.stripe.com/test_checkout',
-      paypalMerchantEmail: 'seller@example.com',
+      paypalAvailable: true,
     })),
     getIndicativeBtcRate: vi.fn(async () => null),
     getOrFetchListing: vi.fn(async () => listing.record),
@@ -887,14 +886,12 @@ describe('MarketplaceCheckout with no usable payment method', () => {
   const ALL_RAILS = {
     bitcoinAvailable: true,
     bitcoinOfferAvailable: true,
-    stripePaymentLink: 'https://buy.stripe.com/test_checkout',
-    paypalMerchantEmail: 'seller@example.com',
+    paypalAvailable: true,
   };
   const NO_RAILS = {
     bitcoinAvailable: false,
     bitcoinOfferAvailable: true,
-    stripePaymentLink: null,
-    paypalMerchantEmail: null,
+    paypalAvailable: false,
   };
 
   beforeEach(() => {
@@ -929,7 +926,7 @@ describe('MarketplaceCheckout with no usable payment method', () => {
     seededCart();
     vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(async () => ({
       ...NO_RAILS,
-      paypalMerchantEmail: 'seller@example.com',
+      paypalAvailable: true,
     }));
 
     render(<MarketplaceCheckout />);
@@ -940,7 +937,7 @@ describe('MarketplaceCheckout with no usable payment method', () => {
   });
 
   it('shows loading, not "no payment method", while a PayPal seller config loads after the cart hydrates', async () => {
-    let resolveConfig: (config: typeof NO_RAILS | { paypalMerchantEmail: string }) => void = () => {};
+    let resolveConfig: (config: typeof NO_RAILS) => void = () => {};
     vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -958,7 +955,7 @@ describe('MarketplaceCheckout with no usable payment method', () => {
     expect(screen.queryByText(/hasn't set up a payment method/)).not.toBeInTheDocument();
     expect(screen.queryByText('Pay unlocks once this seller sets up a payment method.')).not.toBeInTheDocument();
 
-    resolveConfig({ ...NO_RAILS, paypalMerchantEmail: 'seller@example.com' });
+    resolveConfig({ ...NO_RAILS, paypalAvailable: true });
 
     expect(await screen.findByTestId('marketplace-checkout-method-paypal')).toBeInTheDocument();
     expect(screen.queryByText(/hasn't set up a payment method/)).not.toBeInTheDocument();
@@ -979,7 +976,7 @@ describe('MarketplaceCheckout with no usable payment method', () => {
 
     vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(async () => ({
       ...NO_RAILS,
-      paypalMerchantEmail: 'seller@example.com',
+      paypalAvailable: true,
     }));
     await user.click(screen.getByRole('button', { name: 'Retry' }));
 
@@ -999,9 +996,7 @@ describe('MarketplaceCheckout with no usable payment method', () => {
       },
     ];
     vi.mocked(CommerceController.getSellerPaymentConfig).mockImplementation(async (sellerPubky: unknown) =>
-      sellerPubky === listing.record.ownerPubky
-        ? { ...NO_RAILS, paypalMerchantEmail: 'seller@example.com' }
-        : { ...NO_RAILS, stripePaymentLink: 'https://buy.stripe.com/test_checkout' },
+      sellerPubky === listing.record.ownerPubky ? { ...NO_RAILS, paypalAvailable: true } : NO_RAILS,
     );
 
     render(<MarketplaceCheckout />);

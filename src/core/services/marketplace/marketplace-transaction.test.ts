@@ -1108,8 +1108,9 @@ describe('MarketplaceTransactionService read projections', () => {
       vi.mocked(fetch).mockResolvedValueOnce(
         jsonResponse(200, {
           bitcoin_available: true,
-          stripe_payment_link: 'https://buy.stripe.com/test_abc',
-          paypal_merchant_email: 'seller@example.com',
+          bitcoin_offer_available: true,
+          paypal_available: true,
+          stripe_available: true,
         }),
       );
 
@@ -1118,13 +1119,49 @@ describe('MarketplaceTransactionService read projections', () => {
       expect(configView).toEqual({
         bitcoinAvailable: true,
         bitcoinOfferAvailable: true,
-        stripePaymentLink: 'https://buy.stripe.com/test_abc',
-        paypalMerchantEmail: 'seller@example.com',
+        paypalAvailable: true,
       });
       const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
       expect(url).toBe(`http://127.0.0.1:8080/v0/sellers/${OTHER_ACTOR}/payment-config`);
       expect(init.headers).toEqual(expect.not.objectContaining({ authorization: expect.anything() }));
       expect(init.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('drops payout identifiers from a service that still sends them', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        jsonResponse(200, {
+          bitcoin_available: false,
+          bitcoin_offer_available: true,
+          stripe_payment_link: 'https://buy.stripe.com/test_abc',
+          paypal_merchant_email: 'seller@example.com',
+        }),
+      );
+
+      const configView = await MarketplaceTransactionService.getSellerPaymentConfig(OTHER_ACTOR);
+
+      expect(configView).toEqual({ bitcoinAvailable: false, bitcoinOfferAvailable: true, paypalAvailable: true });
+      expect(JSON.stringify(configView)).not.toMatch(/@|stripe\.com|example\.com/);
+    });
+
+    it('keeps a truncated legacy body out of the error context and the log', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response('{"bitcoin_available":false,"paypal_merchant_email":"seller@example.com","stripe_pay', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      const loggerError = vi.spyOn(Logger, 'error');
+
+      const error = (await MarketplaceTransactionService.getSellerPaymentConfig(OTHER_ACTOR).catch(
+        (caught: unknown) => caught,
+      )) as AppError;
+
+      expect(error).toMatchObject({ name: 'AppError', code: 'INVALID_RESPONSE' });
+      expect(error.context).not.toHaveProperty('responseText');
+      expect(JSON.stringify(error.context)).not.toContain('seller@example.com');
+      expect(loggerError).toHaveBeenCalled();
+      expect(JSON.stringify(loggerError.mock.calls)).not.toContain('seller@example.com');
+      loggerError.mockRestore();
     });
 
     it('saves the own config with the bearer, omitting the key unless provided, and never gets it back', async () => {

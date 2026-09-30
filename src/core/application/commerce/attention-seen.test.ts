@@ -80,6 +80,15 @@ async function switchToFreshBrowser() {
   window.localStorage.clear();
 }
 
+/**
+ * Activity's local copy is a Dexie write that `markSeen` awaits before it
+ * schedules the homeserver write; the clock must not pass the quiet period
+ * before that write is scheduled.
+ */
+async function activityRaised(at: number) {
+  await vi.waitUntil(async () => (await LocalCommerceService.getActivityReadCheckpoint(OWNER)) >= at);
+}
+
 async function settleDebounce() {
   await vi.advanceTimersByTimeAsync(ATTENTION_SEEN_WRITE_DEBOUNCE_MS + 1);
 }
@@ -106,6 +115,7 @@ describe('CommerceAttentionSeenApplication (per-account badge checkpoints)', () 
   it('clears Activity and Orders in a second browser after the first browser opened them', async () => {
     const activity = CommerceAttentionSeenApplication.markSeen(OWNER, 'activity', T0);
     const orders = CommerceAttentionSeenApplication.markSeen(OWNER, 'orders', T0 + 1_000);
+    await activityRaised(T0);
     await settleDebounce();
     await Promise.all([activity, orders]);
     expect(latest('activity')).toBe(T0);
@@ -143,6 +153,7 @@ describe('CommerceAttentionSeenApplication (per-account badge checkpoints)', () 
 
     const browserA = CommerceAttentionSeenApplication.markSeen(OWNER, 'orders', T0 + 20_000);
     const browserB = CommerceAttentionSeenApplication.markSeen(OWNER, 'activity', T0 + 30_000);
+    await activityRaised(T0 + 30_000);
     await settleDebounce();
     homeserver.releaseLists();
     await Promise.all([browserA, browserB]);
@@ -175,6 +186,7 @@ describe('CommerceAttentionSeenApplication (per-account badge checkpoints)', () 
     seal('activity', T0 + 1);
 
     const write = CommerceAttentionSeenApplication.markSeen(OWNER, 'activity', T0 + 5_000);
+    await activityRaised(T0 + 5_000);
     await settleDebounce();
     await write;
 
@@ -201,6 +213,7 @@ describe('CommerceAttentionSeenApplication (per-account badge checkpoints)', () 
     homeserver.log.length = 0;
 
     const write = CommerceAttentionSeenApplication.markSeen(OWNER, 'activity', T0);
+    await activityRaised(T0);
     await settleDebounce();
     await write;
 
@@ -296,6 +309,7 @@ describe('CommerceAttentionSeenApplication (per-account badge checkpoints)', () 
     homeserver.files.set(legacyEntry('activity', T0 - 1_000), { version: 1, seenAt: T0 - 1_000 });
 
     const write = CommerceAttentionSeenApplication.markSeen(OWNER, 'activity', T0);
+    await activityRaised(T0);
     await settleDebounce();
     await write;
     await CommerceAttentionSeenApplication.pull(OWNER);

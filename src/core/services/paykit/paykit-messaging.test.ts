@@ -92,6 +92,8 @@ function createFakeWorld() {
     // the homeserver) or resolve with the pubky embedded in the export blob.
     restoreRejects: false,
     restoredPubkyOverride: null as string | null,
+    // Runs while `restoreSession` is in flight: another tab acting meanwhile.
+    duringRestore: null as (() => void) | null,
     // Scripted `resumeSessionFromCookie` behavior. Default 'unauthorized':
     // the browser holds no homeserver cookie for the requested pubky (the
     // binding's SessionResumeUnauthorized), which mirrors the signed-out
@@ -240,6 +242,8 @@ function createFakeWorld() {
     }
     async restoreSession(exported: string) {
       world.calls.push('restoreSession');
+      await Promise.resolve();
+      world.duringRestore?.();
       if (world.restoreRejects) throw new Error('session restore failed: RequestExpired');
       const owner = world.restoredPubkyOverride ?? exported.replace('exported-session:', '');
       return new FakeSessionHandle(owner);
@@ -2634,16 +2638,14 @@ describe('PaykitMessagingService', () => {
       expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
     });
 
-    it('drops another account\u2019s persisted blob without a restore attempt, then falls through to cookie resume', async () => {
+    it('leaves another account\u2019s persisted blob in place without a restore attempt, then falls through to cookie resume', async () => {
       await enableMessaging(world);
       simulateReload();
-      window.localStorage.setItem(
-        'pubky.messaging.session.v1',
-        JSON.stringify({ pubky: COUNTERPARTY, exported: `exported-session:${COUNTERPARTY}` }),
-      );
+      const foreign = JSON.stringify({ pubky: COUNTERPARTY, exported: `exported-session:${COUNTERPARTY}` });
+      window.localStorage.setItem('pubky.messaging.session.v1', foreign);
 
       await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
-      expect(storedValue()).toBeNull();
+      expect(storedValue()).toBe(foreign);
       // The foreign blob is never sent to the homeserver; the only network
       // attempt is the cookie resume for the CURRENT account (unauthorized here).
       expect(world.calls).not.toContain('restoreSession');
@@ -2668,6 +2670,27 @@ describe('PaykitMessagingService', () => {
       await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).rejects.toThrow(
         /No active messaging session/,
       );
+    });
+
+    it('a failed restore removes only the export it read, never a newer one another tab saved meanwhile', async () => {
+      await enableMessaging(world);
+      simulateReload();
+      world.restoreRejects = true;
+      const newer = JSON.stringify({ pubky: OWNER, exported: `exported-session:${OWNER}:newer` });
+      world.duringRestore = () => window.localStorage.setItem('pubky.messaging.session.v1', newer);
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+      expect(storedValue()).toBe(newer);
+    });
+
+    it('a restore that lands after another tab saved a newer export does not write the older one back', async () => {
+      await enableMessaging(world);
+      simulateReload();
+      const newer = JSON.stringify({ pubky: OWNER, exported: `exported-session:${OWNER}:newer` });
+      world.duringRestore = () => window.localStorage.setItem('pubky.messaging.session.v1', newer);
+
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(true);
+      expect(storedValue()).toBe(newer);
     });
 
     it('rejects a restored session whose identity does not match the expected account', async () => {
