@@ -1,152 +1,134 @@
-export type AddressSuggestion = {
-  placeId: string;
-  primary: string;
-  secondary: string;
-};
+import { z } from 'zod';
+import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 
 export type ResolvedPostalAddress = {
   line1: string;
-  line2: string;
   city: string;
   region: string;
   postalCode: string;
   countryCode: string;
 };
 
+export type AddressSuggestion = {
+  id: string;
+  primary: string;
+  secondary: string;
+  /** `house` when OpenStreetMap knows the house number; `street` when only the street matched. */
+  precision: 'house' | 'street';
+  address: ResolvedPostalAddress;
+};
+
+export type AddressSuggestResult = { status: 'ok'; suggestions: AddressSuggestion[] } | { status: 'unavailable' };
+
+export type AddressSuggestOptions = {
+  countryCode: string;
+  signal?: AbortSignal;
+};
+
 export type AddressAutocompleteProvider = {
-  suggest: (input: string, sessionToken: string) => Promise<AddressSuggestion[]>;
-  retrieve: (placeId: string, sessionToken: string) => Promise<ResolvedPostalAddress | null>;
+  suggest: (input: string, options: AddressSuggestOptions) => Promise<AddressSuggestResult>;
 };
 
-type GooglePlacePrediction = {
-  placeId?: string;
-  text?: { text?: string };
-  structuredFormat?: { mainText?: { text?: string }; secondaryText?: { text?: string } };
-};
+export const ADDRESS_ATTRIBUTION = {
+  text: '© OpenStreetMap contributors',
+  href: 'https://www.openstreetmap.org/copyright',
+} as const;
 
-type GoogleAutocompleteResponse = {
-  suggestions?: Array<{ placePrediction?: GooglePlacePrediction }>;
-};
+export const ADDRESS_SUGGEST_MIN_CHARS = 4;
+const ADDRESS_SUGGEST_MAX_CHARS = 120;
+const REQUEST_TIMEOUT_MS = 4_000;
+const CLIENT_CACHE_ENTRIES = 50;
+const MAX_BACKOFF_MS = 60_000;
+const DEFAULT_BACKOFF_MS = 5_000;
 
-type GoogleAddressComponent = {
-  longText?: string;
-  shortText?: string;
-  types?: string[];
-};
+const suggestionSchema = z.looseObject({
+  id: z.string().min(1).max(64),
+  primary: z.string().min(1).max(200),
+  secondary: z.string().max(400),
+  precision: z.enum(['house', 'street']),
+  address: z.looseObject({
+    line1: z.string().min(1).max(200),
+    city: z.string().max(200),
+    region: z.string().max(200),
+    postalCode: z.string().max(64),
+    countryCode: z.string().length(2),
+  }),
+});
 
-type GooglePlaceDetailsResponse = {
-  addressComponents?: GoogleAddressComponent[];
-};
+const responseSchema = z.looseObject({ suggestions: z.array(z.unknown()) });
 
-const AUTOCOMPLETE_URL = 'https://places.googleapis.com/v1/places:autocomplete';
-const AUTOCOMPLETE_FIELD_MASK =
-  'suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat';
-const DETAILS_FIELD_MASK = 'addressComponents';
-
-export function googlePlaceResourcePath(placeId: string): string {
-  const id = placeId.trim().replace(/^places\//, '');
-  return `places/${id}`;
+/** Only a well-formed two-letter country code is ever sent to the service. */
+function normalizeCountry(countryCode: string): string | null {
+  const upper = countryCode.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(upper) ? upper : null;
 }
 
-function componentOf(components: GoogleAddressComponent[], type: string): GoogleAddressComponent | undefined {
-  return components.find((component) => component.types?.includes(type));
+function normalizeQuery(input: string): string {
+  return input.trim().replace(/\s+/g, ' ');
 }
 
-export function addressFromGoogleComponents(components: GoogleAddressComponent[]): ResolvedPostalAddress | null {
-  const streetNumber = componentOf(components, 'street_number')?.longText?.trim() ?? '';
-  const route = componentOf(components, 'route')?.longText?.trim() ?? '';
-  const line1 = [streetNumber, route].filter(Boolean).join(' ').trim();
-  if (!line1) return null;
-  const line2 =
-    componentOf(components, 'subpremise')?.longText?.trim() ||
-    componentOf(components, 'premise')?.longText?.trim() ||
-    '';
-  const city =
-    componentOf(components, 'locality')?.longText?.trim() ||
-    componentOf(components, 'postal_town')?.longText?.trim() ||
-    componentOf(components, 'sublocality_level_1')?.longText?.trim() ||
-    '';
-  const region = componentOf(components, 'administrative_area_level_1')?.shortText?.trim().toUpperCase() ?? '';
-  const postalCode = componentOf(components, 'postal_code')?.longText?.trim() ?? '';
-  const country = componentOf(components, 'country')?.shortText?.trim().toUpperCase() ?? 'US';
+function retryAfterMs(response: Response): number {
+  const seconds = Number(response.headers.get('retry-after'));
+  if (!Number.isFinite(seconds) || seconds <= 0) return DEFAULT_BACKOFF_MS;
+  return Math.min(seconds * 1000, MAX_BACKOFF_MS);
+}
+
+/**
+ * Address suggestions through the marketplace service's OpenStreetMap proxy
+ * (`POST /v0/address/suggest`). The browser never contacts the geocoder. Any
+ * failure is `unavailable` and never throws: the address form keeps working
+ * by hand. After a 429 or 503 the provider stays quiet for the service's
+ * `Retry-After`, and it remembers recent answers so retyping costs nothing.
+ */
+export function createMarketplaceAddressProvider(baseUrl: string): AddressAutocompleteProvider {
+  const endpoint = `${baseUrl.replace(/\/+$/, '')}/v0/address/suggest`;
+  const cache = new Map<string, AddressSuggestion[]>();
+  let quietUntil = 0;
+
   return {
-    line1,
-    line2,
-    city,
-    region,
-    postalCode,
-    countryCode: country,
-  };
-}
+    async suggest(input, options) {
+      const query = normalizeQuery(input);
+      const country = normalizeCountry(options.countryCode);
+      if (query.length < ADDRESS_SUGGEST_MIN_CHARS || query.length > ADDRESS_SUGGEST_MAX_CHARS || !country) {
+        return { status: 'ok', suggestions: [] };
+      }
+      const cacheKey = `${country}|${query.toLowerCase()}`;
+      const cached = cache.get(cacheKey);
+      if (cached) return { status: 'ok', suggestions: cached };
+      if (Date.now() < quietUntil) return { status: 'unavailable' };
 
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-export function createGooglePlacesAutocompleteProvider(apiKey: string): AddressAutocompleteProvider {
-  return {
-    async suggest(input, sessionToken) {
-      const trimmed = input.trim();
-      if (!trimmed || !apiKey) return [];
+      const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+      const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
       try {
-        const response = await fetch(AUTOCOMPLETE_URL, {
+        const response = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Goog-Api-Key': apiKey,
-            'X-Goog-FieldMask': AUTOCOMPLETE_FIELD_MASK,
-          },
-          body: JSON.stringify({
-            input: trimmed,
-            sessionToken,
-            includedRegionCodes: ['US'],
-            includedPrimaryTypes: ['street_address', 'premise', 'subpremise'],
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: query, country }),
+          credentials: 'omit',
+          referrerPolicy: 'no-referrer',
+          cache: 'no-store',
+          signal,
         });
-        if (!response.ok) return [];
-        const body = (await readJson(response)) as GoogleAutocompleteResponse | null;
-        return (body?.suggestions ?? [])
-          .map((suggestion) => suggestion.placePrediction)
-          .filter((prediction): prediction is GooglePlacePrediction => Boolean(prediction?.placeId))
-          .map((prediction) => ({
-            placeId: prediction.placeId ?? '',
-            primary: prediction.structuredFormat?.mainText?.text?.trim() || prediction.text?.text?.trim() || '',
-            secondary: prediction.structuredFormat?.secondaryText?.text?.trim() || '',
-          }))
-          .filter((suggestion) => suggestion.placeId && suggestion.primary);
-      } catch {
-        return [];
-      }
-    },
-    async retrieve(placeId, sessionToken) {
-      const id = placeId.trim();
-      if (!id || !apiKey) return null;
-      try {
-        const url = new URL(`https://places.googleapis.com/v1/${googlePlaceResourcePath(id)}`);
-        url.searchParams.set('sessionToken', sessionToken);
-        const response = await fetch(url, {
-          headers: {
-            'X-Goog-Api-Key': apiKey,
-            'X-Goog-FieldMask': DETAILS_FIELD_MASK,
-          },
+        if (response.status === 429 || response.status === 503) {
+          quietUntil = Date.now() + retryAfterMs(response);
+          return { status: 'unavailable' };
+        }
+        if (!response.ok) return { status: 'unavailable' };
+        const parsed = responseSchema.safeParse(toCamelCaseWire(await response.json()));
+        if (!parsed.success) return { status: 'unavailable' };
+        const suggestions = parsed.data.suggestions.flatMap((item) => {
+          const row = suggestionSchema.safeParse(item);
+          return row.success ? [row.data as AddressSuggestion] : [];
         });
-        if (!response.ok) return null;
-        const body = (await readJson(response)) as GooglePlaceDetailsResponse | null;
-        return addressFromGoogleComponents(body?.addressComponents ?? []);
+        if (cache.size >= CLIENT_CACHE_ENTRIES) {
+          const oldest = cache.keys().next().value;
+          if (oldest !== undefined) cache.delete(oldest);
+        }
+        cache.set(cacheKey, suggestions);
+        return { status: 'ok', suggestions };
       } catch {
-        return null;
+        return { status: 'unavailable' };
       }
     },
   };
-}
-
-export function mintAddressAutocompleteSessionToken(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

@@ -4,12 +4,14 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Controller, type FieldValues, type Path, useWatch } from 'react-hook-form';
 import { Container } from '@/atoms/Container/Container';
 import { Label } from '@/atoms/Label/Label';
+import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import { FORM_LABEL_CLASSES } from '@/config/forms';
 import {
+  ADDRESS_ATTRIBUTION,
+  ADDRESS_SUGGEST_MIN_CHARS,
   type AddressAutocompleteProvider,
   type AddressSuggestion,
-  createGooglePlacesAutocompleteProvider,
-  mintAddressAutocompleteSessionToken,
+  createMarketplaceAddressProvider,
 } from '@/libs/commerce/address-autocomplete';
 import {
   canonicalizeRegion,
@@ -19,21 +21,21 @@ import {
   subdivisionsForCountry,
 } from '@/libs/commerce/postal-address';
 import { lookupUsZip } from '@/libs/commerce/us-zip-lookup';
-import { getGooglePlacesApiKey } from '@/libs/runtime-config/runtime-config';
 import { cn } from '@/libs/utils/utils';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { InputField } from '@/molecules/InputField/InputField';
 import type { MarketplaceAddressFieldsProps } from './MarketplaceAddressFields.types';
 
 const SUGGEST_DEBOUNCE_MS = 300;
-const MIN_SUGGEST_CHARS = 3;
 
-function readPlacesKey(): string | undefined {
-  if (typeof process !== 'undefined' && process.env.VITEST) return undefined;
+function readDefaultProvider(): AddressAutocompleteProvider | null {
+  if (typeof process !== 'undefined' && process.env.VITEST) return null;
   try {
-    return getGooglePlacesApiKey();
+    if (!isDurableCommerceMode(getCommerceAdapterMode())) return null;
+    const url = getMarketplaceUrl();
+    return url ? createMarketplaceAddressProvider(url) : null;
   } catch {
-    return undefined;
+    return null;
   }
 }
 
@@ -44,6 +46,7 @@ function SuggestionList({
   activeIndex,
   onSelect,
   onHover,
+  className,
 }: {
   id: string;
   testId: string;
@@ -51,13 +54,17 @@ function SuggestionList({
   activeIndex: number;
   onSelect: (id: string) => void;
   onHover: (index: number) => void;
+  className?: string;
 }) {
   return (
     <ul
       id={id}
       role="listbox"
       data-testid={testId}
-      className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-md"
+      className={cn(
+        'absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-md',
+        className,
+      )}
     >
       {items.map((item, index) => (
         <li
@@ -98,54 +105,62 @@ export function MarketplaceAddressFields<T extends FieldValues>({
   const regionLabel = regionLabelForCountry(country);
   const postalLabel = postalLabelForCountry(country);
   const closedList = subdivisionsForCountry(country);
-  const [fallbackProvider] = useState<AddressAutocompleteProvider | null>(() => {
-    const key = readPlacesKey();
-    return key ? createGooglePlacesAutocompleteProvider(key) : null;
-  });
-  const provider = autocompleteProvider !== undefined ? autocompleteProvider : fallbackProvider;
-  const autocompleteEnabled = country === 'US' && provider !== null;
+  const [defaultProvider] = useState<AddressAutocompleteProvider | null>(readDefaultProvider);
+  const provider = autocompleteProvider !== undefined ? autocompleteProvider : defaultProvider;
+  const autocompleteEnabled = /^[A-Z]{2}$/.test(country) && provider !== null;
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [suggestionsUnavailable, setSuggestionsUnavailable] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestIndex, setSuggestIndex] = useState(-1);
   const [regionQueryOpen, setRegionQueryOpen] = useState(false);
   const [regionActiveIndex, setRegionActiveIndex] = useState(0);
-  const sessionTokenRef = useRef(mintAddressAutocompleteSessionToken());
   const suggestRequestRef = useRef(0);
+  const appliedLine1Ref = useRef<string | null>(null);
   const listId = useId();
   const suggestionListId = `${listId}-address-suggestions`;
   const regionListId = `${listId}-region-options`;
   const regionOptions = closedList ? filterSubdivisions(country, regionValue) : [];
 
   useEffect(() => {
-    if (!autocompleteEnabled || !provider) {
-      setSuggestions([]);
-      setSuggestOpen(false);
-      return;
-    }
-    const trimmed = line1.trim();
-    if (trimmed.length < MIN_SUGGEST_CHARS) {
-      setSuggestions([]);
-      setSuggestOpen(false);
-      return;
-    }
     const requestId = ++suggestRequestRef.current;
+    const trimmed = line1.trim();
+    if (!autocompleteEnabled || !provider || trimmed.length < ADDRESS_SUGGEST_MIN_CHARS) {
+      setSuggestions([]);
+      setSuggestOpen(false);
+      setSuggestionsUnavailable(false);
+      return;
+    }
+    if (trimmed === appliedLine1Ref.current) return;
+    appliedLine1Ref.current = null;
+    const controller = new AbortController();
     const handle = window.setTimeout(() => {
-      void provider.suggest(trimmed, sessionTokenRef.current).then(
-        (items) => {
+      void provider.suggest(trimmed, { countryCode: country, signal: controller.signal }).then(
+        (result) => {
           if (requestId !== suggestRequestRef.current) return;
-          setSuggestions(items);
-          setSuggestOpen(items.length > 0);
-          setSuggestIndex(items.length > 0 ? 0 : -1);
+          if (result.status === 'unavailable') {
+            setSuggestions([]);
+            setSuggestOpen(false);
+            setSuggestionsUnavailable(true);
+            return;
+          }
+          setSuggestionsUnavailable(false);
+          setSuggestions(result.suggestions);
+          setSuggestOpen(result.suggestions.length > 0);
+          setSuggestIndex(result.suggestions.length > 0 ? 0 : -1);
         },
         () => {
           if (requestId !== suggestRequestRef.current) return;
           setSuggestions([]);
           setSuggestOpen(false);
+          setSuggestionsUnavailable(true);
         },
       );
     }, SUGGEST_DEBOUNCE_MS);
-    return () => window.clearTimeout(handle);
-  }, [autocompleteEnabled, line1, provider]);
+    return () => {
+      window.clearTimeout(handle);
+      controller.abort();
+    };
+  }, [autocompleteEnabled, country, line1, provider]);
 
   useEffect(() => {
     if (country !== 'US') return;
@@ -159,21 +174,28 @@ export function MarketplaceAddressFields<T extends FieldValues>({
     }
   }, [country, postalCode, cityValue, regionValue, setValue]);
 
-  const applySuggestion = async (placeId: string) => {
-    if (!provider) return;
-    const resolved = await provider.retrieve(placeId, sessionTokenRef.current);
-    sessionTokenRef.current = mintAddressAutocompleteSessionToken();
+  const applySuggestion = (id: string) => {
+    const suggestion = suggestions.find((item) => item.id === id);
     setSuggestions([]);
     setSuggestOpen(false);
-    if (!resolved) return;
-    setValue('line1' as Path<T>, resolved.line1 as T[Path<T>], { shouldValidate: true, shouldDirty: true });
-    setValue('line2' as Path<T>, resolved.line2 as T[Path<T>], { shouldValidate: true, shouldDirty: true });
-    setValue('city' as Path<T>, resolved.city as T[Path<T>], { shouldValidate: true, shouldDirty: true });
-    setValue('region' as Path<T>, canonicalizeRegion('US', resolved.region) as T[Path<T>], {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
-    setValue('postalCode' as Path<T>, resolved.postalCode as T[Path<T>], { shouldValidate: true, shouldDirty: true });
+    if (!suggestion) return;
+    const { address } = suggestion;
+    appliedLine1Ref.current = address.line1.trim();
+    setValue('line1' as Path<T>, address.line1 as T[Path<T>], { shouldValidate: true, shouldDirty: true });
+    if (address.city) {
+      setValue('city' as Path<T>, address.city as T[Path<T>], { shouldValidate: true, shouldDirty: true });
+    }
+    const region = canonicalizeRegion(country, address.region);
+    const knownRegion = !closedList || closedList.some((option) => option.code === region);
+    if (region && knownRegion) {
+      setValue('region' as Path<T>, region as T[Path<T>], { shouldValidate: true, shouldDirty: true });
+    }
+    if (address.postalCode) {
+      setValue('postalCode' as Path<T>, address.postalCode as T[Path<T>], {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    }
   };
 
   const commitRegion = (raw: string) => {
@@ -240,24 +262,43 @@ export function MarketplaceAddressFields<T extends FieldValues>({
                   setSuggestIndex((index) => (index <= 0 ? suggestions.length - 1 : index - 1));
                 } else if (event.key === 'Enter' && suggestIndex >= 0) {
                   event.preventDefault();
-                  void applySuggestion(suggestions[suggestIndex].placeId);
+                  applySuggestion(suggestions[suggestIndex].id);
                 } else if (event.key === 'Escape') {
                   setSuggestOpen(false);
                 }
               }}
             />
+            {autocompleteEnabled ? (
+              <p className="text-xs text-muted-foreground" data-testid="marketplace-address-attribution">
+                Address suggestions{' '}
+                <a
+                  href={ADDRESS_ATTRIBUTION.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  {ADDRESS_ATTRIBUTION.text}
+                </a>
+              </p>
+            ) : null}
+            {autocompleteEnabled && suggestionsUnavailable ? (
+              <p role="status" className="text-xs text-muted-foreground" data-testid="marketplace-address-unavailable">
+                Address suggestions are unavailable. Enter the address manually.
+              </p>
+            ) : null}
             {suggestOpen && suggestions.length > 0 ? (
               <SuggestionList
                 id={suggestionListId}
                 testId="marketplace-address-suggestions"
                 items={suggestions.map((suggestion) => ({
-                  id: suggestion.placeId,
+                  id: suggestion.id,
                   primary: suggestion.primary,
                   secondary: suggestion.secondary,
                 }))}
                 activeIndex={suggestIndex}
-                onSelect={(id) => void applySuggestion(id)}
+                onSelect={applySuggestion}
                 onHover={setSuggestIndex}
+                className="top-full"
               />
             ) : null}
           </Container>
