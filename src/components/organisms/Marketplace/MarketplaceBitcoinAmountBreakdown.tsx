@@ -1,6 +1,7 @@
 import { Typography } from '@/atoms/Typography/Typography';
 import {
   bitcoinPaymentBreakdown,
+  bitcoinPaymentCodeExplanation,
   formatBitcoinAmountBreakdown,
   formatBitcoinAwareMoney,
 } from '@/libs/commerce/bitcoin-payment-code';
@@ -14,11 +15,14 @@ import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 export function MarketplaceBitcoinAmountBreakdown({
   order,
   showExact = false,
+  explainCode = false,
   className,
 }: {
   order: MarketplaceOrder;
   /** The payment step names the figure the buyer sends. */
   showExact?: boolean;
+  /** The payment step says what the payment code is. Lists show the equation alone. */
+  explainCode?: boolean;
   className?: string;
 }) {
   const breakdown = bitcoinPaymentBreakdown(order);
@@ -34,6 +38,11 @@ export function MarketplaceBitcoinAmountBreakdown({
       <Typography as="p" className="text-xs text-muted-foreground">
         {formatBitcoinAmountBreakdown(breakdown)}
       </Typography>
+      {explainCode ? (
+        <Typography as="p" className="text-xs text-muted-foreground" data-testid="bitcoin-payment-code-explanation">
+          {bitcoinPaymentCodeExplanation(breakdown.paymentCode)}
+        </Typography>
+      ) : null}
     </div>
   );
 }

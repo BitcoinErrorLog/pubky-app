@@ -5,7 +5,7 @@ import {
   satoshiCount,
 } from '@/libs/commerce/bitcoin-payment-code';
 import { CHECKOUT_HOLD_COPY, formatHoldDeadline } from '@/libs/commerce/checkout-hold';
-import { buyerCheckoutStateLabel, reservedWhileYouPayCopy } from '@/libs/commerce/checkout-phase';
+import { buyerCheckoutStateLabel, formatRemainingMmSs, reservedWhileYouPayCopy } from '@/libs/commerce/checkout-phase';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
@@ -13,6 +13,13 @@ import type { CommerceMoney } from '@/libs/commerce/transaction-contracts';
 export const PAYMENT_SEEN_LABEL = 'Payment seen';
 
 export const PAYMENT_SEEN_WAITING_COPY = "Payment seen — waiting for confirmation. You don't need to do anything else.";
+
+/** Badge once the payment is confirmed on-chain but the order is not yet paid. */
+export const PAYMENT_CONFIRMED_ON_CHAIN_LABEL = 'Confirmed on-chain';
+
+/** A seen payment extends the hold to the 24-hour seller-confirmation window. */
+export const PAYMENT_SEEN_HOLD_COPY =
+  'Your payment was seen, so the item is held for you for up to 24 hours while the seller confirms it.';
 
 export const PAYMENT_CONFIRMED_LABEL = 'Payment confirmed.';
 
@@ -29,7 +36,7 @@ export const PAYMENT_CONFIRMED_WAITING_SELLER_COPY =
   'Payment confirmed on-chain. Waiting for the seller to confirm they received it.';
 
 export const BITCOIN_WALLET_DELIVERED_COPY =
-  'Delivered to your wallet. Open Bitkit to pay. This page updates once the marketplace independently verifies the payment on-chain.';
+  'Delivered to your wallet. Open Bitkit to pay. If you have already sent the payment, this page updates as soon as the marketplace sees the transaction.';
 
 export const BITCOIN_WALLET_WAITING_COPY =
   'Waiting for your wallet. Keep Bitkit open so it can receive the payment request.';
@@ -315,6 +322,28 @@ export function sellerConfirmsByCopy(deadline: string | null | undefined): strin
   return formatted ? `Seller confirms by ${formatted}.` : PAYMENT_SEEN_LABEL;
 }
 
+/** `H:MM:SS left` until the deadline, or null with no deadline or once it has passed. */
+export function holdCountdownCopy(deadline: string | null | undefined, nowMs = Date.now()): string | null {
+  if (!deadline) return null;
+  const expires = Date.parse(deadline);
+  if (!Number.isFinite(expires) || expires <= nowMs) return null;
+  const remaining = formatRemainingMmSs(deadline, nowMs);
+  return remaining ? `${remaining} left` : null;
+}
+
+/** "Seller confirms by <time>." with the live countdown appended while the window is open. */
+export function sellerConfirmsByWithCountdown(deadline: string | null | undefined, nowMs = Date.now()): string {
+  const base = sellerConfirmsByCopy(deadline);
+  const countdown = holdCountdownCopy(deadline, nowMs);
+  return countdown ? `${base} ${countdown}` : base;
+}
+
+/** Buyer badge for a Bitcoin payment the service has seen. Null before it is seen. */
+export function bitcoinSeenBadgeLabel(order: BitcoinStatusOrder, payment: BitcoinStatusPayment = null): string | null {
+  if (!bitcoinPaymentHasBeenSeen(order, payment)) return null;
+  return bitcoinConfirmationExists(order, payment) ? PAYMENT_CONFIRMED_ON_CHAIN_LABEL : PAYMENT_SEEN_LABEL;
+}
+
 /** Manual-review sentence. Null when the payment is not in review. */
 export function buyerBitcoinReviewCopy(order: BitcoinStatusOrder, payment: BitcoinStatusPayment): string | null {
   if (payment?.state !== 'manual_review') return null;
@@ -339,7 +368,10 @@ export function buyerCheckoutProgressCopy(
     const review = buyerBitcoinReviewCopy(order, payment);
     if (review) return review;
     if (order.paykitRequestState === 'detected' || order.paykitRequestState === 'awaiting_seller_confirmation') {
-      const deadline = sellerConfirmsByCopy(order.paykitSellerConfirmationDeadline ?? order.holdExpiresAt);
+      const deadline = sellerConfirmsByWithCountdown(
+        order.paykitSellerConfirmationDeadline ?? order.holdExpiresAt,
+        nowMs,
+      );
       if (bitcoinConfirmationExists(order, payment)) {
         return deadline === PAYMENT_SEEN_LABEL ? PAYMENT_CONFIRMED_LABEL : `Payment confirmed on-chain. ${deadline}`;
       }

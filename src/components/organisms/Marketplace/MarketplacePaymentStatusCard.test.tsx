@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceOrderPayment } from '@/hooks/useMarketplaceOrderPayment/useMarketplaceOrderPayment';
 import {
@@ -481,6 +481,127 @@ describe('MarketplacePaymentStatusCard', () => {
     expect(screen.queryByText(/Pay exactly/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
+  });
+
+  describe('Bitcoin payment after broadcast', () => {
+    const DEADLINE = '2026-09-29T10:56:41.980Z';
+    const bitcoinAmounts = {
+      merchandiseTotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      subtotal: { amountMinor: 1_000, currency: 'BTC', exponent: 8 },
+      shipping: { amountMinor: 0, currency: 'BTC', exponent: 8 },
+    } as const;
+
+    const renderBitcoin = ({
+      requestState,
+      isBuyer = true,
+      confirmations = 0,
+      sats = 1_303,
+    }: {
+      requestState: 'pending' | 'detected' | 'awaiting_seller_confirmation';
+      isBuyer?: boolean;
+      confirmations?: number;
+      sats?: number;
+    }) =>
+      render(
+        <MarketplacePaymentStatusCard
+          order={createOrderFixture('pending_payment', {
+            holdExpiresAt: DEADLINE,
+            holdSource: 'bind',
+            paymentMethod: 'bitcoin',
+            paykitRequestState: requestState,
+            paykitDeliveryState: 'delivered',
+            paykitSellerConfirmationDeadline: requestState === 'pending' ? null : DEADLINE,
+            paykitTotalSats: sats,
+            bitcoinPayable: { amountMinor: sats, currency: 'SAT', exponent: 0 },
+            total: { amountMinor: sats, currency: 'BTC', exponent: 8 },
+            ...bitcoinAmounts,
+          })}
+          payment={createPaymentFixture('awaiting_entitlement', { adapter: 'paykit', confirmations })}
+          isBuyer={isBuyer}
+          adapterMode="transaction-service"
+          advancePayment={async () => false}
+          onPaymentChanged={() => {}}
+        />,
+      );
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+      vi.setSystemTime(new Date('2026-09-28T11:00:00.000Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('labels the payment seen, not awaiting payment, once the service has seen the transaction', () => {
+      renderBitcoin({ requestState: 'awaiting_seller_confirmation' });
+      const card = screen.getByText('Payment seen');
+      expect(card).toBeInTheDocument();
+      expect(screen.queryByText('Awaiting payment')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
+    });
+
+    it('labels a chain-confirmed payment that is waiting on the seller', () => {
+      renderBitcoin({ requestState: 'awaiting_seller_confirmation', confirmations: 1 });
+      expect(screen.getByText('Confirmed on-chain')).toBeInTheDocument();
+      expect(screen.queryByText('Awaiting payment')).not.toBeInTheDocument();
+    });
+
+    it('keeps Awaiting payment and the wallet instruction until the transaction is seen, and covers a payment already sent', () => {
+      renderBitcoin({ requestState: 'pending', sats: 1_255 });
+      expect(screen.getByText('Awaiting payment')).toBeInTheDocument();
+      expect(screen.queryByText('Payment seen')).not.toBeInTheDocument();
+      expect(screen.getByTestId('paykit-delivery-status')).toHaveTextContent(
+        'Delivered to your wallet. Open Bitkit to pay. If you have already sent the payment, this page updates as soon as the marketplace sees the transaction.',
+      );
+    });
+
+    it('states the 24-hour hold and counts it down as H:MM:SS', () => {
+      renderBitcoin({ requestState: 'awaiting_seller_confirmation' });
+      expect(screen.getByTestId('bitcoin-seen-hold-copy')).toHaveTextContent(
+        'Your payment was seen, so the item is held for you for up to 24 hours while the seller confirms it.',
+      );
+      expect(screen.getByTestId('bitcoin-seller-confirms-by')).toHaveTextContent(
+        'Seller confirms by Sep 29, 2026, 10:56 AM UTC.',
+      );
+      expect(screen.getByTestId('bitcoin-hold-countdown')).toHaveTextContent('23:56:41 left');
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.getByTestId('bitcoin-hold-countdown')).toHaveTextContent('23:56:40 left');
+
+      act(() => {
+        vi.advanceTimersByTime(59 * 1000);
+      });
+      expect(screen.getByTestId('bitcoin-hold-countdown')).toHaveTextContent('23:55:41 left');
+    });
+
+    it('drops the countdown once the confirmation window has ended', () => {
+      vi.setSystemTime(new Date('2026-09-29T11:00:00.000Z'));
+      renderBitcoin({ requestState: 'awaiting_seller_confirmation' });
+      expect(screen.queryByTestId('bitcoin-hold-countdown')).not.toBeInTheDocument();
+      expect(screen.getByTestId('bitcoin-seller-confirms-by')).toHaveTextContent(
+        'Seller confirms by Sep 29, 2026, 10:56 AM UTC.',
+      );
+    });
+
+    it('explains the payment code to the buyer beside the breakdown', () => {
+      renderBitcoin({ requestState: 'pending', sats: 1_255 });
+      expect(screen.getByTestId('bitcoin-amount-due')).toHaveTextContent('Pay exactly ₿1,255');
+      expect(screen.getByTestId('bitcoin-amount-breakdown')).toHaveTextContent(
+        'Items ₿1,000 · Shipping ₿0 · Payment code ₿255 = Total ₿1,255',
+      );
+      expect(screen.getByTestId('bitcoin-payment-code-explanation')).toHaveTextContent(
+        "Payment code ₿255: a small unique amount (1–999 sats) added so the seller's wallet can match your payment. It is included in the total you send.",
+      );
+    });
+
+    it('keeps the payment-code explanation off the seller view', () => {
+      renderBitcoin({ requestState: 'pending', isBuyer: false, sats: 1_255 });
+      expect(screen.getByTestId('bitcoin-amount-breakdown')).toBeInTheDocument();
+      expect(screen.queryByTestId('bitcoin-payment-code-explanation')).not.toBeInTheDocument();
+    });
   });
 
   it('tells the buyer a confirmed payment in review is with the seller', () => {

@@ -547,6 +547,31 @@ describe('MarketplaceOrders tabs', () => {
   });
 
   it('replaces the pay-by line with the seller confirm-by time after a Bitcoin payment is seen', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-28T11:00:00.000Z'));
+    ordersState.orders = [
+      orderView(
+        'pending_payment',
+        'Bought seen boots',
+        'buyer',
+        {
+          paymentMethod: 'bitcoin',
+          paykitRequestState: 'awaiting_seller_confirmation',
+          paykitSellerConfirmationDeadline: '2026-09-29T10:56:41.980Z',
+          holdExpiresAt: '2026-09-29T10:56:41.980Z',
+          nextActor: 'buyer',
+        },
+        'awaiting_entitlement',
+      ),
+    ];
+    render(<MarketplaceOrders />);
+    expect(screen.getByText('Seller confirms by Sep 29, 2026, 10:56 AM UTC. 23:56:41 left')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View payment' })).toBeInTheDocument();
+    expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
+  });
+
+  it('shows no countdown once the seller confirm-by time has passed', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-29T11:00:00.000Z'));
     ordersState.orders = [
       orderView(
         'pending_payment',
@@ -564,9 +589,6 @@ describe('MarketplaceOrders tabs', () => {
     ];
     render(<MarketplaceOrders />);
     expect(screen.getByText('Seller confirms by Sep 29, 2026, 10:56 AM UTC.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View payment' })).toBeInTheDocument();
-    expect(screen.queryByText(/Reserved while you pay/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Pay by/)).not.toBeInTheDocument();
   });
 
   it('does not tell a buyer in unconfirmed manual review to pay again', () => {
