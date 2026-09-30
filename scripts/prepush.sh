@@ -38,6 +38,13 @@ if [ ! -t 0 ]; then
   fi
 fi
 
+sha="$(git rev-parse HEAD)"
+# shellcheck source=prepush-stamp.sh
+source "$ROOT/scripts/prepush-stamp.sh"
+if prepush_reuse "$sha"; then
+  exit 0
+fi
+
 if [ -n "${PREPUSH_BASE:-}" ]; then
   base="$PREPUSH_BASE"
 elif git rev-parse --verify --quiet origin/release/shop-v0.6.8 >/dev/null; then
@@ -119,6 +126,6 @@ else
   echo "prepush: linux vrt (no specs render a changed file)"
 fi
 
-sha="$(git rev-parse HEAD)"
+prepush_stamp "$sha"
 seconds="$(( $(date +%s) - start ))"
 echo "PREPUSH OK ${sha} ${seconds}"
