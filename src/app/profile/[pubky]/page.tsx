@@ -5,6 +5,9 @@ import { resolveDisplayName, stripPubkyPrefix } from '@/libs/utils/utils';
 import { Metadata as buildMetadata } from '@/molecules/Metadata/Metadata';
 import { ProfilePostsPage } from '@/templates/Profile/Posts/ProfilePostsPage';
 
+// Metadata reads the user's profile on every request; a prerendered page would pin a stale copy.
+export const dynamic = 'force-dynamic';
+
 interface DynamicProfilePageProps {
   params: Promise<{ pubky: string }>;
 }

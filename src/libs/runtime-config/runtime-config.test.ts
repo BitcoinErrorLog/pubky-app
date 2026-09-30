@@ -210,6 +210,21 @@ describe('runtime-config resolver', () => {
       expect(() => readServerConfig()).not.toThrow();
     });
 
+    it('fails a Vercel build that is missing PUBKY_RUNTIME_* instead of prerendering staging defaults', () => {
+      simulateDeployedEnv();
+      vi.stubEnv('NEXT_PHASE', 'phase-production-build');
+      vi.stubEnv('VERCEL', '1');
+      expect(() => readServerConfig()).toThrow(/Runtime config is incomplete or invalid/);
+    });
+
+    it('parses the deployment env strictly during a Vercel build', () => {
+      simulateDeployedEnv();
+      setAllRuntimeEnv();
+      vi.stubEnv('NEXT_PHASE', 'phase-production-build');
+      vi.stubEnv('VERCEL', '1');
+      expect(readServerConfig().nexusUrl).toBe('https://nexus.runtime.example.com');
+    });
+
     it('warns once when deployed configuration leaves moderation disabled', () => {
       simulateDeployedEnv();
       setNetworkRuntimeEnv();

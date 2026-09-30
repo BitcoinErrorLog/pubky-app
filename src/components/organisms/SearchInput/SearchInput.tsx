@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { APP_ROUTES, getUserProfileUrl } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
@@ -20,12 +20,25 @@ import { useSearchStore } from '@/stores/search/search.store';
 import { SearchInputProps } from './SearchInput.types';
 import { parseTagsFromUrl } from './SearchInput.utils';
 
+/**
+ * Mirrors `?tags=` into the search store. It is the only `useSearchParams` read,
+ * isolated behind its own Suspense boundary so pages rendering the header
+ * (for example the ISR marketplace catalog) can still prerender.
+ */
+function SearchInputUrlTagsSync() {
+  const tagsParam = useSearchParams().get('tags');
+  const { setActiveTags } = useSearchStore();
+  useEffect(() => {
+    setActiveTags(parseTagsFromUrl(tagsParam));
+  }, [tagsParam, setActiveTags]);
+  return null;
+}
+
 export function SearchInput({ autoFocus = false }: SearchInputProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const pathname = usePathname();
   const { addTagToSearch, removeTagFromSearch, activeTags, isReadOnly } = useTagSearch();
-  const { setActiveTags, recentUsers, recentTags, addUser, clearRecentSearches } = useSearchStore();
+  const { recentUsers, recentTags, addUser, clearRecentSearches } = useSearchStore();
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const isMobile = useIsMobile();
 
@@ -52,12 +65,6 @@ export function SearchInput({ autoFocus = false }: SearchInputProps) {
     clearInputValue,
     setFocus,
   } = useSearchInput({ onEnter: handleEnter });
-
-  const tagsParam = searchParams.get('tags');
-  useEffect(() => {
-    const urlTags = parseTagsFromUrl(tagsParam);
-    setActiveTags(urlTags);
-  }, [tagsParam, setActiveTags]);
 
   const { tags: hotTags } = useHotTags({ limit: CLICKABLE_TAGS_DEFAULT_MAX_LENGTH });
 
@@ -90,6 +97,9 @@ export function SearchInput({ autoFocus = false }: SearchInputProps) {
 
   return (
     <Container ref={containerRef} data-testid="search-input" className="relative min-w-0">
+      <Suspense fallback={null}>
+        <SearchInputUrlTagsSync />
+      </Suspense>
       {/* Input bar with active tags */}
       <SearchInputBar
         activeTags={activeTags}

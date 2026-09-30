@@ -5,6 +5,9 @@ import { fetchListingForMetadata } from '@/libs/og/ogCommerceData';
 import { Metadata } from '@/molecules/Metadata/Metadata';
 import { MarketplaceListing } from '@/templates/Marketplace/MarketplaceListing';
 
+// Metadata reads the seller's listing record on every request; a prerendered page would pin a stale copy.
+export const dynamic = 'force-dynamic';
+
 export interface MarketplaceListingPageProps {
   params: Promise<{
     sellerPubky: string;

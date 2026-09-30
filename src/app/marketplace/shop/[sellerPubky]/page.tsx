@@ -7,6 +7,9 @@ import { fetchShopForMetadata } from '@/libs/og/ogCommerceData';
 import { Metadata } from '@/molecules/Metadata/Metadata';
 import { MarketplaceShop } from '@/templates/Marketplace/MarketplaceShop';
 
+// Metadata reads the seller's shop record on every request; a prerendered page would pin a stale copy.
+export const dynamic = 'force-dynamic';
+
 export interface MarketplaceShopPageProps {
   params: Promise<{
     sellerPubky: string;

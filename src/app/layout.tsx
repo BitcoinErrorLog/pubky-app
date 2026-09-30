@@ -1,4 +1,5 @@
 import './globals.css';
+import { connection } from 'next/server';
 import type { Viewport } from 'next';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
@@ -32,11 +33,12 @@ export function generateMetadata() {
   });
 }
 
-// Force dynamic rendering since RootContainer serializes runtime config per-request
-// (PUBKY_RUNTIME_* env vars must be read at request time, not baked in at build time)
-export const dynamic = 'force-dynamic';
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Docker images receive PUBKY_RUNTIME_* per container, after the build: every route
+  // renders per request there so RootContainer inlines the container's runtime config.
+  // Vercel bakes the deployment's env into prerendered routes (strict parse at build).
+  if (process.env.NEXT_STANDALONE === 'true') await connection();
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <RootContainer>
       {/*
