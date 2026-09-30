@@ -1691,6 +1691,53 @@ describe('CommerceApplication', () => {
         await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
       });
 
+      it('a stale tab publishing the same next revision cannot overwrite the newer publish', async () => {
+        const record = createCommerceListingFixture();
+        const listingId = `${record.ownerPubky}:${record.listingId}`;
+        vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
+        await LocalCommerceService.upsertListing(record, 'synced');
+        const { state, put } = homeserver(record);
+        const stale = { ...record, revision: record.revision + 1, title: 'Stale tab edit' };
+        const newer = { ...record, revision: record.revision + 1, title: 'Newer tab edit' };
+        // The stale tab stages first and is held at its first homeserver read; the newer tab then stages
+        // the same revision and is held mid-PUT, inside the lock, while the stale tab passes its reads.
+        const staleRead = held(() => undefined);
+        let reads = 0;
+        vi.mocked(CommerceHomeserverService.fetchJson).mockImplementation(async (url) => {
+          if (url !== LISTING_URL) throw notFound();
+          reads += 1;
+          if (reads === 1) await staleRead.run();
+          if (state.published) return state.published;
+          throw notFound();
+        });
+        const newerPut = held(() => undefined);
+        put.mockImplementation(async (url, body) => {
+          if (body.title === newer.title) await newerPut.run();
+          if (url === LISTING_URL) state.published = body;
+        });
+        const requested = recordLockRequests();
+
+        const stalePublish = CommerceApplication.commitUpsertListing(stale).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        await vi.waitFor(() => expect(staleRead.gate.release).toBeDefined());
+        const newerPublish = CommerceApplication.commitUpsertListing(newer);
+        await vi.waitFor(() => expect(newerPut.gate.release).toBeDefined());
+        staleRead.gate.release!();
+        await vi.waitFor(() => expect(requested.filter(isRegistrationLock)).toHaveLength(2));
+        newerPut.gate.release!();
+
+        await expect(newerPublish).resolves.toEqual({ registered: false });
+        await expect(stalePublish).resolves.toMatchObject({ code: ClientErrorCode.CONFLICT });
+        expect(put.mock.calls.map(([, body]) => body.title)).toEqual([newer.title]);
+        expect(state.published).toMatchObject({ title: newer.title });
+        await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+          record: newer,
+          sync_status: 'synced',
+        });
+      });
+
       it('a delete waits for a registration the service is accepting, then removes the record', async () => {
         const record = createCommerceListingFixture();
         const listingId = await durableSeller(record);

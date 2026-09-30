@@ -3358,22 +3358,24 @@ export class CommerceApplication {
     const registering = mode !== 'unavailable' && this.canCoordinateListingRegistration();
     const registrationStatus = mode === 'unavailable' ? 'unavailable' : 'unregistered';
     this.assertListingRegistrationFence(attempt);
-    await LocalCommerceService.stageListingSync(record, publishJob, registrationStatus);
+    attempt.observed = await LocalCommerceService.stageListingSync(record, publishJob, registrationStatus);
     if (registering && record.sale.format === 'auction' && isDurableCommerceMode(mode)) {
       // The command is chosen before the public write, so a reserve conflict leaves the homeserver untouched.
       await this.sweepOwnAuctionReserves(record.ownerPubky);
       await this.withListingRegistrationLock(attempt, 'publish', async () => {
-        attempt.observed = await this.rowHoldingPublish(attempt, record);
+        await this.assertRowHoldsPublish(attempt);
         attempt.signal = AbortSignal.timeout(LISTING_REGISTRATION_TIMEOUT_MS);
         const prepared = await this.prepareAuctionRegistration(record, attempt, reservePrice);
         if (prepared === 'superseded') throw this.listingChangedConflict();
       });
     }
     await this.putVerifiedPublicListing(record, url, attempt, async () => {
-      await this.rowHoldingPublish(attempt, record);
+      await this.assertRowHoldsPublish(attempt);
     });
     this.assertListingRegistrationFence(attempt);
-    if (!(await LocalCommerceService.markPublishedListingSynced(record))) throw this.listingChangedConflict();
+    const synced = await LocalCommerceService.markPublishedListingSynced(record, attempt.observed);
+    if (synced === null) throw this.listingChangedConflict();
+    attempt.observed = synced;
 
     // Registration is idempotent (skipped when the aggregate already has a server
     // revision), so retrying the whole commit after a failure here is safe.
@@ -3449,18 +3451,15 @@ export class CommerceApplication {
   }
 
   /**
-   * A publish acts only while the local row still holds the revision it
-   * staged: a delete, or a newer publish, since then wins. Returns the
-   * row's generation.
+   * A publish acts only while the local row is still exactly its own
+   * generation: the `write_id` captured atomically at staging, advanced only
+   * by the publish's own writes. A delete, or another tab's publish, even of
+   * the same revision, since then wins.
    */
-  private static async rowHoldingPublish(
-    attempt: ListingRegistrationAttempt,
-    record: CommerceListingRecord,
-  ): Promise<CommerceListingRowGeneration> {
-    const row = await LocalCommerceService.getListing(attempt.compositeListingId);
+  private static async assertRowHoldsPublish(attempt: ListingRegistrationAttempt): Promise<void> {
+    const stillOwn = await this.listingRowStillObserved(attempt);
     this.assertListingRegistrationFence(attempt);
-    if (!row || row.revision !== record.revision) throw this.listingChangedConflict();
-    return { writeId: row.write_id };
+    if (!stillOwn) throw this.listingChangedConflict();
   }
 
   /**
@@ -3541,14 +3540,8 @@ export class CommerceApplication {
       await LocalCommerceService.settleListingRegistration(attempt.compositeListingId, attempt.observed, outcome);
     };
     const takeRow = async (): Promise<boolean> => {
-      if (owner === 'publish') {
-        const row = await LocalCommerceService.getListing(attempt.compositeListingId);
-        this.assertListingRegistrationFence(attempt);
-        // A delete since the publish's own write removed the row: nothing is registered.
-        if (!row || row.revision !== record.revision) return false;
-        attempt.observed = { writeId: row.write_id };
-        return true;
-      }
+      // Both owners act only on the exact generation they hold: for a publish, the row it staged and
+      // marked synced. A delete or another tab's publish since then leaves nothing to register.
       const stillObserved = await this.listingRowStillObserved(attempt);
       this.assertListingRegistrationFence(attempt);
       return stillObserved;

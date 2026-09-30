@@ -547,16 +547,22 @@ export class LocalCommerceService {
   }
 
   /**
-   * Marks a published listing synced only if its row still holds that
-   * revision, in one transaction. False when a delete or a newer publish
-   * replaced the row since the publish staged it; nothing is written then.
+   * Marks a published listing synced only if its row is still exactly the
+   * publish's generation (`expected`, from staging or the publish's own
+   * later writes), in one transaction. Returns the new generation, or null
+   * when anything else wrote the row since (a delete, another tab's publish
+   * of the same revision) and nothing was written.
    */
-  static async markPublishedListingSynced(record: CommerceListingRecord): Promise<boolean> {
+  static async markPublishedListingSynced(
+    record: CommerceListingRecord,
+    expected: CommerceListingRowGeneration,
+  ): Promise<CommerceListingRowGeneration> {
     return await db.transaction('rw', CommerceListingModel.table, async () => {
       const current = await CommerceListingModel.table.get(`${record.ownerPubky}:${record.listingId}`);
-      if (!current || current.revision !== record.revision) return false;
-      await CommerceListingModel.table.put(this.toListingModel(record, 'synced', current));
-      return true;
+      if (!sameListingRowGeneration(expected, current)) return null;
+      const synced = this.toListingModel(record, 'synced', current);
+      await CommerceListingModel.table.put(synced);
+      return { writeId: synced.write_id };
     });
   }
 
@@ -716,11 +722,12 @@ export class LocalCommerceService {
     record: CommerceListingRecord,
     job: CommerceSyncJobModelSchema,
     registrationStatus?: CommerceListingModelSchema['registration_status'],
-  ): Promise<void> {
+  ): Promise<CommerceListingRowGeneration> {
     this.assertSyncJobIdentity(job, record.ownerPubky, record.listingId, 'listing');
 
     try {
-      await db.transaction('rw', CommerceListingModel.table, CommerceSyncJobModel.table, async () => {
+      // The staged row's write id, read in the same transaction that wrote it: the publish's own generation.
+      return await db.transaction('rw', CommerceListingModel.table, CommerceSyncJobModel.table, async () => {
         const current = await CommerceListingModel.table.get(`${record.ownerPubky}:${record.listingId}`);
         const listing = this.toListingModel(record, 'pending', {
           registration_status: registrationStatus ?? current?.registration_status,
@@ -728,6 +735,7 @@ export class LocalCommerceService {
         });
         await CommerceListingModel.table.put(listing);
         await CommerceSyncJobModel.upsert(job);
+        return { writeId: listing.write_id };
       });
     } catch (error) {
       if (isAppError(error)) throw error;
