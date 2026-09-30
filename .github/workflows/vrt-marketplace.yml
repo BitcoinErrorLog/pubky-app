@@ -15,8 +15,12 @@ concurrency:
 # An unrelated pull request sets run=false and skips the job on purpose.
 # A failed or cancelled path filter must not skip it: the job runs and exits 1.
 # Patterns: src/**, public/** (rendered assets such as /images/*),
-# **/*.css, postcss.config.mjs, package-lock.json, vitest.config.ts,
+# vendor/** (file: dependencies), **/*.css, and every file that changes how
+# a spec's imports resolve or render: package.json, package-lock.json,
+# .nvmrc, tsconfig*.json (path aliases, read by vite-tsconfig-paths),
+# vitest.config.*, vite.config.*, postcss.config.*, tailwind.config.*;
 # plus this workflow and the VRT scripts it runs.
+# scripts/ci-vrt-paths-test.sh runs this filter against sample changes.
 #
 # vrt-core runs the other Linux VRT project (`vrt`: feed, landing, messages,
 # onboarding) under the same filter. The default pre-push gate runs no VRT,
@@ -44,7 +48,7 @@ jobs:
           while IFS= read -r file; do
             [ -n "$file" ] || continue
             case "$file" in
-              src/*|public/*|*.css|postcss.config.mjs|package-lock.json|vitest.config.ts|.github/workflows/vrt-marketplace.yml|scripts/ci-vrt-marketplace.sh|scripts/vrt-linux.sh|scripts/vrt-related.mjs|scripts/vrt-revert-outside.sh)
+              src/*|public/*|vendor/*|*.css|package.json|package-lock.json|.nvmrc|tsconfig*.json|vitest.config.*|vite.config.*|postcss.config.*|tailwind.config.*|.github/workflows/vrt-marketplace.yml|scripts/ci-vrt-marketplace.sh|scripts/vrt-linux.sh|scripts/vrt-related.mjs|scripts/vrt-revert-outside.sh)
                 run=true
                 break
                 ;;
