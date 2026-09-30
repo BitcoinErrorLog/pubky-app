@@ -40,7 +40,7 @@ const view = vi.hoisted(() => ({
   projectionError: null as string | null,
   listingRemoved: false,
   fetchFailure: null as unknown,
-  confirmedRemoved: false,
+  confirmedRemoved: false as boolean | Error,
   needsSession: false,
   hasFullHomeserverGrant: false,
   orders: [] as Array<{ order: ReturnType<typeof createOrderFixture> }>,
@@ -73,7 +73,9 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: () => (view.fetchFailure === null ? Promise.resolve(null) : Promise.reject(view.fetchFailure)),
     isListingConfirmedRemoved: (_seller: string, _listing: string, fetchError: unknown) => {
       confirmRemovedCalls(fetchError);
-      return Promise.resolve(view.confirmedRemoved);
+      return view.confirmedRemoved instanceof Error
+        ? Promise.reject(view.confirmedRemoved)
+        : Promise.resolve(view.confirmedRemoved);
     },
     hasFullHomeserverGrant: () => view.hasFullHomeserverGrant,
   },
@@ -249,6 +251,15 @@ describe('MarketplaceListing', () => {
 
       expect(await screen.findByText('This listing was removed.')).toBeInTheDocument();
       expect(screen.queryByText('This listing could not be loaded.')).not.toBeInTheDocument();
+    });
+
+    it('keeps the generic copy when the confirmation itself fails', async () => {
+      view.fetchFailure = notFoundOnHomeserver;
+      view.confirmedRemoved = new Error('confirmation failed');
+
+      render(<MarketplaceListing sellerPubky={COMMERCE_FIXTURE_SELLER} listingId="boots_01" />);
+
+      expect(await screen.findByText('This listing could not be loaded.')).toBeInTheDocument();
     });
 
     it('keeps the generic copy when the failure is transient or unconfirmed', async () => {

@@ -115,11 +115,12 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
     setIsFetchSettled(false);
     CommerceController.getOrFetchListing(sellerPubky, listingId)
       .catch(async (fetchError: unknown) => {
-        const confirmedRemoved = await CommerceController.isListingConfirmedRemoved(
-          sellerPubky,
-          listingId,
-          fetchError,
-        ).catch(() => false);
+        let confirmedRemoved = false;
+        try {
+          confirmedRemoved = await CommerceController.isListingConfirmedRemoved(sellerPubky, listingId, fetchError);
+        } catch {
+          confirmedRemoved = false;
+        }
         if (active) {
           setError(
             confirmedRemoved ? MARKETPLACE_FAILURE_MESSAGES.listingRemoved : 'This listing could not be loaded.',
