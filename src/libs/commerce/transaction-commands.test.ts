@@ -8,6 +8,7 @@ import {
   createMarketplaceCheckoutCommandSchema,
   createReviewCommandSchema,
   deliverDigitalCommandSchema,
+  isListingRecordNotFoundResponse,
   isMarketplaceRevisionConflict,
   isSuccessfulListingRegistrationResponse,
   marketplaceCommandResponseSchema,
@@ -172,6 +173,57 @@ describe('listing registration response correlation', () => {
         } as never,
         aggregateId,
         response.commandId,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('listing registration refused for a missing homeserver record', () => {
+  const aggregateId = `listing:${'s'.repeat(52)}_boots_01`;
+  const commandId = '018f47d2-6a27-7c23-a62f-000000000742';
+  const notFound = {
+    ok: false as const,
+    error: { code: 'NOT_FOUND', message: "The seller's homeserver has no such listing record." },
+  };
+
+  it('classifies the uncorrelated NOT_FOUND refusal the service sends', () => {
+    expect(isListingRecordNotFoundResponse(notFound, aggregateId, commandId)).toBe(true);
+  });
+
+  it('rejects a NOT_FOUND refusal correlated to another aggregate or command', () => {
+    expect(
+      isListingRecordNotFoundResponse({ ...notFound, aggregateId: 'listing:other' } as never, aggregateId, commandId),
+    ).toBe(false);
+    expect(
+      isListingRecordNotFoundResponse(
+        { ...notFound, commandId: '018f47d2-6a27-7c23-a62f-000000000743' } as never,
+        aggregateId,
+        commandId,
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    { ok: false as const, error: { code: 'INVALID_STATE', message: 'This listing was deleted.' } },
+    { ok: false as const, error: { code: 'UPSTREAM_UNAVAILABLE', message: 'The homeserver is unavailable.' } },
+  ])('does not classify $error.code as a missing record', (response) => {
+    expect(isListingRecordNotFoundResponse(response, aggregateId, commandId)).toBe(false);
+  });
+
+  it('does not classify a success', () => {
+    expect(
+      isListingRecordNotFoundResponse(
+        {
+          ok: true,
+          version: 1,
+          commandId,
+          aggregateId,
+          revision: 1,
+          eventIds: [],
+          result: { kind: 'listing' },
+        },
+        aggregateId,
+        commandId,
       ),
     ).toBe(false);
   });

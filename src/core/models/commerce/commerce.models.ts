@@ -195,6 +195,8 @@ export class CommerceListingModel
   sync_status: CommerceListingModelSchema['sync_status'];
   registration_status: CommerceListingModelSchema['registration_status'];
   updated_at: number;
+  write_id: CommerceListingModelSchema['write_id'];
+  auction_registration: CommerceListingModelSchema['auction_registration'];
 
   constructor(listing: CommerceListingModelSchema) {
     super(listing);
@@ -210,6 +212,8 @@ export class CommerceListingModel
     this.sync_status = listing.sync_status;
     this.registration_status = listing.registration_status;
     this.updated_at = listing.updated_at;
+    this.write_id = listing.write_id;
+    this.auction_registration = listing.auction_registration;
   }
 
   static async findBySeller(sellerId: string): Promise<CommerceListingModelSchema[]> {

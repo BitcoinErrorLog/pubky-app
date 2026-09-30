@@ -185,7 +185,11 @@ const SELLER_PAYMENT_CONFIG_TIMEOUT_MS = 10_000;
 export class MarketplaceTransactionService {
   private constructor() {}
 
-  static async execute(actor: string, command: MarketplaceCommand): Promise<MarketplaceCommandResponse> {
+  static async execute(
+    actor: string,
+    command: MarketplaceCommand,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<MarketplaceCommandResponse> {
     this.assertTransactionServiceMode('execute');
     if (!TRANSACTION_SERVICE_COMMAND_KINDS.has(command.kind)) {
       throw Err.client(
@@ -209,6 +213,7 @@ export class MarketplaceTransactionService {
           authorization: `Bearer ${session.token}`,
         },
         body: JSON.stringify(toSnakeCaseWire(command)),
+        ...(options.signal ? { signal: options.signal } : {}),
       },
       ErrorService.Marketplace,
       'execute',
@@ -231,9 +236,14 @@ export class MarketplaceTransactionService {
    * the bearer session like every durable read. 404 means the aggregate was
    * never registered with the transaction authority.
    */
-  static async getListing(actor: string, aggregateId: string): Promise<MarketplaceListingProjection | null> {
+  static async getListing(
+    actor: string,
+    aggregateId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<MarketplaceListingProjection | null> {
     const raw = await this.readProjection('getListing', actor, `/v1/listings/${encodeURIComponent(aggregateId)}`, {
       nullOnNotFound: true,
+      signal: options.signal,
     });
     if (raw === null) return null;
     if (
@@ -263,6 +273,7 @@ export class MarketplaceTransactionService {
   static async getSellerListing(
     actor: string,
     aggregateId: string,
+    options: { signal?: AbortSignal } = {},
   ): Promise<MarketplaceSellerListingProjection | null> {
     const raw = await this.readProjection(
       'getSellerListing',
@@ -270,6 +281,7 @@ export class MarketplaceTransactionService {
       `/v1/listings/${encodeURIComponent(aggregateId)}`,
       {
         nullOnNotFound: true,
+        signal: options.signal,
       },
     );
     if (raw === null) return null;
@@ -1350,7 +1362,7 @@ export class MarketplaceTransactionService {
     operation: string,
     actor: string,
     path: string,
-    options: { noStore?: boolean; nullOnNotFound?: boolean; nullOnForbidden?: boolean } = {},
+    options: { noStore?: boolean; nullOnNotFound?: boolean; nullOnForbidden?: boolean; signal?: AbortSignal } = {},
   ): Promise<unknown> {
     this.assertTransactionServiceMode(operation);
     const session = this.requireSession(operation, actor);
@@ -1361,6 +1373,7 @@ export class MarketplaceTransactionService {
         method: 'GET',
         headers: { authorization: `Bearer ${session.token}` },
         ...(options.noStore ? { cache: 'no-store' } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
       },
       ErrorService.Marketplace,
       operation,

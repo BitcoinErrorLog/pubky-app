@@ -61,10 +61,12 @@ export function MarketplaceListingOwnerPanel({ record, registrationStatus }: Mar
     toast({ description: 'Published, but not yet registered for checkout — retry from your listing' });
   };
 
+  const canRegister = CommerceController.canRegisterListings();
+  const registrationPending = isListingRegistrationPending({ registration_status: registrationStatus });
   useEffect(() => {
-    if (!isListingRegistrationPending({ registration_status: registrationStatus }) || !marketplaceSession) return;
+    if (!registrationPending || !marketplaceSession || !canRegister) return;
     void CommerceController.ensureListingRegistered(record);
-  }, [record, registrationStatus, marketplaceSession]);
+  }, [record, registrationPending, marketplaceSession, canRegister]);
 
   const router = useRouter();
   const [isMutating, setIsMutating] = useState(false);
@@ -128,8 +130,13 @@ export function MarketplaceListingOwnerPanel({ record, registrationStatus }: Mar
           </Typography>
           <Badge variant="secondary">{record.state}</Badge>
         </div>
+        {registrationPending && !canRegister && (
+          <Typography as="p" className="text-xs text-muted-foreground" data-testid="listing-registration-unsupported">
+            This browser can&apos;t register listings for checkout. Update it or use another browser.
+          </Typography>
+        )}
         <div className="flex flex-wrap gap-2">
-          {isListingRegistrationPending({ registration_status: registrationStatus }) && (
+          {registrationPending && canRegister && (
             <Button
               size="sm"
               variant="secondary"

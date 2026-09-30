@@ -7,7 +7,12 @@ import type {
 import type { AuctionState, CommerceJsonValue, CommerceMoney } from '@/libs/commerce/transaction-contracts';
 
 export type CommerceCacheStatus = 'local' | 'pending' | 'synced' | 'failed';
-export type CommerceListingRegistrationStatus = 'registered' | 'unregistered' | 'unavailable';
+/**
+ * `not_found`: the service refused registration because the seller's
+ * homeserver has no record. Not pending, so nothing retries it; publishing
+ * the listing again resets it to `unregistered`.
+ */
+export type CommerceListingRegistrationStatus = 'registered' | 'unregistered' | 'unavailable' | 'not_found';
 
 export function isListingRegistrationPending(
   listing: Pick<CommerceListingModelSchema, 'registration_status'>,
@@ -40,6 +45,30 @@ export interface CommerceListingModelSchema {
   sync_status: CommerceCacheStatus;
   registration_status?: CommerceListingRegistrationStatus;
   updated_at: number;
+  /**
+   * Fresh on every local write of the row, so a caller can apply a result
+   * only if nothing wrote the row since it read it. Client-only; absent on
+   * rows written before it existed.
+   */
+  write_id?: string;
+  /**
+   * The seller's pending `listing.register` for an auction. The service
+   * replays a command id, so this is the only copy of that id; it survives
+   * reload and is shared across tabs. Client-only, owner-scoped (wiped with
+   * the row on sign-out), never sent to the homeserver. Written only by the
+   * listing's registration lock holder.
+   */
+  auction_registration?: CommerceAuctionRegistrationCommand;
+}
+
+export interface CommerceAuctionRegistrationCommand {
+  command_id: string;
+  issued_at: string;
+  listing_revision: number;
+  reserve_price: CommerceMoney | null;
+  expected_service_revision: number;
+  expected_record_revision: number;
+  record_revision: number;
 }
 
 export const commerceListingTableSchema = [

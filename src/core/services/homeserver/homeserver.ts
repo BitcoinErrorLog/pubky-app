@@ -878,9 +878,10 @@ export class HomeserverService {
    * @param {string} url - Pubky URL.
    * @param {Record<string, unknown>} [bodyJson] - JSON body to serialize and send.
    */
-  static async request<T>({ method, url, bodyJson, logUrl }: THomeserverRequestParams): Promise<T> {
+  static async request<T>({ method, url, bodyJson, logUrl, singleAttempt }: THomeserverRequestParams): Promise<T> {
     const contextUrl = logUrl ?? url;
     const owned = this.resolveOwnedSessionPath(url);
+    const attempts = singleAttempt ? { maxRetries: 0 } : {};
     // Snapshot once so every retry replays byte-for-byte equivalent JSON even
     // if a caller mutates its object while this bounded operation is waiting.
     const serializedBody = bodyJson === undefined ? undefined : JSON.stringify(bodyJson);
@@ -900,11 +901,13 @@ export class HomeserverService {
         case HttpMethod.PUT:
           await retryHomeserverWrite(HttpMethod.PUT, () => session.storage.putJson(toSdkPath(path), ownedBody), {
             beforeAttempt,
+            ...attempts,
           }).catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
           return undefined as T;
         case HttpMethod.DELETE:
           await retryHomeserverWrite(HttpMethod.DELETE, () => session.storage.delete(toSdkPath(path)), {
             beforeAttempt,
+            ...attempts,
           }).catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));
           return undefined as T;
       }
@@ -934,7 +937,7 @@ export class HomeserverService {
 
     const response =
       method === HttpMethod.PUT || method === HttpMethod.DELETE
-        ? await retryHomeserverWrite(method, fetchRequest).catch((error) =>
+        ? await retryHomeserverWrite(method, fetchRequest, attempts).catch((error) =>
             handleError({ error, additionalContext: { url: contextUrl, method } }),
           )
         : await fetchRequest().catch((error) => handleError({ error, additionalContext: { url: contextUrl, method } }));

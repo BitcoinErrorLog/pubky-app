@@ -175,6 +175,55 @@ describe('MarketplaceTransactionService.execute', () => {
     });
   });
 
+  it('returns the 404 NOT_FOUND refusal of a registration with no homeserver record as a parsed response', async () => {
+    await establishSession();
+    // pubky-marketplace-service 14dca9c `record_not_found` + `CommandFailure::body`, answered with HTTP 404.
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(404, {
+        ok: false,
+        error: { code: 'NOT_FOUND', message: "The seller's homeserver has no such listing record." },
+      }),
+    );
+    const register = {
+      version: 1 as const,
+      commandId: COMMAND_ID,
+      aggregateId: AGGREGATE_ID,
+      expectedRevision: 0,
+      issuedAt: '2026-09-30T04:24:31.974Z',
+      kind: 'listing.register' as const,
+      payload: {
+        sellerPubky: ACTOR,
+        listingId: 'boots_01',
+        title: 'Boots',
+        listingRevision: 1,
+        contentHash: 'a'.repeat(64),
+        quantity: 1,
+        unitPrice: { amountMinor: 1_000, currency: 'USD', exponent: 2 },
+        shippingMinor: 0,
+        saleFormat: 'fixed_price' as const,
+        fulfillmentMethods: ['shipping' as const],
+      },
+    };
+
+    await expect(MarketplaceTransactionService.execute(ACTOR, register)).resolves.toEqual({
+      ok: false,
+      error: { code: 'NOT_FOUND', message: "The seller's homeserver has no such listing record." },
+    });
+  });
+
+  it('passes the caller deadline to the command request', async () => {
+    await establishSession();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(409, { ok: false, error: { code: 'REVISION_CONFLICT', message: 'The aggregate changed.' } }),
+    );
+    const deadline = new AbortController();
+
+    await MarketplaceTransactionService.execute(ACTOR, bidCommand(), { signal: deadline.signal });
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBe(deadline.signal);
+  });
+
   it('requires an established session before any bytes leave the client', async () => {
     await expect(MarketplaceTransactionService.execute(ACTOR, bidCommand())).rejects.toMatchObject({
       name: 'AppError',
