@@ -74,13 +74,16 @@ function reasonForError(error: unknown): string {
   return 'request_failed';
 }
 
-async function fetchRecordJson(url: string, operation: string): Promise<RecordFetchResult> {
+/** Default bound on PKARR resolution plus the record fetch for SSR. */
+const RECORD_FETCH_TIMEOUT_MS = 4_000;
+
+export interface RecordFetchOptions {
+  timeoutMs?: number;
+}
+
+async function readRecordJson(url: string, operation: string, signal: AbortSignal): Promise<RecordFetchResult> {
   try {
-    const res = await metadataClient.fetch(url, {
-      credentials: 'include',
-      // Four seconds bounds PKARR resolution plus the record fetch for SSR.
-      signal: AbortSignal.timeout(4_000),
-    });
+    const res = await metadataClient.fetch(url, { credentials: 'include', signal });
     if (res.status === 404) return { kind: 'not_found' };
     if (!res.ok) {
       const reason = `http_${res.status}`;
@@ -89,9 +92,32 @@ async function fetchRecordJson(url: string, operation: string): Promise<RecordFe
     }
     return { kind: 'found', value: await res.json() };
   } catch (error) {
+    if (signal.aborted) return { kind: 'unavailable', reason: 'timeout' };
     const reason = reasonForError(error);
     Logger.warn(`[ogCommerceData] ${operation} unavailable`, { reason });
     return { kind: 'unavailable', reason };
+  }
+}
+
+async function fetchRecordJson(
+  url: string,
+  operation: string,
+  { timeoutMs = RECORD_FETCH_TIMEOUT_MS }: RecordFetchOptions = {},
+): Promise<RecordFetchResult> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The deadline settles the wait even when the client does not settle after the abort.
+  const deadline = new Promise<RecordFetchResult>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      Logger.warn(`[ogCommerceData] ${operation} unavailable`, { reason: 'timeout' });
+      resolve({ kind: 'unavailable', reason: 'timeout' });
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([readRecordJson(url, operation, controller.signal), deadline]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -168,7 +194,10 @@ export async function fetchListingForMetadata(
  * OG image generation. Returns `not_found` on malformed params or a missing
  * record, and `unavailable` for fetch or validation failures.
  */
-export async function fetchShopForMetadata(sellerPubky: string): Promise<MetadataFetchResult<CommerceShopRecord>> {
+export async function fetchShopForMetadata(
+  sellerPubky: string,
+  options: RecordFetchOptions = {},
+): Promise<MetadataFetchResult<CommerceShopRecord>> {
   const seller = commercePubkySchema.safeParse(sellerPubky);
   if (!seller.success) return { kind: 'not_found' };
 
@@ -180,7 +209,7 @@ export async function fetchShopForMetadata(sellerPubky: string): Promise<Metadat
     Logger.warn('[ogCommerceData] fetchShopRecord unavailable', { reason });
     return { kind: 'unavailable', reason };
   }
-  const fetched = await fetchRecordJson(url, 'fetchShopRecord');
+  const fetched = await fetchRecordJson(url, 'fetchShopRecord', options);
   if (fetched.kind !== 'found') return fetched;
 
   const record = commerceShopRecordSchema.safeParse(fetched.value);

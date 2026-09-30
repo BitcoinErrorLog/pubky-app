@@ -3,7 +3,7 @@ import { getMarketplaceNexusUrl } from '@/config/nexus';
 import { Logger } from '@/libs/logger/logger';
 import { getCommerceAdapterMode } from '@/libs/runtime-config/runtime-config';
 import { createCommerceShopFixture, createNexusListingDetailsFixture } from '@/test/fixtures/commerce/commerce';
-import { fetchMarketplaceCatalogForSsr } from './ogCatalogData';
+import { CATALOG_SHOP_FETCH_TIMEOUT_MS, fetchMarketplaceCatalogForSsr } from './ogCatalogData';
 import { OG_COMMERCE_REVALIDATE } from './ogCommerceData';
 
 vi.mock('@synonymdev/pubky', () => ({
@@ -100,16 +100,8 @@ describe('fetchMarketplaceCatalogForSsr', () => {
     expect(shops).toEqual([]);
   });
 
-  it('caps concurrent shop fetches at six for a 30-seller stream', async () => {
-    const alphabet = 'ybndrfg8ejkmcpqxot1uwisza345h769';
-    const listings = Array.from({ length: 30 }, (_, index) => {
-      const ownerId = `${alphabet[index % alphabet.length]}${'y'.repeat(51)}`;
-      return createNexusListingDetailsFixture({
-        id: `listing_${index}`,
-        owner_id: ownerId,
-        uri: `pubky://${ownerId}/pub/pubky.app/marketplace/v1/listings/listing_${index}`,
-      });
-    });
+  it('starts every seller shop fetch at once for a 30-seller stream', async () => {
+    const listings = listingsFromSellers(30);
 
     let inFlight = 0;
     let maxInFlight = 0;
@@ -135,7 +127,68 @@ describe('fetchMarketplaceCatalogForSsr', () => {
 
     expect(catalog).toHaveLength(30);
     expect(shops).toHaveLength(30);
-    expect(maxInFlight).toBeLessThanOrEqual(6);
-    expect(maxInFlight).toBe(6);
+    expect(maxInFlight).toBe(30);
+  });
+
+  describe('with a seller whose record fetch never settles', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('renders the catalog without that shop once the per-seller budget passes', async () => {
+      const listings = listingsFromSellers(7);
+      const stalledSeller = listings[0]!.owner_id;
+      const shopRequests: string[] = [];
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes('/v0/stream/listings')) {
+          return new Response(JSON.stringify(listings), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        shopRequests.push(url);
+        // Ignores the abort signal, like a PKARR lookup that never answers.
+        if (url.includes(stalledSeller)) return new Promise<Response>(() => {});
+        return new Response(JSON.stringify(createCommerceShopFixture()), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      });
+
+      let settled = false;
+      const pending = fetchMarketplaceCatalogForSsr().then((payload) => {
+        settled = true;
+        return payload;
+      });
+
+      await vi.advanceTimersByTimeAsync(CATALOG_SHOP_FETCH_TIMEOUT_MS - 1);
+      expect(shopRequests).toHaveLength(7);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const { listings: catalog, shops } = await pending;
+
+      expect(catalog).toHaveLength(7);
+      expect(shops).toHaveLength(6);
+      expect(CATALOG_SHOP_FETCH_TIMEOUT_MS).toBe(800);
+    });
   });
 });
+
+function listingsFromSellers(count: number) {
+  const alphabet = 'ybndrfg8ejkmcpqxot1uwisza345h769';
+  return Array.from({ length: count }, (_, index) => {
+    const ownerId = `${alphabet[index % alphabet.length]}${'y'.repeat(51)}`;
+    return createNexusListingDetailsFixture({
+      id: `listing_${index}`,
+      owner_id: ownerId,
+      uri: `pubky://${ownerId}/pub/pubky.app/marketplace/v1/listings/listing_${index}`,
+    });
+  });
+}

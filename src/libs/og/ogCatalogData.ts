@@ -8,7 +8,7 @@ import { NEXUS_STREAM_LISTINGS_ROUTE } from '@/libs/commerce/nexus-routes';
 import { Logger } from '@/libs/logger/logger';
 import { getCommerceAdapterMode, getMarketplaceNexusUrl } from '@/libs/runtime-config/runtime-config';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
-import { fetchShopForMetadata, type MetadataFetchResult, OG_COMMERCE_REVALIDATE } from './ogCommerceData';
+import { fetchShopForMetadata, OG_COMMERCE_REVALIDATE } from './ogCommerceData';
 
 export interface MarketplaceCatalogSsrPayload {
   listings: MarketplaceCatalogItem[];
@@ -51,15 +51,18 @@ export async function fetchMarketplaceCatalogForSsr(): Promise<MarketplaceCatalo
   }
 }
 
-const SHOP_FETCH_CONCURRENCY = 6;
+/**
+ * Per-seller budget for catalog shop names. A seller whose record misses it
+ * renders with the pubky fallback instead of holding up the catalog HTML.
+ * One page caps the fan-out at `NEXUS_LISTINGS_PER_PAGE` sellers.
+ */
+export const CATALOG_SHOP_FETCH_TIMEOUT_MS = 800;
 
 async function fetchShopsForCatalogSellers(listings: MarketplaceCatalogItem[]): Promise<CommerceShopRecord[]> {
   const sellers = [...new Set(listings.map((listing) => listing.sellerId))];
-  const settled: PromiseSettledResult<MetadataFetchResult<CommerceShopRecord>>[] = [];
-  for (let offset = 0; offset < sellers.length; offset += SHOP_FETCH_CONCURRENCY) {
-    const chunk = sellers.slice(offset, offset + SHOP_FETCH_CONCURRENCY);
-    settled.push(...(await Promise.allSettled(chunk.map((seller) => fetchShopForMetadata(seller)))));
-  }
+  const settled = await Promise.allSettled(
+    sellers.map((seller) => fetchShopForMetadata(seller, { timeoutMs: CATALOG_SHOP_FETCH_TIMEOUT_MS })),
+  );
   return settled.flatMap((result) => {
     if (result.status !== 'fulfilled' || result.value.kind !== 'found') return [];
     return [result.value.record];
