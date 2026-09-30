@@ -27,11 +27,15 @@ import {
   type SellerPaymentResolutionSubmission,
   useMarketplaceSellerPaymentReviewForm,
 } from '@/hooks/useMarketplaceSellerPaymentReview/useMarketplaceSellerPaymentReviewForm';
+import { useNowMs } from '@/hooks/useNowMs/useNowMs';
 import {
   BITCOIN_WALLET_DELIVERED_COPY,
   BITCOIN_WALLET_WAITING_COPY,
+  bitcoinSeenBadgeLabel,
   buyerBitcoinReviewCopy,
   buyerBitcoinWalletCopy,
+  holdCountdownCopy,
+  PAYMENT_SEEN_HOLD_COPY,
   sellerBitcoinConfirmPrompt,
   sellerConfirmsByCopy,
 } from '@/libs/commerce/bitcoin-buyer-status';
@@ -198,12 +202,15 @@ export function MarketplacePaymentStatusCard({
 
   if (!payment || visibleStatus === null) return null;
 
+  const seenBadge =
+    visibleStatus === 'awaiting_entitlement' && !isTerminal ? bitcoinSeenBadgeLabel(order, payment) : null;
   const visibleStatusLabel =
-    isTerminal && visibleStatus === 'awaiting_entitlement'
+    seenBadge ??
+    (isTerminal && visibleStatus === 'awaiting_entitlement'
       ? order.state === 'cancelled'
         ? 'Order cancelled'
         : 'Not paid'
-      : BUYER_VISIBLE_STATUS_LABELS[visibleStatus];
+      : BUYER_VISIBLE_STATUS_LABELS[visibleStatus]);
 
   return (
     <div className="grid min-w-0 gap-3 rounded-xl border p-4" data-surface="marketplace-payment-status-card">
@@ -223,6 +230,7 @@ export function MarketplacePaymentStatusCard({
       <MarketplaceBitcoinAmountBreakdown
         order={order}
         showExact={isBuyer && isAwaiting && buyerBitcoinWalletCopy(order, payment).kind === 'pay'}
+        explainCode={isBuyer}
       />
       {!isSandbox && isBuyer && isAwaiting && isStaging && (
         <Typography
@@ -627,6 +635,9 @@ export function MarketplacePaymentStatusCard({
 
 function BuyerBitcoinPaymentProgress({ order, payment }: { order: MarketplaceOrder; payment: MarketplacePayment }) {
   const progress = buyerBitcoinWalletCopy(order, payment);
+  const confirmDeadline = order.paykitSellerConfirmationDeadline ?? order.holdExpiresAt;
+  const nowMs = useNowMs(progress.kind === 'seen');
+  const countdown = holdCountdownCopy(confirmDeadline, nowMs);
   // Manual review and refund copy are rendered by the card paragraphs above.
   if (progress.kind === 'refund' || progress.kind === 'review') return null;
   if (progress.kind === 'seen') {
@@ -635,9 +646,22 @@ function BuyerBitcoinPaymentProgress({ order, payment }: { order: MarketplaceOrd
     return (
       <div className="grid gap-2" data-testid="bitcoin-payment-seen">
         {awaitingSeller && (
-          <Typography as="p" className="text-sm text-muted-foreground" data-testid="bitcoin-seller-confirms-by">
-            {sellerConfirmsByCopy(order.paykitSellerConfirmationDeadline ?? order.holdExpiresAt)}
-          </Typography>
+          <>
+            <Typography as="p" className="text-sm text-muted-foreground" data-testid="bitcoin-seller-confirms-by">
+              {sellerConfirmsByCopy(confirmDeadline)}
+              {countdown ? (
+                <>
+                  {' '}
+                  <span className="font-medium text-foreground tabular-nums" data-testid="bitcoin-hold-countdown">
+                    {countdown}
+                  </span>
+                </>
+              ) : null}
+            </Typography>
+            <Typography as="p" className="text-sm text-muted-foreground" data-testid="bitcoin-seen-hold-copy">
+              {PAYMENT_SEEN_HOLD_COPY}
+            </Typography>
+          </>
         )}
         <Typography as="p" className="text-sm text-muted-foreground">
           {progress.text}

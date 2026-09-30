@@ -15,6 +15,7 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { type CommerceAdapterMode, isDurableCommerceMode, isTransactionalCommerceMode } from '@/config/commerce';
 import { type MarketplaceOrderView, useMarketplaceOrders } from '@/hooks/useMarketplaceOrders/useMarketplaceOrders';
 import { useMarkMarketplaceOrdersSeen } from '@/hooks/useMarkMarketplaceOrdersSeen/useMarkMarketplaceOrdersSeen';
+import { useNowMs } from '@/hooks/useNowMs/useNowMs';
 import { orderAnchorId, readOrderAnchorId } from '@/libs/commerce/activity-links';
 import {
   bitcoinPaymentHasBeenSeen,
@@ -102,6 +103,7 @@ export function MarketplaceOrders() {
   const tabRefs = useRef<Partial<Record<OrdersTab, HTMLButtonElement | null>>>({});
   const redirectedHashRef = useRef<string | null>(null);
   const [anchorOrderId, setAnchorOrderId] = useState<string | null>(null);
+  const nowMs = useNowMs(orders.some(({ order }) => order.state === 'pending_payment' && Boolean(order.holdExpiresAt)));
   const buyerCheckouts = orders.filter(({ order }) => isBuyerCheckoutInProgress(order, currentUserPubky));
   const sellerReservations = orders.filter(({ order }) => isSellerReservation(order, currentUserPubky));
   const abandonedCheckouts = orders.filter(({ order }) => isAbandonedCheckout(order, currentUserPubky));
@@ -268,7 +270,7 @@ export function MarketplaceOrders() {
                           {order.lines.map((line) => line.title).join(', ')}
                         </Typography>
                         <Typography as="p" className="text-sm text-muted-foreground">
-                          {buyerCheckoutProgressCopy(order, payment)}
+                          {buyerCheckoutProgressCopy(order, payment, nowMs)}
                         </Typography>
                         <MarketplaceOrderReference order={order} isBuyer />
                       </div>
@@ -417,7 +419,7 @@ export function MarketplaceOrders() {
                               (isBuyer || !sellerBitcoinDecision(order, payment)) && (
                                 <Typography as="p" className="mt-2 text-sm text-muted-foreground">
                                   {isBuyer
-                                    ? buyerCheckoutProgressCopy(order, payment)
+                                    ? buyerCheckoutProgressCopy(order, payment, nowMs)
                                     : sellerReservationCopy(order.holdExpiresAt)}
                                 </Typography>
                               )}

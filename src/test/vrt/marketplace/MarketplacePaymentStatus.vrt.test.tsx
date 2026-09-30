@@ -4,6 +4,7 @@ import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController }
 import { describe, expect, it, vi } from 'vitest';
 import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
+import { HOUR_MS, MINUTE_MS, VRT_FROZEN_NOW_MS } from '@/test-utils/vrt.clock';
 import projectionSamples from '@/libs/commerce/contracts/samples/projections.json';
 import { marketplaceOrderSchema } from '@/core/services/marketplace/marketplace-projections';
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
@@ -305,7 +306,7 @@ describe('Marketplace payment status card — visual regression', () => {
 
   it('renders a seen Bitcoin payment without telling the buyer to pay again', async () => {
     view.locks = { ...view.locks, enabled: false, correlation: null, delivery: null, error: null };
-    const deadline = '2026-09-29T10:56:41.980Z';
+    const deadline = new Date(VRT_FROZEN_NOW_MS + (23 * HOUR_MS + 56 * MINUTE_MS + 41_000)).toISOString();
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', {
       deployEnv: 'staging',
       orderOverrides: {
@@ -323,7 +324,7 @@ describe('Marketplace payment status card — visual regression', () => {
         total: { amountMinor: 1_303, currency: 'BTC', exponent: 8 },
       },
     });
-    await expect.element(screen.getByText(/Payment seen/)).toBeInTheDocument();
+    await expect.element(screen.getByText('Payment seen', { exact: true })).toBeInTheDocument();
     await expect.element(screen.getByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-bitcoin-seen-desktop');
     view.locks.enabled = true;

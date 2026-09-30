@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   BITCOIN_BUYER_STATUS_TABLE,
+  BITCOIN_WALLET_DELIVERED_COPY,
   bitcoinConfirmationExists,
+  bitcoinSeenBadgeLabel,
   buyerBitcoinWalletCopy,
   buyerCheckoutBadgeLabel,
   buyerCheckoutProgressCopy,
+  holdCountdownCopy,
+  PAYMENT_CONFIRMED_ON_CHAIN_LABEL,
   PAYMENT_SEEN_LABEL,
   sellerBitcoinConfirmPrompt,
   sellerBitcoinDecision,
@@ -13,6 +17,8 @@ import {
 const NOW = Date.parse('2026-09-28T11:00:00.000Z');
 const SHORT_HOLD = '2026-09-28T11:05:00.000Z';
 const SELLER_DEADLINE = '2026-09-29T10:56:41.980Z';
+
+const COUNTDOWN = '23:56:41 left';
 
 const seenOrder = {
   paymentMethod: 'bitcoin' as const,
@@ -45,7 +51,7 @@ describe('bitcoin buyer status', () => {
     expect(bitcoinConfirmationExists(order, payment)).toBe(row.confirmationExists);
     const progress = buyerCheckoutProgressCopy(order, payment, NOW);
     const wallet = buyerBitcoinWalletCopy(order, payment);
-    expect(progress).toBe(row.progress);
+    expect(progress).toBe(row.progress.includes('Seller confirms by') ? `${row.progress} ${COUNTDOWN}` : row.progress);
     expect(wallet.text).toBe(row.wallet);
     expect(buyerCheckoutBadgeLabel(order, payment)).toBe(
       row.forbidsPayLabels ? PAYMENT_SEEN_LABEL : 'Reserved while you pay',
@@ -62,7 +68,7 @@ describe('bitcoin buyer status', () => {
 
   it('names the seller confirm-by time once a payment is seen', () => {
     expect(buyerCheckoutProgressCopy(seenOrder, { state: 'awaiting_entitlement' }, NOW)).toBe(
-      'Seller confirms by Sep 29, 2026, 10:56 AM UTC.',
+      `Seller confirms by Sep 29, 2026, 10:56 AM UTC. ${COUNTDOWN}`,
     );
     expect(sellerBitcoinConfirmPrompt(seenOrder)).toBe('Confirm you received ₿1,303');
     expect(sellerBitcoinDecision(seenOrder, { state: 'awaiting_entitlement' })).toBe('confirm');
@@ -72,6 +78,42 @@ describe('bitcoin buyer status', () => {
     const reviewed = { ...seenOrder, paykitRequestState: 'confirmed' as const };
     expect(sellerBitcoinDecision(reviewed, { state: 'manual_review', reviewReason: 'late_settlement' })).toBe(
       'resolve',
+    );
+  });
+
+  it('counts down the seller-confirmation hold as H:MM:SS and drops it once the window ends', () => {
+    expect(holdCountdownCopy(SELLER_DEADLINE, NOW)).toBe(COUNTDOWN);
+    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:56:40.000Z'))).toBe('0:00:01 left');
+    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:06:41.000Z'))).toBe('0:50:00 left');
+    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:56:00.000Z'))).toBe('0:00:41 left');
+    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-29T10:56:41.980Z'))).toBeNull();
+    expect(holdCountdownCopy(SELLER_DEADLINE, Date.parse('2026-09-30T00:00:00.000Z'))).toBeNull();
+    expect(holdCountdownCopy(null, NOW)).toBeNull();
+    expect(holdCountdownCopy('not a date', NOW)).toBeNull();
+    expect(
+      buyerCheckoutProgressCopy(seenOrder, { state: 'awaiting_entitlement' }, Date.parse('2026-09-30T00:00:00Z')),
+    ).toBe('Seller confirms by Sep 29, 2026, 10:56 AM UTC.');
+  });
+
+  it('labels the badge Payment seen once the payment is seen and Confirmed on-chain after a confirmation', () => {
+    const unpaid = { ...seenOrder, paykitRequestState: 'pending' as const };
+    expect(bitcoinSeenBadgeLabel(unpaid, { state: 'awaiting_entitlement' })).toBeNull();
+    expect(bitcoinSeenBadgeLabel(seenOrder, { state: 'awaiting_entitlement' })).toBe(PAYMENT_SEEN_LABEL);
+    expect(
+      bitcoinSeenBadgeLabel({ ...seenOrder, paykitRequestState: 'detected' }, { state: 'awaiting_entitlement' }),
+    ).toBe(PAYMENT_SEEN_LABEL);
+    expect(bitcoinSeenBadgeLabel(seenOrder, { state: 'awaiting_entitlement', confirmations: 1 })).toBe(
+      PAYMENT_CONFIRMED_ON_CHAIN_LABEL,
+    );
+    expect(bitcoinSeenBadgeLabel({ paymentMethod: 'paypal' }, { state: 'awaiting_entitlement' })).toBeNull();
+  });
+
+  it('tells a buyer who already broadcast that the page follows the transaction', () => {
+    const unpaid = { ...seenOrder, paykitRequestState: 'pending' as const };
+    const wallet = buyerBitcoinWalletCopy(unpaid, { state: 'awaiting_entitlement' });
+    expect(wallet).toEqual({ kind: 'pay', text: BITCOIN_WALLET_DELIVERED_COPY });
+    expect(wallet.text).toMatch(
+      /already sent the payment, this page updates as soon as the marketplace sees the transaction/,
     );
   });
 });

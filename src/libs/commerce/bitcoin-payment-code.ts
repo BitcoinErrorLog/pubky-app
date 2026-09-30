@@ -13,6 +13,11 @@ export const BITCOIN_PAYMENT_CODE_MAX_SATS = 999;
 export const BITCOIN_PAYMENT_CODE_CHECKOUT_NOTE =
   'The payment adds a small unique amount of 1–999 sats. The exact amount appears when you place the order.';
 
+/** Says what the payment code line of the amount breakdown is, with the figure drawn for this order. */
+export function bitcoinPaymentCodeExplanation(paymentCode: CommerceMoney): string {
+  return `Payment code ${formatBitcoinAwareMoney(paymentCode)}: a small unique amount (${BITCOIN_PAYMENT_CODE_MIN_SATS}–${BITCOIN_PAYMENT_CODE_MAX_SATS} sats) added so the seller's wallet can match your payment. It is included in the total you send.`;
+}
+
 const SATOSHI: CommerceMoney = { amountMinor: 0, currency: 'SAT', exponent: 0 };
 
 export type BitcoinPaymentOrder = {
