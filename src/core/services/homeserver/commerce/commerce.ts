@@ -9,16 +9,20 @@ export class CommerceHomeserverService {
     return await HomeserverService.request<unknown>({ method: HttpMethod.GET, url, logUrl });
   }
 
-  static async putJson(url: string, bodyJson: Record<string, unknown>): Promise<void> {
-    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson });
+  static async putJson(
+    url: string,
+    bodyJson: Record<string, unknown>,
+    options: { singleAttempt?: boolean } = {},
+  ): Promise<void> {
+    await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson, singleAttempt: options.singleAttempt });
   }
 
   static async putMedia(url: string, bytes: Uint8Array): Promise<void> {
     await HomeserverService.putBlob({ url, blob: bytes });
   }
 
-  static async delete(url: string, logUrl?: string): Promise<void> {
-    await HomeserverService.request({ method: HttpMethod.DELETE, url, logUrl });
+  static async delete(url: string, logUrl?: string, options: { singleAttempt?: boolean } = {}): Promise<void> {
+    await HomeserverService.request({ method: HttpMethod.DELETE, url, logUrl, singleAttempt: options.singleAttempt });
   }
 
   /**

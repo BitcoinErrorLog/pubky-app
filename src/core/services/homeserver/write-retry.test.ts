@@ -58,6 +58,18 @@ describe('retryHomeserverWrite', () => {
     expect(operation).toHaveBeenCalledTimes(HOMESERVER_WRITE_MAX_ATTEMPTS);
   });
 
+  it('makes one attempt and never sleeps with maxRetries 0, for a caller holding a lock', async () => {
+    const finalError = requestError(503);
+    const operation = vi.fn<() => Promise<void>>().mockRejectedValue(finalError);
+    const sleep = vi.fn<(delayMs: number) => Promise<void>>().mockResolvedValue();
+
+    await expect(
+      retryHomeserverWrite(HttpMethod.PUT, operation, { sleep, random: () => 0, maxRetries: 0 }),
+    ).rejects.toBe(finalError);
+    expect(operation).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it('clamps a pathological Retry-After to the bounded wait', async () => {
     const operation = vi
       .fn<() => Promise<void>>()

@@ -102,7 +102,7 @@ import { AuthErrorCode, ClientErrorCode, ServerErrorCode, ValidationErrorCode } 
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { hasHttpStatus, isAppError, isNotFound } from '@/libs/error/error.utils';
-import { HttpStatusCode } from '@/libs/http/http.types';
+import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import type {
   CommerceAuctionRegistrationCommand,
@@ -144,6 +144,7 @@ import { ExchangerateService } from '@/services/exchangerate/exchangerate';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService, PRIVATE_APP_DATA_PATH } from '@/services/homeserver/homeserver';
+import { retryHomeserverWrite } from '@/services/homeserver/write-retry';
 import { type CommerceListingRowGeneration, LocalCommerceService } from '@/services/local/commerce/commerce';
 import {
   buildMarketplaceTagRowId,
@@ -211,8 +212,10 @@ export const LISTING_REGISTRATION_LOCK_PREFIX = 'pubky-listing-registration|';
 export const LISTING_REGISTRATION_TIMEOUT_MS = 20_000;
 
 /**
- * One registration attempt. `authEpoch` is read once when it starts; a
- * sign-out in any tab changes it and the attempt stops before its next
+ * One registration, publish or delete of a listing. Its session binding
+ * (`authEpoch`, the signed-in `pubky`, the marketplace `sessionToken`) is
+ * read once when it starts; a sign-out in any tab, an account switch or a
+ * session replacement changes it, and the attempt stops before its next
  * request or write. `observed` is the listing row generation the attempt
  * acts on, advanced only by its own writes.
  */
@@ -220,6 +223,8 @@ type ListingRegistrationAttempt = {
   compositeListingId: string;
   aggregateId: string;
   authEpoch: number;
+  pubky: string | null;
+  sessionToken: string | null;
   observed: CommerceListingRowGeneration;
   signal?: AbortSignal;
 };
@@ -3349,27 +3354,26 @@ export class CommerceApplication {
     });
 
     const mode = getCommerceAdapterMode();
-    const attempt = this.beginListingRegistration(record);
+    const attempt = this.beginListingRegistration(record.ownerPubky, record.listingId);
     const registering = mode !== 'unavailable' && this.canCoordinateListingRegistration();
     const registrationStatus = mode === 'unavailable' ? 'unavailable' : 'unregistered';
+    this.assertListingRegistrationFence(attempt);
     await LocalCommerceService.stageListingSync(record, publishJob, registrationStatus);
     if (registering && record.sale.format === 'auction' && isDurableCommerceMode(mode)) {
       // The command is chosen before the public write, so a reserve conflict leaves the homeserver untouched.
       await this.sweepOwnAuctionReserves(record.ownerPubky);
       await this.withListingRegistrationLock(attempt, 'publish', async () => {
-        attempt.observed = await LocalCommerceService.getListingRowGeneration(attempt.compositeListingId);
+        attempt.observed = await this.rowHoldingPublish(attempt, record);
         attempt.signal = AbortSignal.timeout(LISTING_REGISTRATION_TIMEOUT_MS);
         const prepared = await this.prepareAuctionRegistration(record, attempt, reservePrice);
-        if (prepared === 'superseded') {
-          throw Err.client(ClientErrorCode.CONFLICT, 'The listing changed. Reload and try again.', {
-            service: ErrorService.Marketplace,
-            operation: 'commitUpsertListing',
-          });
-        }
+        if (prepared === 'superseded') throw this.listingChangedConflict();
       });
     }
-    await this.putVerifiedPublicListing(record, url);
-    await LocalCommerceService.upsertListing(record, 'synced');
+    await this.putVerifiedPublicListing(record, url, attempt, async () => {
+      await this.rowHoldingPublish(attempt, record);
+    });
+    this.assertListingRegistrationFence(attempt);
+    if (!(await LocalCommerceService.markPublishedListingSynced(record))) throw this.listingChangedConflict();
 
     // Registration is idempotent (skipped when the aggregate already has a server
     // revision), so retrying the whole commit after a failure here is safe.
@@ -3403,7 +3407,7 @@ export class CommerceApplication {
    */
   static async ensureListingRegistered(record: CommerceListingRecord): Promise<boolean> {
     if (getCommerceAdapterMode() === 'unavailable' || !this.canCoordinateListingRegistration()) return false;
-    const attempt = this.beginListingRegistration(record);
+    const attempt = this.beginListingRegistration(record.ownerPubky, record.listingId);
     attempt.observed = await LocalCommerceService.getListingRowGeneration(attempt.compositeListingId);
     return await this.runListingRegistration(record, attempt, 'heal', null);
   }
@@ -3413,17 +3417,74 @@ export class CommerceApplication {
     return typeof navigator !== 'undefined' && typeof navigator.locks?.request === 'function';
   }
 
-  private static beginListingRegistration(record: CommerceListingRecord): ListingRegistrationAttempt {
+  private static beginListingRegistration(ownerPubky: string, listingId: string): ListingRegistrationAttempt {
     return {
-      compositeListingId: `${record.ownerPubky}:${record.listingId}`,
-      aggregateId: buildMarketplaceListingAggregateId(record.ownerPubky, record.listingId),
-      authEpoch: readAuthEpoch(),
+      compositeListingId: `${ownerPubky}:${listingId}`,
+      aggregateId: buildMarketplaceListingAggregateId(ownerPubky, listingId),
+      ...this.listingSessionBinding(),
       observed: null,
     };
   }
 
+  private static listingSessionBinding(): Pick<ListingRegistrationAttempt, 'authEpoch' | 'pubky' | 'sessionToken'> {
+    return {
+      authEpoch: readAuthEpoch(),
+      pubky: useAuthStore.getState().currentUserPubky,
+      sessionToken: MarketplaceSessionService.getActiveSession()?.token ?? null,
+    };
+  }
+
   private static listingRegistrationFenceHolds(attempt: ListingRegistrationAttempt): boolean {
-    return readAuthEpoch() === attempt.authEpoch;
+    const now = this.listingSessionBinding();
+    return (
+      now.authEpoch === attempt.authEpoch && now.pubky === attempt.pubky && now.sessionToken === attempt.sessionToken
+    );
+  }
+
+  private static listingChangedConflict() {
+    return Err.client(ClientErrorCode.CONFLICT, 'The listing changed. Reload and try again.', {
+      service: ErrorService.Marketplace,
+      operation: 'commitUpsertListing',
+    });
+  }
+
+  /**
+   * A publish acts only while the local row still holds the revision it
+   * staged: a delete, or a newer publish, since then wins. Returns the
+   * row's generation.
+   */
+  private static async rowHoldingPublish(
+    attempt: ListingRegistrationAttempt,
+    record: CommerceListingRecord,
+  ): Promise<CommerceListingRowGeneration> {
+    const row = await LocalCommerceService.getListing(attempt.compositeListingId);
+    this.assertListingRegistrationFence(attempt);
+    if (!row || row.revision !== record.revision) throw this.listingChangedConflict();
+    return { writeId: row.write_id };
+  }
+
+  /**
+   * Runs one homeserver write of a listing as the listing's lock holder, so
+   * it never overlaps that listing's registration, publish or delete. The
+   * body makes a single attempt; callers back off outside the lock. Without
+   * Web Locks nothing registers in this browser, and the write runs
+   * unlocked.
+   */
+  private static async withListingWriteLock(
+    attempt: ListingRegistrationAttempt,
+    body: () => Promise<void>,
+  ): Promise<void> {
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+    this.assertListingRegistrationFence(attempt);
+    const run = async () => {
+      this.assertListingRegistrationFence(attempt);
+      await body();
+    };
+    if (typeof locks?.request !== 'function') {
+      await run();
+      return;
+    }
+    await locks.request(`${LISTING_REGISTRATION_LOCK_PREFIX}${attempt.aggregateId}`, run);
   }
 
   /** Checked after every await and before every request or write of an attempt. */
@@ -3481,8 +3542,11 @@ export class CommerceApplication {
     };
     const takeRow = async (): Promise<boolean> => {
       if (owner === 'publish') {
-        attempt.observed = await LocalCommerceService.getListingRowGeneration(attempt.compositeListingId);
+        const row = await LocalCommerceService.getListing(attempt.compositeListingId);
         this.assertListingRegistrationFence(attempt);
+        // A delete since the publish's own write removed the row: nothing is registered.
+        if (!row || row.revision !== record.revision) return false;
+        attempt.observed = { writeId: row.write_id };
         return true;
       }
       const stillObserved = await this.listingRowStillObserved(attempt);
@@ -3762,9 +3826,19 @@ export class CommerceApplication {
       now: Date.now(),
     });
 
+    const attempt = this.beginListingRegistration(ownerPubky, listingId);
+    this.assertListingRegistrationFence(attempt);
     await LocalCommerceService.upsertSyncJob(job);
-    await CommerceHomeserverService.delete(url);
-    await LocalCommerceService.deleteListing(compositeListingId);
+    // One DELETE per hold of the listing lock, the local rows removed in the same hold, so a queued
+    // registration or publish finds no row; a retryable failure backs off outside the lock.
+    await retryHomeserverWrite(HttpMethod.DELETE, () =>
+      this.withListingWriteLock(attempt, async () => {
+        await CommerceHomeserverService.delete(url, undefined, { singleAttempt: true });
+        this.assertListingRegistrationFence(attempt);
+        await LocalCommerceService.deleteListing(compositeListingId);
+      }),
+    );
+    this.assertListingRegistrationFence(attempt);
     await LocalCommerceService.completeSyncJob(job.id);
 
     if (local) {
@@ -3791,7 +3865,11 @@ export class CommerceApplication {
   /** GET→merge→PUT for Inventory Studio import. Does not go through commitUpsertListing. */
   static async putPublicListingForImport(record: CommerceListingRecord): Promise<void> {
     const url = CommerceRecordNormalizer.listingUri(record.ownerPubky, record.listingId);
-    await this.putVerifiedPublicListing(record, url);
+    await this.putVerifiedPublicListing(
+      record,
+      url,
+      this.beginListingRegistration(record.ownerPubky, record.listingId),
+    );
   }
 
   static async getMarketplaceMediaOwnerHomeserver(ownerPubky: string): Promise<string | null> {
@@ -3803,7 +3881,18 @@ export class CommerceApplication {
   }
 
   /** The only write of a public listing record: every Shop publisher, Inventory Studio included, reaches it. */
-  private static async putVerifiedPublicListing(record: CommerceListingRecord, url: string): Promise<void> {
+  /**
+   * The PUT runs as the listing's lock holder, one attempt per hold, after
+   * `guard` (the publish's row check) passes under the same hold; a
+   * retryable failure backs off outside the lock. Reads before and after
+   * stay outside it.
+   */
+  private static async putVerifiedPublicListing(
+    record: CommerceListingRecord,
+    url: string,
+    attempt: ListingRegistrationAttempt,
+    guard?: () => Promise<void>,
+  ): Promise<void> {
     assertPublishableListingStock(record, 'putVerifiedPublicListing');
     let current: Record<string, unknown> = {};
     let exists = false;
@@ -3870,7 +3959,12 @@ export class CommerceApplication {
           if (!(isAppError(error) && isNotFound(error))) throw error;
         }
       }
-      await CommerceHomeserverService.putJson(url, candidate);
+      await retryHomeserverWrite(HttpMethod.PUT, () =>
+        this.withListingWriteLock(attempt, async () => {
+          await guard?.();
+          await CommerceHomeserverService.putJson(url, candidate, { singleAttempt: true });
+        }),
+      );
     }
 
     const verified = requiresPut ? await CommerceHomeserverService.fetchJson(url) : current;

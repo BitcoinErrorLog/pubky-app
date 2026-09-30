@@ -85,6 +85,8 @@ export type THomeserverRequestParams = {
   bodyJson?: Record<string, unknown>;
   /** The URL recorded in error context and logs; defaults to `url`. Unpublished paths pass a redacted form. */
   logUrl?: string;
+  /** A PUT or DELETE makes one attempt and never sleeps; the caller backs off outside its lock. */
+  singleAttempt?: boolean;
 };
 
 export type TPutBlobParams = {

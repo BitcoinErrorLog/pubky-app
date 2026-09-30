@@ -267,8 +267,7 @@ describe('CommerceApplication', () => {
     const [listing] = await CommerceApplication.getListingsBySeller(record.ownerPubky);
     const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
     vi.mocked(CommerceHomeserverService.fetchJson).mockResolvedValueOnce(record).mockResolvedValueOnce(record);
-    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
-    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'stageListingSync');
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('unavailable');
 
@@ -382,9 +381,8 @@ describe('CommerceApplication', () => {
   it('publishes a listing and registers it with the transaction service in sandbox mode', async () => {
     const record = createCommerceListingFixture();
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
-    const stage = vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    const stage = vi.spyOn(LocalCommerceService, 'stageListingSync');
     vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
-    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
     const execute = vi
@@ -435,9 +433,8 @@ describe('CommerceApplication', () => {
         : {}),
     });
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
-    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'stageListingSync');
     vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
-    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
     const execute = vi
@@ -468,9 +465,8 @@ describe('CommerceApplication', () => {
       antiSnipingExtensionSeconds: 120,
     };
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
-    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'stageListingSync');
     vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
-    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
     const execute = vi
@@ -1637,6 +1633,176 @@ describe('CommerceApplication', () => {
       expect(requested.nested).toEqual([]);
     });
 
+    describe('publish and delete writes', () => {
+      const notFound = () =>
+        Err.client(ClientErrorCode.NOT_FOUND, 'Not found', {
+          service: ErrorService.Homeserver,
+          operation: 'fetchJson',
+        });
+      /** One listing record on the seller's homeserver, changed only by the PUT and DELETE spies. */
+      const homeserver = (record: ReturnType<typeof createCommerceListingFixture>) => {
+        const state: { published: Record<string, unknown> | null; deleteGate?: () => void; holdDelete: boolean } = {
+          published: { ...record },
+          holdDelete: false,
+        };
+        const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockImplementation(async (url, body) => {
+          if (url === LISTING_URL) state.published = body;
+        });
+        const remove = vi.spyOn(CommerceHomeserverService, 'delete').mockImplementation(async (url) => {
+          if (url !== LISTING_URL) return;
+          if (state.holdDelete) {
+            await new Promise<void>((resolve) => {
+              state.deleteGate = resolve;
+            });
+          }
+          state.published = null;
+        });
+        vi.mocked(CommerceHomeserverService.fetchJson).mockImplementation(async (url) => {
+          if (url === LISTING_URL && state.published) return state.published;
+          throw notFound();
+        });
+        return { state, put, remove };
+      };
+
+      it('a publish queued behind a delete does not bring the record back', async () => {
+        const record = createCommerceListingFixture();
+        const listingId = await durableSeller(record);
+        const { state, put } = homeserver(record);
+        state.holdDelete = true;
+        const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+        const requested = recordLockRequests();
+
+        const deleting = CommerceApplication.commitDeleteListing(record.ownerPubky, record.listingId);
+        await vi.waitFor(() => expect(state.deleteGate).toBeDefined());
+        const edited = { ...record, revision: record.revision + 1, updatedAt: new Date().toISOString() };
+        const publish = CommerceApplication.commitUpsertListing(edited).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        // The publish has staged its edit and read the record, and now waits for the delete's lock to PUT.
+        await vi.waitFor(() => expect(requested.filter(isRegistrationLock)).toHaveLength(2));
+        state.deleteGate!();
+        await deleting;
+
+        await expect(publish).resolves.toMatchObject({ code: ClientErrorCode.CONFLICT });
+        expect(put).not.toHaveBeenCalled();
+        expect(state.published).toBeNull();
+        expect(execute).not.toHaveBeenCalled();
+        await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
+      });
+
+      it('a delete waits for a registration the service is accepting, then removes the record', async () => {
+        const record = createCommerceListingFixture();
+        const listingId = await durableSeller(record);
+        const { state, remove } = homeserver(record);
+        const accepting = held(() => undefined);
+        vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementationOnce(async (_actor, command) => {
+          await accepting.run();
+          return listingRegisteredResponse(command);
+        });
+        const requested = recordLockRequests();
+
+        const registering = CommerceApplication.ensureListingRegistered(record);
+        await vi.waitFor(() => expect(accepting.gate.release).toBeDefined());
+        const deleting = CommerceApplication.commitDeleteListing(record.ownerPubky, record.listingId);
+        await vi.waitFor(() => expect(requested.filter(isRegistrationLock)).toHaveLength(2));
+        expect(remove).not.toHaveBeenCalled();
+        expect(state.published).not.toBeNull();
+
+        accepting.gate.release!();
+        await expect(registering).resolves.toBe(true);
+        await deleting;
+        expect(remove).toHaveBeenCalledWith(LISTING_URL, undefined, { singleAttempt: true });
+        expect(state.published).toBeNull();
+        await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
+      });
+
+      it('a publish whose record is deleted before it registers sends nothing', async () => {
+        const record = createCommerceListingFixture();
+        const listingId = `${record.ownerPubky}:${record.listingId}`;
+        vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+        vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+        vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue(null);
+        const { state } = homeserver(record);
+        state.published = null;
+        const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+        // Reads: base, pre-PUT recheck, read-back, then the registration precheck, which is held.
+        const precheck = held(() => undefined);
+        let reads = 0;
+        vi.mocked(CommerceHomeserverService.fetchJson).mockImplementation(async (url) => {
+          if (url !== LISTING_URL) throw notFound();
+          reads += 1;
+          const seen = state.published;
+          if (reads === 4) await precheck.run();
+          if (seen) return seen;
+          throw notFound();
+        });
+
+        const publish = CommerceApplication.commitUpsertListing(record);
+        await vi.waitFor(() => expect(precheck.gate.release).toBeDefined());
+        await CommerceApplication.commitDeleteListing(record.ownerPubky, record.listingId);
+        precheck.gate.release!();
+
+        await expect(publish).resolves.toEqual({ registered: false });
+        expect(execute).not.toHaveBeenCalled();
+        await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
+      });
+
+      it('a publish whose account changes during its PUT does not mark the listing synced', async () => {
+        const record = createCommerceListingFixture();
+        const listingId = `${record.ownerPubky}:${record.listingId}`;
+        vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
+        vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
+        useAuthStore.getState().setCurrentUserPubky(record.ownerPubky);
+        const { state } = homeserver(record);
+        state.published = null;
+        const putting = held(() => undefined);
+        vi.mocked(CommerceHomeserverService.putJson).mockImplementation(async (url, body) => {
+          await putting.run();
+          if (url === LISTING_URL) state.published = body;
+        });
+        const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
+
+        const publish = CommerceApplication.commitUpsertListing(record);
+        await vi.waitFor(() => expect(putting.gate.release).toBeDefined());
+        useAuthStore.getState().setCurrentUserPubky('b'.repeat(52));
+        putting.gate.release!();
+
+        await expect(publish).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+        expect(execute).not.toHaveBeenCalled();
+        await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({ sync_status: 'pending' });
+      });
+    });
+
+    it.each(['account', 'marketplace session'] as const)(
+      'a %s switch while the command is in flight stops the attempt before it writes',
+      async (switched) => {
+        const record = createCommerceListingFixture();
+        const listingId = await durableSeller(record);
+        useAuthStore.getState().setCurrentUserPubky(record.ownerPubky);
+        let token = 'A'.repeat(43);
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockImplementation(() => ({ token }) as never);
+        const inFlight = held(() => undefined);
+        vi.spyOn(MarketplaceGatewayService, 'execute').mockImplementationOnce(async (_actor, command) => {
+          await inFlight.run();
+          return listingRegisteredResponse(command);
+        });
+        const before = await LocalCommerceService.getListing(listingId);
+
+        const attempt = CommerceApplication.ensureListingRegistered(record);
+        await vi.waitFor(() => expect(inFlight.gate.release).toBeDefined());
+        if (switched === 'account') useAuthStore.getState().setCurrentUserPubky('b'.repeat(52));
+        else token = 'B'.repeat(43);
+        inFlight.gate.release!();
+        await expect(attempt).resolves.toBe(false);
+
+        await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+          registration_status: before?.registration_status,
+          write_id: before?.write_id,
+        });
+      },
+    );
+
     it("a deleted record found while another tab's attempt is in flight neither settles nor drops that attempt's command", async () => {
       const record = auctionListing();
       const listingId = await durableSeller(record);
@@ -1673,9 +1839,8 @@ describe('CommerceApplication', () => {
   it('skips transaction-service registration when the listing is already registered (sandbox)', async () => {
     const record = createCommerceListingFixture();
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
-    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'stageListingSync');
     vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
-    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue({ serverRevision: 4 } as never);
     const execute = vi.spyOn(MarketplaceGatewayService, 'execute');
@@ -1689,9 +1854,8 @@ describe('CommerceApplication', () => {
     const record = createCommerceListingFixture();
     vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
     vi.spyOn(CommerceApplication, 'hasActiveMarketplaceSession').mockReturnValue(true);
-    vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+    vi.spyOn(LocalCommerceService, 'stageListingSync');
     vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
-    vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);
     vi.spyOn(LocalCommerceService, 'completeSyncJob').mockResolvedValue(undefined);
     vi.spyOn(MarketplaceGatewayService, 'getListing').mockResolvedValue({ serverRevision: 4 } as never);
     const execute = vi
@@ -1721,7 +1885,7 @@ describe('CommerceApplication', () => {
 
     await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({ registered: false });
 
-    expect(put).toHaveBeenCalledWith(LISTING_URL, record);
+    expect(put).toHaveBeenCalledWith(LISTING_URL, record, { singleAttempt: true });
     expect(execute).not.toHaveBeenCalled();
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
       registration_status: 'unavailable',
@@ -1905,7 +2069,7 @@ describe('CommerceApplication', () => {
     expect(upsertJob).toHaveBeenCalledWith(
       expect.objectContaining({ entity_type: 'listing', entity_id: record.listingId, operation: 'remove' }),
     );
-    expect(remove).toHaveBeenNthCalledWith(1, LISTING_URL);
+    expect(remove).toHaveBeenNthCalledWith(1, LISTING_URL, undefined, { singleAttempt: true });
     expect(deleteLocal).toHaveBeenCalledWith(compositeId);
     expect(complete).toHaveBeenCalledWith('018f47d2-6a27-7c23-a49d-6b21bb770122');
     // Media cleanup follows the record deletion, one call per media file.
@@ -2806,7 +2970,7 @@ describe('CommerceApplication', () => {
     it('publishing a listing under the narrow bridged grant never requests a widened grant', async () => {
       const record = createCommerceListingFixture();
       vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('transaction-service');
-      vi.spyOn(LocalCommerceService, 'stageListingSync').mockResolvedValue(undefined);
+      vi.spyOn(LocalCommerceService, 'stageListingSync');
       // The public /pub write succeeds under the narrow grant.
       const put = vi.spyOn(CommerceHomeserverService, 'putJson').mockResolvedValue(undefined);
       vi.spyOn(LocalCommerceService, 'upsertListing').mockResolvedValue(undefined);

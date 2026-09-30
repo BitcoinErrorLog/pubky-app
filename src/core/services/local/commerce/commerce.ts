@@ -546,6 +546,20 @@ export class LocalCommerceService {
     await CommerceListingModel.upsert(this.toListingModel(record, syncStatus, current ?? undefined));
   }
 
+  /**
+   * Marks a published listing synced only if its row still holds that
+   * revision, in one transaction. False when a delete or a newer publish
+   * replaced the row since the publish staged it; nothing is written then.
+   */
+  static async markPublishedListingSynced(record: CommerceListingRecord): Promise<boolean> {
+    return await db.transaction('rw', CommerceListingModel.table, async () => {
+      const current = await CommerceListingModel.table.get(`${record.ownerPubky}:${record.listingId}`);
+      if (!current || current.revision !== record.revision) return false;
+      await CommerceListingModel.table.put(this.toListingModel(record, 'synced', current));
+      return true;
+    });
+  }
+
   /** What {@link settleListingRegistration} compares: the row's write id, or null when there is no row. */
   static async getListingRowGeneration(compositeListingId: string): Promise<CommerceListingRowGeneration> {
     const listing = await CommerceListingModel.table.get(compositeListingId);
