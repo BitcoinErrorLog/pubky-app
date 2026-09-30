@@ -256,6 +256,33 @@ describe('useMarketplaceDropClaim', () => {
     expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
   });
 
+  it('says the listing was removed when the sync reports the seller deleted it', async () => {
+    const aggregateId = `listing:${SELLER}_listing1`;
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue(null);
+    vi.mocked(CommerceController.syncListingRegistration).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '018f47d2-6a27-7c23-a62f-000000000752',
+      aggregateId,
+      revision: 2,
+      eventIds: [],
+      result: { kind: 'listing_deleted', listing: { aggregateId, serverRevision: 2 } },
+    } as never);
+
+    const { result } = renderHook(() => useMarketplaceDropClaim());
+    await waitFor(() => expect(result.current.claimAddress).not.toBeNull());
+
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.claim(SELLER, 'listing1', 1);
+    });
+
+    expect(ok).toBe(false);
+    expect(result.current.failure).toBe('This listing was removed.');
+    expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalledTimes(1);
+    expect(CommerceController.executeMarketplaceCommand).not.toHaveBeenCalled();
+  });
+
   it('refuses to claim without a saved delivery address, with honest guidance', async () => {
     vi.mocked(CommerceController.getDeliveryAddresses).mockResolvedValue([] as never);
     const { result } = renderHook(() => useMarketplaceDropClaim());

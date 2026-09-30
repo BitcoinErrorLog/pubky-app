@@ -8,6 +8,7 @@ import {
   createMarketplaceCheckoutCommandSchema,
   createReviewCommandSchema,
   deliverDigitalCommandSchema,
+  isListingDeletedResponse,
   isListingRecordNotFoundResponse,
   isMarketplaceRevisionConflict,
   isSuccessfulListingRegistrationResponse,
@@ -226,6 +227,62 @@ describe('listing registration refused for a missing homeserver record', () => {
         commandId,
       ),
     ).toBe(false);
+  });
+});
+
+describe('listing.sync on a listing the seller deleted', () => {
+  const aggregateId = `listing:${'s'.repeat(52)}_boots_01`;
+  const commandId = '018f47d2-6a27-7c23-a62f-000000000744';
+  // pubky-marketplace-service `sync_listing.rs` `deleted_success`, after wire camel-casing.
+  const tombstone = {
+    ok: true as const,
+    version: 1 as const,
+    commandId,
+    aggregateId,
+    revision: 2,
+    eventIds: ['018f47d2-6a27-7c23-a62f-000000000745'],
+    result: {
+      kind: 'listing_deleted',
+      listing: {
+        aggregateId,
+        sellerPubky: 's'.repeat(52),
+        listingId: 'boots_01',
+        serverRevision: 2,
+        deletedAt: '2026-09-30T12:00:00.000Z',
+      },
+    },
+  };
+
+  it('is a success the response schema accepts', () => {
+    const parsed = marketplaceCommandResponseSchema.parse(tombstone);
+
+    expect(parsed).toMatchObject({ ok: true, result: { kind: 'listing_deleted' } });
+  });
+
+  it('still rejects a result kind the service does not send', () => {
+    expect(
+      marketplaceCommandResponseSchema.safeParse({ ...tombstone, result: { kind: 'listing_removed' } }).success,
+    ).toBe(false);
+  });
+
+  it('is classified for the synced aggregate', () => {
+    expect(isListingDeletedResponse(tombstone, aggregateId)).toBe(true);
+  });
+
+  it('is not classified for another aggregate', () => {
+    expect(isListingDeletedResponse(tombstone, `listing:${'s'.repeat(52)}_other`)).toBe(false);
+  });
+
+  it('is not registration success, so a seller-side register or sync never treats a tombstone as registered', () => {
+    expect(isSuccessfulListingRegistrationResponse(tombstone, aggregateId, commandId)).toBe(false);
+    expect(isSuccessfulListingRegistrationResponse(tombstone, aggregateId, commandId, true)).toBe(false);
+  });
+
+  it.each([
+    { ...tombstone, result: { kind: 'listing' } },
+    { ok: false as const, error: { code: 'NOT_FOUND', message: 'The listing was not found.' } },
+  ])('does not classify %j', (response) => {
+    expect(isListingDeletedResponse(response, aggregateId)).toBe(false);
   });
 });
 
