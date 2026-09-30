@@ -14,7 +14,7 @@ import { Marketplace } from './Marketplace';
 const routerPush = vi.hoisted(() => vi.fn());
 const setSaleFormat = vi.hoisted(() => vi.fn());
 const promoDismiss = vi.hoisted(() => vi.fn());
-const promoState = vi.hoisted(() => ({ showPromo: false }));
+const promoState = vi.hoisted(() => ({ showPromo: false, isResolved: true }));
 const navCounts = vi.hoisted(() => ({ cart: 0, activity: 0 }));
 const catalogState = vi.hoisted(() => ({
   listings: [] as Array<{ id: string; title: string }>,
@@ -84,7 +84,11 @@ vi.mock('@/hooks/useMarketplaceCatalog/useMarketplaceCatalog', () => ({
 }));
 
 vi.mock('@/hooks/useMarketplacePromoDismissal/useMarketplacePromoDismissal', () => ({
-  useMarketplacePromoDismissal: () => ({ showPromo: promoState.showPromo, dismissPromo: promoDismiss }),
+  useMarketplacePromoDismissal: () => ({
+    showPromo: promoState.showPromo,
+    isResolved: promoState.isResolved,
+    dismissPromo: promoDismiss,
+  }),
 }));
 
 vi.mock('@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection', () => ({
@@ -148,6 +152,7 @@ describe('Marketplace', () => {
     setSaleFormat.mockClear();
     promoDismiss.mockClear();
     promoState.showPromo = false;
+    promoState.isResolved = true;
     navCounts.cart = 0;
     navCounts.activity = 0;
     catalogState.listings = [];
@@ -262,6 +267,19 @@ describe('Marketplace', () => {
     expect(buildFeatureDiscoveryDeviceStorageKey(MARKETPLACE_PROMO_STORAGE_ID)).toBe(
       `${FEATURE_DISCOVERY_STORAGE_PREFIX}:${MARKETPLACE_PROMO_STORAGE_ID}`,
     );
+    expect(screen.queryByRole('region', { name: 'Marketplace promo' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the server-rendered promo mounted until the account dismissal resolves', () => {
+    promoState.isResolved = false;
+
+    const { rerender } = render(<Marketplace />);
+
+    expect(screen.getByRole('region', { name: 'Marketplace promo' })).toHaveAttribute('data-marketplace-promo');
+
+    promoState.isResolved = true;
+    rerender(<Marketplace />);
+
     expect(screen.queryByRole('region', { name: 'Marketplace promo' })).not.toBeInTheDocument();
   });
 

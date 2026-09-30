@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Gavel, ShieldCheck, Store, X } from 'lucide-react';
@@ -22,6 +22,7 @@ import { useMarketplacePromoDismissal } from '@/hooks/useMarketplacePromoDismiss
 import { useMarketplaceWatchDetection } from '@/hooks/useMarketplaceWatchDetection/useMarketplaceWatchDetection';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import type { CommerceShopRecord } from '@/libs/commerce/marketplace-records';
+import { removeMarketplacePromoPrepaintStyle } from '@/libs/commerce/promo-prepaint';
 import { cn } from '@/libs/utils/utils';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { DropCard } from '@/organisms/Marketplace/DropCard';
@@ -92,7 +93,7 @@ export function Marketplace({
   const isLoading =
     (saleFormat !== 'drops' && catalog.isLoading && listings.length === 0) ||
     ((saleFormat === 'all' || saleFormat === 'drops') && drops.isLoading && resultCount === 0);
-  const { showPromo, dismissPromo } = useMarketplacePromoDismissal();
+  const { showPromo, isResolved: isPromoDismissalResolved, dismissPromo } = useMarketplacePromoDismissal();
   const [promoStorageHydrated, setPromoStorageHydrated] = useState(false);
   const [isPromoDismissedOnDevice, setIsPromoDismissedOnDevice] = useState(false);
   const [isPromoDismissing, setIsPromoDismissing] = useState(false);
@@ -100,8 +101,12 @@ export function Marketplace({
   // watchlist detection pass — the app has no background daemon.
   useMarketplaceWatchDetection();
   const shouldShowPromo = showPromo && promoStorageHydrated && !isPromoDismissedOnDevice;
+  // Until both dismissal reads resolve, keep the server-rendered promo mounted:
+  // mounting it later would push the catalog down after the first paint.
+  const isPromoResolved = promoStorageHydrated && isPromoDismissalResolved;
+  const renderPromo = shouldShowPromo || !isPromoResolved;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     try {
       setIsPromoDismissedOnDevice(window.localStorage.getItem(MARKETPLACE_PROMO_DEVICE_STORAGE_KEY) === 'dismissed');
     } catch {
@@ -110,6 +115,10 @@ export function Marketplace({
       setPromoStorageHydrated(true);
     }
   }, []);
+
+  useLayoutEffect(() => {
+    if (isPromoResolved) removeMarketplacePromoPrepaintStyle();
+  }, [isPromoResolved]);
 
   const dismissMarketplacePromo = () => {
     setIsPromoDismissing(true);
@@ -138,8 +147,9 @@ export function Marketplace({
         <div className="sticky top-24 z-(--z-sticky-subnav) bg-background after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-16 after:bg-linear-to-b after:from-background/80 after:to-transparent after:content-[''] lg:top-(--header-offset-main)">
           <MarketplaceSectionNav className="mb-0" onNavigate={(href) => requireAuth(() => router.push(href))} />
         </div>
-        {shouldShowPromo && (
+        {renderPromo && (
           <section
+            data-marketplace-promo=""
             aria-label="Marketplace promo"
             className={cn(
               'marketplace-promo-enter relative overflow-hidden rounded-2xl bg-card p-6 sm:p-10',
@@ -194,6 +204,7 @@ export function Marketplace({
               <Image
                 src="/images/marketplace/marketplace-icon.png"
                 alt=""
+                preload
                 width={1280}
                 height={1280}
                 sizes="(min-width: 1024px) 152px, (min-width: 640px) 112px, 144px"

@@ -3,6 +3,7 @@ import { connection } from 'next/server';
 import type { Viewport } from 'next';
 import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { TOOLTIP_DELAY_MS } from '@/config/ui';
+import { buildMarketplacePromoPrepaintScript } from '@/libs/commerce/promo-prepaint';
 import { RootContainer } from '@/molecules/ContainerRoot/ContainerRoot';
 import { Fab } from '@/molecules/Fab/Fab';
 import { Metadata } from '@/molecules/Metadata/Metadata';
@@ -41,6 +42,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <RootContainer>
+      {/* Raw inline script: it must run during parsing, before the promo's first paint. */}
+      <script
+        id="marketplace-promo-prepaint-check"
+        dangerouslySetInnerHTML={{ __html: buildMarketplacePromoPrepaintScript() }}
+      />
       {/*
         Rendered as a sibling of the DatabaseProvider/RouteGuardProvider tree below (not a
         descendant): those are client components that gate {children} behind IndexedDB/auth
