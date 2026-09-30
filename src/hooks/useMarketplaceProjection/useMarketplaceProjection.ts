@@ -9,6 +9,7 @@ import {
 } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
+import { buildMarketplaceListingAggregateId, isListingDeletedResponse } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import type { MarketplaceListingProjection } from '@/services/marketplace/marketplace';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
@@ -89,6 +90,7 @@ async function loadProjection(
   if (!isTransactionalCommerceMode(getCommerceAdapterMode())) return;
   try {
     let next = await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId);
+    let removed = false;
     // An unregistered listing is healable by ANY signed-in user: the service
     // fetches the canonical seller-signed record from the homeserver itself
     // (`listing.sync`). Exactly one attempt per poll cycle, then one re-read.
@@ -96,7 +98,7 @@ async function loadProjection(
     // projection read itself throws the session requirement first, so the
     // needsSession affordance takes precedence over any sync attempt.
     if (!next && isDurableCommerceMode(getCommerceAdapterMode())) {
-      next = await syncThenReread(sellerPubky, listingId);
+      ({ projection: next, removed } = await syncThenReread(sellerPubky, listingId));
     }
     if (!isCurrent()) return;
     setProjection(next);
@@ -104,7 +106,13 @@ async function loadProjection(
       await cacheProjection(next);
       if (!isCurrent()) return;
     }
-    setError(next ? null : MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable);
+    setError(
+      next
+        ? null
+        : removed
+          ? MARKETPLACE_FAILURE_MESSAGES.listingRemoved
+          : MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable,
+    );
     setNeedsSession(false);
   } catch (loadError) {
     if (!isCurrent()) return;
@@ -154,14 +162,25 @@ async function cacheProjection(projection: MarketplaceListingProjection): Promis
 /**
  * One `listing.sync` attempt followed by one projection re-read. Sync
  * failures are deliberately swallowed here: the caller's honest "could not
- * be prepared" copy is the fallback, and the next poll cycle retries.
+ * be prepared" copy is the fallback, and the next poll cycle retries. A sync
+ * that reports the seller deleted the listing is not a failure: `removed`
+ * lets the caller say so.
  */
-async function syncThenReread(sellerPubky: string, listingId: string): Promise<MarketplaceListingProjection | null> {
+async function syncThenReread(
+  sellerPubky: string,
+  listingId: string,
+): Promise<{ projection: MarketplaceListingProjection | null; removed: boolean }> {
   try {
     const response = await CommerceController.syncListingRegistration(sellerPubky, listingId);
-    if (!response.ok) return null;
-    return await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId);
+    if (!response.ok) return { projection: null, removed: false };
+    if (isListingDeletedResponse(response, buildMarketplaceListingAggregateId(sellerPubky, listingId))) {
+      return { projection: null, removed: true };
+    }
+    return {
+      projection: await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId),
+      removed: false,
+    };
   } catch {
-    return null;
+    return { projection: null, removed: false };
   }
 }

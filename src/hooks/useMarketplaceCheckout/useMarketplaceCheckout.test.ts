@@ -247,6 +247,45 @@ describe('useMarketplaceCheckout', () => {
     );
   });
 
+  it('says the listing was removed when the line sync reports the seller deleted it', async () => {
+    config.mode = 'transaction-service';
+    const aggregateId = `listing:${listing.ownerPubky}_${listing.listingId}`;
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue(null);
+    vi.mocked(CommerceController.syncListingRegistration).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '018f47d2-6a27-7c23-a62f-000000000751',
+      aggregateId,
+      revision: 2,
+      eventIds: [],
+      result: { kind: 'listing_deleted', listing: { aggregateId, serverRevision: 2 } },
+    } as never);
+    const clear = vi.fn(async () => {});
+    const { result } = renderHook(() => useMarketplaceCheckout([item], clear));
+    act(() => {
+      result.current.form.setValue('name', 'Alice Buyer');
+      result.current.form.setValue('line1', '1 Market Street');
+      result.current.form.setValue('city', 'New York');
+      result.current.form.setValue('region', 'NY');
+      result.current.form.setValue('postalCode', '10001');
+      result.current.form.setValue('acceptsGuarantee', true);
+    });
+
+    let succeeded = true;
+    await act(async () => {
+      succeeded = await result.current.submit();
+    });
+
+    expect(succeeded).toBe(false);
+    expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
+    expect(CommerceController.commitCreateMarketplaceCheckout).not.toHaveBeenCalled();
+    expect(clear).not.toHaveBeenCalled();
+    const { toast } = await import('@/molecules/Toaster/use-toast');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      expect.objectContaining({ description: 'This listing was removed. Nothing was reserved.' }),
+    );
+  });
+
   it('keeps the cart and asks for a retry when a listing revision conflicts mid-checkout', async () => {
     vi.mocked(CommerceController.commitCreateMarketplaceCheckout).mockResolvedValue({
       ok: false,

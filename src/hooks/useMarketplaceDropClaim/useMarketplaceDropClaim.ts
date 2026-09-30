@@ -8,6 +8,8 @@ import { extractCheckoutOrderIds } from '@/libs/commerce/checkout-phase';
 import { MARKETPLACE_FAILURE_MESSAGES, marketplaceDropRefusalMessage } from '@/libs/commerce/failure-messages';
 import {
   buildMarketplaceCheckoutAggregateId,
+  buildMarketplaceListingAggregateId,
+  isListingDeletedResponse,
   isMarketplaceRevisionConflict,
 } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
@@ -98,11 +100,14 @@ export function useMarketplaceDropClaim(onClaimed?: () => void | Promise<void>):
     setFailure(null);
     try {
       let projection = await CommerceController.getMarketplaceListingProjection(listingOwnerPubky, listingId);
+      let removed = false;
       if (!projection && isDurableCommerceMode(getCommerceAdapterMode())) {
-        projection = await syncThenReread(listingOwnerPubky, listingId);
+        ({ projection, removed } = await syncThenReread(listingOwnerPubky, listingId));
       }
       if (!projection) {
-        setFailure(MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable);
+        setFailure(
+          removed ? MARKETPLACE_FAILURE_MESSAGES.listingRemoved : MARKETPLACE_FAILURE_MESSAGES.claimListingUnavailable,
+        );
         return false;
       }
       const commandId = crypto.randomUUID();
@@ -228,14 +233,21 @@ function formatDeadline(deadline: string): string {
 /**
  * One `listing.sync` attempt followed by one projection re-read — the same
  * buyer-side heal the cart checkout uses for a listing published before
- * durable-mode registration existed.
+ * durable-mode registration existed. A sync that reports the seller deleted
+ * the listing sets `removed` so the caller can say so.
  */
 async function syncThenReread(sellerPubky: string, listingId: string) {
   try {
     const response = await CommerceController.syncListingRegistration(sellerPubky, listingId);
-    if (!response.ok) return null;
-    return await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId);
+    if (!response.ok) return { projection: null, removed: false };
+    if (isListingDeletedResponse(response, buildMarketplaceListingAggregateId(sellerPubky, listingId))) {
+      return { projection: null, removed: true };
+    }
+    return {
+      projection: await CommerceController.getMarketplaceListingProjection(sellerPubky, listingId),
+      removed: false,
+    };
   } catch {
-    return null;
+    return { projection: null, removed: false };
   }
 }

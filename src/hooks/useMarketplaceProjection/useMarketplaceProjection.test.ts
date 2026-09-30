@@ -138,6 +138,29 @@ describe('useMarketplaceProjection', () => {
     );
   });
 
+  it('says the listing was removed when the sync reports the seller deleted it', async () => {
+    config.mode = 'transaction-service';
+    const aggregateId = `listing:${'y'.repeat(52)}_item`;
+    vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue(null);
+    vi.mocked(CommerceController.syncListingRegistration).mockResolvedValue({
+      ok: true,
+      version: 1,
+      commandId: '018f47d2-6a27-7c23-a62f-000000000750',
+      aggregateId,
+      revision: 2,
+      eventIds: [],
+      result: { kind: 'listing_deleted', listing: { aggregateId, serverRevision: 2 } },
+    } as never);
+
+    const { result } = renderHook(() => useMarketplaceProjection('y'.repeat(52), 'item'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(CommerceController.syncListingRegistration).toHaveBeenCalledTimes(1);
+    expect(CommerceController.getMarketplaceListingProjection).toHaveBeenCalledTimes(1);
+    expect(result.current.projection).toBeNull();
+    expect(result.current.error).toBe('This listing was removed.');
+  });
+
   it('never attempts a sync in sandbox mode', async () => {
     config.mode = 'sandbox';
     vi.mocked(CommerceController.getMarketplaceListingProjection).mockResolvedValue(null);

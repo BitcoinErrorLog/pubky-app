@@ -30,8 +30,10 @@ import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
 import {
+  buildMarketplaceListingAggregateId,
   buildMarketplaceOrderAggregateId,
   classifyMarketplacePickupCommandRefusal,
+  isListingDeletedResponse,
   isMarketplaceRevisionConflict,
 } from '@/libs/commerce/transaction-commands';
 import { AppError } from '@/libs/error/error';
@@ -74,15 +76,22 @@ function addressFieldValues(
  * One `listing.sync` attempt followed by one projection re-read — the
  * buyer-side heal for a cart line whose listing was published before
  * durable-mode registration existed. Sync failures fall through to the
- * caller's honest failure toast.
+ * caller's honest failure toast. A sync that reports the seller deleted the
+ * listing sets `removed` so the caller can say so.
  */
 async function syncLineProjection(ownerPubky: string, listingId: string) {
   try {
     const response = await CommerceController.syncListingRegistration(ownerPubky, listingId);
-    if (!response.ok) return null;
-    return await CommerceController.getMarketplaceListingProjection(ownerPubky, listingId);
+    if (!response.ok) return { projection: null, removed: false };
+    if (isListingDeletedResponse(response, buildMarketplaceListingAggregateId(ownerPubky, listingId))) {
+      return { projection: null, removed: true };
+    }
+    return {
+      projection: await CommerceController.getMarketplaceListingProjection(ownerPubky, listingId),
+      removed: false,
+    };
   } catch {
-    return null;
+    return { projection: null, removed: false };
   }
 }
 
@@ -389,7 +398,7 @@ export function useMarketplaceCheckout(
         try {
           let projection = await CommerceController.getMarketplaceListingProjection(ownerPubky, listingId);
           if (!projection && isDurableCommerceMode(getCommerceAdapterMode())) {
-            projection = await syncLineProjection(ownerPubky, listingId);
+            ({ projection } = await syncLineProjection(ownerPubky, listingId));
           }
           return [itemId, projection?.digitalDelivery?.kind ?? null] as const;
         } catch {
@@ -513,12 +522,15 @@ export function useMarketplaceCheckout(
     data: MarketplaceCheckoutData,
   ): Promise<{ ok: true; result: unknown; lines: CheckoutLine[] } | { ok: false }> => {
     const freshKinds: Array<MarketplaceDigitalDeliveryKind | null> = [];
+    let sawRemovedListing = false;
     const lines = await Promise.all(
       items.map(async (item) => {
         const record = item.listing.record;
         let projection = await CommerceController.getMarketplaceListingProjection(record.ownerPubky, record.listingId);
         if (!projection && isDurableCommerceMode(getCommerceAdapterMode())) {
-          projection = await syncLineProjection(record.ownerPubky, record.listingId);
+          const healed = await syncLineProjection(record.ownerPubky, record.listingId);
+          projection = healed.projection;
+          if (healed.removed) sawRemovedListing = true;
         }
         if (!projection) return null;
         const digital = goesDigital(item);
@@ -542,8 +554,9 @@ export function useMarketplaceCheckout(
     if (lines.some((line) => line === null)) {
       toast({
         variant: 'error',
-        description:
-          'A listing in your cart could not be prepared for checkout. It may have been removed by the seller. Nothing was reserved.',
+        description: sawRemovedListing
+          ? `${MARKETPLACE_FAILURE_MESSAGES.listingRemoved} Nothing was reserved.`
+          : 'A listing in your cart could not be prepared for checkout. It may have been removed by the seller. Nothing was reserved.',
       });
       return { ok: false };
     }

@@ -211,6 +211,48 @@ describe('MarketplaceTransactionService.execute', () => {
     });
   });
 
+  it('returns the 200 listing_deleted result of a listing.sync as a parsed success, not INVALID_RESPONSE', async () => {
+    await establishSession();
+    // pubky-marketplace-service `sync_listing.rs` `deleted_success` wrapped in the command envelope.
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        ok: true,
+        version: 1,
+        command_id: COMMAND_ID,
+        aggregate_id: AGGREGATE_ID,
+        revision: 2,
+        event_ids: ['00000000-0000-4000-8000-000000000702'],
+        result: {
+          kind: 'listing_deleted',
+          listing: {
+            aggregate_id: AGGREGATE_ID,
+            seller_pubky: ACTOR,
+            listing_id: 'boots_01',
+            server_revision: 2,
+            deleted_at: '2026-09-30T12:00:00.000Z',
+          },
+        },
+      }),
+    );
+    const sync = {
+      version: 1 as const,
+      commandId: COMMAND_ID,
+      aggregateId: AGGREGATE_ID,
+      expectedRevision: 0,
+      issuedAt: '2026-09-30T12:00:00.000Z',
+      kind: 'listing.sync' as const,
+      payload: { sellerPubky: ACTOR, listingId: 'boots_01' },
+    };
+
+    await expect(MarketplaceTransactionService.execute(ACTOR, sync)).resolves.toMatchObject({
+      ok: true,
+      commandId: COMMAND_ID,
+      aggregateId: AGGREGATE_ID,
+      revision: 2,
+      result: { kind: 'listing_deleted', listing: { listingId: 'boots_01', serverRevision: 2 } },
+    });
+  });
+
   it('passes the caller deadline to the command request', async () => {
     await establishSession();
     vi.mocked(fetch).mockResolvedValueOnce(

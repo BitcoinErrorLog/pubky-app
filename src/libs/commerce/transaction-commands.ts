@@ -677,6 +677,7 @@ export const marketplaceCommandResponseSchema = z.discriminatedUnion('ok', [
         .object({
           kind: z.enum([
             'listing',
+            'listing_deleted',
             'unchanged',
             'no_op',
             'noop',
@@ -806,6 +807,15 @@ export function isListingRecordNotFoundResponse(
     (aggregateId === undefined || aggregateId === expectedAggregateId) &&
     (commandId === undefined || commandId === expectedCommandId)
   );
+}
+
+/**
+ * `listing.sync` on a listing the seller deleted from their homeserver is a
+ * successful command whose result is a tombstone (`kind: "listing_deleted"`),
+ * not a listing. The aggregate id must match the one the caller synced.
+ */
+export function isListingDeletedResponse(response: MarketplaceCommandResponse, expectedAggregateId: string): boolean {
+  return response.ok && response.aggregateId === expectedAggregateId && response.result.kind === 'listing_deleted';
 }
 
 export function isCorrelatedBenignListingRegistrationResponse(
