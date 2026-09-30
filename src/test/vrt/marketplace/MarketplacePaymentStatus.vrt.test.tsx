@@ -44,8 +44,7 @@ const view = vi.hoisted(() => ({
   sellerConfig: {
     bitcoinAvailable: true,
     bitcoinOfferAvailable: true,
-    stripePaymentLink: 'https://buy.stripe.com/test_fixture' as string | null,
-    paypalMerchantEmail: 'seller@example.com' as string | null,
+    paypalAvailable: true,
   },
 }));
 
@@ -274,8 +273,7 @@ describe('Marketplace payment status card — visual regression', () => {
     view.sellerConfig = {
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     };
     const screen = await renderCard('awaiting_entitlement', 'transaction-service', { deployEnv: 'staging' });
     await expect.element(screen.getByText(/has not set up any payment methods/)).toBeInTheDocument();

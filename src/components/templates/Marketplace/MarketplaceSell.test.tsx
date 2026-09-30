@@ -79,8 +79,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
       Promise.resolve({
         bitcoinAvailable: true,
         bitcoinOfferAvailable: true,
-        stripePaymentLink: null,
-        paypalMerchantEmail: null,
+        paypalAvailable: false,
       }),
     restorePersistedMarketplaceSession,
     getCartItems: () => Promise.resolve([]),

@@ -17,24 +17,21 @@ describe('payment-methods', () => {
         availablePaymentMethods({
           bitcoinAvailable: true,
           bitcoinOfferAvailable: true,
-          stripePaymentLink: 'https://buy.stripe.com/test_abc',
-          paypalMerchantEmail: 'seller@example.com',
+          paypalAvailable: true,
         }),
       ).toEqual(['bitcoin', 'paypal']);
       expect(
         availablePaymentMethods({
           bitcoinAvailable: false,
           bitcoinOfferAvailable: true,
-          stripePaymentLink: null,
-          paypalMerchantEmail: null,
+          paypalAvailable: false,
         }),
       ).toEqual([]);
       expect(
         availablePaymentMethods({
           bitcoinAvailable: false,
           bitcoinOfferAvailable: true,
-          stripePaymentLink: null,
-          paypalMerchantEmail: 'seller@example.com',
+          paypalAvailable: true,
         }),
       ).toEqual(['paypal']);
     });
@@ -42,8 +39,7 @@ describe('payment-methods', () => {
     it('defaults an absent Bitcoin offer gate to available for older services', () => {
       const config = sellerPaymentConfigSchema.parse({
         bitcoinAvailable: true,
-        stripePaymentLink: null,
-        paypalMerchantEmail: null,
+        paypalAvailable: false,
       });
 
       expect(config.bitcoinOfferAvailable).toBe(true);
@@ -54,37 +50,86 @@ describe('payment-methods', () => {
       const config = sellerPaymentConfigSchema.parse({
         bitcoinAvailable: true,
         bitcoinOfferAvailable: false,
-        stripePaymentLink: null,
-        paypalMerchantEmail: null,
+        paypalAvailable: false,
       });
 
       expect(availablePaymentMethods(config)).toEqual([]);
     });
 
     it('never includes Stripe in the checkout rail list', () => {
-      const withLink = availablePaymentMethods({
-        bitcoinAvailable: true,
-        bitcoinOfferAvailable: true,
-        stripePaymentLink: 'https://buy.stripe.com/aBcDeF123456',
-        paypalMerchantEmail: 'seller@example.com',
-      });
-      const stripeOnly = availablePaymentMethods({
+      const withStripe = availablePaymentMethods(
+        sellerPaymentConfigSchema.parse({
+          bitcoinAvailable: true,
+          bitcoinOfferAvailable: true,
+          paypalAvailable: true,
+          stripeAvailable: true,
+        }),
+      );
+      const stripeOnly = availablePaymentMethods(
+        sellerPaymentConfigSchema.parse({
+          bitcoinAvailable: false,
+          bitcoinOfferAvailable: true,
+          paypalAvailable: false,
+          stripeAvailable: true,
+        }),
+      );
+
+      expect(withStripe).not.toContain('stripe');
+      expect(stripeOnly).toEqual([]);
+    });
+  });
+
+  describe('sellerPaymentConfigSchema', () => {
+    it('reads the public boolean rails', () => {
+      const config = sellerPaymentConfigSchema.parse({
         bitcoinAvailable: false,
         bitcoinOfferAvailable: true,
-        stripePaymentLink: 'https://buy.stripe.com/aBcDeF123456',
-        paypalMerchantEmail: null,
+        paypalAvailable: true,
+        stripeAvailable: false,
       });
 
-      expect(withLink).not.toContain('stripe');
-      expect(stripeOnly).toEqual([]);
+      expect(config).toEqual({ bitcoinAvailable: false, bitcoinOfferAvailable: true, paypalAvailable: true });
+      expect(availablePaymentMethods(config)).toEqual(['paypal']);
+    });
+
+    it('keeps no payout identifier from a response that still carries them', () => {
+      const config = sellerPaymentConfigSchema.parse({
+        bitcoinAvailable: false,
+        bitcoinOfferAvailable: true,
+        stripePaymentLink: 'https://buy.stripe.com/test_abc',
+        paypalMerchantEmail: 'seller@example.com',
+      });
+
+      expect(config).toEqual({ bitcoinAvailable: false, bitcoinOfferAvailable: true, paypalAvailable: true });
+      expect(JSON.stringify(config)).not.toMatch(/@|stripe\.com|example\.com/);
+      expect(availablePaymentMethods(config)).toEqual(['paypal']);
+    });
+
+    it('treats an absent or empty legacy email as no PayPal', () => {
+      expect(
+        sellerPaymentConfigSchema.parse({ bitcoinAvailable: true, paypalMerchantEmail: null }).paypalAvailable,
+      ).toBe(false);
+      expect(sellerPaymentConfigSchema.parse({ bitcoinAvailable: true, paypalMerchantEmail: '' }).paypalAvailable).toBe(
+        false,
+      );
+      expect(sellerPaymentConfigSchema.parse({ bitcoinAvailable: true }).paypalAvailable).toBe(false);
+    });
+
+    it('lets the boolean win over a legacy email', () => {
+      expect(
+        sellerPaymentConfigSchema.parse({
+          bitcoinAvailable: true,
+          paypalAvailable: false,
+          paypalMerchantEmail: 'seller@example.com',
+        }).paypalAvailable,
+      ).toBe(false);
     });
 
     it('keeps Bitcoin when the rail-wide offer gate is on', () => {
       const config = sellerPaymentConfigSchema.parse({
         bitcoinAvailable: true,
         bitcoinOfferAvailable: true,
-        stripePaymentLink: null,
-        paypalMerchantEmail: null,
+        paypalAvailable: false,
       });
 
       expect(availablePaymentMethods(config)).toEqual(['bitcoin']);

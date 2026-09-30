@@ -172,6 +172,79 @@ describe('purchase-session persistence: a tab only removes the record it owns', 
     expect(bffDeletes()).toEqual(['/api/marketplace/session']);
   });
 
+  it('old memory at its expiry margin with a newer valid record: restore adopts it and it survives the next reload', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    thisTabHolds(HOUR);
+    vi.setSystemTime(Date.now() + HOUR - 30_000);
+    const newer = otherTabPersists(24 * HOUR);
+
+    expect(MarketplaceSessionService.restorePersistedSession(PUBKY)?.capabilities).toBe(parity);
+    expect(MarketplaceSessionService.getActiveSession()?.token).toBe(OTHER_TAB.token);
+    expect(stored()).toBe(newer);
+
+    vi.resetModules();
+    const { MarketplaceSessionService: afterReload } = await import('./marketplace-session');
+    expect(afterReload.restorePersistedSession(PUBKY)?.capabilities).toBe(parity);
+    expect(afterReload.getActiveSession()?.token).toBe(OTHER_TAB.token);
+  });
+
+  it('an account switch drops the departed account’s bearer from memory and rest, and keeps the new account’s', () => {
+    thisTabHolds(HOUR);
+    MarketplaceSessionService.clearOtherAccounts('z'.repeat(52));
+    expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(stored()).toBeNull();
+
+    const kept = otherTabPersists(HOUR);
+    MarketplaceSessionService.clearOtherAccounts(PUBKY);
+    expect(stored()).toBe(kept);
+  });
+
+  it('an account switch unpairs the BFF session of the departed record, and only that one', () => {
+    const departed = JSON.stringify({
+      ...OTHER_TAB,
+      pubky: 'z'.repeat(52),
+      capabilities: parity,
+      expiresAt: iso(Date.now() + 24 * HOUR),
+    });
+    window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, departed);
+    fetchSpy.mockClear();
+
+    MarketplaceSessionService.clearOtherAccounts(PUBKY);
+
+    expect(stored()).toBeNull();
+    expect(bffDeletes()).toEqual([`/api/marketplace/session?session_id=${OTHER_TAB.sessionId}`]);
+  });
+
+  it('an account switch persists the new account’s bearer that a later-expiring departed record kept out', () => {
+    window.localStorage.setItem(
+      MARKETPLACE_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        ...OTHER_TAB,
+        pubky: 'z'.repeat(52),
+        capabilities: parity,
+        expiresAt: iso(Date.now() + 48 * HOUR),
+      }),
+    );
+    thisTabHolds(HOUR);
+    expect(JSON.parse(stored()!)).toMatchObject({ token: OTHER_TAB.token });
+
+    MarketplaceSessionService.clearOtherAccounts(PUBKY);
+
+    expect(JSON.parse(stored()!)).toMatchObject({ token: THIS_TAB.token, pubky: PUBKY });
+  });
+
+  it('restore leaves another account’s record in place', () => {
+    const foreign = JSON.stringify({
+      ...OTHER_TAB,
+      pubky: 'z'.repeat(52),
+      capabilities: parity,
+      expiresAt: iso(Date.now() + 24 * HOUR),
+    });
+    window.localStorage.setItem(MARKETPLACE_SESSION_STORAGE_KEY, foreign);
+    expect(MarketplaceSessionService.restorePersistedSession(PUBKY)).toBeNull();
+    expect(stored()).toBe(foreign);
+  });
+
   it('restore drops an expired record it read, and only that record', () => {
     vi.useFakeTimers();
     const expired = otherTabPersists(10_000);

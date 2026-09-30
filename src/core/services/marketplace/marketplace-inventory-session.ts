@@ -182,31 +182,41 @@ export class MarketplaceInventorySessionService {
     return this.toPublicInfo(this.session);
   }
 
+  /**
+   * Restores the Studio bearer persisted for `expectedPubky`. `localStorage` is
+   * shared across tabs, so the slot may hold another tab's newer bearer or
+   * another account's: a record that does not validate is removed only while
+   * the slot still holds exactly what was read, and another account's record
+   * is left for its owner (sign-out removes every record).
+   */
   static restorePersistedSession(expectedPubky: string): MarketplaceSessionInfo | null {
     if (!isDurableCommerceMode(getCommerceAdapterMode())) return null;
+    // Expire memory before reading the slot, so the expiry cleanup runs
+    // against the old bearer and never against the candidate read below.
+    this.getActiveSession();
     const raw = this.readStorage();
     if (raw === null) return null;
 
     const parsed = sessionResponseSchema.safeParse(this.parseJson(raw));
-    if (!parsed.success || parsed.data.pubky !== expectedPubky) {
-      this.removePersistedSession();
+    if (!parsed.success) {
+      this.removePersistedRecordIfUnchanged(raw);
       return null;
     }
+    if (parsed.data.pubky !== expectedPubky) return null;
     const capabilities = clampInventoryPersistedCapabilities(parsed.data.capabilities);
     if (capabilities === null) {
-      this.removePersistedSession();
+      this.removePersistedRecordIfUnchanged(raw);
       return null;
     }
     const { token, sessionId, pubky, expiresAt } = parsed.data;
     const expiresAtMs = Date.parse(expiresAt);
     if (Date.now() >= expiresAtMs - SESSION_EXPIRY_MARGIN_MS) {
-      this.removePersistedSession();
+      this.removePersistedRecordIfUnchanged(raw);
       return null;
     }
 
     const issuedAt = new Date().toISOString();
     this.session = { token, sessionId, pubky, capabilities, expiresAt, expiresAtMs, issuedAt };
-    this.writePersistedSession({ token, sessionId, pubky, capabilities, expiresAt });
     Logger.info('Restored marketplace inventory session', { pubky, expiresAt });
     return this.toPublicInfo(this.session);
   }
@@ -244,21 +254,62 @@ export class MarketplaceInventorySessionService {
     return null;
   }
 
-  /** Drops the session behind a bearer the service refused. */
+  /**
+   * Drops the session behind a bearer the service refused, only while it is
+   * still the bearer in memory: a newer session adopted while the request was
+   * in flight stays.
+   */
   static clearRejectedBearer(bearer: InventoryBearer): void {
     if (bearer.source === 'purchase') {
       MarketplaceSessionService.clearSessionIfBearer(bearer.token, 'rejected');
       return;
     }
+    if (this.session?.token !== bearer.token) return;
     this.clearSession('rejected');
   }
 
+  /**
+   * Drops the in-memory Studio session (TTL margin, a refused bearer, a
+   * revoke) and only the persisted record that carries its bearer: another
+   * tab's newer bearer in the shared slot survives. Sign-out and account
+   * switch use {@link clearForSignOut} instead.
+   */
   static clearSession(reason: MarketplaceSessionEndedReason = 'cleared'): void {
+    const ended = this.session;
+    this.session = null;
+    if (!ended) return;
+    this.removePersistedSessionIfOwned(ended.token);
+    this.notifySessionEnded({ reason, issuedAt: ended.issuedAt });
+  }
+
+  /**
+   * Sign-out and account switch: no Studio bearer may stay at rest for the
+   * user who is leaving, whichever tab persisted it. The only path that
+   * removes a record it did not write.
+   */
+  static clearForSignOut(): void {
     const ended = this.session;
     this.session = null;
     this.removePersistedSession();
     if (!ended) return;
-    this.notifySessionEnded({ reason, issuedAt: ended.issuedAt });
+    this.notifySessionEnded({ reason: 'cleared', issuedAt: ended.issuedAt });
+  }
+
+  /**
+   * Account switch without a sign-out: the Studio bearer of any account but
+   * `keepPubky` goes from memory and from rest, whichever tab persisted it.
+   * A Studio bearer `keepPubky` holds is persisted again if the departed
+   * record had kept it out of the slot.
+   */
+  static clearOtherAccounts(keepPubky: string): void {
+    if (this.session && this.session.pubky !== keepPubky) this.clearSession('cleared');
+    const stored = this.persistedBearer();
+    if (!stored || stored.pubky === keepPubky) return;
+    this.removePersistedSession();
+    if (this.session) {
+      const { token, sessionId, pubky, capabilities, expiresAt } = this.session;
+      this.writePersistedSession({ token, sessionId, pubky, capabilities, expiresAt });
+    }
   }
 
   private static toPublicInfo(session: StoredInventorySession): MarketplaceSessionInfo {
@@ -277,13 +328,47 @@ export class MarketplaceInventorySessionService {
     });
   }
 
+  /**
+   * Persists a freshly minted Studio session unless the slot already holds a
+   * different bearer that outlives it: another tab minted after this tab's
+   * request left, and its newer record must not be overwritten.
+   */
   private static writePersistedSession(session: z.infer<typeof sessionResponseSchema>): void {
     if (typeof window === 'undefined') return;
+    const stored = this.persistedBearer();
+    if (stored && stored.token !== session.token && stored.expiresAtMs > Date.parse(session.expiresAt)) {
+      Logger.warn('Kept a newer inventory session another tab persisted.');
+      return;
+    }
     try {
       window.localStorage.setItem(INVENTORY_SESSION_STORAGE_KEY, JSON.stringify(session));
     } catch {
       Logger.warn('Could not persist the inventory session; it will last until the next reload only.');
     }
+  }
+
+  /** The bearer, account and expiry of the persisted record, or null when there is none to compare. */
+  private static persistedBearer(): { token: string; pubky: unknown; expiresAtMs: number } | null {
+    const raw = this.readStorage();
+    if (raw === null) return null;
+    const value = this.parseJson(raw);
+    if (typeof value !== 'object' || value === null) return null;
+    const { token, pubky, expiresAt } = value as { token?: unknown; pubky?: unknown; expiresAt?: unknown };
+    if (typeof token !== 'string') return null;
+    const expiresAtMs = typeof expiresAt === 'string' ? Date.parse(expiresAt) : Number.NaN;
+    return { token, pubky, expiresAtMs: Number.isNaN(expiresAtMs) ? 0 : expiresAtMs };
+  }
+
+  /** Removes the persisted record only when it still carries `token`. */
+  private static removePersistedSessionIfOwned(token: string): void {
+    if (this.persistedBearer()?.token !== token) return;
+    this.removePersistedSession();
+  }
+
+  /** Removes the persisted record only when it is still exactly `raw`. */
+  private static removePersistedRecordIfUnchanged(raw: string): void {
+    if (this.readStorage() !== raw) return;
+    this.removePersistedSession();
   }
 
   private static removePersistedSession(): void {

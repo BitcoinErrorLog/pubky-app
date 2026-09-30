@@ -42,7 +42,7 @@ const pickupCapability = vi.hoisted(() => ({
 const digitalCapability = vi.hoisted(() => ({
   available: true,
   pending: false,
-  paypalMerchantEmail: null as string | null,
+  paypalAvailable: false,
   getSellerPaymentConfig: vi.fn(),
 }));
 
@@ -114,13 +114,12 @@ beforeEach(() => {
   pickupCapability.pending = false;
   digitalCapability.available = true;
   digitalCapability.pending = false;
-  digitalCapability.paypalMerchantEmail = null;
+  digitalCapability.paypalAvailable = false;
   digitalCapability.getSellerPaymentConfig.mockReset();
   digitalCapability.getSellerPaymentConfig.mockImplementation(async () => ({
     bitcoinAvailable: true,
     bitcoinOfferAvailable: true,
-    stripePaymentLink: null,
-    paypalMerchantEmail: digitalCapability.paypalMerchantEmail,
+    paypalAvailable: digitalCapability.paypalAvailable,
   }));
   useAuthStore.setState({ currentUserPubky: null });
   pickupCapability.commitSetPickupDetails.mockReset();
@@ -1211,7 +1210,7 @@ describe('MarketplaceListingForm digital delivery (digital delivery design §2)'
 
   it('warns about PayPal reversals on a digital listing when the shop accepts PayPal', async () => {
     useAuthStore.setState({ currentUserPubky: 'seller_pubky' });
-    digitalCapability.paypalMerchantEmail = 'seller@example.com';
+    digitalCapability.paypalAvailable = true;
     const { unmount } = render(<FormHarness fulfillment="shipping_and_digital" />);
 
     expect(await screen.findByTestId('listing-digital-paypal-warning')).toHaveTextContent(

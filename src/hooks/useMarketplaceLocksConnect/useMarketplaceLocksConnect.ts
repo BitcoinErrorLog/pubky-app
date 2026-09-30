@@ -43,8 +43,9 @@ export const LOCKS_STATUS_CHECK_ERROR =
 
 const LOCKS_CONNECT_TIMEOUT_MS = 6 * 60 * 1_000;
 
-function rejectMismatchedCreator(): void {
-  CommerceController.clearLocksFrontendSession();
+/** Drops the stored session a check found under another creator; a newer one another tab saved stays. */
+function rejectMismatchedCreator(token: string): void {
+  CommerceController.clearLocksFrontendSession(token);
   window.localStorage.removeItem(LOCKS_CONNECT_STATE_STORAGE_KEY);
 }
 
@@ -115,7 +116,8 @@ export function useMarketplaceLocksConnect() {
       try {
         const session = await CommerceController.createLocksFrontendSession(code, state, currentUserPubky ?? undefined);
         if (!locksCreatorMatchesShopPubky(session.creator, currentUserPubky)) {
-          rejectMismatchedCreator();
+          // The foreign session was never saved; the one at rest is not this exchange's to clear.
+          window.localStorage.removeItem(LOCKS_CONNECT_STATE_STORAGE_KEY);
           pendingStateRef.current = null;
           setConnectedCreator(null);
           setError(LOCKS_CONNECT_IDENTITY_ERROR);
@@ -157,7 +159,7 @@ export function useMarketplaceLocksConnect() {
     }
     const stored = CommerceController.restoreLocksFrontendSession(currentUserPubky);
     if (stored && !locksCreatorMatchesShopPubky(stored.creator, currentUserPubky)) {
-      rejectMismatchedCreator();
+      rejectMismatchedCreator(stored.token);
       setError(LOCKS_CONNECT_IDENTITY_ERROR);
       setConnectedCreator(null);
       return;
@@ -195,12 +197,12 @@ export function useMarketplaceLocksConnect() {
             return;
           }
           if (status.authorized) {
-            rejectMismatchedCreator();
+            rejectMismatchedCreator(stored.token);
             setError(LOCKS_CONNECT_IDENTITY_ERROR);
             setConnectedCreator(null);
             return;
           }
-          CommerceController.clearLocksFrontendSession();
+          CommerceController.clearLocksFrontendSession(stored.token);
         } catch (error) {
           if (!isCurrent()) return;
           if (!isRejectedLocksSession(error)) {
@@ -208,7 +210,7 @@ export function useMarketplaceLocksConnect() {
             setError(LOCKS_STATUS_CHECK_ERROR);
             return;
           }
-          CommerceController.clearLocksFrontendSession();
+          CommerceController.clearLocksFrontendSession(stored.token);
         }
       }
       await restoreFromStoredAuthority();

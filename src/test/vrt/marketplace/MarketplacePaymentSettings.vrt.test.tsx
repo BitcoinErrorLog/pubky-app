@@ -42,8 +42,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getSellerPaymentConfig: async () => ({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: 'https://buy.stripe.com/test_fixture',
-      paypalMerchantEmail: 'seller@example.com',
+      paypalAvailable: true,
     }),
     getPaykitSetupUrl: () => 'about:blank',
     getMyPaymentConfig: vi.fn(async () => ({

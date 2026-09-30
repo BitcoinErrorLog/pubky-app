@@ -84,8 +84,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getSellerPaymentConfig: vi.fn(async () => ({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     })),
   },
 }));
@@ -103,8 +102,7 @@ describe('useEditMarketplaceListing', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     });
   });
 
@@ -162,8 +160,7 @@ describe('useEditMarketplaceListing', () => {
     vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue({
       bitcoinAvailable: false,
       bitcoinOfferAvailable: true,
-      stripePaymentLink: null,
-      paypalMerchantEmail: null,
+      paypalAvailable: false,
     });
     const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
     await waitFor(() => expect(result.current.status).toBe('ready'));

@@ -11,11 +11,10 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   },
 }));
 
-const paymentConfig = (paypalMerchantEmail: string | null) => ({
+const paymentConfig = (paypalAvailable: boolean) => ({
   bitcoinAvailable: true,
   bitcoinOfferAvailable: true,
-  stripePaymentLink: null,
-  paypalMerchantEmail,
+  paypalAvailable,
 });
 
 beforeEach(() => {
@@ -58,7 +57,7 @@ describe('useSellerAcceptsPaypal', () => {
 
   it("follows the signed-in seller's PayPal rail", async () => {
     useAuthStore.setState({ currentUserPubky: 'seller_pubky' });
-    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue(paymentConfig('seller@example.com'));
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValue(paymentConfig(true));
     const { result } = renderHook(() => useSellerAcceptsPaypal());
 
     await waitFor(() => {
@@ -69,7 +68,7 @@ describe('useSellerAcceptsPaypal', () => {
 
   it('is false for a shop without PayPal and on a failed read', async () => {
     useAuthStore.setState({ currentUserPubky: 'seller_pubky' });
-    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce(paymentConfig(null));
+    vi.mocked(CommerceController.getSellerPaymentConfig).mockResolvedValueOnce(paymentConfig(false));
     const first = renderHook(() => useSellerAcceptsPaypal());
     await waitFor(() => {
       expect(CommerceController.getSellerPaymentConfig).toHaveBeenCalledTimes(1);
