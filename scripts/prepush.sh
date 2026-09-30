@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Pre-push gate. Last line on success: PREPUSH OK <sha> <seconds>
+# Pre-push gate. Last line on success: PREPUSH OK <sha> <seconds> <mode>
+#
+# fast (default): prettier and eslint on files changed since the merge base,
+#   typecheck, and the unit tests vitest relates to those files.
+# full (PREPUSH_FULL=1, releases): fast plus Linux VRT for every spec that
+#   renders a changed file.
+# CI runs the whole unit suite and the Linux VRT projects on every pull
+# request to a release branch; fast relies on that.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -8,6 +15,10 @@ cd "$ROOT"
 start=$(date +%s)
 # shellcheck source=heavy-lock.sh
 source "$ROOT/scripts/heavy-lock.sh"
+# shellcheck source=prepush-stamp.sh
+source "$ROOT/scripts/prepush-stamp.sh"
+prepush_mode_init || exit 1
+echo "prepush: mode ${PREPUSH_MODE}"
 
 # Hook stdin lists the refs being pushed. A push whose every commit message
 # contains [skip ci] does not run the gate. A manual tty run always does.
@@ -68,8 +79,6 @@ if [ -n "$deps_problem" ]; then
 fi
 
 sha="$(git rev-parse HEAD)"
-# shellcheck source=prepush-stamp.sh
-source "$ROOT/scripts/prepush-stamp.sh"
 if prepush_reuse "$sha"; then
   exit 0
 fi
@@ -138,23 +147,27 @@ if [ "${#unit_files[@]}" -gt 0 ]; then
   rm -f "$related_log"
 fi
 
-vrt_specs=()
-if [ "${#changed[@]}" -gt 0 ]; then
-  while IFS= read -r line; do
-    [ -n "$line" ] && vrt_specs+=("$line")
-  done < <(node scripts/vrt-related.mjs "${changed[@]}")
-fi
+if [ "$PREPUSH_MODE" = full ]; then
+  vrt_specs=()
+  if [ "${#changed[@]}" -gt 0 ]; then
+    while IFS= read -r line; do
+      [ -n "$line" ] && vrt_specs+=("$line")
+    done < <(node scripts/vrt-related.mjs "${changed[@]}")
+  fi
 
-# Linux baselines from the pinned container are the only VRT gate.
-# *-darwin.png files are not compared and are not regenerated.
-if [ "${#vrt_specs[@]}" -gt 0 ]; then
-  echo "prepush: linux vrt (${#vrt_specs[@]} specs)"
-  printf '  %s\n' "${vrt_specs[@]}"
-  bash scripts/vrt-linux.sh "${vrt_specs[@]}"
+  # Linux baselines from the pinned container are the only VRT gate.
+  # *-darwin.png files are not compared and are not regenerated.
+  if [ "${#vrt_specs[@]}" -gt 0 ]; then
+    echo "prepush: linux vrt (${#vrt_specs[@]} specs)"
+    printf '  %s\n' "${vrt_specs[@]}"
+    bash scripts/vrt-linux.sh "${vrt_specs[@]}"
+  else
+    echo "prepush: linux vrt (no specs render a changed file)"
+  fi
 else
-  echo "prepush: linux vrt (no specs render a changed file)"
+  echo "prepush: linux vrt skipped in fast mode (PREPUSH_FULL=1 runs it; CI runs it on the PR)"
 fi
 
 prepush_stamp "$sha"
 seconds="$(( $(date +%s) - start ))"
-echo "PREPUSH OK ${sha} ${seconds}"
+echo "PREPUSH OK ${sha} ${seconds} ${PREPUSH_MODE}"
