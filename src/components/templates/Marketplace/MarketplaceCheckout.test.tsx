@@ -3,7 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { MarketplaceCheckout } from './MarketplaceCheckout';
+
+setHeavySuiteBudgets();
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();

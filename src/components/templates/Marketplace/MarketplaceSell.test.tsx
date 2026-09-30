@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useForm } from 'react-hook-form';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,7 +11,10 @@ import type { UseListingMediaManagerResult } from '@/hooks/useListingMediaManage
 import type { MarketplaceSessionInfo } from '@/services/marketplace/marketplace-session';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
+import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { MarketplaceSell } from './MarketplaceSell';
+
+setHeavySuiteBudgets();
 
 // A published-with-pickup listing still needs its meeting point, and the
 // pickup-details editor only exists post-publish — so the sell studio routes
@@ -214,7 +217,7 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Publish listing' }));
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(routerPush).toHaveBeenCalledWith(getMarketplaceListingRoute('seller', 'boots_01'));
     });
   });
@@ -226,7 +229,7 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Publish listing' }));
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(routerPush).toHaveBeenCalledWith(
         `${getMarketplaceListingEditRoute('seller', 'boots_01')}#listing-section-shipping`,
       );
@@ -264,7 +267,7 @@ describe('MarketplaceSell publish routing (local pickup, §A1)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Publish listing' }));
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(createListing.flushDraft).toHaveBeenCalledOnce();
     });
     expect(createListing.submit).not.toHaveBeenCalled();
@@ -365,7 +368,7 @@ describe('MarketplaceSell durable session gate', () => {
 
     await user.click(screen.getByRole('button', { name: 'Publish listing' }));
 
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(routerPush).toHaveBeenCalledWith(getMarketplaceListingRoute('seller', 'boots_01'));
     });
     expect(restorePersistedMarketplaceSession).toHaveBeenCalledWith(sellerPubky);

@@ -22,7 +22,10 @@ import { PICKUP_NOTHING_PUBLISHED_TOAST } from '@/libs/commerce/pickup';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { createCommerceListingFixture } from '@/test/fixtures/commerce/commerce';
+import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { MarketplaceListingForm } from './MarketplaceListingForm';
+
+setHeavySuiteBudgets();
 
 // The form reads the deployment's `pickup_available` capability through the
 // controller seam (§A7). Tests default it to ON; the capability-off describe
@@ -400,7 +403,7 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     });
   });
 
-  it('reverts fulfillment when pickup set fails after listing persist', { timeout: 20_000 }, async () => {
+  it('reverts fulfillment when pickup set fails after listing persist', async () => {
     const user = userEvent.setup({ delay: null });
     const onSubmit = vi.fn(async () => true);
     const onPublished = vi.fn();
@@ -529,33 +532,29 @@ describe('MarketplaceListingForm pickup capability (§A7)', () => {
     expect(screen.getByRole('heading', { name: 'Review & publish' })).toBeInTheDocument();
   });
 
-  it(
-    'drops filled title, description, price, and category from the publish checklist',
-    { timeout: 20_000 },
-    async () => {
-      const user = userEvent.setup({ delay: null });
-      render(<FormHarness />);
+  it('drops filled title, description, price, and category from the publish checklist', async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<FormHarness />);
 
-      const requiredItems = () => {
-        const heading = screen.getByText('Required to publish');
-        return Array.from(heading.parentElement?.querySelectorAll('ul li') ?? []).map((item) => item.textContent);
-      };
-      expect(requiredItems()).toEqual(expect.arrayContaining(['Title', 'Description', 'Category', 'Price']));
-      const remainingBefore = requiredItems().length;
+    const requiredItems = () => {
+      const heading = screen.getByText('Required to publish');
+      return Array.from(heading.parentElement?.querySelectorAll('ul li') ?? []).map((item) => item.textContent);
+    };
+    expect(requiredItems()).toEqual(expect.arrayContaining(['Title', 'Description', 'Category', 'Price']));
+    const remainingBefore = requiredItems().length;
 
-      await user.type(screen.getByLabelText('Title'), 'Vintage leather boots');
-      await user.type(screen.getByLabelText('Description'), 'Well cared for boots with light wear.');
-      await user.type(screen.getByLabelText('Price (USD)'), '125.00');
-      await user.click(screen.getByRole('combobox', { name: 'Category' }));
-      await user.click(await screen.findByRole('option', { name: 'Fashion' }));
+    await user.type(screen.getByLabelText('Title'), 'Vintage leather boots');
+    await user.type(screen.getByLabelText('Description'), 'Well cared for boots with light wear.');
+    await user.type(screen.getByLabelText('Price (USD)'), '125.00');
+    await user.click(screen.getByRole('combobox', { name: 'Category' }));
+    await user.click(await screen.findByRole('option', { name: 'Fashion' }));
 
-      expect(requiredItems()).not.toEqual(expect.arrayContaining(['Title']));
-      expect(requiredItems()).not.toEqual(expect.arrayContaining(['Description']));
-      expect(requiredItems()).not.toEqual(expect.arrayContaining(['Category']));
-      expect(requiredItems()).not.toEqual(expect.arrayContaining(['Price']));
-      expect(requiredItems().length).toBeLessThan(remainingBefore);
-    },
-  );
+    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Title']));
+    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Description']));
+    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Category']));
+    expect(requiredItems()).not.toEqual(expect.arrayContaining(['Price']));
+    expect(requiredItems().length).toBeLessThan(remainingBefore);
+  });
 
   it('keeps publish disabled when description is empty even if other minimums are filled', () => {
     render(
@@ -785,45 +784,39 @@ describe('MarketplaceListingForm scoped status watch', () => {
     );
   }
 
-  // This re-renders the full studio per case (8 mounts of a 1,000-line
-  // form); under full-suite load it exceeds the 5s default even on a clean
-  // tree, so it gets an explicit budget.
-  it('updates section status when each watched field changes', { timeout: 40_000 }, async () => {
+  const sectionComplete = (sectionId: string) =>
+    document.getElementById(`listing-section-${sectionId}`)?.getAttribute('data-section-complete');
+
+  it('starts with every watched section complete', () => {
+    render(<StatusWatchHarness />);
+
+    expect(sectionComplete('item')).toBe('true');
+    expect(sectionComplete('price')).toBe('true');
+    expect(sectionComplete('shipping')).toBe('true');
+    expect(sectionComplete('review')).toBe('true');
+  });
+
+  it.each([
+    ['title', 'shorten-title', 'item'],
+    ['description', 'clear-description', 'item'],
+    ['category', 'clear-category', 'item'],
+    ['price', 'clear-price', 'price'],
+    ['variants', 'invalidate-variants', 'price'],
+  ] as const)('marks the %s watched field incomplete via %s', async (_field, button, sectionId) => {
     const user = userEvent.setup({ delay: null });
-    const first = render(<StatusWatchHarness />);
+    render(<StatusWatchHarness />);
 
-    expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'true');
-    expect(document.getElementById('listing-section-price')).toHaveAttribute('data-section-complete', 'true');
-    expect(document.getElementById('listing-section-shipping')).toHaveAttribute('data-section-complete', 'true');
-    expect(document.getElementById('listing-section-review')).toHaveAttribute('data-section-complete', 'true');
+    await user.click(screen.getByRole('button', { name: button }));
 
-    await user.click(screen.getByRole('button', { name: 'shorten-title' }));
-    expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'false');
-    first.unmount();
+    expect(sectionComplete(sectionId)).toBe('false');
+  });
 
-    const descriptionCase = render(<StatusWatchHarness />);
-    await user.click(screen.getByRole('button', { name: 'clear-description' }));
-    expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'false');
-    descriptionCase.unmount();
+  it('completes the shipping section once every shipping field is set', async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<StatusWatchHarness />);
 
-    const categoryCase = render(<StatusWatchHarness />);
-    await user.click(screen.getByRole('button', { name: 'clear-category' }));
-    expect(document.getElementById('listing-section-item')).toHaveAttribute('data-section-complete', 'false');
-    categoryCase.unmount();
-
-    const priceCase = render(<StatusWatchHarness />);
-    await user.click(screen.getByRole('button', { name: 'clear-price' }));
-    expect(document.getElementById('listing-section-price')).toHaveAttribute('data-section-complete', 'false');
-    priceCase.unmount();
-
-    const variantsCase = render(<StatusWatchHarness />);
-    await user.click(screen.getByRole('button', { name: 'invalidate-variants' }));
-    expect(document.getElementById('listing-section-price')).toHaveAttribute('data-section-complete', 'false');
-    variantsCase.unmount();
-
-    const shippingCase = render(<StatusWatchHarness />);
     await user.click(screen.getByRole('button', { name: 'set-physical' }));
-    expect(document.getElementById('listing-section-shipping')).toHaveAttribute('data-section-complete', 'false');
+    expect(sectionComplete('shipping')).toBe('false');
     await user.click(screen.getByRole('button', { name: 'set-shipping-label' }));
     await user.click(screen.getByRole('button', { name: 'set-shipping-price' }));
     await user.click(screen.getByRole('button', { name: 'set-shipping-min' }));
@@ -832,14 +825,18 @@ describe('MarketplaceListingForm scoped status watch', () => {
     await user.click(screen.getByRole('button', { name: 'set-length' }));
     await user.click(screen.getByRole('button', { name: 'set-width' }));
     await user.click(screen.getByRole('button', { name: 'set-height' }));
-    expect(document.getElementById('listing-section-shipping')).toHaveAttribute('data-section-complete', 'true');
-    shippingCase.unmount();
 
-    const returnsCase = render(<StatusWatchHarness />);
+    expect(sectionComplete('shipping')).toBe('true');
+  });
+
+  it('hides the returns policy prompt once return days are set', async () => {
+    const user = userEvent.setup({ delay: null });
+    render(<StatusWatchHarness />);
+
     expect(screen.getByText('Returns policy')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'set-returns' }));
+
     expect(screen.queryByText('Returns policy')).not.toBeInTheDocument();
-    returnsCase.unmount();
   });
 });
 
@@ -1307,36 +1304,32 @@ describe('MarketplaceListingForm unlimited stock leaving digital-only', () => {
     ['edit', 'Local pickup', 'pickup_and_digital'],
     ['duplicate', 'Ship', 'shipping_and_digital'],
     ['duplicate', 'Local pickup', 'pickup_and_digital'],
-  ] as const)(
-    'needs a real count on the %s journey once %s is added',
-    { timeout: 20_000 },
-    async (journey, method, fulfillment) => {
-      const user = userEvent.setup();
-      const formRef: { current: UseFormReturn<CreateMarketplaceListingData> | null } = { current: null };
-      render(
-        <FormHarness
-          mode={journey === 'edit' ? 'edit' : 'create'}
-          listingId={journey === 'edit' ? 'guide_01' : undefined}
-          defaultValues={hydrate[journey]()}
-          formRef={formRef}
-        />,
-      );
-      const form = () => formRef.current as UseFormReturn<CreateMarketplaceListingData>;
-      expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('Unlimited');
-      expect(inventoryBlocked(form().getValues())).toBe(false);
+  ] as const)('needs a real count on the %s journey once %s is added', async (journey, method, fulfillment) => {
+    const user = userEvent.setup();
+    const formRef: { current: UseFormReturn<CreateMarketplaceListingData> | null } = { current: null };
+    render(
+      <FormHarness
+        mode={journey === 'edit' ? 'edit' : 'create'}
+        listingId={journey === 'edit' ? 'guide_01' : undefined}
+        defaultValues={hydrate[journey]()}
+        formRef={formRef}
+      />,
+    );
+    const form = () => formRef.current as UseFormReturn<CreateMarketplaceListingData>;
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('Unlimited');
+    expect(inventoryBlocked(form().getValues())).toBe(false);
 
-      if (method === 'Local pickup') await waitForPickupEnabled();
-      await user.click(deliveryBox(method));
+    if (method === 'Local pickup') await waitForPickupEnabled();
+    await user.click(deliveryBox(method));
 
-      expect(form().getValues('fulfillment')).toBe(fulfillment);
-      expect(form().getValues('variants.0')).toMatchObject({ unlimited: false, quantity: '' });
-      expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('');
-      expect(inventoryBlocked(form().getValues())).toBe(true);
-      expect(createMarketplaceListingSchema.safeParse(form().getValues()).success).toBe(false);
+    expect(form().getValues('fulfillment')).toBe(fulfillment);
+    expect(form().getValues('variants.0')).toMatchObject({ unlimited: false, quantity: '' });
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('');
+    expect(inventoryBlocked(form().getValues())).toBe(true);
+    expect(createMarketplaceListingSchema.safeParse(form().getValues()).success).toBe(false);
 
-      await user.type(screen.getByRole('textbox', { name: 'Quantity' }), '3');
-      expect(form().getValues('variants.0.quantity')).toBe('3');
-      expect(inventoryBlocked(form().getValues())).toBe(false);
-    },
-  );
+    await user.type(screen.getByRole('textbox', { name: 'Quantity' }), '3');
+    expect(form().getValues('variants.0.quantity')).toBe('3');
+    expect(inventoryBlocked(form().getValues())).toBe(false);
+  });
 });
