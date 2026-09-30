@@ -323,7 +323,7 @@ describe('Marketplace payment status card — visual regression', () => {
         total: { amountMinor: 1_303, currency: 'BTC', exponent: 8 },
       },
     });
-    await expect.element(screen.getByText(/Payment seen/)).toBeInTheDocument();
+    await expect.element(screen.getByText('Payment seen', { exact: true })).toBeInTheDocument();
     await expect.element(screen.getByText(/Open Bitkit to pay/)).not.toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-status-bitcoin-seen-desktop');
     view.locks.enabled = true;
