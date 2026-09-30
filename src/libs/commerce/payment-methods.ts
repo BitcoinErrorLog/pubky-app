@@ -13,16 +13,28 @@ import { z } from 'zod';
 export type PaymentMethodKind = 'bitcoin' | 'stripe' | 'paypal';
 
 /**
- * Public view of one seller's payment configuration, served unauthenticated
- * so buyers can see the available methods before committing. The Stripe
- * restricted key is write-only on the service and never appears here.
+ * Public view of one seller's payment rails, served unauthenticated so buyers
+ * can see the available methods before committing. Booleans only: the
+ * seller's PayPal email, Stripe link, and restricted key never enter this
+ * view. PayPal checkout opens the `fiatCheckoutUrl` the service returns on the
+ * buyer's own bound order.
+ *
+ * A service that still sends `paypal_merchant_email` instead of
+ * `paypal_available` is read for presence only; the address is dropped here
+ * and never reaches the caller.
  */
-export const sellerPaymentConfigSchema = z.object({
-  bitcoinAvailable: z.boolean(),
-  bitcoinOfferAvailable: z.boolean().optional().default(true),
-  stripePaymentLink: z.url().nullable(),
-  paypalMerchantEmail: z.email().nullable(),
-});
+export const sellerPaymentConfigSchema = z
+  .object({
+    bitcoinAvailable: z.boolean(),
+    bitcoinOfferAvailable: z.boolean().optional().default(true),
+    paypalAvailable: z.boolean().optional(),
+    paypalMerchantEmail: z.string().nullable().optional(),
+  })
+  .transform(({ bitcoinAvailable, bitcoinOfferAvailable, paypalAvailable, paypalMerchantEmail }) => ({
+    bitcoinAvailable,
+    bitcoinOfferAvailable,
+    paypalAvailable: paypalAvailable ?? Boolean(paypalMerchantEmail),
+  }));
 
 export type SellerPaymentConfig = z.infer<typeof sellerPaymentConfigSchema>;
 
@@ -34,7 +46,7 @@ export type SellerPaymentConfig = z.infer<typeof sellerPaymentConfigSchema>;
 export function availablePaymentMethods(config: SellerPaymentConfig): PaymentMethodKind[] {
   const methods: PaymentMethodKind[] = [];
   if (config.bitcoinAvailable && config.bitcoinOfferAvailable) methods.push('bitcoin');
-  if (config.paypalMerchantEmail) methods.push('paypal');
+  if (config.paypalAvailable) methods.push('paypal');
   return methods;
 }
 

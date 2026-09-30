@@ -101,8 +101,7 @@ beforeEach(() => {
   mockedController.getSellerPaymentConfig.mockReset().mockResolvedValue({
     bitcoinAvailable: false,
     bitcoinOfferAvailable: true,
-    stripePaymentLink: null,
-    paypalMerchantEmail: null,
+    paypalAvailable: false,
   });
   mockedController.getMyPaymentConfig.mockReset().mockResolvedValue(EMPTY_CONFIG);
   mockedController.isOwnPaykitAccountClaimed.mockReset().mockResolvedValue(false);
