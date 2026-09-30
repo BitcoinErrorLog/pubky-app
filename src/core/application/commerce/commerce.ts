@@ -2832,6 +2832,27 @@ export class CommerceApplication {
   }
 
   /**
+   * Whether a failed {@link getOrFetchListing} proves the seller deleted the
+   * listing. Deletion is confirmed only when the owner homeserver answered
+   * 404 for the canonical record AND the Nexus index, asked once without
+   * retry, also answers 404. Every other outcome (transport failure, 5xx,
+   * a homeserver 404 while Nexus still lists the record, a Nexus failure)
+   * is unknown and returns `false`, so callers keep their generic
+   * "could not be loaded" copy. Never throws.
+   */
+  static async isListingConfirmedRemoved(ownerPubky: string, listingId: string, fetchError: unknown): Promise<boolean> {
+    if (!isAppError(fetchError) || fetchError.service !== ErrorService.Homeserver || !isNotFound(fetchError)) {
+      return false;
+    }
+    try {
+      await NexusMarketplaceService.fetchListingDetailsOnce({ seller_id: ownerPubky, listing_id: listingId });
+      return false;
+    } catch (nexusError) {
+      return isAppError(nexusError) && nexusError.service === ErrorService.Nexus && isNotFound(nexusError);
+    }
+  }
+
+  /**
    * The seller's standing amount-band consent (ratified D2, ADR 0024).
    * `null` means the running backend has no attestation support at all
    * (sandbox) — callers render absence, never a fake false.

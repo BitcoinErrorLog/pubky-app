@@ -21,6 +21,7 @@ import { MarketplaceListing } from './MarketplaceListing';
 const LOCKS_POLICY_URL = `pubky://${COMMERCE_FIXTURE_SELLER}/pub/locks.app/boots_01.json`;
 const cartAdd = vi.hoisted(() => vi.fn());
 const projectionRefresh = vi.hoisted(() => vi.fn());
+const confirmRemovedCalls = vi.hoisted(() => vi.fn());
 const sellerReputation = vi.hoisted((): { value: CommerceSellerReputationOverview | { status: 'loading' } } => ({
   value: { status: 'new_seller' as const },
 }));
@@ -37,6 +38,9 @@ const view = vi.hoisted(() => ({
   shop: null as ReturnType<typeof toCommerceShopModel> | null,
   projection: null as ReturnType<typeof createListingProjectionFixture> | null,
   projectionError: null as string | null,
+  listingRemoved: false,
+  fetchFailure: null as unknown,
+  confirmedRemoved: false,
   needsSession: false,
   hasFullHomeserverGrant: false,
   orders: [] as Array<{ order: ReturnType<typeof createOrderFixture> }>,
@@ -66,7 +70,11 @@ vi.mock('@/controllers/commerce/commerce', () => ({
   CommerceController: {
     getListing: () => view.listing,
     getShop: () => view.shop,
-    getOrFetchListing: () => Promise.resolve(null),
+    getOrFetchListing: () => (view.fetchFailure === null ? Promise.resolve(null) : Promise.reject(view.fetchFailure)),
+    isListingConfirmedRemoved: (_seller: string, _listing: string, fetchError: unknown) => {
+      confirmRemovedCalls(fetchError);
+      return Promise.resolve(view.confirmedRemoved);
+    },
     hasFullHomeserverGrant: () => view.hasFullHomeserverGrant,
   },
 }));
@@ -142,6 +150,7 @@ vi.mock('@/hooks/useMarketplaceProjection/useMarketplaceProjection', () => ({
     projection: view.projection,
     isLoading: false,
     error: view.projectionError,
+    listingRemoved: view.listingRemoved,
     needsSession: view.needsSession,
     refresh: projectionRefresh,
   }),
@@ -189,6 +198,10 @@ describe('MarketplaceListing', () => {
     view.shop = toCommerceShopModel(createCommerceShopFixture());
     view.projection = createListingProjectionFixture();
     view.projectionError = null;
+    view.listingRemoved = false;
+    view.fetchFailure = null;
+    view.confirmedRemoved = false;
+    confirmRemovedCalls.mockClear();
     view.needsSession = false;
     view.hasFullHomeserverGrant = false;
     view.orders = [];
@@ -207,6 +220,47 @@ describe('MarketplaceListing', () => {
     render(<MarketplaceListing sellerPubky={listing.seller_id} listingId={listing.listing_id} />);
     return listing;
   };
+
+  describe('a listing that is not in the local catalog', () => {
+    const notFoundOnHomeserver = new Error('homeserver 404');
+
+    beforeEach(() => {
+      view.listing = null;
+      view.projection = null;
+    });
+
+    it('says the listing was removed when the homeserver and Nexus both answer 404', async () => {
+      view.fetchFailure = notFoundOnHomeserver;
+      view.confirmedRemoved = true;
+
+      render(<MarketplaceListing sellerPubky={COMMERCE_FIXTURE_SELLER} listingId="boots_01" />);
+
+      expect(await screen.findByText('This listing was removed.')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Listing unavailable' })).toBeInTheDocument();
+      expect(screen.queryByText('This listing could not be loaded.')).not.toBeInTheDocument();
+      expect(confirmRemovedCalls).toHaveBeenCalledWith(notFoundOnHomeserver);
+    });
+
+    it('says the listing was removed when the transaction service reports the tombstone', async () => {
+      view.fetchFailure = new Error('homeserver unreachable');
+      view.listingRemoved = true;
+
+      render(<MarketplaceListing sellerPubky={COMMERCE_FIXTURE_SELLER} listingId="boots_01" />);
+
+      expect(await screen.findByText('This listing was removed.')).toBeInTheDocument();
+      expect(screen.queryByText('This listing could not be loaded.')).not.toBeInTheDocument();
+    });
+
+    it('keeps the generic copy when the failure is transient or unconfirmed', async () => {
+      view.fetchFailure = new Error('homeserver unreachable');
+
+      render(<MarketplaceListing sellerPubky={COMMERCE_FIXTURE_SELLER} listingId="boots_01" />);
+
+      expect(await screen.findByText('This listing could not be loaded.')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Listing unavailable' })).toBeInTheDocument();
+      expect(screen.queryByText('This listing was removed.')).not.toBeInTheDocument();
+    });
+  });
 
   it('does not show the approval card just for viewing a listing without a marketplace session', () => {
     view.projection = null;

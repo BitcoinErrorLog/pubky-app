@@ -114,8 +114,17 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
     let active = true;
     setIsFetchSettled(false);
     CommerceController.getOrFetchListing(sellerPubky, listingId)
-      .catch(() => {
-        if (active) setError('This listing could not be loaded.');
+      .catch(async (fetchError: unknown) => {
+        const confirmedRemoved = await CommerceController.isListingConfirmedRemoved(
+          sellerPubky,
+          listingId,
+          fetchError,
+        ).catch(() => false);
+        if (active) {
+          setError(
+            confirmedRemoved ? MARKETPLACE_FAILURE_MESSAGES.listingRemoved : 'This listing could not be loaded.',
+          );
+        }
       })
       .finally(() => {
         if (active) setIsFetchSettled(true);
@@ -187,7 +196,9 @@ export function MarketplaceListing({ sellerPubky, listingId }: MarketplaceListin
             Listing unavailable
           </Heading>
           <Typography as="p" className="mt-2 text-muted-foreground">
-            {error ?? 'This listing is no longer in the local marketplace catalog.'}
+            {negotiation.listingRemoved
+              ? MARKETPLACE_FAILURE_MESSAGES.listingRemoved
+              : (error ?? 'This listing is no longer in the local marketplace catalog.')}
           </Typography>
           <Button asChild className="mt-6 rounded-full">
             <Link href={APP_ROUTES.MARKETPLACE} overrideDefaults>

@@ -13,6 +13,7 @@ import { UNLIMITED_STOCK_REFUSAL, UNLIMITED_STOCK_RESERVED_MESSAGE } from '@/lib
 import { toCamelCaseWire } from '@/libs/commerce/wire-casing';
 import { AuthErrorCode, ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
+import { httpStatusCodeToError } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
 import {
@@ -3028,6 +3029,86 @@ describe('CommerceApplication', () => {
       });
 
       expect(upsertListing).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('isListingConfirmedRemoved', () => {
+    const homeserverError = (status: number) =>
+      httpStatusCodeToError(status, 'Request failed', ErrorService.Homeserver, 'request', 'pubky://listing');
+    const stubNexusStatus = (status: number) => {
+      const fetchMock = vi.fn(async () => new Response(status === 200 ? '{}' : '', { status }));
+      vi.stubGlobal('fetch', fetchMock);
+      return fetchMock;
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('confirms deletion when the homeserver and Nexus both answer 404, asking Nexus once', async () => {
+      vi.spyOn(LocalCommerceService, 'getListing').mockResolvedValue(null);
+      vi.spyOn(LocalCommerceService, 'getCatalogEntry').mockResolvedValue(null);
+      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockRejectedValue(homeserverError(404));
+      const nexusFetch = stubNexusStatus(404);
+      const fetchError = await CommerceApplication.getOrFetchListing(COMMERCE_FIXTURE_SELLER, 'boots_01').catch(
+        (error: unknown) => error,
+      );
+
+      await expect(
+        CommerceApplication.isListingConfirmedRemoved(COMMERCE_FIXTURE_SELLER, 'boots_01', fetchError),
+      ).resolves.toBe(true);
+      expect(nexusFetch).toHaveBeenCalledOnce();
+    });
+
+    it('stays unknown when Nexus still lists the listing', async () => {
+      stubNexusStatus(200);
+
+      await expect(
+        CommerceApplication.isListingConfirmedRemoved(COMMERCE_FIXTURE_SELLER, 'boots_01', homeserverError(404)),
+      ).resolves.toBe(false);
+    });
+
+    it('stays unknown when Nexus fails without a 404', async () => {
+      stubNexusStatus(503);
+
+      await expect(
+        CommerceApplication.isListingConfirmedRemoved(COMMERCE_FIXTURE_SELLER, 'boots_01', homeserverError(404)),
+      ).resolves.toBe(false);
+    });
+
+    it('stays unknown when Nexus is unreachable', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new TypeError('network down');
+        }),
+      );
+
+      await expect(
+        CommerceApplication.isListingConfirmedRemoved(COMMERCE_FIXTURE_SELLER, 'boots_01', homeserverError(404)),
+      ).resolves.toBe(false);
+    });
+
+    it.each([
+      ['a homeserver 500', homeserverError(500)],
+      ['a homeserver transport failure', new TypeError('homeserver unreachable')],
+    ])('never asks Nexus and stays unknown after %s', async (_label, fetchError) => {
+      const nexusFetch = stubNexusStatus(404);
+
+      await expect(
+        CommerceApplication.isListingConfirmedRemoved(COMMERCE_FIXTURE_SELLER, 'boots_01', fetchError),
+      ).resolves.toBe(false);
+      expect(nexusFetch).not.toHaveBeenCalled();
+    });
+
+    it('does not treat a 404 from another service as a deleted listing', async () => {
+      const nexusFetch = stubNexusStatus(404);
+      const foreignNotFound = httpStatusCodeToError(404, 'Not found', ErrorService.Nexus, 'fetchNexus', 'https://n');
+
+      await expect(
+        CommerceApplication.isListingConfirmedRemoved(COMMERCE_FIXTURE_SELLER, 'boots_01', foreignNotFound),
+      ).resolves.toBe(false);
+      expect(nexusFetch).not.toHaveBeenCalled();
     });
   });
 
