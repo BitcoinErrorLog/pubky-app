@@ -166,7 +166,7 @@ describe('useMarketplaceLocksConnect', () => {
 
     const { result } = renderHook(() => useMarketplaceLocksConnect());
 
-    await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled());
+    await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalledWith('session-token'));
     expect(result.current.connectedCreator).toBeNull();
   });
 
@@ -229,7 +229,7 @@ describe('useMarketplaceLocksConnect', () => {
 
     const { result } = renderHook(() => useMarketplaceLocksConnect());
 
-    await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled());
+    await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalledWith('session-token'));
     expect(result.current.connectedCreator).toBeNull();
   });
 
@@ -269,7 +269,7 @@ describe('useMarketplaceLocksConnect', () => {
     const { result } = renderHook(() => useMarketplaceLocksConnect());
 
     await waitFor(() => expect(result.current.connectedCreator).toBe(PUBKY));
-    expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled();
+    expect(mockedController.clearLocksFrontendSession).toHaveBeenCalledWith('session-token');
     expect(result.current.reapproveNotice).toBeNull();
   });
 
@@ -460,7 +460,7 @@ describe('useMarketplaceLocksConnect', () => {
 
     await waitFor(() => expect(result.current.error).toBe(LOCKS_CONNECT_IDENTITY_ERROR));
     expect(result.current.connectedCreator).toBeNull();
-    expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled();
+    expect(mockedController.clearLocksFrontendSession).not.toHaveBeenCalled();
   });
 
   it('clears a restored blob whose Lock Server creator is not the signed-in Shop pubky', async () => {
@@ -472,7 +472,7 @@ describe('useMarketplaceLocksConnect', () => {
 
     const { result } = renderHook(() => useMarketplaceLocksConnect());
 
-    await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalled());
+    await waitFor(() => expect(mockedController.clearLocksFrontendSession).toHaveBeenCalledWith('session-token'));
     expect(result.current.connectedCreator).toBeNull();
     expect(result.current.error).toBe(LOCKS_CONNECT_IDENTITY_ERROR);
     expect(mockedController.getLocksCreatorAuthorityStatus).not.toHaveBeenCalled();

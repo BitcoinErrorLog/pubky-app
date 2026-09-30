@@ -194,6 +194,14 @@ export class CommerceInventoryApplication {
     MarketplaceInventorySessionService.clearSession('cleared');
   }
 
+  static clearInventorySessionForSignOut(): void {
+    MarketplaceInventorySessionService.clearForSignOut();
+  }
+
+  static clearInventorySessionsOfOtherAccounts(keepPubky: string): void {
+    MarketplaceInventorySessionService.clearOtherAccounts(keepPubky);
+  }
+
   static onInventorySessionEnded(
     listener: Parameters<typeof MarketplaceInventorySessionService.onSessionEnded>[0],
   ): () => void {

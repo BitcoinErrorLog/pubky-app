@@ -36,15 +36,16 @@ export function locksCreatorMatchesShopPubky(
  *
  *  - Written ONLY to `localStorage` under {@link LOCKS_FRONTEND_SESSION_STORAGE_KEY}.
  *  - Never IndexedDB, never cookies, never logged (the token is creator bearer).
- *  - Restore is account-scoped: {@link restore} drops the blob unless its pubky
- *    matches the signed-in Shop account AND the Lock Server `creator` is that
- *    same identity. Sign-out and account switch funnel
- *    through `CommerceApplication.clearMarketplaceSession()`, which calls
- *    {@link clear}.
+ *  - Restore is account-scoped: {@link restore} returns the blob only when its
+ *    pubky matches the signed-in Shop account AND the Lock Server `creator` is
+ *    that same identity. Sign-out and account switch funnel through
+ *    `CommerceApplication.clearMarketplaceSessionForSignOut()`, which calls
+ *    {@link clearForSignOut}.
  *  - A restored token the Lock Server no longer accepts (401/403/404 or
  *    `authorized: false`) is dropped by the connect hook after
- *    `GET /creator/authority-status`. A network or 5xx failure leaves the
- *    blob so a later reload can revalidate.
+ *    `GET /creator/authority-status`, through {@link clear} with that token.
+ *    A network or 5xx failure leaves the blob so a later reload can
+ *    revalidate.
  */
 export class LocksFrontendSessionStore {
   private constructor() {}
@@ -61,6 +62,11 @@ export class LocksFrontendSessionStore {
     }
   }
 
+  /**
+   * `localStorage` is shared across tabs: an invalid record is removed only
+   * while the slot still holds exactly what was read, and another account's
+   * record is left for its owner.
+   */
   static restore(expectedPubky: string): LocksFrontendSessionRecord | null {
     const raw = this.readStorage();
     if (raw === null) return null;
@@ -68,22 +74,61 @@ export class LocksFrontendSessionStore {
     try {
       json = JSON.parse(raw);
     } catch {
-      this.clear();
+      this.removeIfUnchanged(raw);
       return null;
     }
     const parsed = storedSessionSchema.safeParse(json);
-    if (
-      !parsed.success ||
-      parsed.data.pubky !== expectedPubky ||
-      !locksCreatorMatchesShopPubky(parsed.data.creator, expectedPubky)
-    ) {
-      this.clear();
+    if (!parsed.success || !locksCreatorMatchesShopPubky(parsed.data.creator, parsed.data.pubky)) {
+      this.removeIfUnchanged(raw);
       return null;
     }
+    if (parsed.data.pubky !== expectedPubky) return null;
     return parsed.data;
   }
 
-  static clear(): void {
+  /**
+   * Removes the persisted session only while it still carries `token`, the
+   * bearer the caller checked: a newer session another tab saved meanwhile
+   * stays.
+   */
+  static clear(token: string): void {
+    const raw = this.readStorage();
+    if (raw === null) return;
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (typeof stored !== 'object' || stored === null || (stored as { token?: unknown }).token !== token) return;
+    this.removeIfUnchanged(raw);
+  }
+
+  /** Sign-out: the only path that removes a session it did not check. */
+  static clearForSignOut(): void {
+    this.remove();
+  }
+
+  /** Account switch without a sign-out: removes the session of any account but `keepPubky`. */
+  static clearOtherAccounts(keepPubky: string): void {
+    const raw = this.readStorage();
+    if (raw === null) return;
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (typeof stored !== 'object' || stored === null || (stored as { pubky?: unknown }).pubky === keepPubky) return;
+    this.removeIfUnchanged(raw);
+  }
+
+  private static removeIfUnchanged(raw: string): void {
+    if (this.readStorage() !== raw) return;
+    this.remove();
+  }
+
+  private static remove(): void {
     if (typeof window === 'undefined') return;
     try {
       window.localStorage.removeItem(LOCKS_FRONTEND_SESSION_STORAGE_KEY);

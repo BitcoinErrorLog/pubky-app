@@ -284,7 +284,20 @@ export class CommerceController {
   static clearMarketplaceSessionForSignOut(): void {
     CommerceApplication.clearMarketplaceSessionForSignOut();
     this.clearMarketplaceSessionStore();
-    this.clearInventorySession();
+    CommerceApplication.clearInventorySessionForSignOut();
+    this.clearInventorySessionStore();
+  }
+
+  /**
+   * Account switch without a sign-out (`AuthController` identity persist):
+   * drops the marketplace sessions and store mirrors of any account but
+   * `keepPubky`, keeping what that account already holds.
+   */
+  static clearMarketplaceSessionsOfOtherAccounts(keepPubky: string): void {
+    CommerceApplication.clearMarketplaceSessionsOfOtherAccounts(keepPubky);
+    const { marketplaceSession, inventorySession } = useCommerceStore.getState();
+    if (marketplaceSession && marketplaceSession.pubky !== keepPubky) this.clearMarketplaceSessionStore();
+    if (inventorySession && inventorySession.pubky !== keepPubky) this.clearInventorySessionStore();
   }
 
   /** Identity checkout bearer only. Leaves `pubky.marketplace.inventory-session.v1` in place. */
@@ -1235,8 +1248,9 @@ export class CommerceController {
     return CommerceApplication.restoreLocksFrontendSession(accountPubky);
   }
 
-  static clearLocksFrontendSession(): void {
-    CommerceApplication.clearLocksFrontendSession();
+  /** Removes the persisted Lock Server session only while it still carries `token`. */
+  static clearLocksFrontendSession(token: string): void {
+    CommerceApplication.clearLocksFrontendSession(token);
   }
 
   static async lookupLocksVerification(creatorPubky: unknown, bundleId: unknown) {
