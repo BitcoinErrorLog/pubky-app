@@ -12,7 +12,10 @@ import {
   ORDER_FIXTURE_BUYER,
   ORDER_FIXTURE_SELLER,
 } from '@/test/fixtures/commerce/orders';
+import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { MarketplaceOrders } from './MarketplaceOrders';
+
+setHeavySuiteBudgets();
 
 const CURRENT_USER = ORDER_FIXTURE_BUYER;
 const OTHER_USER = 'o'.repeat(52);
@@ -223,8 +226,7 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Bought shipped jacket/)).toBeInTheDocument();
   });
 
-  it('filters each tab by state and role while keeping counts visible', async () => {
-    const user = userEvent.setup();
+  const renderTabFilterFixture = async () => {
     ordersState.orders = [
       orderView('paid', 'Sold paid boots', 'seller', { nextActor: 'none' }),
       orderView('paid', 'Bought paid coat', 'buyer', { nextActor: 'none' }),
@@ -240,6 +242,11 @@ describe('MarketplaceOrders tabs', () => {
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: /Needs my action 1/i })).toHaveAttribute('aria-selected', 'true'),
     );
+    return userEvent.setup();
+  };
+
+  it('keeps every tab count visible and opens on Needs my action', async () => {
+    await renderTabFilterFixture();
 
     expect(screen.getByRole('tab', { name: /Needs my action 1/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /In transit 2/i })).toBeInTheDocument();
@@ -249,28 +256,49 @@ describe('MarketplaceOrders tabs', () => {
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
     expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
     expect(screen.getByText('Checkout ended before payment.')).toBeInTheDocument();
+  });
+
+  it('filters the Needs my action tab by state and role', async () => {
+    const user = await renderTabFilterFixture();
 
     await user.click(screen.getByRole('tab', { name: /Needs my action 1/i }));
     expect(screen.queryByText(/Sold paid boots/)).not.toBeInTheDocument();
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
+  });
+
+  it('filters the In transit tab by state and role', async () => {
+    const user = await renderTabFilterFixture();
 
     await user.click(screen.getByRole('tab', { name: /In transit 2/i }));
     expect(screen.getByText(/Sold shipped bag/)).toBeInTheDocument();
     expect(screen.getByText(/Bought delivered hat/)).toBeInTheDocument();
     expect(screen.queryByText(/Sold paid boots/)).not.toBeInTheDocument();
+  });
+
+  it('filters the Completed tab by state and role', async () => {
+    const user = await renderTabFilterFixture();
 
     await user.click(screen.getByRole('tab', { name: /Completed 2/i }));
     expect(screen.getByText(/Bought completed scarf/)).toBeInTheDocument();
     expect(screen.getByText(/Sold refunded belt/)).toBeInTheDocument();
     expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
     expect(screen.queryByText(/Sold return requested gloves/)).not.toBeInTheDocument();
+  });
+
+  it('lists the abandoned checkout on the Cancelled tab', async () => {
+    const user = await renderTabFilterFixture();
 
     await user.click(screen.getByRole('tab', { name: /Cancelled 0/i }));
     expect(screen.getByText(/Bought cancelled mittens/)).toBeInTheDocument();
     expect(screen.getByTestId('marketplace-abandoned-checkouts')).toHaveTextContent('Bought cancelled mittens');
+  });
+
+  it('returns to every order on the All tab', async () => {
+    const user = await renderTabFilterFixture();
 
     await user.click(screen.getByRole('tab', { name: /All 7/i }));
     expect(screen.getByText(/Sold return requested gloves/)).toBeInTheDocument();
+    expect(screen.getByText(/Sold paid boots/)).toBeInTheDocument();
   });
 
   it('names a refund below the order total on the order card', () => {

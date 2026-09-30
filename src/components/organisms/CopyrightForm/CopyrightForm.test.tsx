@@ -1,7 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { CopyrightForm } from './CopyrightForm';
+
+setHeavySuiteBudgets();
 
 // Mock @/molecules
 const { mockToast } = vi.hoisted(() => ({
@@ -163,15 +166,11 @@ describe('CopyrightForm', () => {
 
   it('shows loading state during submission', async () => {
     const user = userEvent.setup();
+    let resolveFetch: (response: Response) => void = () => {};
     vi.mocked(global.fetch).mockImplementation(
       () =>
         new Promise((resolve) => {
-          setTimeout(() => {
-            resolve({
-              ok: true,
-              json: async () => ({ message: 'Success' }),
-            } as Response);
-          }, 100);
+          resolveFetch = resolve;
         }),
     );
 
@@ -196,8 +195,11 @@ describe('CopyrightForm', () => {
     const submitButton = screen.getByRole('button', { name: 'Submit Form' });
     await user.click(submitButton);
 
-    // The button text changes to "Submitting..." when loading
-    expect(screen.getByText('Submitting...')).toBeInTheDocument();
+    // The button text changes to "Submitting..." while the request is pending.
+    expect(await screen.findByText('Submitting...')).toBeInTheDocument();
+
+    resolveFetch({ ok: true, json: async () => ({ message: 'Success' }) } as Response);
+    await waitFor(() => expect(screen.queryByText('Submitting...')).not.toBeInTheDocument());
   });
 
   it('shows success toast on successful submission', async () => {
