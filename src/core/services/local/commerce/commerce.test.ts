@@ -157,11 +157,15 @@ describe('LocalCommerceService', () => {
 
   it('preserves a pending registration marker during seller catalog refresh', async () => {
     const listing = createCommerceListingFixture();
+    const listingId = `${listing.ownerPubky}:${listing.listingId}`;
     await LocalCommerceService.upsertListing(listing, 'synced');
-    await LocalCommerceService.setListingRegistrationStatus(
-      `${listing.ownerPubky}:${listing.listingId}`,
-      'unregistered',
-    );
+    await expect(
+      LocalCommerceService.settleListingRegistration(
+        listingId,
+        await LocalCommerceService.getListingRowGeneration(listingId),
+        { status: 'unregistered' },
+      ),
+    ).resolves.toBe(true);
 
     const refreshed = { ...listing, revision: listing.revision + 1, title: 'Refreshed boots' };
     await LocalCommerceService.commitSellerCatalogRefresh(
@@ -175,55 +179,230 @@ describe('LocalCommerceService', () => {
     });
   });
 
-  it('preserves a separately scheduled registration update across an overlapping refresh', async () => {
+  it('applies a registration outcome read after an overlapping refresh, keeping the refreshed record', async () => {
     const listing = createCommerceListingFixture();
     const listingId = `${listing.ownerPubky}:${listing.listingId}`;
     await LocalCommerceService.upsertListing(listing, 'synced');
-    await LocalCommerceService.setListingRegistrationStatus(listingId, 'registered');
 
     const refreshed = { ...listing, revision: listing.revision + 1, title: 'Refreshed boots' };
-    const refreshPromise = LocalCommerceService.commitSellerCatalogRefresh(
+    await LocalCommerceService.commitSellerCatalogRefresh(
       [createCommerceCatalogEntryFixture({ revision: refreshed.revision })],
       [refreshed],
     );
-    const registrationUpdatePromise = new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        LocalCommerceService.setListingRegistrationStatus(listingId, 'unregistered').then(resolve, reject);
-      }, 0);
-    });
+    const observed = await LocalCommerceService.getListingRowGeneration(listingId);
 
-    await Promise.all([refreshPromise, registrationUpdatePromise]);
-
-    await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
-      revision: refreshed.revision,
-      registration_status: 'unregistered',
-    });
-  });
-
-  it('stamps registration without clearing an overlapping newer staged edit or retry job', async () => {
-    const listing = createCommerceListingFixture();
-    const listingId = `${listing.ownerPubky}:${listing.listingId}`;
-    const refreshed = { ...listing, revision: listing.revision + 1, title: 'Newer staged title' };
-    const job = createCommerceSyncJobFixture({ id: '018f47d2-6a27-7c23-a49d-6b21bb770126' });
-
-    const stagePromise = LocalCommerceService.stageListingSync(refreshed, job);
-    const healPromise = new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        LocalCommerceService.setListingRegistrationStatus(listingId, 'registered', listing).then(resolve, reject);
-      }, 0);
-    });
-
-    await Promise.all([stagePromise, healPromise]);
-
+    await expect(
+      LocalCommerceService.settleListingRegistration(listingId, observed, { status: 'registered' }),
+    ).resolves.toBe(true);
     await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
       record: refreshed,
       revision: refreshed.revision,
-      sync_status: 'pending',
       registration_status: 'registered',
     });
-    await expect(CommerceSyncJobModel.findById(job.id)).resolves.toMatchObject({
-      status: 'pending',
-      entity_id: listing.listingId,
+  });
+
+  describe('settleListingRegistration compares the generation read before the attempt', () => {
+    const listing = createCommerceListingFixture();
+    const listingId = `${listing.ownerPubky}:${listing.listingId}`;
+
+    it('drops an outcome read before an overlapping refresh', async () => {
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      await LocalCommerceService.settleListingRegistration(
+        listingId,
+        await LocalCommerceService.getListingRowGeneration(listingId),
+        { status: 'registered' },
+      );
+      const stale = await LocalCommerceService.getListingRowGeneration(listingId);
+
+      const refreshed = { ...listing, revision: listing.revision + 1, title: 'Refreshed boots' };
+      await LocalCommerceService.commitSellerCatalogRefresh(
+        [createCommerceCatalogEntryFixture({ revision: refreshed.revision })],
+        [refreshed],
+      );
+
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, stale, { status: 'not_found' }),
+      ).resolves.toBe(false);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+        revision: refreshed.revision,
+        registration_status: 'registered',
+      });
+    });
+
+    it('drops an outcome read before a newer staged edit, keeping the edit and its retry job', async () => {
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+      const staged = { ...listing, revision: listing.revision + 1, title: 'Newer staged title' };
+      const job = createCommerceSyncJobFixture({ id: '018f47d2-6a27-7c23-a49d-6b21bb770126' });
+      await LocalCommerceService.stageListingSync(staged, job, 'unregistered');
+
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, observed, { recordDeleted: true }),
+      ).resolves.toBe(false);
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, observed, { status: 'registered' }),
+      ).resolves.toBe(false);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+        record: staged,
+        sync_status: 'pending',
+        registration_status: 'unregistered',
+      });
+      await expect(CommerceSyncJobModel.findById(job.id)).resolves.toMatchObject({ status: 'pending' });
+    });
+
+    it('does not re-create a row deleted after the attempt read it', async () => {
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+      await LocalCommerceService.deleteListing(listingId);
+
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, observed, { status: 'unregistered' }),
+      ).resolves.toBe(false);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
+    });
+
+    it('refuses an outcome read against no row after a create and a delete (absent, then absent again)', async () => {
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+      expect(observed).toBeNull();
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      await LocalCommerceService.deleteListing(listingId);
+
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, observed, { status: 'registered' }),
+      ).resolves.toBe(false);
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, observed, { recordDeleted: true }),
+      ).resolves.toBe(false);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
+    });
+
+    it('refuses an outcome read against no row while a row now exists', async () => {
+      await LocalCommerceService.upsertListing(listing, 'synced');
+
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, null, { status: 'not_found' }),
+      ).resolves.toBe(false);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+        registration_status: undefined,
+      });
+    });
+
+    it('deletes a synced cache with no sync job, with its projection and catalog entry', async () => {
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      await CommerceListingProjectionModel.upsert(createCommerceProjectionFixture());
+      await LocalCommerceService.bulkUpsertCatalogEntries([createCommerceCatalogEntryFixture()]);
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, observed, { recordDeleted: true }),
+      ).resolves.toBe(true);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
+      expect(await CommerceListingProjectionModel.table.get(listingId)).toBeUndefined();
+      expect(await CommerceCatalogEntryModel.table.get(listingId)).toBeUndefined();
+    });
+
+    it('keeps a pending publication row and its sync job, marking the row not_found', async () => {
+      const job = createCommerceSyncJobFixture({ id: '018f47d2-6a27-7c23-a49d-6b21bb770127' });
+      await LocalCommerceService.stageListingSync(listing, job, 'unregistered');
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, observed, { recordDeleted: true }),
+      ).resolves.toBe(true);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+        record: listing,
+        sync_status: 'pending',
+        registration_status: 'not_found',
+      });
+      await expect(CommerceSyncJobModel.findById(job.id)).resolves.toMatchObject({ status: 'pending' });
+    });
+
+    it('keeps a synced row that still has a sync job, marking it not_found', async () => {
+      const job = createCommerceSyncJobFixture({ id: '018f47d2-6a27-7c23-a49d-6b21bb770128' });
+      await LocalCommerceService.stageListingSync(listing, job, 'unregistered');
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+
+      await expect(
+        LocalCommerceService.settleListingRegistration(listingId, observed, { recordDeleted: true }),
+      ).resolves.toBe(true);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+        sync_status: 'synced',
+        registration_status: 'not_found',
+      });
+      await expect(CommerceSyncJobModel.findById(job.id)).resolves.toMatchObject({ status: 'pending' });
+    });
+  });
+
+  describe('the persisted auction registration command', () => {
+    const listing = createCommerceListingFixture();
+    const listingId = `${listing.ownerPubky}:${listing.listingId}`;
+    const command = {
+      command_id: '018f47d2-6a27-7c23-a49d-6b21bb770140',
+      issued_at: '2026-09-30T10:00:00.000Z',
+      listing_revision: listing.revision,
+      reserve_price: { amountMinor: 8_000, currency: 'USD', exponent: 2 },
+      expected_service_revision: 0,
+      expected_record_revision: 0,
+      record_revision: 1,
+    };
+    const persist = async () => {
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+      return await LocalCommerceService.persistAuctionRegistration(listingId, observed, command);
+    };
+
+    it('is stored only on the observed generation and advances it', async () => {
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+      const stored = await LocalCommerceService.persistAuctionRegistration(listingId, observed, command);
+
+      expect(stored).not.toBeNull();
+      expect(stored?.writeId).not.toBe(observed?.writeId);
+      await expect(LocalCommerceService.persistAuctionRegistration(listingId, observed, command)).resolves.toBeNull();
+      await expect(LocalCommerceService.persistAuctionRegistration(listingId, null, command)).resolves.toBeNull();
+      await expect(LocalCommerceService.getListingRegistrationState(listingId)).resolves.toEqual({
+        generation: stored,
+        auctionRegistration: command,
+      });
+    });
+
+    it('survives every whole-row write of the listing', async () => {
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      await persist();
+      const edited = { ...listing, revision: listing.revision + 1, title: 'Edited boots' };
+
+      await LocalCommerceService.stageListingSync(edited, createCommerceSyncJobFixture(), 'unregistered');
+      expect((await LocalCommerceService.getListing(listingId))?.auction_registration).toEqual(command);
+      await LocalCommerceService.upsertListing(edited, 'synced');
+      expect((await LocalCommerceService.getListing(listingId))?.auction_registration).toEqual(command);
+      await LocalCommerceService.commitSellerCatalogRefresh(
+        [createCommerceCatalogEntryFixture({ revision: edited.revision })],
+        [edited],
+      );
+      expect((await LocalCommerceService.getListing(listingId))?.auction_registration).toEqual(command);
+    });
+
+    it.each([
+      ['a NOT_FOUND refusal', { status: 'not_found' as const }],
+      ['a deleted record on a row with pending publication', { recordDeleted: true as const }],
+    ])('is cleared by %s in the same compare-and-write', async (_name, outcome) => {
+      await LocalCommerceService.stageListingSync(listing, createCommerceSyncJobFixture(), 'unregistered');
+      await persist();
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+
+      await expect(LocalCommerceService.settleListingRegistration(listingId, observed, outcome)).resolves.toBe(true);
+      const row = await LocalCommerceService.getListing(listingId);
+      expect(row).toMatchObject({ registration_status: 'not_found' });
+      expect(row?.auction_registration).toBeUndefined();
+    });
+
+    it.each(['registered', 'unregistered'] as const)('is kept by a %s outcome, for replay', async (status) => {
+      await LocalCommerceService.upsertListing(listing, 'synced');
+      await persist();
+      const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+
+      await LocalCommerceService.settleListingRegistration(listingId, observed, { status });
+      expect((await LocalCommerceService.getListing(listingId))?.auction_registration).toEqual(command);
     });
   });
 

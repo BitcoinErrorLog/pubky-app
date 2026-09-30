@@ -283,6 +283,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     // The owner panel self-heals listing registration on mount; VRT renders
     // the visual outcome only, so the call resolves without side effects.
     ensureListingRegistered: () => Promise.resolve(false),
+    canRegisterListings: () => true,
     fetchSellerReputation: () => Promise.resolve(view.reputation),
     fetchSellerReviews: () => Promise.resolve({ status: 'unavailable' }),
     fetchListingReviews: () => Promise.resolve({ status: 'unavailable' }),

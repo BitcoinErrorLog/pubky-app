@@ -146,9 +146,13 @@ export type {
 export class MarketplaceGatewayService {
   private constructor() {}
 
-  static async execute(actor: string, command: MarketplaceCommand): Promise<MarketplaceCommandResponse> {
+  static async execute(
+    actor: string,
+    command: MarketplaceCommand,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<MarketplaceCommandResponse> {
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
-      return await MarketplaceTransactionService.execute(actor, command);
+      return await MarketplaceTransactionService.execute(actor, command, options);
     }
     this.assertSandbox();
     const url = `${getMarketplaceUrl()}/v1/commands`;
@@ -188,9 +192,17 @@ export class MarketplaceGatewayService {
     return await MarketplaceTransactionService.getListingBids(this.requireActor('getListingBids', actor), aggregateId);
   }
 
-  static async getListing(actor: string | null, aggregateId: string): Promise<MarketplaceListingProjection | null> {
+  static async getListing(
+    actor: string | null,
+    aggregateId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<MarketplaceListingProjection | null> {
     if (isDurableCommerceMode(getCommerceAdapterMode())) {
-      return await MarketplaceTransactionService.getListing(this.requireActor('getListing', actor), aggregateId);
+      return await MarketplaceTransactionService.getListing(
+        this.requireActor('getListing', actor),
+        aggregateId,
+        options,
+      );
     }
     this.assertSandbox();
     const url = `${getMarketplaceUrl()}/v1/listings?aggregateId=${encodeURIComponent(aggregateId)}`;
@@ -217,9 +229,10 @@ export class MarketplaceGatewayService {
   static async getSellerListing(
     actor: string,
     aggregateId: string,
+    options: { signal?: AbortSignal } = {},
   ): Promise<MarketplaceSellerListingProjection | null> {
     this.assertDurableServiceOnly('getSellerListing');
-    return await MarketplaceTransactionService.getSellerListing(actor, aggregateId);
+    return await MarketplaceTransactionService.getSellerListing(actor, aggregateId, options);
   }
 
   /**

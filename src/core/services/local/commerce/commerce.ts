@@ -34,6 +34,7 @@ import {
   CommerceWatchTombstoneModel,
 } from '@/models/commerce/commerce.models';
 import type {
+  CommerceAuctionRegistrationCommand,
   CommerceCacheStatus,
   CommerceCatalogEntryModelSchema,
   CommerceDeliveryAddressModelSchema,
@@ -41,6 +42,7 @@ import type {
   CommerceListingDraftModelSchema,
   CommerceListingModelSchema,
   CommerceListingProjectionModelSchema,
+  CommerceListingRegistrationStatus,
   CommerceLocksCorrelationModelSchema,
   CommerceReviewModelSchema,
   CommerceReviewResponseModelSchema,
@@ -53,6 +55,28 @@ import type {
   CommerceWatchTombstoneModelSchema,
 } from '@/models/commerce/commerce.schema';
 import type { CommerceDeliveryAddressInput, CommerceShippingPresetInput } from '@/pipes/commerce/commerce.normalizer';
+
+/** A listing row's write id as read, or null when no row existed. */
+export type CommerceListingRowGeneration = { writeId: string | undefined } | null;
+
+/**
+ * An absent row has no identity that survives delete and re-create, so an
+ * observation of absence never matches: it could equal a later absence
+ * after a create and a delete. Write ids are fresh per write, re-creates
+ * included, so a present row's id never repeats.
+ */
+function sameListingRowGeneration(
+  observed: CommerceListingRowGeneration,
+  current: CommerceListingModelSchema | undefined,
+): current is CommerceListingModelSchema {
+  if (observed === null || current === undefined) return false;
+  return current.write_id === observed.writeId;
+}
+
+function withoutAuctionRegistration(listing: CommerceListingModelSchema): CommerceListingModelSchema {
+  const { auction_registration: _dropped, ...rest } = listing;
+  return rest;
+}
 
 /** Alert rows kept per account; older rows are pruned when new alerts land. */
 export const COMMERCE_WATCH_ALERTS_MAX_PER_OWNER = 100;
@@ -488,9 +512,7 @@ export class LocalCommerceService {
         const currentListings = await CommerceListingModel.table.bulkGet(
           records.map((record) => `${record.ownerPubky}:${record.listingId}`),
         );
-        const listings = records.map((record, index) =>
-          this.toListingModel(record, 'synced', currentListings[index]?.registration_status),
-        );
+        const listings = records.map((record, index) => this.toListingModel(record, 'synced', currentListings[index]));
         await CommerceCatalogEntryModel.table.bulkPut(entries);
         await CommerceListingModel.table.bulkPut(listings);
       });
@@ -521,23 +543,123 @@ export class LocalCommerceService {
 
   static async upsertListing(record: CommerceListingRecord, syncStatus: CommerceCacheStatus): Promise<void> {
     const current = await CommerceListingModel.findById(`${record.ownerPubky}:${record.listingId}`);
-    await CommerceListingModel.upsert(this.toListingModel(record, syncStatus, current?.registration_status));
+    await CommerceListingModel.upsert(this.toListingModel(record, syncStatus, current ?? undefined));
   }
 
-  static async setListingRegistrationStatus(
+  /** What {@link settleListingRegistration} compares: the row's write id, or null when there is no row. */
+  static async getListingRowGeneration(compositeListingId: string): Promise<CommerceListingRowGeneration> {
+    const listing = await CommerceListingModel.table.get(compositeListingId);
+    return listing ? { writeId: listing.write_id } : null;
+  }
+
+  /** The row's generation and its persisted auction command, read together. */
+  static async getListingRegistrationState(compositeListingId: string): Promise<{
+    generation: CommerceListingRowGeneration;
+    auctionRegistration: CommerceAuctionRegistrationCommand | null;
+  }> {
+    const listing = await CommerceListingModel.table.get(compositeListingId);
+    return {
+      generation: listing ? { writeId: listing.write_id } : null,
+      auctionRegistration: listing?.auction_registration ?? null,
+    };
+  }
+
+  /**
+   * Stores the auction command on the row if it is still the observed
+   * generation. Returns the row's new generation, or null when another write
+   * landed first (or there is no row) and nothing was stored.
+   */
+  static async persistAuctionRegistration(
     compositeListingId: string,
-    registrationStatus: CommerceListingModelSchema['registration_status'],
-    record?: CommerceListingRecord,
-  ): Promise<void> {
-    await db.transaction('rw', CommerceListingModel.table, async () => {
-      const listing = await CommerceListingModel.table.get(compositeListingId);
-      if (!listing) {
-        if (!record) return;
-        await CommerceListingModel.table.put(this.toListingModel(record, 'synced', registrationStatus));
-        return;
-      }
-      await CommerceListingModel.table.put({ ...listing, registration_status: registrationStatus });
-    });
+    observed: CommerceListingRowGeneration,
+    command: CommerceAuctionRegistrationCommand,
+  ): Promise<CommerceListingRowGeneration> {
+    try {
+      return await db.transaction('rw', CommerceListingModel.table, async () => {
+        const listing = await CommerceListingModel.table.get(compositeListingId);
+        if (!sameListingRowGeneration(observed, listing)) return null;
+        const writeId = crypto.randomUUID();
+        await CommerceListingModel.table.put({ ...listing, auction_registration: command, write_id: writeId });
+        return { writeId };
+      });
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to store a listing registration command', {
+        service: ErrorService.Local,
+        operation: 'persistAuctionRegistration',
+        context: { tables: [CommerceListingModel.table.name] },
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Applies a registration outcome only if the row existed when the caller
+   * read it and is still that generation; any write since (a republish, a
+   * refresh, another attempt's outcome, a deletion) wins, and this returns
+   * false. An outcome read against no row is always refused, so it never
+   * creates one. `record_deleted` removes a row only when it is a synced
+   * cache with no sync job for the listing; a row with pending publication
+   * state is kept and marked `not_found`.
+   */
+  static async settleListingRegistration(
+    compositeListingId: string,
+    observed: CommerceListingRowGeneration,
+    outcome: { status: CommerceListingRegistrationStatus } | { recordDeleted: true },
+  ): Promise<boolean> {
+    try {
+      return await db.transaction(
+        'rw',
+        CommerceListingModel.table,
+        CommerceListingProjectionModel.table,
+        CommerceCatalogEntryModel.table,
+        CommerceSyncJobModel.table,
+        async () => {
+          const listing = await CommerceListingModel.table.get(compositeListingId);
+          if (!sameListingRowGeneration(observed, listing)) return false;
+          if ('recordDeleted' in outcome) {
+            const syncJobs = await CommerceSyncJobModel.table
+              .where('entity_id')
+              .equals(listing.listing_id)
+              .filter((job) => job.entity_type === 'listing' && job.owner_id === listing.seller_id)
+              .count();
+            if (listing.sync_status === 'synced' && syncJobs === 0) {
+              await CommerceListingModel.table.delete(compositeListingId);
+              await CommerceListingProjectionModel.table.delete(compositeListingId);
+              await CommerceCatalogEntryModel.table.delete(compositeListingId);
+              return true;
+            }
+            await CommerceListingModel.table.put({
+              ...withoutAuctionRegistration(listing),
+              registration_status: 'not_found',
+              write_id: crypto.randomUUID(),
+            });
+            return true;
+          }
+          await CommerceListingModel.table.put({
+            ...(outcome.status === 'not_found' ? withoutAuctionRegistration(listing) : listing),
+            registration_status: outcome.status,
+            write_id: crypto.randomUUID(),
+          });
+          return true;
+        },
+      );
+    } catch (error) {
+      if (isAppError(error)) throw error;
+      throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to settle a listing registration', {
+        service: ErrorService.Local,
+        operation: 'settleListingRegistration',
+        context: {
+          tables: [
+            CommerceListingModel.table.name,
+            CommerceListingProjectionModel.table.name,
+            CommerceCatalogEntryModel.table.name,
+            CommerceSyncJobModel.table.name,
+          ],
+        },
+        cause: error,
+      });
+    }
   }
 
   /**
@@ -586,7 +708,10 @@ export class LocalCommerceService {
     try {
       await db.transaction('rw', CommerceListingModel.table, CommerceSyncJobModel.table, async () => {
         const current = await CommerceListingModel.table.get(`${record.ownerPubky}:${record.listingId}`);
-        const listing = this.toListingModel(record, 'pending', registrationStatus ?? current?.registration_status);
+        const listing = this.toListingModel(record, 'pending', {
+          registration_status: registrationStatus ?? current?.registration_status,
+          auction_registration: current?.auction_registration,
+        });
         await CommerceListingModel.table.put(listing);
         await CommerceSyncJobModel.upsert(job);
       });
@@ -939,10 +1064,11 @@ export class LocalCommerceService {
     });
   }
 
+  /** `local` carries the locally owned columns a whole-row write must keep. */
   private static toListingModel(
     record: CommerceListingRecord,
     syncStatus: CommerceCacheStatus,
-    registrationStatus?: CommerceListingModelSchema['registration_status'],
+    local?: Pick<CommerceListingModelSchema, 'registration_status' | 'auction_registration'>,
   ): CommerceListingModelSchema {
     const price = record.sale.format === 'fixed_price' ? record.sale.unitPrice : record.sale.startingPrice;
     return {
@@ -957,8 +1083,10 @@ export class LocalCommerceService {
       currency: price.currency,
       price_minor: price.amountMinor,
       sync_status: syncStatus,
-      registration_status: registrationStatus,
+      registration_status: local?.registration_status,
       updated_at: Date.parse(record.updatedAt),
+      write_id: crypto.randomUUID(),
+      ...(local?.auction_registration ? { auction_registration: local.auction_registration } : {}),
     };
   }
 

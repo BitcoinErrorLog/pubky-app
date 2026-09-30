@@ -789,6 +789,25 @@ export function isSuccessfulListingRegistrationResponse(
   return serviceHoldsAggregate && BENIGN_LISTING_REGISTRATION_CODES.has(response.error.code.toUpperCase());
 }
 
+/**
+ * The service refused a listing registration because the seller's homeserver
+ * has no record for it (a deleted listing). Terminal: registering again
+ * cannot succeed until the seller publishes the record again.
+ */
+export function isListingRecordNotFoundResponse(
+  response: MarketplaceCommandResponse,
+  expectedAggregateId: string,
+  expectedCommandId: string,
+): boolean {
+  if (response.ok || response.error.code.toUpperCase() !== 'NOT_FOUND') return false;
+  const aggregateId = 'aggregateId' in response ? response.aggregateId : undefined;
+  const commandId = 'commandId' in response ? response.commandId : undefined;
+  return (
+    (aggregateId === undefined || aggregateId === expectedAggregateId) &&
+    (commandId === undefined || commandId === expectedCommandId)
+  );
+}
+
 export function isCorrelatedBenignListingRegistrationResponse(
   response: MarketplaceCommandResponse,
   expectedAggregateId: string,

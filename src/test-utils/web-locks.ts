@@ -7,7 +7,8 @@ type LockState = { held: LockMode | null; holders: number; queue: PendingRequest
  * grant rules: per name, requests are granted in order; an exclusive
  * request waits for every holder, and a shared request waits for an
  * exclusive holder and for any request queued ahead of it. `signal`
- * aborts a request still waiting. jsdom has no `navigator.locks`.
+ * aborts a request still waiting; `ifAvailable` runs the callback with
+ * null instead of waiting. jsdom has no `navigator.locks`.
  */
 export function installWebLocks(): void {
   const states = new Map<string, LockState>();
@@ -33,13 +34,19 @@ export function installWebLocks(): void {
   };
   const request = async <T>(
     name: string,
-    optionsOrCallback: { mode?: LockMode; signal?: AbortSignal } | (() => Promise<T>),
-    maybeCallback?: () => Promise<T>,
+    optionsOrCallback:
+      | { mode?: LockMode; signal?: AbortSignal; ifAvailable?: boolean }
+      | ((lock: { name: string; mode: LockMode } | null) => Promise<T>),
+    maybeCallback?: (lock: { name: string; mode: LockMode } | null) => Promise<T>,
   ): Promise<T> => {
     const options = typeof optionsOrCallback === 'function' ? {} : optionsOrCallback;
     const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback!;
     const mode = options.mode ?? 'exclusive';
     const state = stateOf(name);
+    // `ifAvailable`: granted only if it could be granted now, else the callback runs with null.
+    const available =
+      state.queue.length === 0 && (state.holders === 0 || (state.held === 'shared' && mode === 'shared'));
+    if (options.ifAvailable && !available) return await callback(null);
     await new Promise<void>((resolve, reject) => {
       const pending: PendingRequest = { mode, grant: resolve };
       if (options.signal?.aborted) {
@@ -57,7 +64,7 @@ export function installWebLocks(): void {
       drain(state);
     });
     try {
-      return await callback();
+      return await callback({ name, mode });
     } finally {
       state.holders -= 1;
       if (state.holders === 0) state.held = null;

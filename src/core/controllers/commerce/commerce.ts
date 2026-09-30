@@ -545,6 +545,11 @@ export class CommerceController {
     return await CommerceApplication.ensureListingRegistered(CommerceRecordNormalizer.listing(record));
   }
 
+  /** False in a browser without Web Locks, where listings are never registered for checkout. */
+  static canRegisterListings(): boolean {
+    return CommerceApplication.canCoordinateListingRegistration();
+  }
+
   /**
    * Buyer-side heal (durable modes only): asks the transaction service to
    * fetch the canonical seller-signed record from the homeserver and
@@ -1703,12 +1708,8 @@ export class CommerceController {
    */
   private static onMarketplaceSessionEnded(event: MarketplaceSessionEndedEvent): void {
     const current = useCommerceStore.getState().marketplaceSession;
-    if (!current) {
-      CommerceApplication.dropPendingAuctionRegistrations();
-      return;
-    }
+    if (!current) return;
     if (Date.parse(current.issuedAt) > Date.parse(event.issuedAt)) return;
-    CommerceApplication.dropPendingAuctionRegistrations();
     this.clearMarketplaceSessionStore();
   }
 

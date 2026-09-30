@@ -16,6 +16,7 @@ import {
   MARKETPLACE_FOLLOWED_SHELF_MAX_SELLER_FETCHES,
 } from '@/config/commerce';
 import { NEXUS_LISTINGS_PER_PAGE } from '@/config/nexus';
+import { readAuthEpoch } from '@/controllers/auth/auth-epoch';
 import {
   extractReviewAttestation,
   verifyOrderReceiptClaims,
@@ -90,6 +91,7 @@ import {
   classifyMarketplacePickupCommandRefusal,
   type CreateMarketplaceCheckoutCommand,
   isCorrelatedBenignListingRegistrationResponse,
+  isListingRecordNotFoundResponse,
   isSuccessfulListingRegistrationResponse,
   type MarketplaceCommand,
   type MarketplaceCommandResponse,
@@ -103,6 +105,7 @@ import { hasHttpStatus, isAppError, isNotFound } from '@/libs/error/error.utils'
 import { HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import type {
+  CommerceAuctionRegistrationCommand,
   CommerceCatalogEntryModelSchema,
   CommerceIndexedReview,
   CommerceListingModelSchema,
@@ -141,7 +144,7 @@ import { ExchangerateService } from '@/services/exchangerate/exchangerate';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { CommercePrivStoreService } from '@/services/homeserver/commerce/priv-store';
 import { HomeserverService, PRIVATE_APP_DATA_PATH } from '@/services/homeserver/homeserver';
-import { LocalCommerceService } from '@/services/local/commerce/commerce';
+import { type CommerceListingRowGeneration, LocalCommerceService } from '@/services/local/commerce/commerce';
 import {
   buildMarketplaceTagRowId,
   LocalMarketplaceTagService,
@@ -199,20 +202,42 @@ export interface CommerceCatalogStreamFilters {
 }
 
 /**
- * In-flight `listing.register` for one auction. The service replays a command
- * id; this map is the only copy of that id. It is dropped on sign-out.
+ * Cross-tab Web Lock that owns one listing's registration attempts. Its
+ * holder requests no other lock, so it cannot join a lock-order cycle with
+ * the messaging, watchlist or auth locks.
  */
-type PendingAuctionRegistration = {
-  listingRevision: number;
-  reservePrice: CommerceMoney | null;
-  expectedServiceRevision: number;
-  expectedRecordRevision: number;
-  recordRevision: number;
-  commandId: string;
-  issuedAt: string;
+export const LISTING_REGISTRATION_LOCK_PREFIX = 'pubky-listing-registration|';
+/** Deadline for the service requests one attempt makes while holding the lock. */
+export const LISTING_REGISTRATION_TIMEOUT_MS = 20_000;
+
+/**
+ * One registration attempt. `authEpoch` is read once when it starts; a
+ * sign-out in any tab changes it and the attempt stops before its next
+ * request or write. `observed` is the listing row generation the attempt
+ * acts on, advanced only by its own writes.
+ */
+type ListingRegistrationAttempt = {
+  compositeListingId: string;
+  aggregateId: string;
+  authEpoch: number;
+  observed: CommerceListingRowGeneration;
+  signal?: AbortSignal;
 };
 
-const pendingAuctionRegistrations = new Map<string, PendingAuctionRegistration>();
+/**
+ * `publish` (a user action) waits for the lock and acts on the row as it is
+ * then. `heal` (owner surfaces) gives up if another attempt holds the lock
+ * and acts only if the row is unchanged since the attempt began.
+ */
+type ListingRegistrationOwner = 'publish' | 'heal';
+
+/**
+ * `record_deleted`: the seller's homeserver has no record, so nothing was
+ * sent. `service_not_found`: the service refused with `NOT_FOUND` for the
+ * same reason. Neither is retried. `superseded`: the row changed under the
+ * attempt, which leaves it to the newer writer.
+ */
+type ListingRegistrationOutcome = 'registered' | 'record_deleted' | 'service_not_found' | 'superseded';
 
 /**
  * The three honest states a rating header can be in: `rated` (the index
@@ -565,7 +590,7 @@ export class CommerceApplication {
     if (getCommerceAdapterMode() !== 'sandbox') return false;
     const catalog = createCommerceSandboxCatalog();
     const seeded = await LocalCommerceService.seedSandboxCatalog(catalog);
-    await Promise.allSettled(catalog.listings.map((listing) => this.registerListing(listing)));
+    await Promise.allSettled(catalog.listings.map((listing) => this.ensureListingRegistered(listing)));
     return seeded;
   }
 
@@ -3323,12 +3348,26 @@ export class CommerceApplication {
       now,
     });
 
-    const registrationStatus = getCommerceAdapterMode() === 'unavailable' ? 'unavailable' : 'unregistered';
+    const mode = getCommerceAdapterMode();
+    const attempt = this.beginListingRegistration(record);
+    const registering = mode !== 'unavailable' && this.canCoordinateListingRegistration();
+    const registrationStatus = mode === 'unavailable' ? 'unavailable' : 'unregistered';
     await LocalCommerceService.stageListingSync(record, publishJob, registrationStatus);
-    const registration =
-      record.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())
-        ? await this.prepareAuctionRegistration(record, reservePrice)
-        : null;
+    if (registering && record.sale.format === 'auction' && isDurableCommerceMode(mode)) {
+      // The command is chosen before the public write, so a reserve conflict leaves the homeserver untouched.
+      await this.sweepOwnAuctionReserves(record.ownerPubky);
+      await this.withListingRegistrationLock(attempt, 'publish', async () => {
+        attempt.observed = await LocalCommerceService.getListingRowGeneration(attempt.compositeListingId);
+        attempt.signal = AbortSignal.timeout(LISTING_REGISTRATION_TIMEOUT_MS);
+        const prepared = await this.prepareAuctionRegistration(record, attempt, reservePrice);
+        if (prepared === 'superseded') {
+          throw Err.client(ClientErrorCode.CONFLICT, 'The listing changed. Reload and try again.', {
+            service: ErrorService.Marketplace,
+            operation: 'commitUpsertListing',
+          });
+        }
+      });
+    }
     await this.putVerifiedPublicListing(record, url);
     await LocalCommerceService.upsertListing(record, 'synced');
 
@@ -3345,58 +3384,198 @@ export class CommerceApplication {
     // truths (published / registered) are returned separately; an
     // unregistered listing self-heals through ensureListingRegistered /
     // listing.sync once a marketplace session exists.
-    if (getCommerceAdapterMode() !== 'unavailable') {
-      try {
-        await this.registerListing(record, registration);
-        await LocalCommerceService.setListingRegistrationStatus(
-          `${record.ownerPubky}:${record.listingId}`,
-          'registered',
-        );
-        await LocalCommerceService.completeSyncJob(publishJob.id);
-      } catch (error) {
-        await LocalCommerceService.setListingRegistrationStatus(
-          `${record.ownerPubky}:${record.listingId}`,
-          'unregistered',
-        );
-        Logger.warn('Listing published but service registration failed; it will self-heal from owner surfaces', {
-          listing: `${record.ownerPubky}:${record.listingId}`,
-          error,
-        });
-        return { registered: false };
-      }
-    } else {
+    if (mode === 'unavailable') {
       await LocalCommerceService.completeSyncJob(publishJob.id);
+      return { registered: false };
     }
-    return { registered: getCommerceAdapterMode() !== 'unavailable' };
+    // Without Web Locks nothing registers; the listing stays `unregistered`.
+    if (!registering) return { registered: false };
+    return { registered: await this.runListingRegistration(record, attempt, 'publish', publishJob.id) };
   }
 
   /**
    * Self-heal for listings published while registration failed or was skipped
    * (e.g. records created before durable-mode registration existed): registers
    * the listing when the service has no aggregate for it. Idempotent; callers
-   * invoke it from owner-facing surfaces where a session is available.
+   * invoke it from owner-facing surfaces where a session is available. Gives
+   * up without a request when another attempt holds the listing's lock or the
+   * browser has no Web Locks.
    */
   static async ensureListingRegistered(record: CommerceListingRecord): Promise<boolean> {
-    if (getCommerceAdapterMode() === 'unavailable') return false;
+    if (getCommerceAdapterMode() === 'unavailable' || !this.canCoordinateListingRegistration()) return false;
+    const attempt = this.beginListingRegistration(record);
+    attempt.observed = await LocalCommerceService.getListingRowGeneration(attempt.compositeListingId);
+    return await this.runListingRegistration(record, attempt, 'heal', null);
+  }
+
+  /** Whether this browser can register listings: registration needs Web Locks to have one owner per listing. */
+  static canCoordinateListingRegistration(): boolean {
+    return typeof navigator !== 'undefined' && typeof navigator.locks?.request === 'function';
+  }
+
+  private static beginListingRegistration(record: CommerceListingRecord): ListingRegistrationAttempt {
+    return {
+      compositeListingId: `${record.ownerPubky}:${record.listingId}`,
+      aggregateId: buildMarketplaceListingAggregateId(record.ownerPubky, record.listingId),
+      authEpoch: readAuthEpoch(),
+      observed: null,
+    };
+  }
+
+  private static listingRegistrationFenceHolds(attempt: ListingRegistrationAttempt): boolean {
+    return readAuthEpoch() === attempt.authEpoch;
+  }
+
+  /** Checked after every await and before every request or write of an attempt. */
+  private static assertListingRegistrationFence(attempt: ListingRegistrationAttempt): void {
+    if (this.listingRegistrationFenceHolds(attempt)) return;
+    throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Signed out during listing registration.', {
+      service: ErrorService.Marketplace,
+      operation: 'registerListing',
+      context: { reason: 'auth_epoch_changed' },
+    });
+  }
+
+  /**
+   * Runs `body` as the listing's single registration owner. `publish` waits
+   * for the lock; `heal` returns null at once when another attempt holds it.
+   * Also null without Web Locks. The body requests no other lock.
+   */
+  private static async withListingRegistrationLock<T>(
+    attempt: ListingRegistrationAttempt,
+    owner: ListingRegistrationOwner,
+    body: () => Promise<T>,
+  ): Promise<T | null> {
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+    if (typeof locks?.request !== 'function') return null;
+    this.assertListingRegistrationFence(attempt);
+    const name = `${LISTING_REGISTRATION_LOCK_PREFIX}${attempt.aggregateId}`;
+    const run = async (): Promise<T> => {
+      this.assertListingRegistrationFence(attempt);
+      try {
+        return await body();
+      } finally {
+        attempt.signal = undefined;
+      }
+    };
+    if (owner === 'publish') return await locks.request(name, run);
+    return await locks.request(name, { ifAvailable: true }, async (lock) => (lock ? await run() : null));
+  }
+
+  /**
+   * One registration attempt. Outside the lock: the stock rule and the
+   * homeserver precheck (a single read). Under the lock: the fence, the row
+   * generation check, the service reads that shape the command, one timed
+   * command request, and the compare-and-write settle. Nothing waits or
+   * retries under the lock; a failed attempt stays pending for the next one.
+   */
+  private static async runListingRegistration(
+    record: CommerceListingRecord,
+    attempt: ListingRegistrationAttempt,
+    owner: ListingRegistrationOwner,
+    publishJobId: string | null,
+  ): Promise<boolean> {
+    const settle = async (outcome: Parameters<typeof LocalCommerceService.settleListingRegistration>[2]) => {
+      this.assertListingRegistrationFence(attempt);
+      await LocalCommerceService.settleListingRegistration(attempt.compositeListingId, attempt.observed, outcome);
+    };
+    const takeRow = async (): Promise<boolean> => {
+      if (owner === 'publish') {
+        attempt.observed = await LocalCommerceService.getListingRowGeneration(attempt.compositeListingId);
+        this.assertListingRegistrationFence(attempt);
+        return true;
+      }
+      const stillObserved = await this.listingRowStillObserved(attempt);
+      this.assertListingRegistrationFence(attempt);
+      return stillObserved;
+    };
     try {
-      await this.registerListing(record);
-      await LocalCommerceService.setListingRegistrationStatus(
-        `${record.ownerPubky}:${record.listingId}`,
-        'registered',
-        record,
-      );
+      assertPublishableListingStock(record, 'registerListing');
+      if (isDurableCommerceMode(getCommerceAdapterMode())) {
+        this.assertListingRegistrationFence(attempt);
+        const published = await this.hasPublishedListingRecord(record);
+        this.assertListingRegistrationFence(attempt);
+        if (!published) {
+          await this.withListingRegistrationLock(attempt, owner, async () => {
+            if (await takeRow()) await this.settleUnregistrableListing(attempt, 'record_deleted');
+          });
+          return false;
+        }
+      }
+      const registered = await this.withListingRegistrationLock(attempt, owner, async () => {
+        if (!(await takeRow())) return false;
+        attempt.signal = AbortSignal.timeout(LISTING_REGISTRATION_TIMEOUT_MS);
+        try {
+          const outcome = await this.registerListing(record, attempt);
+          this.assertListingRegistrationFence(attempt);
+          if (outcome === 'superseded') return false;
+          if (outcome !== 'registered') {
+            await this.settleUnregistrableListing(attempt, outcome);
+            return false;
+          }
+          await settle({ status: 'registered' });
+          if (publishJobId) {
+            this.assertListingRegistrationFence(attempt);
+            await LocalCommerceService.completeSyncJob(publishJobId);
+          }
+          return true;
+        } catch (error) {
+          if (!this.listingRegistrationFenceHolds(attempt)) return false;
+          await settle({ status: 'unregistered' });
+          Logger.warn('Listing registration failed; it stays pending for the next attempt', { error });
+          return false;
+        }
+      });
+      return registered ?? false;
+    } catch (error) {
+      if (!this.listingRegistrationFenceHolds(attempt)) return false;
+      // Best effort: a refused lock or a sign-out here leaves the row as it is, which is already pending.
+      await this.withListingRegistrationLock(attempt, 'heal', async () => {
+        if (await this.listingRowStillObserved(attempt)) await settle({ status: 'unregistered' });
+      }).catch(() => null);
+      Logger.warn('Listing registration failed before it reached the service; it stays pending', { error });
+      return false;
+    }
+  }
+
+  private static async listingRowStillObserved(attempt: ListingRegistrationAttempt): Promise<boolean> {
+    const { generation } = await LocalCommerceService.getListingRegistrationState(attempt.compositeListingId);
+    return generation !== null && attempt.observed !== null && generation.writeId === attempt.observed.writeId;
+  }
+
+  /**
+   * Ends the pending registration of a listing the service cannot accept,
+   * if the row is still the attempt's generation. A deleted record removes a
+   * synced cache so no owner surface offers it again; a row with pending
+   * publication state, or a `NOT_FOUND` refusal, is kept and taken out of
+   * pending. The same compare-and-write clears the persisted auction command.
+   */
+  private static async settleUnregistrableListing(
+    attempt: ListingRegistrationAttempt,
+    outcome: 'record_deleted' | 'service_not_found',
+  ): Promise<void> {
+    if (outcome === 'service_not_found') {
+      Logger.warn('Listing registration stopped: the service found no homeserver record');
+    }
+    this.assertListingRegistrationFence(attempt);
+    await LocalCommerceService.settleListingRegistration(
+      attempt.compositeListingId,
+      attempt.observed,
+      outcome === 'record_deleted' ? { recordDeleted: true } : { status: 'not_found' },
+    );
+  }
+
+  /**
+   * Whether the seller's homeserver still holds the listing record. Only a
+   * 404 answers false; any other failure throws, so the caller stays pending.
+   */
+  private static async hasPublishedListingRecord(listing: CommerceListingRecord): Promise<boolean> {
+    try {
+      await this.fetchListing(listing.ownerPubky, listing.listingId);
       return true;
     } catch (error) {
-      await LocalCommerceService.setListingRegistrationStatus(
-        `${record.ownerPubky}:${record.listingId}`,
-        'unregistered',
-        record,
-      );
-      Logger.warn('Listing registration retry failed', {
-        listing: `${record.ownerPubky}:${record.listingId}`,
-        error,
-      });
-      return false;
+      if (isAppError(error) && isNotFound(error)) return false;
+      throw error;
     }
   }
 
@@ -3719,11 +3898,6 @@ export class CommerceApplication {
     }
   }
 
-  /** Drops in-memory auction registration commands. Sign-out calls this. */
-  static dropPendingAuctionRegistrations(): void {
-    pendingAuctionRegistrations.clear();
-  }
-
   /**
    * Deletes the signed-in seller's own leftover `auction_reserves/` files.
    * Listing is enough to find them; the file body is not read. A list or
@@ -3755,33 +3929,46 @@ export class CommerceApplication {
     return deleted;
   }
 
+  /**
+   * Chooses the auction's `listing.register` command under the listing's
+   * lock: the command persisted on the row is replayed while it still
+   * matches this revision and the service's reserve record; otherwise a new
+   * one is stored on the row (compare-and-write) before it is sent, so a
+   * reload or another tab replays the same command id.
+   */
   private static async prepareAuctionRegistration(
     listing: CommerceListingRecord,
+    attempt: ListingRegistrationAttempt,
     reservePrice?: CommerceMoney | null,
-  ): Promise<MarketplaceCommand> {
+  ): Promise<MarketplaceCommand | 'superseded'> {
     if (listing.sale.format !== 'auction') {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Auction reserve requires an auction listing.', {
         service: ErrorService.Marketplace,
         operation: 'prepareAuctionRegistration',
       });
     }
-    await this.sweepOwnAuctionReserves(listing.ownerPubky);
-    const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
-    const projection = await MarketplaceGatewayService.getSellerListing(listing.ownerPubky, aggregateId);
+    this.assertListingRegistrationFence(attempt);
+    const projection = await MarketplaceGatewayService.getSellerListing(listing.ownerPubky, attempt.aggregateId, {
+      signal: attempt.signal,
+    });
+    this.assertListingRegistrationFence(attempt);
     const serviceRecordRevision = projection?.reserveRecordRevision ?? 0;
-    const pending = pendingAuctionRegistrations.get(aggregateId);
+    const state = await LocalCommerceService.getListingRegistrationState(attempt.compositeListingId);
+    this.assertListingRegistrationFence(attempt);
+    if (state.generation === null || state.generation.writeId !== attempt.observed?.writeId) return 'superseded';
+    const pending = state.auctionRegistration;
     const reusingPending =
-      pending !== undefined &&
-      pending.listingRevision === listing.revision &&
-      pending.recordRevision === serviceRecordRevision + 1;
+      pending !== null &&
+      pending.listing_revision === listing.revision &&
+      pending.record_revision === serviceRecordRevision + 1;
     const replayingAcknowledged =
-      pending !== undefined &&
+      pending !== null &&
       projection !== null &&
-      pending.listingRevision === listing.revision &&
-      pending.recordRevision === serviceRecordRevision &&
-      projection.lastReserveCommandId === pending.commandId;
+      pending.listing_revision === listing.revision &&
+      pending.record_revision === serviceRecordRevision &&
+      projection.lastReserveCommandId === pending.command_id;
     if ((reusingPending || replayingAcknowledged) && pending) {
-      if (reservePrice !== undefined && canonicalJson(reservePrice) !== canonicalJson(pending.reservePrice)) {
+      if (reservePrice !== undefined && canonicalJson(reservePrice) !== canonicalJson(pending.reserve_price)) {
         throw Err.client(
           ClientErrorCode.CONFLICT,
           'The pending reserve differs from this edit. Reload and try again.',
@@ -3795,30 +3982,38 @@ export class CommerceApplication {
     }
 
     const chosenReserve = reservePrice !== undefined ? reservePrice : (projection?.reservePrice ?? null);
-    const pendingCommand: PendingAuctionRegistration = {
-      listingRevision: listing.revision,
-      reservePrice: chosenReserve,
-      expectedServiceRevision: projection?.serverRevision ?? 0,
-      expectedRecordRevision: serviceRecordRevision,
-      recordRevision: serviceRecordRevision + 1,
-      commandId: crypto.randomUUID(),
-      issuedAt: new Date().toISOString(),
+    const command: CommerceAuctionRegistrationCommand = {
+      command_id: crypto.randomUUID(),
+      issued_at: new Date().toISOString(),
+      listing_revision: listing.revision,
+      reserve_price: chosenReserve,
+      expected_service_revision: projection?.serverRevision ?? 0,
+      expected_record_revision: serviceRecordRevision,
+      record_revision: serviceRecordRevision + 1,
     };
-    pendingAuctionRegistrations.set(aggregateId, pendingCommand);
-    return this.auctionRegisterCommand(listing, pendingCommand);
+    this.assertListingRegistrationFence(attempt);
+    const stored = await LocalCommerceService.persistAuctionRegistration(
+      attempt.compositeListingId,
+      attempt.observed,
+      command,
+    );
+    this.assertListingRegistrationFence(attempt);
+    if (stored === null) return 'superseded';
+    attempt.observed = stored;
+    return this.auctionRegisterCommand(listing, command);
   }
 
   private static auctionRegisterCommand(
     listing: CommerceListingRecord,
-    pending: PendingAuctionRegistration,
+    pending: CommerceAuctionRegistrationCommand,
   ): MarketplaceCommand {
     const unitPrice = listing.sale.format === 'auction' ? listing.sale.startingPrice : listing.sale.unitPrice;
     const command = CommerceRecordNormalizer.marketplaceCommand({
       version: 1,
-      commandId: pending.commandId,
+      commandId: pending.command_id,
       aggregateId: buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId),
-      expectedRevision: pending.expectedServiceRevision,
-      issuedAt: pending.issuedAt,
+      expectedRevision: pending.expected_service_revision,
+      issuedAt: pending.issued_at,
       kind: 'listing.register',
       payload: {
         sellerPubky: listing.ownerPubky,
@@ -3845,34 +4040,52 @@ export class CommerceApplication {
               }
             : undefined,
         auctionReserve: {
-          expectedRecordRevision: pending.expectedRecordRevision,
-          recordRevision: pending.recordRevision,
-          reservePrice: pending.reservePrice,
+          expectedRecordRevision: pending.expected_record_revision,
+          recordRevision: pending.record_revision,
+          reservePrice: pending.reserve_price,
         },
       },
     });
-    pendingAuctionRegistrations.set(buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId), pending);
     return command;
   }
 
+  /**
+   * The service half of one attempt, run under the listing's lock after the
+   * homeserver precheck found the record: a service 404 for a deleted
+   * listing is never answered with `listing.register` blind. Every service
+   * request carries the attempt's deadline, and the fence is checked after
+   * each one.
+   */
   private static async registerListing(
     listing: CommerceListingRecord,
-    preparedAuctionCommand: MarketplaceCommand | null = null,
-  ): Promise<void> {
-    assertPublishableListingStock(listing, 'registerListing');
-    const aggregateId = buildMarketplaceListingAggregateId(listing.ownerPubky, listing.listingId);
-    if (listing.sale.format === 'auction' && isDurableCommerceMode(getCommerceAdapterMode())) {
-      const command = preparedAuctionCommand ?? (await this.prepareAuctionRegistration(listing));
-      const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+    attempt: ListingRegistrationAttempt,
+  ): Promise<ListingRegistrationOutcome> {
+    const aggregateId = attempt.aggregateId;
+    const durable = isDurableCommerceMode(getCommerceAdapterMode());
+    const send = async (command: MarketplaceCommand) => {
+      this.assertListingRegistrationFence(attempt);
+      const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command, { signal: attempt.signal });
+      this.assertListingRegistrationFence(attempt);
+      return response;
+    };
+    if (listing.sale.format === 'auction' && durable) {
+      const command = await this.prepareAuctionRegistration(listing, attempt);
+      if (command === 'superseded') return 'superseded';
+      const response = await send(command);
+      if (isListingRecordNotFoundResponse(response, aggregateId, command.commandId)) return 'service_not_found';
       if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
         throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
           service: ErrorService.Marketplace,
           operation: 'registerListing',
         });
       }
-      return;
+      return 'registered';
     }
-    const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
+    this.assertListingRegistrationFence(attempt);
+    const existing = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId, {
+      signal: attempt.signal,
+    });
+    this.assertListingRegistrationFence(attempt);
     if (existing?.serverRevision) {
       // Already registered: EDITS must still reach the authority. `listing.sync`
       // is convergent — the service re-reads the seller-signed record and
@@ -3880,9 +4093,10 @@ export class CommerceApplication {
       // no-ops when nothing changed. Skipping here (the old behavior) left
       // the service charging a stale price after every edit. The sandbox has
       // no homeserver to sync from, so it keeps the skip.
-      if (isDurableCommerceMode(getCommerceAdapterMode())) {
+      if (durable) {
         const command = this.createListingSyncCommand(listing.ownerPubky, listing.listingId);
-        const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+        const response = await send(command);
+        if (isListingRecordNotFoundResponse(response, aggregateId, command.commandId)) return 'service_not_found';
         if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId, true)) {
           throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
             service: ErrorService.Marketplace,
@@ -3890,7 +4104,7 @@ export class CommerceApplication {
           });
         }
       }
-      return;
+      return 'registered';
     }
     const unitPrice = listing.sale.format === 'fixed_price' ? listing.sale.unitPrice : listing.sale.startingPrice;
     const command = CommerceRecordNormalizer.marketplaceCommand({
@@ -3936,7 +4150,8 @@ export class CommerceApplication {
             : undefined,
       },
     });
-    const response = await MarketplaceGatewayService.execute(listing.ownerPubky, command);
+    const response = await send(command);
+    if (isListingRecordNotFoundResponse(response, aggregateId, command.commandId)) return 'service_not_found';
     if (!isSuccessfulListingRegistrationResponse(response, aggregateId, command.commandId)) {
       if (!isCorrelatedBenignListingRegistrationResponse(response, aggregateId, command.commandId)) {
         throw Err.client(ClientErrorCode.BAD_REQUEST, 'Marketplace listing registration was refused.', {
@@ -3944,7 +4159,10 @@ export class CommerceApplication {
           operation: 'registerListing',
         });
       }
-      const confirmed = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId);
+      const confirmed = await MarketplaceGatewayService.getListing(listing.ownerPubky, aggregateId, {
+        signal: attempt.signal,
+      });
+      this.assertListingRegistrationFence(attempt);
       if (
         !isSuccessfulListingRegistrationResponse(
           response,
@@ -3959,6 +4177,7 @@ export class CommerceApplication {
         });
       }
     }
+    return 'registered';
   }
 
   private static createSyncJob({
