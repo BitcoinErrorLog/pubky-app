@@ -3,7 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
+import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { collectMarketplaceCountryFacets, MarketplaceFilters } from './MarketplaceFilters';
+
+setHeavySuiteBudgets();
 
 describe('MarketplaceFilters', () => {
   beforeEach(() => {
@@ -203,6 +206,15 @@ describe('MarketplaceFilters', () => {
 });
 
 describe('MarketplaceFilters - Snapshots', () => {
+  // The recorded snapshot was taken with the 'fashion' category left selected by
+  // the last test above. Pin that state so a failure in an earlier test cannot
+  // leak its filters into this one.
+  beforeEach(() => {
+    useCommerceStore.getState().reset();
+    useCommerceStore.getState().setCategoryId('fashion');
+    useMarketplaceDisplayStore.setState({ displayCurrency: 'USD' });
+  });
+
   it('matches the default filter snapshot', () => {
     const { container } = render(<MarketplaceFilters resultCount={8} />);
     expect(container.firstChild).toMatchSnapshot();
