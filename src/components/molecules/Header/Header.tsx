@@ -240,6 +240,7 @@ const NavigationButton = ({
   return href ? (
     <Link
       href={href}
+      prefetch={false}
       data-cy={dataCy}
       className={needsRelativeWrap ? 'relative inline-flex' : undefined}
       onClick={(event) => {
