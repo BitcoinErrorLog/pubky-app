@@ -455,32 +455,30 @@ export class PaykitMessagingService {
       stored = null;
     }
     if (!stored || typeof stored.pubky !== 'string' || typeof stored.exported !== 'string') {
-      this.removePersistedSession();
+      this.removePersistedSessionIfUnchanged(raw);
       return false;
     }
-    if (stored.pubky !== expectedPubky) {
-      // Another account's blob: drop it so it can never outlive its owner's tab session.
-      this.removePersistedSession();
-      return false;
-    }
+    // Another account's blob is not this restore's; sign-out removes it.
+    if (stored.pubky !== expectedPubky) return false;
     try {
       const wasmModule = await loadPaykitWasm();
       const client = this.getClient(wasmModule);
       const handle = (await client.restoreSession(stored.exported)) as SessionHandle;
       if (handle.pubky() !== expectedPubky) {
         closeQuietly(() => handle.free());
-        this.removePersistedSession();
+        this.removePersistedSessionIfUnchanged(raw);
         return false;
       }
-      this.setSession({ handle, pubky: expectedPubky });
+      this.setSession({ handle, pubky: expectedPubky }, raw);
       Logger.info('Restored the encrypted messaging session after reload', { pubky: expectedPubky });
       return true;
     } catch (error) {
       // The homeserver rejected the cookie (expired/revoked) or the restore
-      // failed in transit; either way the persisted metadata is useless now.
+      // failed in transit; either way the metadata that was read is useless
+      // now. Another tab may have saved a newer session during the await.
       // Cookie resume still runs next — a fresh sign-in may hold a new cookie.
       Logger.info('Could not restore the persisted messaging session from its exported metadata', { error });
-      this.removePersistedSession();
+      this.removePersistedSessionIfUnchanged(raw);
       return false;
     }
   }
@@ -514,6 +512,29 @@ export class PaykitMessagingService {
    */
   static clearSession(): void {
     this.removePersistedSession();
+    this.dropLiveSession();
+  }
+
+  /**
+   * Account switch without a sign-out: drops the live session and the
+   * persisted export of any account but `keepPubky`.
+   */
+  static clearOtherAccounts(keepPubky: string): void {
+    if (this.session && this.session.pubky !== keepPubky) this.dropLiveSession();
+    const raw = this.readSessionStorage();
+    if (raw === null) return;
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (typeof stored !== 'object' || stored === null || (stored as { pubky?: unknown }).pubky === keepPubky) return;
+    this.removePersistedSessionIfUnchanged(raw);
+  }
+
+  /** The in-memory half of {@link clearSession}: the session and every live handle, not the persisted slot. */
+  private static dropLiveSession(): void {
     for (const link of this.links.values()) closeQuietly(() => void link.close());
     for (const handshake of this.handshakes.values()) closeQuietly(() => handshake.handle.free());
     this.links.clear();
@@ -1575,11 +1596,17 @@ export class PaykitMessagingService {
     return receiver;
   }
 
-  private static setSession(session: ActiveSession): void {
-    if (this.session && this.session.pubky !== session.pubky) this.clearSession();
+  /**
+   * `restoredFrom` is the persisted blob a restore read: the restored session
+   * is written back only while the slot still holds it, so a newer session
+   * another tab saved during the restore is never overwritten.
+   */
+  private static setSession(session: ActiveSession, restoredFrom?: string): void {
+    if (this.session && this.session.pubky !== session.pubky) this.dropLiveSession();
     else if (this.session) closeQuietly(() => this.session?.handle.free());
     this.session = session;
     this.sessionRetry.succeed(session.pubky);
+    if (restoredFrom !== undefined && this.readSessionStorage() !== restoredFrom) return;
     this.writePersistedSession(session);
   }
 
@@ -1596,6 +1623,11 @@ export class PaykitMessagingService {
     } catch {
       Logger.warn('Could not persist the messaging session metadata; reconnect will be needed after a reload.');
     }
+  }
+
+  private static removePersistedSessionIfUnchanged(raw: string): void {
+    if (this.readSessionStorage() !== raw) return;
+    this.removePersistedSession();
   }
 
   private static removePersistedSession(): void {

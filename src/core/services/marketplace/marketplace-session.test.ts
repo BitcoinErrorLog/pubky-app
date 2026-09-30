@@ -213,14 +213,15 @@ describe('MarketplaceSessionService', () => {
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
   });
 
-  it('drops a persisted session that belongs to another account', async () => {
+  it('never adopts a persisted session that belongs to another account, and leaves it for its owner', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
     dropMemoryOnly();
+    const persisted = window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY);
 
     expect(MarketplaceSessionService.restorePersistedSession('z'.repeat(52))).toBeNull();
-    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBeNull();
     expect(MarketplaceSessionService.getActiveSession()).toBeNull();
+    expect(window.localStorage.getItem(MARKETPLACE_SESSION_STORAGE_KEY)).toBe(persisted);
   });
 
   it('drops a persisted session that is past the expiry margin or malformed', async () => {

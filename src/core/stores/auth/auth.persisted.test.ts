@@ -73,7 +73,7 @@ describe('owner-guarded AUTH_PERSIST_KEY writes', () => {
     expect(shouldRefuseForeignAuthPersistWrite(null, ACCOUNT_B)).toBe(false);
   });
 
-  it('setItem no-ops when the blob already holds a different pubky', () => {
+  it('setItem no-ops over a different pubky, and a writer that never saw a session cannot clear it', () => {
     const storage = createOwnerGuardedAuthJSONStorage();
     expect(storage).toBeDefined();
     window.localStorage.setItem(AUTH_PERSIST_KEY, persistBlob(ACCOUNT_A, 'account-a-session-export'));
@@ -93,8 +93,9 @@ describe('owner-guarded AUTH_PERSIST_KEY writes', () => {
       state: { currentUserPubky: null, sessionExport: null, hasProfile: null, hasHydrated: false },
       version: 0,
     });
-    expect(readPersistedAuthPubky()).toBeNull();
+    expect(readPersistedAuthPubky()).toBe(ACCOUNT_A);
 
+    clearPersistedAuthIdentity();
     storage!.setItem(AUTH_PERSIST_KEY, {
       state: {
         currentUserPubky: ACCOUNT_B,
