@@ -45,6 +45,34 @@ if prepush_reuse "$sha"; then
   exit 0
 fi
 
+# A broken dependency tree fails every later step with an unrelated error.
+# The shared seed is read-only; a lane gates only on its own node_modules.
+# A .pnpm directory means pnpm ran in this npm tree, which leaves a second
+# copy of packages such as @sentry/core.
+shared_seed="${PREPUSH_SHARED_SEED:-/Volumes/t7/vibes-dev/.deps/pubky-app-shop-v068-4713}"
+deps_problem=""
+if [ ! -d "$ROOT/node_modules" ]; then
+  deps_problem="node_modules is missing"
+else
+  nm_real="$(cd "$ROOT/node_modules" && pwd -P)"
+  seed_real="$(cd "$shared_seed" 2>/dev/null && pwd -P || printf '%s' "$shared_seed")"
+  case "$nm_real/" in
+    "$seed_real"/*) deps_problem="node_modules resolves into the shared seed ${seed_real}" ;;
+  esac
+  if [ -z "$deps_problem" ] && [ -e "$nm_real/.pnpm" ]; then
+    deps_problem="node_modules/.pnpm exists"
+  fi
+  for pkg in prettier-plugin-tailwindcss @testing-library/jest-dom; do
+    if [ -z "$deps_problem" ] && [ ! -f "$nm_real/$pkg/package.json" ]; then
+      deps_problem="${pkg} is missing"
+    fi
+  done
+fi
+if [ -n "$deps_problem" ]; then
+  echo "prepush: ${deps_problem}; rebuild this lane's node_modules (release skill §1)" >&2
+  exit 1
+fi
+
 if [ -n "${PREPUSH_BASE:-}" ]; then
   base="$PREPUSH_BASE"
 elif git rev-parse --verify --quiet origin/release/shop-v0.6.8 >/dev/null; then
