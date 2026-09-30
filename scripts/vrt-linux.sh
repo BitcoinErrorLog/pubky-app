@@ -42,48 +42,39 @@ if [ "${VRT_LOCK_HELD:-}" != 1 ]; then
   exit 0
 fi
 
-# A host node_modules symlink is followed by the bind mount. npm ci then
-# deletes that symlink and writes a real directory into the worktree.
-# Replace it with an empty mountpoint for the volume, and restore the link.
-NM_LINK=""
-if [ -L "$ROOT/node_modules" ]; then
-  NM_LINK="$(readlink "$ROOT/node_modules")"
-  rm "$ROOT/node_modules"
-  mkdir "$ROOT/node_modules"
+# The host tree has macOS binaries, so the container installs its own Linux
+# dependencies into a volume, mounted at the host node_modules' real path.
+# For a lane whose node_modules is a symlink into /Volumes/t7/vibes-dev/.deps,
+# the symlink inside /w resolves to the volume. npm ci must not run in /w
+# then: it deletes the symlink through the bind mount and writes a Linux tree
+# into the worktree. It runs in the real path's parent instead, which exists
+# only inside the container, with the lockfile copied in and vendor/ linked
+# to /w/vendor for the file: dependencies. The worktree and the host tree
+# are never modified. For a real directory the real path is /w/node_modules.
+if [ ! -e "$ROOT/node_modules" ]; then
+  echo "vrt-linux: node_modules is missing; rebuild this lane's node_modules (release skill §1)" >&2
+  exit 1
 fi
-restore_nm() {
+NM_REAL="$(cd "$ROOT/node_modules" && pwd -P)"
+ROOT_REAL="$(pwd -P)"
+if [ "$NM_REAL" = "$ROOT_REAL/node_modules" ]; then
+  NM_MOUNT=/w/node_modules
+  deps_setup=""
+  deps_install="npm ci"
+else
+  NM_MOUNT="$NM_REAL"
+  nm_parent="$(printf '%q' "$(dirname "$NM_REAL")")"
+  deps_setup="ln -sfn /w/vendor ${nm_parent}/vendor && "
+  deps_install="cp /w/package.json /w/package-lock.json ${nm_parent}/ && (cd ${nm_parent} && npm ci)"
+fi
+cleanup_attachments() {
   # Preserve a failing test status. Bash uses the EXIT trap's status as the
-  # script status, so a successful restore must not turn a red suite green.
+  # script status, so a successful cleanup must not turn a red suite green.
   local status=$?
-  local attempt
   rm -rf "$ROOT/.vitest-attachments" || true
-  if [ -z "$NM_LINK" ]; then
-    return "$status"
-  fi
-  # Docker Desktop releases the nested volume mount after the container
-  # exits. Never recursively delete this path: on some versions that reaches
-  # the still-mounted dependency volume and destroys its contents. `rmdir`
-  # fails safely while the non-empty mount is present and succeeds once
-  # Docker has released the empty host mountpoint.
-  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-    if [ ! -e "$ROOT/node_modules" ] && [ ! -L "$ROOT/node_modules" ]; then
-      break
-    fi
-    if [ -d "$ROOT/node_modules" ] && [ ! -L "$ROOT/node_modules" ]; then
-      rmdir "$ROOT/node_modules" 2>/dev/null || true
-    fi
-    if [ -e "$ROOT/node_modules" ] || [ -L "$ROOT/node_modules" ]; then
-      sleep 1
-    fi
-  done
-  if [ -e "$ROOT/node_modules" ] || [ -L "$ROOT/node_modules" ]; then
-    echo "vrt-linux: could not remove the node_modules mountpoint" >&2
-    return 1
-  fi
-  ln -s "$NM_LINK" "$ROOT/node_modules"
   return "$status"
 }
-trap restore_nm EXIT
+trap cleanup_attachments EXIT
 
 quote_list() {
   local out="" spec
@@ -108,9 +99,9 @@ run_project() {
   # Run each configured browser in its own container, against the same
   # installed dependency volume.
   for browser in "${browser_list[@]}"; do
-    cmd=""
+    cmd="$deps_setup"
     if [ "$installed" -eq 0 ]; then
-      cmd="npm ci && "
+      cmd+="${deps_install} && "
       installed=1
     fi
     cmd+="npx vitest run --project ${project}"
@@ -128,7 +119,7 @@ run_project() {
       -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
       -e CI=true \
       -v "$ROOT":/w \
-      -v "${VOLUME}:/w/node_modules" \
+      -v "${VOLUME}:${NM_MOUNT}" \
       -w /w \
       "$IMAGE" \
       bash -lc "$cmd"
