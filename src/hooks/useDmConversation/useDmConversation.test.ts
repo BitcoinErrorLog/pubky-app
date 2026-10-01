@@ -120,7 +120,7 @@ describe('useDmConversation queued-message behavior', () => {
     expect(outcome).toBe('queued');
     expect(MessagingController.sendOrQueueDmMessage).toHaveBeenCalledWith(COUNTERPARTY, 'queued send');
     expect(toast).toHaveBeenCalledOnce();
-    expect(toast).toHaveBeenCalledWith({ description: 'Queued — will deliver automatically' });
+    expect(toast).toHaveBeenCalledWith({ description: MESSAGING_COPY.queuedToast });
     // The draft cleared — the message is safely queued, nothing was lost.
     expect(result.current.draft).toBe('');
 

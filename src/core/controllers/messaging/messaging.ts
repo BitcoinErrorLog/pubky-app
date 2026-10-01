@@ -1,19 +1,15 @@
 import { z } from 'zod';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import {
+  FIRST_CONTACT_FOLLOW_PAGE_SIZE,
   FirstContactApplication,
   type MessagingMutesState,
   type MuteChangeResult,
 } from '@/application/messaging/first-contact';
-import {
-  MESSAGING_SYNC_MAX_COUNTERPARTIES,
-  MessagingApplication,
-  type MessagingThreadState,
-} from '@/application/messaging/messaging';
+import { MessagingApplication, type MessagingThreadState } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
 import { UserApplication } from '@/application/user/user';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
-import { NEXUS_USER_IDS_MAX_LIMIT } from '@/config/nexus';
 import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
 import { MESSAGING_COPY, messagingReportText } from '@/libs/commerce/messaging-copy';
 import {
@@ -24,10 +20,12 @@ import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { HttpMethod } from '@/libs/http/http.types';
+import { hasHttpStatus } from '@/libs/error/error.utils';
+import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { buildDmConversationId, parseDmConversationId } from '@/libs/messaging/dm-contracts';
 import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
+import { MESSAGING_SYNC_PASS_TIMEOUT_MS, withPassDeadline } from '@/libs/messaging/pass-deadline';
 import type { Pubky } from '@/models/models.types';
 import { buildUserCompositeId } from '@/models/stream/user/userStream.helper';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
@@ -73,6 +71,36 @@ export class MessagingController {
   static clearMessagingSession(): void {
     MessagingApplication.clearMessagingSession();
     useMessagingStore.getState().clearMessagingEnabled();
+  }
+
+  /**
+   * The background sync pass for `ownerPubky` (`MessagingSyncCoordinator`).
+   * It acts only where this browser already holds that exact account's
+   * receiver key with its marker published, and it never creates, replaces
+   * or publishes a key: the session resume and the whole pass run inside
+   * {@link MessagingApplication.withoutReceiverProvisioning}. It stops at
+   * the next step once `shouldContinue` answers false, once `ownerPubky` is
+   * no longer the signed-in account, or once the receiver key differs from
+   * the one it started with (another tab replaced it).
+   */
+  static async syncInboxInBackground(ownerPubky: string, shouldContinue: () => boolean): Promise<'synced' | 'skipped'> {
+    const isCurrent = () => shouldContinue() && useAuthStore.getState().currentUserPubky === ownerPubky;
+    if (!isCurrent()) return 'skipped';
+    const receiverKey = await MessagingApplication.publishedReceiverKey(ownerPubky);
+    if (receiverKey === null || !isCurrent()) return 'skipped';
+    return await MessagingApplication.withoutReceiverProvisioning(ownerPubky, async () => {
+      const resumed = await MessagingApplication.resumeSession(ownerPubky);
+      if (!resumed || !isCurrent()) return 'skipped';
+      if ((await MessagingApplication.publishedReceiverKey(ownerPubky)) !== receiverKey) {
+        Logger.warn('The messaging key changed during a background sync; the pass stopped', {
+          reason: 'receiver_replaced',
+        });
+        return 'skipped';
+      }
+      if (!isCurrent()) return 'skipped';
+      await this.syncInbox({ ownerPubky, shouldContinue });
+      return 'synced';
+    });
   }
 
   static async isCounterpartyEnrolled(counterpartyPubky: unknown): Promise<boolean> {
@@ -476,6 +504,9 @@ export class MessagingController {
     return count;
   }
 
+  /** The running sync pass per account: the inbox and the background sync share it instead of overlapping. */
+  private static syncInFlight = new Map<string, Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }>>();
+
   /**
    * One bounded inbox sync pass. The responder can only answer handshakes
    * from counterparties it can NAME (the binding cannot enumerate inbound
@@ -485,7 +516,9 @@ export class MessagingController {
    *    application layer, most recent first).
    * 2. Marketplace order/offer participants — only when a durable commerce
    *    mode is configured; general DMs never depend on the commerce adapter.
-   * 3. The user's follows and followers (Nexus-fed user streams). A buyer
+   * 3. One page each of the user's follows and followers, read from Nexus
+   *    on every pass and advanced to the next page each pass, so every
+   *    follower is named within one walk of the list. A buyer on the page
    *    who follows this seller and published a conversation request is
    *    probed first, and the request adds the listing thread right away.
    *
@@ -495,33 +528,74 @@ export class MessagingController {
    * probe, handshake step, queued send or receive), and `mutes` says why.
    *
    * Any source failing to read degrades to the remaining sources instead of
-   * failing the sync. Ends by refreshing the device-local unread fact.
+   * failing the sync. Ends by refreshing the device-local unread fact. A
+   * call while this account's pass is running joins that pass.
+   *
+   * The pass belongs to the account signed in when it started (or
+   * `ownerPubky`). When that account signs out or another signs in, or
+   * `shouldContinue` answers false, it starts nothing more: no follow-graph
+   * walk, contact set, request thread, pair step or unread count is written
+   * for the account that left. One pair step already running finishes. A
+   * pass still running after {@link MESSAGING_SYNC_PASS_TIMEOUT_MS} is told
+   * to stop the same way and rejects, so later calls start a new pass.
    */
-  static async syncInbox(): Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }> {
-    const ownerPubky = this.getCurrentUserPubky();
+  static async syncInbox(options?: {
+    ownerPubky?: string;
+    shouldContinue?: () => boolean;
+  }): Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }> {
+    const ownerPubky = options?.ownerPubky ?? this.getCurrentUserPubky();
+    const running = this.syncInFlight.get(ownerPubky);
+    if (running) return await running;
+    let expired = false;
+    const isCurrent = () =>
+      !expired && useAuthStore.getState().currentUserPubky === ownerPubky && (options?.shouldContinue?.() ?? true);
+    const pass = withPassDeadline(this.runInboxSync(ownerPubky, isCurrent), {
+      timeoutMs: MESSAGING_SYNC_PASS_TIMEOUT_MS,
+      operation: 'syncInbox',
+      onExpire: () => {
+        expired = true;
+      },
+    }).finally(() => {
+      if (this.syncInFlight.get(ownerPubky) === pass) this.syncInFlight.delete(ownerPubky);
+    });
+    this.syncInFlight.set(ownerPubky, pass);
+    return await pass;
+  }
+
+  private static async runInboxSync(
+    ownerPubky: string,
+    isCurrent: () => boolean,
+  ): Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }> {
     const mutes = await FirstContactApplication.loadMutes(ownerPubky);
+    const stopped = { mutes: mutes.kind, rateLimited: 0 };
+    if (!isCurrent()) return stopped;
     const policy = FirstContactApplication.policyFor(ownerPubky, mutes);
     if (!policy) {
       await this.refreshUnreadCount();
-      return { mutes: mutes.kind, rateLimited: 0 };
+      return stopped;
     }
     const muted = mutes.kind === 'ready' ? mutes.muted : new Set<string>();
     const orderCounterparties = isDurableCommerceMode(getCommerceAdapterMode())
       ? await this.getMarketplaceCounterpartyCandidates(ownerPubky)
       : [];
-    const { following, followers } = await this.getFollowGraphCandidates(ownerPubky);
+    const { following, followers, knownFollowing } = await this.getFollowGraphCandidates(ownerPubky, isCurrent);
+    if (!isCurrent()) return stopped;
     FirstContactApplication.setKnownContacts(ownerPubky, {
-      following,
+      following: knownFollowing,
       orderCounterparties: orderCounterparties.filter((pubky) => pubky !== ownerPubky),
     });
-    const requesters = await FirstContactApplication.discoverRequests(ownerPubky, followers, muted);
+    const requesters = await FirstContactApplication.discoverRequests(ownerPubky, followers, muted, isCurrent);
+    if (!isCurrent()) return stopped;
     const candidates = new Set([...orderCounterparties, ...following, ...followers]);
     candidates.delete(ownerPubky);
     await MessagingApplication.syncCounterparties(ownerPubky, [...candidates], {
       priorityPubkys: requesters,
       policy,
+      shouldContinue: isCurrent,
     });
+    if (!isCurrent()) return stopped;
     await FirstContactApplication.promoteKnownRequests(ownerPubky);
+    if (!isCurrent()) return stopped;
     await this.refreshUnreadCount();
     return { mutes: mutes.kind, rateLimited: FirstContactApplication.takeRateLimitedCount(ownerPubky) };
   }
@@ -557,41 +631,55 @@ export class MessagingController {
   }
 
   /**
-   * The user's follows and followers from the app's existing Nexus-fed user
-   * streams (cache-first, one bounded page each — the sync pass itself is
-   * capped at {@link MESSAGING_SYNC_MAX_COUNTERPARTIES} probes, so deeper
-   * pagination would buy nothing). Failures degrade to empty.
+   * This pass's page of the user's follows and of their followers, read from
+   * Nexus (never the stream cache, which would hide anyone who followed
+   * after it was filled), each one page further along its list than the
+   * last pass ({@link FollowGraphPager}). `knownFollowing` is everyone on
+   * the follows pages of the current and last walk, so a followed person
+   * counts as known on every pass, not only on the pass that reads their
+   * page. Failures degrade to empty and leave that list's walk where it was,
+   * and so does every read once `isCurrent` answers false.
    */
   private static async getFollowGraphCandidates(
     ownerPubky: string,
-  ): Promise<{ following: string[]; followers: string[] }> {
+    isCurrent: () => boolean,
+  ): Promise<{ following: string[]; followers: string[]; knownFollowing: string[] }> {
     const reaches = ['following', 'followers'] as const;
-    const slices = await Promise.allSettled(
+    // Reading a pager creates it: an account that left must not get one back.
+    if (!isCurrent()) return { following: [], followers: [], knownFollowing: [] };
+    const pagers = {
+      following: FirstContactApplication.followGraphPager(ownerPubky, 'following'),
+      followers: FirstContactApplication.followGraphPager(ownerPubky, 'followers'),
+    };
+    const pages = await Promise.allSettled(
       reaches.map((reach) =>
-        UserStreamApplication.getOrFetchStreamSlice({
+        UserStreamApplication.fetchStreamIds({
           streamId: buildUserCompositeId({ userId: ownerPubky as Pubky, reach }),
-          skip: 0,
-          // The user-ids stream rejects limits above its own cap (20 on the
-          // deployed Nexus) with a 400, which silently degraded this whole
-          // source to empty and made follower-initiated messages undiscoverable.
-          limit: Math.min(MESSAGING_SYNC_MAX_COUNTERPARTIES, NEXUS_USER_IDS_MAX_LIMIT),
+          skip: pagers[reach].nextSkip(),
+          limit: FIRST_CONTACT_FOLLOW_PAGE_SIZE,
           viewerId: ownerPubky as Pubky,
-          allowPartialCache: true,
         }),
       ),
     );
     const graph = { following: [] as string[], followers: [] as string[] };
-    slices.forEach((slice, index) => {
-      if (slice.status === 'fulfilled') {
-        graph[reaches[index]] = [...new Set(slice.value.nextPageIds)].filter((pubky) => pubky !== ownerPubky);
+    if (!isCurrent()) return { ...graph, knownFollowing: [] };
+    pages.forEach((page, index) => {
+      const reach = reaches[index];
+      if (page.status === 'fulfilled') {
+        pagers[reach].record(page.value);
+        graph[reach] = [...new Set(page.value)].filter((pubky) => pubky !== ownerPubky);
+      } else if (hasHttpStatus(page.reason, HttpStatusCode.NOT_FOUND)) {
+        // Nexus answers 404 for a list with nothing at this offset.
+        pagers[reach].record([]);
       } else {
         Logger.warn('Inbox sync could not read the follow graph for counterparty candidates', {
-          error: slice.reason,
-          context: { reach: reaches[index] },
+          error: page.reason,
+          context: { reach },
         });
       }
     });
-    return graph;
+    const knownFollowing = [...pagers.following.seen()].filter((pubky) => pubky !== ownerPubky);
+    return { ...graph, knownFollowing };
   }
 
   /**

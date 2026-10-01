@@ -112,6 +112,24 @@ export class MessagingApplication {
     };
   }
 
+  /** The receiver key this device published for the account, or `null`. Local read only. */
+  static async publishedReceiverKey(ownerPubky: string): Promise<string | null> {
+    return await PaykitMessagingService.publishedReceiverKey(ownerPubky);
+  }
+
+  /** Runs `operation` while nothing may create, replace or publish the account's receiver key. */
+  static async withoutReceiverProvisioning<T>(ownerPubky: string, operation: () => Promise<T>): Promise<T> {
+    return await PaykitMessagingService.withoutReceiverProvisioning(ownerPubky, operation);
+  }
+
+  /**
+   * Resumes the account's messaging session without the signer. Inside
+   * {@link withoutReceiverProvisioning} it touches no receiver key.
+   */
+  static async resumeSession(ownerPubky: string): Promise<boolean> {
+    return await PaykitMessagingService.restorePersistedSession(ownerPubky);
+  }
+
   /** Sign-out teardown: drops the in-memory session and all live link handles. */
   static clearMessagingSession(): void {
     PaykitMessagingService.clearSession();
@@ -560,14 +578,17 @@ export class MessagingApplication {
    * {@link MESSAGING_SYNC_RESERVED_NEW_PROBES} of the healthy budget are kept
    * for people with no local state yet (`priorityPubkys` first, then the
    * rest of `candidatePubkys`), so a long contact list never locks new people
-   * out. Muted people are never probed.
+   * out. Muted people are never probed. Once `shouldContinue` answers false
+   * no further pair step starts; one already running finishes, because a
+   * handshake or send cut off midway would leave its saved state behind.
    */
   static async syncCounterparties(
     ownerPubky: string,
     candidatePubkys: string[],
-    options: { priorityPubkys?: string[]; policy: MessagingPolicy },
+    options: { priorityPubkys?: string[]; policy: MessagingPolicy; shouldContinue?: () => boolean },
   ): Promise<void> {
     const { policy } = options;
+    const shouldContinue = options.shouldContinue ?? (() => true);
     const existing = await this.existingCounterpartiesByRecency(ownerPubky);
     const existingSet = new Set(existing);
     const fresh = [...new Set([...(options.priorityPubkys ?? []), ...candidatePubkys])].filter(
@@ -593,15 +614,18 @@ export class MessagingApplication {
     // parallel fan-out against one homeserver session buys nothing but load.
     const flushRetries: string[] = [];
     for (const counterparty of [...existingProbes, ...freshProbes]) {
+      if (!shouldContinue()) return;
       const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
       if (state.status !== 'ready') continue;
       if (this.outboxRetry.status(`${ownerPubky}:${counterparty}`) === 'due') {
         flushRetries.push(counterparty);
       } else {
+        if (!shouldContinue()) return;
         // The probe may have JUST completed the handshake — deliver anything
         // queued toward this counterparty before draining inbound messages.
         await this.flushOutbox(ownerPubky, counterparty, policy);
       }
+      if (!shouldContinue()) return;
       await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
     }
     // Due link retries and due flush retries of ready links share one
@@ -612,15 +636,16 @@ export class MessagingApplication {
       if (index < retries.length) recovery.push({ kind: 'link', counterparty: retries[index] });
     }
     for (const { kind, counterparty } of recovery.slice(0, MESSAGING_SYNC_MAX_RECOVERY_PROBES)) {
+      if (!shouldContinue()) return;
       if (kind === 'flush') {
         await this.flushOutbox(ownerPubky, counterparty, policy);
         continue;
       }
       const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
-      if (state.status === 'ready') {
-        await this.flushOutbox(ownerPubky, counterparty, policy);
-        await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
-      }
+      if (state.status !== 'ready' || !shouldContinue()) continue;
+      await this.flushOutbox(ownerPubky, counterparty, policy);
+      if (!shouldContinue()) return;
+      await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
     }
   }
 

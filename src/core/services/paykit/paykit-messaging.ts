@@ -262,6 +262,8 @@ export class PaykitMessagingService {
   private static linkRetry = new RetryBackoff<MessagingProbeState>();
   private static sessionRetry = new RetryBackoff<true>();
   private static receiverRetry = new RetryBackoff<true>();
+  /** Accounts under {@link withoutReceiverProvisioning}, with how many holds each. */
+  private static provisioningHolds = new Map<string, number>();
   private static markerReadSleep: MarkerReadSleep = realMarkerReadSleep;
 
   /** Test seam: replaces the wait between marker read attempts. Never used in production. */
@@ -427,6 +429,7 @@ export class PaykitMessagingService {
    */
   private static async ensureReceiverProvisioned(pubky: string): Promise<void> {
     if (this.session?.pubky !== pubky) return;
+    if (this.provisioningHolds.has(pubky)) return;
     const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(pubky));
     if (receiver?.marker_published) return;
     if (this.receiverRetry.status(pubky) === 'waiting') return;
@@ -502,8 +505,32 @@ export class PaykitMessagingService {
 
   /** Facts about local provisioning (no network): has a receiver key + published marker. */
   static async isReceiverProvisioned(pubky: string): Promise<boolean> {
+    return (await this.publishedReceiverKey(pubky)) !== null;
+  }
+
+  /**
+   * The public key of the receiver this device holds for `pubky`, when its
+   * marker was published from here; otherwise `null`. Local read only.
+   */
+  static async publishedReceiverKey(pubky: string): Promise<string | null> {
     const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(pubky));
-    return Boolean(receiver?.marker_published);
+    return receiver?.marker_published ? receiver.noise_public_key : null;
+  }
+
+  /**
+   * Runs `operation` while no session resume for `pubky` may create,
+   * replace or publish a receiver key. Session resumes still run; the
+   * receiver is only ever used as it is. Holds nest.
+   */
+  static async withoutReceiverProvisioning<T>(pubky: string, operation: () => Promise<T>): Promise<T> {
+    this.provisioningHolds.set(pubky, (this.provisioningHolds.get(pubky) ?? 0) + 1);
+    try {
+      return await operation();
+    } finally {
+      const remaining = (this.provisioningHolds.get(pubky) ?? 1) - 1;
+      if (remaining > 0) this.provisioningHolds.set(pubky, remaining);
+      else this.provisioningHolds.delete(pubky);
+    }
   }
 
   /**

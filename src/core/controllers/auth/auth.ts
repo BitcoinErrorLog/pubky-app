@@ -814,6 +814,7 @@ export class AuthController {
       if ([captured?.pubky ?? null, currentPubky, persistedPubky].some((pubky) => pubky && pubky !== newPubky)) {
         CommerceController.clearMarketplaceSessionsOfOtherAccounts(newPubky);
         MessagingApplication.clearMessagingSessionsOfOtherAccounts(newPubky);
+        FirstContactApplication.clearOtherAccounts(newPubky);
       }
       this.markLocalStateDirty();
       this.pendingLocalStateCapture = null;

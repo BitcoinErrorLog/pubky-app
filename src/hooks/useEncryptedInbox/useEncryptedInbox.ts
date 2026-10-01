@@ -35,9 +35,10 @@ export interface UseEncryptedInboxReturn {
  * The encrypted inbox (durable modes): lists device-local conversations and —
  * while a messaging session is live — runs the bounded sync pass that
  * advances pending handshakes, answers queued inbound handshakes from known
- * counterparties, and receives new messages. Sync runs only while this
- * surface is mounted and visible, resumes on focus, and stops on unmount; no
- * background polling.
+ * counterparties, and receives new messages. This surface syncs on the
+ * commerce poll interval while mounted and visible, resumes on focus, and
+ * stops on unmount; elsewhere `MessagingSyncCoordinator` runs the same pass
+ * at a slower pace.
  *
  * Local history stays readable without a session (it is on this device); the
  * `needs-enable` status only gates live sending/receiving.

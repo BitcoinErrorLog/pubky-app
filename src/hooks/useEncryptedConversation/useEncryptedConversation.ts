@@ -30,7 +30,8 @@ import type {
  * the counterparty's runtime; queued items render honestly as "Queued",
  * never as sent). Polling is bounded and abortable by construction — it runs
  * only while `active` is true AND the page is visible, resumes on focus, and
- * stops on unmount. There is no background polling.
+ * stops on unmount. Away from this surface, `MessagingSyncCoordinator`
+ * advances the handshake and flushes queued rows.
  */
 export function useEncryptedConversation(
   sellerPubky: string,
@@ -209,7 +210,7 @@ export function useEncryptedConversation(
       await loadThread();
       if (!outcome.delivered && !queuedToastShownRef.current) {
         queuedToastShownRef.current = true;
-        toast({ description: 'Queued — will deliver automatically' });
+        toast({ description: MESSAGING_COPY.queuedToast });
       }
       return outcome.delivered ? 'delivered' : 'queued';
     } catch (error) {

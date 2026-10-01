@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
 import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
-import { FirstContactApplication } from '@/application/messaging/first-contact';
+import { FIRST_CONTACT_FOLLOW_PAGE_SIZE, FirstContactApplication } from '@/application/messaging/first-contact';
 import { MessagingApplication } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
 import { buildChatMessage, MARKETPLACE_CHAT_MESSAGE_KIND } from '@/libs/commerce/messaging-contracts';
@@ -89,6 +89,15 @@ function followGraph(pubky: string, reach: 'following' | 'followers'): string[] 
     if (reach === 'followers' && followee === pubky) out.push(follower);
   }
   return out;
+}
+
+/** `count` distinct valid pubkys, none of them a party to these journeys. */
+function otherFollowers(count: number): string[] {
+  const alphabet = 'ybndrfg8ejkmcpqxot1uwisza345h769';
+  return Array.from(
+    { length: count },
+    (_, index) => `${alphabet[index % 32]}${alphabet[(index >> 5) % 32]}${'x'.repeat(50)}`,
+  );
 }
 
 /** A sealed mute record written by another device of `owner`. */
@@ -181,14 +190,11 @@ beforeEach(async () => {
       .map((order) => order as Awaited<ReturnType<typeof CommerceApplication.getMarketplaceOrders>>[number]),
   );
   vi.spyOn(CommerceApplication, 'getMarketplaceOffers').mockResolvedValue([]);
-  vi.spyOn(UserStreamApplication, 'getOrFetchStreamSlice').mockImplementation(async ({ streamId }) => {
+  // Nexus pages a follow list by offset, in its own fixed order.
+  vi.spyOn(UserStreamApplication, 'fetchStreamIds').mockImplementation(async ({ streamId, skip = 0, limit }) => {
     const [pubky, reach] = String(streamId).split(':');
-    return {
-      nextPageIds: followGraph(pubky, reach === 'following' ? 'following' : 'followers') as Pubky[],
-      cacheMissUserIds: [],
-      skip: undefined,
-      isExhausted: true,
-    };
+    const ids = followGraph(pubky, reach === 'following' ? 'following' : 'followers') as Pubky[];
+    return ids.slice(skip, skip + limit);
   });
   await Promise.all([
     CommerceMessagingReceiverModel.clear(),
@@ -250,6 +256,46 @@ describe('journey: a stranger asks a seller about a listing', () => {
     expect(row.origin).toBe('request');
     await expect(MessagingController.refreshUnreadCount()).resolves.toBe(0);
     expect(useMessagingStore.getState().unreadConversations).toBe(0);
+  });
+
+  it('reaches a seller whose followers fill more than one Nexus page before the buyer', async () => {
+    await actAs(SELLER);
+    for (const follower of otherFollowers(FIRST_CONTACT_FOLLOW_PAGE_SIZE)) {
+      homeserver.files.set(followUrl(follower, SELLER), { uri: `pubky://${SELLER}` });
+    }
+    await actAs(BUYER);
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+    const outcome = await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Is this still available?');
+    expect(outcome.firstContact).toEqual({ followed: 'followed', request: 'written' });
+    expect(followGraph(SELLER, 'followers').indexOf(BUYER)).toBe(FIRST_CONTACT_FOLLOW_PAGE_SIZE);
+
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+    await expect(rowsOf(SELLER)).resolves.toEqual([]);
+    // The next pass reads the next page, which names the buyer.
+    await MessagingController.syncInbox();
+    expect((await rowsOf(SELLER)).map((row) => [row.conversation_id, row.origin])).toEqual([[THREAD, 'request']]);
+
+    await actAs(BUYER);
+    await MessagingController.syncInbox();
+    await expect(CommerceMessagingOutboxModel.findByOwner(BUYER)).resolves.toEqual([]);
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+    await expect(bodiesIn(SELLER, THREAD)).resolves.toEqual(['Is this still available?']);
+  });
+
+  it('finds a buyer who followed after the seller’s first sync on this device', async () => {
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+    await expect(rowsOf(SELLER)).resolves.toEqual([]);
+
+    await actAs(BUYER);
+    await MessagingController.openConversation(SELLER, BUYER, LISTING);
+    await MessagingController.sendOrQueueMessage(SELLER, BUYER, LISTING, 'Is this still available?');
+
+    await actAs(SELLER);
+    await MessagingController.syncInbox();
+    expect((await rowsOf(SELLER)).map((row) => row.conversation_id)).toEqual([THREAD]);
   });
 
   it('adds one request thread per listing the buyer asks about', async () => {

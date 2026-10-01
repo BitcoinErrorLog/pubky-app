@@ -288,8 +288,8 @@ async function forcePageVisible(page: Page): Promise<void> {
 function handshakeCopy(page: Page) {
   const surface = page.locator('[data-surface="marketplace-encrypted-conversation"]');
   return {
-    initiator: surface.getByText('Waiting for them to open Messages'),
-    responder: surface.getByText('Still opening this conversation'),
+    initiator: surface.getByText('Not delivered yet: their device has not answered'),
+    responder: surface.getByText('Waiting for them to open the Shop again to finish connecting'),
     composer: surface.locator('#encrypted-message-body'),
   };
 }

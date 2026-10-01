@@ -1,6 +1,7 @@
 import { followUriBuilder } from 'pubky-app-specs';
 import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import { NEXUS_USER_IDS_MAX_LIMIT } from '@/config/nexus';
 import { newPrivEntryName, privErrorSummary, type PrivKeyring } from '@/libs/commerce/priv-envelope';
 import {
   buildMarketplaceConversationAggregateId,
@@ -23,6 +24,7 @@ import {
   RECEIVE_CAP_MAX_MESSAGES,
   RECEIVE_CAP_WINDOW_MS,
 } from '@/libs/messaging/first-contact';
+import { FollowGraphPager } from '@/libs/messaging/follow-graph-pager';
 import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import {
   buildMuteChange,
@@ -44,6 +46,12 @@ const MUTES_FAMILY = 'messaging_mutes';
 
 /** Followers whose request directories one sync lists. */
 export const FIRST_CONTACT_MAX_REQUEST_SOURCES = 20;
+/**
+ * Ids per follow-graph page one sync reads. The Nexus user-ids stream
+ * rejects a larger `limit` with a 400, and one page is exactly the request
+ * directories a sync lists.
+ */
+export const FIRST_CONTACT_FOLLOW_PAGE_SIZE = Math.min(NEXUS_USER_IDS_MAX_LIMIT, FIRST_CONTACT_MAX_REQUEST_SOURCES);
 /** Request documents read from one buyer per sync. */
 export const FIRST_CONTACT_MAX_REQUESTS_PER_BUYER = 10;
 
@@ -98,6 +106,7 @@ export class FirstContactApplication {
   private static orderCounterparties = new Map<string, ReadonlySet<string>>();
   private static seenRequests = new Set<string>();
   private static rateLimitedCounts = new Map<string, number>();
+  private static followGraphPagers = new Map<string, FollowGraphPager>();
 
   // --- mutes --------------------------------------------------------------
 
@@ -307,6 +316,17 @@ export class FirstContactApplication {
     this.knownContacts.set(ownerPubky, new Set([...contacts.following, ...orderCounterparties]));
   }
 
+  /** Where the account's inbox sync is in its walk through one of its follow lists. */
+  static followGraphPager(ownerPubky: string, reach: 'following' | 'followers'): FollowGraphPager {
+    const key = `${ownerPubky}:${reach}`;
+    let pager = this.followGraphPagers.get(key);
+    if (!pager) {
+      pager = new FollowGraphPager(FIRST_CONTACT_FOLLOW_PAGE_SIZE);
+      this.followGraphPagers.set(key, pager);
+    }
+    return pager;
+  }
+
   /**
    * Whether the person shares an order or offer with this account. Both
    * sides of an order already find each other, so a first message about it
@@ -359,15 +379,18 @@ export class FirstContactApplication {
    * request's path is trusted (the buyer's own `/pub`), and every JSON field
    * must repeat it. Returns the buyers with at least one valid request, so
    * the sync probes them first. A buyer whose directory cannot be read is
-   * skipped until the next pass.
+   * skipped until the next pass. Once `shouldContinue` answers false nothing
+   * more is remembered or stored.
    */
   static async discoverRequests(
     sellerPubky: string,
     followerPubkys: readonly string[],
     muted: ReadonlySet<string>,
+    shouldContinue: () => boolean = () => true,
   ): Promise<string[]> {
     const requesters: string[] = [];
     for (const buyerPubky of followerPubkys.slice(0, FIRST_CONTACT_MAX_REQUEST_SOURCES)) {
+      if (!shouldContinue()) return requesters;
       if (buyerPubky === sellerPubky || muted.has(buyerPubky)) continue;
       let urls: string[];
       const directoryUrl = conversationRequestDirectoryUrl(buyerPubky, sellerPubky);
@@ -386,14 +409,19 @@ export class FirstContactApplication {
       for (const url of urls) {
         const listingId = listingIdFromRequestUrl(url, directoryUrl);
         if (!listingId) continue;
-        if (await this.addRequestThread(sellerPubky, buyerPubky, listingId)) found = true;
+        if (await this.addRequestThread(sellerPubky, buyerPubky, listingId, shouldContinue)) found = true;
       }
       if (found) requesters.push(buyerPubky);
     }
     return requesters;
   }
 
-  private static async addRequestThread(sellerPubky: string, buyerPubky: string, listingId: string): Promise<boolean> {
+  private static async addRequestThread(
+    sellerPubky: string,
+    buyerPubky: string,
+    listingId: string,
+    shouldContinue: () => boolean,
+  ): Promise<boolean> {
     const seenKey = `${sellerPubky}:${buyerPubky}:${listingId}`;
     if (!this.seenRequests.has(seenKey)) {
       let raw: unknown;
@@ -406,10 +434,13 @@ export class FirstContactApplication {
         return false;
       }
       if (!parseBoundConversationRequest(raw, { documentOwner: buyerPubky, sellerPubky, listingId })) return false;
+      if (!shouldContinue()) return false;
       this.seenRequests.add(seenKey);
     }
     const conversationId = buildMarketplaceConversationAggregateId(sellerPubky, buyerPubky, listingId);
     if (await LocalMessagingService.getConversation(sellerPubky, conversationId)) return true;
+    const origin = await this.originFor(sellerPubky, buyerPubky);
+    if (!shouldContinue()) return false;
     await LocalMessagingService.touchConversation({
       owner_id: sellerPubky,
       conversation_id: conversationId,
@@ -418,7 +449,7 @@ export class FirstContactApplication {
       counterparty_pubky: buyerPubky,
       last_message_at: null,
       updated_at: Date.now(),
-      origin: await this.originFor(sellerPubky, buyerPubky),
+      origin,
     });
     return true;
   }
@@ -524,6 +555,26 @@ export class FirstContactApplication {
     }
   }
 
+  /**
+   * Account switch without a sign-out: forgets the walk positions, contact
+   * sets, seen requests, mute records and counters of every account but
+   * `keepPubky`.
+   */
+  static clearOtherAccounts(keepPubky: string): void {
+    const ownedBy = (key: string) => key === keepPubky || key.startsWith(`${keepPubky}:`);
+    for (const map of [
+      this.muteRecords,
+      this.muteQueue,
+      this.knownContacts,
+      this.orderCounterparties,
+      this.rateLimitedCounts,
+    ]) {
+      for (const key of [...map.keys()]) if (!ownedBy(key)) map.delete(key);
+    }
+    for (const key of [...this.followGraphPagers.keys()]) if (!ownedBy(key)) this.followGraphPagers.delete(key);
+    for (const key of [...this.seenRequests]) if (!ownedBy(key)) this.seenRequests.delete(key);
+  }
+
   /** Sign-out teardown: forgets every cached list, contact set and counter. */
   static clear(): void {
     this.muteQueue.clear();
@@ -532,6 +583,7 @@ export class FirstContactApplication {
     this.orderCounterparties.clear();
     this.seenRequests.clear();
     this.rateLimitedCounts.clear();
+    this.followGraphPagers.clear();
   }
 }
 

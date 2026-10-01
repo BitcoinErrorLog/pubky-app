@@ -8,12 +8,13 @@ import type {
   ConversationThreadItem,
   UseEncryptedConversationReturn,
 } from '@/hooks/useEncryptedConversation/useEncryptedConversation.types';
-import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { MESSAGING_COPY, queuedSendFailedText } from '@/libs/commerce/messaging-copy';
 import { cn } from '@/libs/utils/utils';
 
 /**
  * Shared thread + composer for Encrypted Link conversations. Queued bubbles
- * stay labeled Queued (never sent). The composer is always available: while
+ * stay labeled Queued (never sent), with the reason once a send of them
+ * failed. The composer is always available: while
  * the handshake is pending, sends queue device-locally.
  */
 export function EncryptedConversationBody({
@@ -137,6 +138,11 @@ function QueuedThreadBubble({
             {item.queued.body}
           </Typography>
         </div>
+        {item.queued.last_error ? (
+          <Typography as="p" role="status" overrideDefaults className="text-right text-xs text-muted-foreground">
+            {queuedSendFailedText(item.queued.last_error)}
+          </Typography>
+        ) : null}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{MESSAGING_COPY.queued}</span>
           <button

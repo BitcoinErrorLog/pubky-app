@@ -31,7 +31,8 @@ import type {
  *
  * Polling is bounded and abortable by construction — it runs only while
  * `active` is true AND the page is visible, resumes on focus, and stops on
- * unmount. There is no background polling. While the surface shows messages
+ * unmount; away from it, `MessagingSyncCoordinator` advances the link and
+ * flushes queued rows. While the surface shows messages
  * it also moves the device-local read checkpoint, keeping the unread badge
  * honest.
  */
@@ -189,7 +190,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
       await loadThread();
       if (!outcome.delivered && !queuedToastShownRef.current) {
         queuedToastShownRef.current = true;
-        toast({ description: 'Queued — will deliver automatically' });
+        toast({ description: MESSAGING_COPY.queuedToast });
       }
       return outcome.delivered ? 'delivered' : 'queued';
     } catch (error) {
