@@ -11,7 +11,7 @@
 // browser e2e at the pinned commit.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MessagingApplication } from '@/application/messaging/messaging';
+import { MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS, MessagingApplication } from '@/application/messaging/messaging';
 import { DB_NAME } from '@/config/database';
 import { resumePendingMessagingTeardown } from '@/database/franky/franky.helpers';
 import {
@@ -3656,4 +3656,56 @@ describe('PaykitMessagingService', () => {
     });
   });
 
+  describe('plaintext written by an older build still open in another tab', () => {
+    const plaintextRow = (suffix: string) => ({
+      id: `${OWNER}:old-build-${suffix}`,
+      owner_id: OWNER,
+      conversation_id: `dm:${COUNTERPARTY}`,
+      listing_ref: null,
+      counterparty_pubky: COUNTERPARTY,
+      direction: 'sent' as const,
+      body: `written by the old build ${suffix}`,
+      sent_at: 1,
+      recorded_at: 1,
+    });
+
+    beforeEach(() => MessagingApplication.clearMessagingSession());
+    afterEach(() => MessagingApplication.clearMessagingSession());
+
+    it('is sealed by the next status read, at most once per interval', async () => {
+      await enableMessaging(world);
+      await CommerceMessagingMessageModel.table.put(plaintextRow('a'));
+
+      await MessagingApplication.getStatus(OWNER);
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:old-build-a`)).resolves.toMatchObject({
+        body: '',
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+      });
+
+      await CommerceMessagingMessageModel.table.put(plaintextRow('b'));
+      await MessagingApplication.getStatus(OWNER);
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:old-build-b`)).resolves.toMatchObject({
+        body: 'written by the old build b',
+      });
+
+      advanceClock(MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS);
+      await MessagingApplication.getStatus(OWNER);
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:old-build-b`)).resolves.toMatchObject({
+        body: '',
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+      });
+      const [opened] = await LocalMessagingService.getMessages(OWNER, `dm:${COUNTERPARTY}`).then((rows) =>
+        rows.filter((row) => row.id === `${OWNER}:old-build-b`),
+      );
+      expect(opened.body).toBe('written by the old build b');
+    });
+
+    it('never fails the status read when sealing fails', async () => {
+      await enableMessaging(world);
+      vi.spyOn(LocalMessagingService, 'sealPlaintextHistory').mockRejectedValue(new Error('encrypt unavailable'));
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({ sessionActive: true });
+    });
+  });
 });

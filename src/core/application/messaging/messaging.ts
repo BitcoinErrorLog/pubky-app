@@ -3,6 +3,7 @@ import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { getErrorMessage } from '@/libs/error/error.utils';
+import { Logger } from '@/libs/logger/logger';
 import {
   buildDmConversationId,
   buildDmMessage,
@@ -115,6 +116,7 @@ export class MessagingApplication {
     // show the enable/reconnect card while a valid session is actually
     // recoverable without a signer.
     const sessionActive = await PaykitMessagingService.restorePersistedSession(ownerPubky);
+    await this.sealPlaintextHistoryNow(Date.now());
     return {
       sessionActive,
       receiverProvisioned: await PaykitMessagingService.isReceiverProvisioned(ownerPubky),
@@ -173,6 +175,25 @@ export class MessagingApplication {
   static clearMessagingSession(): void {
     PaykitMessagingService.clearSession();
     this.outboxRetry.clear();
+    this.plaintextSweepAt = null;
+  }
+
+  /** When this tab last swept plaintext bodies, so status reads sweep at most once per {@link MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS}. */
+  private static plaintextSweepAt: number | null = null;
+
+  /**
+   * Seals plaintext bodies an older build still open in another tab wrote
+   * since boot, at most once per interval. Best effort: a failure is logged
+   * and retried at the next interval, and never fails the status read.
+   */
+  private static async sealPlaintextHistoryNow(now: number): Promise<void> {
+    if (this.plaintextSweepAt !== null && now - this.plaintextSweepAt < MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS) return;
+    this.plaintextSweepAt = now;
+    try {
+      await LocalMessagingService.sealPlaintextHistory();
+    } catch (error) {
+      Logger.warn('Could not seal plaintext message history; the next status read retries', { error });
+    }
   }
 
   /** Account switch without a sign-out: drops the messaging session of any account but `keepPubky`. */
@@ -734,6 +755,9 @@ export class MessagingApplication {
       .map(([pubky]) => pubky);
   }
 }
+
+/** Least time between two plaintext-history sweeps from status reads in one tab. */
+export const MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS = 5 * 60_000;
 
 /** Upper bound on healthy counterparties probed per inbox sync pass. */
 export const MESSAGING_SYNC_MAX_COUNTERPARTIES = 25;

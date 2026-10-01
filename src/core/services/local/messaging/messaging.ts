@@ -1,6 +1,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { db } from '@/database/franky/franky';
+import { migrateMessagingHistoryToWrappedStorage } from '@/database/franky/franky.migrations';
 import { listingConversationBetween } from '@/libs/commerce/messaging-contracts';
 import { withCurrentWrappingKey } from '@/libs/crypto/messaging-keyring';
 import {
@@ -285,6 +286,17 @@ export class LocalMessagingService {
         write_id: crypto.randomUUID(),
       });
     });
+  }
+
+  /**
+   * Seals any message body still stored in plaintext, in place: the same
+   * idempotent sweep the database runs at boot. A tab of an older build
+   * that is still open writes plaintext bodies after this tab booted; this
+   * catches them without waiting for the next boot. Rejects when sealing
+   * fails, leaving those rows readable as they are.
+   */
+  static async sealPlaintextHistory(): Promise<void> {
+    await migrateMessagingHistoryToWrappedStorage(db);
   }
 
   /**
