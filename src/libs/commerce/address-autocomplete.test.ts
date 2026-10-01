@@ -163,6 +163,27 @@ describe('createMarketplaceAddressProvider', () => {
     expect(result.status === 'ok' && result.suggestions.map((s) => s.id)).toEqual([second.id]);
   });
 
+  it('waits longer than the service gives OpenStreetMap before giving up', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const provider = createMarketplaceAddressProvider(BASE_URL);
+    await provider.suggest('42 Union Street', { countryCode: 'US' });
+
+    expect(timeout).toHaveBeenCalledTimes(1);
+    expect(timeout.mock.calls[0][0]).toBeGreaterThan(6_000);
+  });
+
+  it('asks again right after a short Retry-After from a single failed lookup', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-01T10:00:00Z'));
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, { status: 503, headers: { 'Retry-After': '2' } }));
+    const provider = createMarketplaceAddressProvider(BASE_URL);
+    expect(await provider.suggest('42 Union Street', { countryCode: 'US' })).toEqual({ status: 'unavailable' });
+
+    vi.setSystemTime(new Date('2026-10-01T10:00:02.500Z'));
+    expect((await provider.suggest('42 Union Street N', { countryCode: 'US' })).status).toBe('ok');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('does not cache an unavailable answer', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({}, { status: 500 }));
     const provider = createMarketplaceAddressProvider(BASE_URL);
