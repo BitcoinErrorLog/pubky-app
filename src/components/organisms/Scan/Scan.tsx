@@ -23,7 +23,7 @@ import { ContentCard } from '@/molecules/Content/Content';
 import { PageTitle } from '@/molecules/Page/Page';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import {
-  BITKIT_IDENTITY_HINT,
+  SIGN_UP_COPY,
   SIGNER_AUTH_COPY,
   SignerAuthOption,
   SignerAuthorizeButton,
@@ -72,6 +72,9 @@ const ScanBothSigners = ({ ring, inviteCode }: { ring: SignerAuth; inviteCode: s
             testId="sign-up-bitkit-option"
           />
         </Card>
+        <Typography as="p" className="mt-4 text-center text-sm text-muted-foreground" data-testid="sign-up-retry-hint">
+          {SIGN_UP_COPY.retryDesktop}
+        </Typography>
       </Container>
 
       <Container size="container" className="md:hidden">
@@ -80,8 +83,8 @@ const ScanBothSigners = ({ ring, inviteCode }: { ring: SignerAuth; inviteCode: s
           <Container className="flex-col items-center justify-center gap-4">
             <SignerAuthorizeButton copy={copy.ring} auth={ring} testId="button" />
             <SignerAuthorizeButton copy={copy.bitkit} auth={bitkit} testId="sign-up-grant-button" />
-            <Typography as="p" className="text-center text-sm text-muted-foreground">
-              {BITKIT_IDENTITY_HINT}
+            <Typography as="p" className="text-center text-sm text-muted-foreground" data-testid="sign-up-retry-hint">
+              {SIGN_UP_COPY.retryMobile}
             </Typography>
           </Container>
         </ContentCard>
@@ -219,8 +222,8 @@ export const ScanHeader = ({ isMobile, signer = 'ring' }: { isMobile: boolean; s
       <PageSubtitle>
         {signer === 'both'
           ? isMobile
-            ? 'Tap Pubky Ring to create a new pubky, or Bitkit to use the pubky Bitkit already holds.'
-            : 'Scan with Pubky Ring to create a new pubky, or with Bitkit to use the pubky Bitkit already holds.'
+            ? SIGN_UP_COPY.subtitleMobile
+            : SIGN_UP_COPY.subtitleDesktop
           : isMobile
             ? 'Tap the button to open Pubky Ring, and authorize with your pubky.'
             : "Open Pubky Ring, tap 'add pubky', and scan this QR."}

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { ONBOARDING_ROUTES } from '@/app/routes';
 import { getPubkyCoreLink } from '@/config/externalLinks';
 import { useMobileAuth } from '@/hooks/useMobileAuth/useMobileAuth';
+import { BITKIT_IDENTITY_HINT, SIGN_UP_COPY, SIGNER_AUTH_COPY } from '@/molecules/SignerAuthOption/SignerAuthOption';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { ScanContent, ScanFooter, ScanHeader, ScanNavigation } from './Scan';
 
@@ -367,6 +368,35 @@ describe('ScanContent', () => {
     } finally {
       grantSignUp.available = false;
     }
+  });
+
+  it('tells Bitkit users they can create a pubky from the sign-up QR and to retry a failed authorize', async () => {
+    grantSignUp.available = true;
+    try {
+      render(<ScanContent />);
+
+      const pageText = document.body.textContent ?? '';
+      expect(pageText).not.toContain('must create a Pubky identity');
+      expect(pageText).not.toContain('Scan with Pubky Ring to create a new pubky, or with Bitkit');
+      expect(screen.getByText(SIGN_UP_COPY.subtitleDesktop)).toBeInTheDocument();
+      expect(screen.getByTestId('sign-up-ring-option')).toHaveTextContent('Bitkit can scan this QR too.');
+      expect(screen.getByTestId('sign-up-bitkit-option')).toHaveTextContent(
+        'No pubky in Bitkit yet? Scan the Pubky Ring QR with Bitkit.',
+      );
+      const retryHints = [SIGN_UP_COPY.retryDesktop, SIGN_UP_COPY.retryMobile];
+      for (const hint of retryHints) {
+        expect(screen.getByText(hint)).toBeInTheDocument();
+        expect(hint).toMatch(/again\.$/);
+        expect(hint).not.toMatch(/not supported|unsupported|Pubky Ring instead/i);
+      }
+    } finally {
+      grantSignUp.available = false;
+    }
+  });
+
+  it('keeps the Bitkit identity requirement on sign-in, where Bitkit cannot create a pubky', () => {
+    expect(SIGNER_AUTH_COPY.signIn.bitkit.identityHint).toBe(BITKIT_IDENTITY_HINT);
+    expect(SIGNER_AUTH_COPY.signUp.bitkit.identityHint).toBe(SIGN_UP_COPY.bitkitIdentityHint);
   });
 
   it('keeps the Pubky Ring sign-up QR alone when grant sign-in is unavailable', async () => {
