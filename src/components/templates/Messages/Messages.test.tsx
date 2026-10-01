@@ -1,10 +1,11 @@
 // Intentional import order — mock factories rely on stable aliases.
 
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import type { UseEncryptedConversationReturn } from '@/hooks/useEncryptedConversation/useEncryptedConversation.types';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { setSocialHost } from '@/test-utils/social-host';
 import { Messages } from './Messages';
 import { MessagesConversation } from './MessagesConversation';
 
@@ -194,5 +195,37 @@ describe('MessagesConversation pending-handshake composer', () => {
     expect(screen.getByLabelText('Message')).toBeEnabled();
     expect(screen.getByText(MESSAGING_COPY.linkRecoveryNeeded)).toBeInTheDocument();
     expect(screen.queryByText(MESSAGING_COPY.handshakeInitiator)).not.toBeInTheDocument();
+  });
+});
+
+describe('MessagesConversation counterparty links', () => {
+  beforeEach(() => {
+    dmView.status = 'ready';
+    dmView.thread = [];
+  });
+
+  afterEach(() => {
+    setSocialHost(undefined);
+  });
+
+  it('links the avatar to the Shop profile while social link-out is off', () => {
+    render(<MessagesConversation counterpartyPubky={COUNTERPARTY} />);
+
+    expect(screen.getByRole('link', { name: 'View profile' })).toHaveAttribute('href', `/profile/${COUNTERPARTY}`);
+    expect(screen.queryByRole('link', { name: 'Profile on Pubky' })).not.toBeInTheDocument();
+  });
+
+  it('links the avatar to the shop and adds the profile on the social host while on', () => {
+    setSocialHost('https://pubky.app');
+    render(<MessagesConversation counterpartyPubky={COUNTERPARTY} />);
+
+    expect(screen.getByRole('link', { name: 'View shop' })).toHaveAttribute(
+      'href',
+      `/marketplace/shop/${COUNTERPARTY}`,
+    );
+    expect(screen.getByRole('link', { name: 'Profile on Pubky' })).toHaveAttribute(
+      'href',
+      `https://pubky.app/profile/${COUNTERPARTY}`,
+    );
   });
 });

@@ -1,17 +1,19 @@
 'use client';
 
 import { ArrowLeft, LockKeyhole, ShieldAlert } from 'lucide-react';
-import { APP_ROUTES, getProfileRoute, PROFILE_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getMarketplaceShopRoute, getProfileRoute, PROFILE_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import { isSocialLinkOutEnabled } from '@/config/social';
 import { useDmConversation } from '@/hooks/useDmConversation/useDmConversation';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { buildDmConversationId } from '@/libs/messaging/dm-contracts';
+import { ProfileOnPubkyLink } from '@/molecules/ProfileOnPubkyLink/ProfileOnPubkyLink';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceMessagingEnablePanel } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
@@ -31,6 +33,7 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
   const conversation = useDmConversation(counterpartyPubky, Boolean(currentUserPubky));
   const { userDetails } = useUserDetails(counterpartyPubky);
   const displayName = userDetails?.name?.trim() || 'Direct message';
+  const linkOut = isSocialLinkOutEnabled();
 
   return (
     <ContentLayout
@@ -53,9 +56,13 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
 
         <div className="flex items-center gap-3">
           <Link
-            href={getProfileRoute(PROFILE_ROUTES.PROFILE, counterpartyPubky)}
+            href={
+              linkOut
+                ? getMarketplaceShopRoute(counterpartyPubky)
+                : getProfileRoute(PROFILE_ROUTES.PROFILE, counterpartyPubky)
+            }
             overrideDefaults
-            aria-label="View profile"
+            aria-label={linkOut ? 'View shop' : 'View profile'}
           >
             <AvatarWithFallback
               avatarUrl={undefined}
@@ -69,6 +76,7 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
             <Heading level={1} size="md" className="truncate">
               {displayName}
             </Heading>
+            <ProfileOnPubkyLink pubky={counterpartyPubky} />
           </div>
         </div>
 

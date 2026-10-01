@@ -11,6 +11,7 @@ import { Container } from '@/atoms/Container/Container';
 import { Heading } from '@/atoms/Heading/Heading';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
+import { getSocialHostUrl } from '@/config/social';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useCommerceShopFollow } from '@/hooks/useCommerceShopFollow/useCommerceShopFollow';
 import {
@@ -31,6 +32,9 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
   const follow = useCommerceShopFollow(sellerPubky);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const isOwner = currentUserPubky === sellerPubky;
+  const profileRoute = getProfileRoute(PROFILE_ROUTES.PROFILE, sellerPubky);
+  // With social link-out on, profiles live on the social host; plain <a>, same tab.
+  const socialProfileUrl = getSocialHostUrl(profileRoute);
   // The shop record lives on the seller's homeserver; a visitor's local cache
   // may not hold it yet, so resolve network-first and only then treat a
   // missing record as "this seller has no shop".
@@ -132,10 +136,17 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                       </Button>
                     )}
                     <Button asChild variant="secondary" className="rounded-full">
-                      <Link href={getProfileRoute(PROFILE_ROUTES.PROFILE, sellerPubky)} overrideDefaults>
-                        <User className="mr-2 size-4" />
-                        {isOwner ? 'My profile' : 'Contact seller'}
-                      </Link>
+                      {socialProfileUrl ? (
+                        <a href={socialProfileUrl} data-cy="profile-on-pubky-link">
+                          <User className="mr-2 size-4" />
+                          {isOwner ? 'My profile on Pubky' : 'Profile on Pubky'}
+                        </a>
+                      ) : (
+                        <Link href={profileRoute} overrideDefaults>
+                          <User className="mr-2 size-4" />
+                          {isOwner ? 'My profile' : 'Contact seller'}
+                        </Link>
+                      )}
                     </Button>
                   </div>
                   <div className="flex gap-6 text-sm">
@@ -203,10 +214,17 @@ export function MarketplaceShop({ sellerPubky }: { sellerPubky: string }) {
                     </>
                   ) : (
                     <Button asChild variant="secondary" className="rounded-full">
-                      <Link href={getProfileRoute(PROFILE_ROUTES.PROFILE, sellerPubky)} overrideDefaults>
-                        <User className="mr-2 size-4" />
-                        View seller profile
-                      </Link>
+                      {socialProfileUrl ? (
+                        <a href={socialProfileUrl} data-cy="profile-on-pubky-link">
+                          <User className="mr-2 size-4" />
+                          Profile on Pubky
+                        </a>
+                      ) : (
+                        <Link href={profileRoute} overrideDefaults>
+                          <User className="mr-2 size-4" />
+                          View seller profile
+                        </Link>
+                      )}
                     </Button>
                   )}
                 </div>
