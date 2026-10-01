@@ -92,3 +92,33 @@ describe('vibe session env schema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('social link-out env schema', () => {
+  const required = { NEXT_PUBLIC_APP_VERSION: '1.0.0' };
+
+  it('defaults to off in the test config', () => {
+    expect(Env.NEXT_PUBLIC_SOCIAL_HOST).toBeUndefined();
+  });
+
+  it('treats an unset or empty host as off', () => {
+    const unset = envSchema.safeParse(required);
+    const empty = envSchema.safeParse({ ...required, NEXT_PUBLIC_SOCIAL_HOST: '' });
+    expect(unset.success && unset.data.NEXT_PUBLIC_SOCIAL_HOST).toBeUndefined();
+    expect(empty.success && empty.data.NEXT_PUBLIC_SOCIAL_HOST).toBeUndefined();
+  });
+
+  it('accepts an exact https origin', () => {
+    const result = envSchema.safeParse({
+      ...required,
+      NODE_ENV: 'production',
+      NEXT_PUBLIC_SOCIAL_HOST: 'https://staging.pubky.app',
+    });
+    expect(result.success && result.data.NEXT_PUBLIC_SOCIAL_HOST).toBe('https://staging.pubky.app');
+  });
+
+  it.each(['https://pubky.app/', 'pubky.app', 'http://localhost:3000'])('fails a production parse for %s', (value) => {
+    expect(envSchema.safeParse({ ...required, NODE_ENV: 'production', NEXT_PUBLIC_SOCIAL_HOST: value }).success).toBe(
+      false,
+    );
+  });
+});

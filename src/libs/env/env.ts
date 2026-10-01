@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { isValidSocialHost } from '@/libs/social-host/social-host';
 
 /**
  * Build-time environment schema.
@@ -63,6 +64,9 @@ export const envSchema = z
     NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN: z.preprocess(emptyToUndefined, z.string().optional()),
     NEXT_PUBLIC_VIBE_ID: z.preprocess(emptyToUndefined, z.string().optional()),
 
+    // Social link-out origin (baked per artifact). Unset = link-out off.
+    NEXT_PUBLIC_SOCIAL_HOST: z.preprocess(emptyToUndefined, z.string().optional()),
+
     // Test environment variable (optional)
     VITEST: z.string().optional(),
 
@@ -80,13 +84,18 @@ export const envSchema = z
   })
   .superRefine((data, ctx) => {
     const origin = data.NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN;
-    if (origin === undefined) {
-      return;
-    }
-    if (!isValidVibeSessionBridgeOrigin(origin, data.NODE_ENV)) {
+    if (origin !== undefined && !isValidVibeSessionBridgeOrigin(origin, data.NODE_ENV)) {
       ctx.addIssue({
         code: 'custom',
         path: ['NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN'],
+        message: 'Must be an exact https:// origin, or http://localhost:<port> when NODE_ENV is not production',
+      });
+    }
+    const socialHost = data.NEXT_PUBLIC_SOCIAL_HOST;
+    if (socialHost !== undefined && !isValidSocialHost(socialHost, data.NODE_ENV)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['NEXT_PUBLIC_SOCIAL_HOST'],
         message: 'Must be an exact https:// origin, or http://localhost:<port> when NODE_ENV is not production',
       });
     }
@@ -177,6 +186,7 @@ function parseEnv(): z.infer<typeof envSchema> {
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION,
     NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN: process.env.NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN,
     NEXT_PUBLIC_VIBE_ID: process.env.NEXT_PUBLIC_VIBE_ID,
+    NEXT_PUBLIC_SOCIAL_HOST: process.env.NEXT_PUBLIC_SOCIAL_HOST,
     VITEST: process.env.VITEST,
     HOMESERVER_ADMIN_URL: process.env.HOMESERVER_ADMIN_URL,
     HOMESERVER_ADMIN_PASSWORD: process.env.HOMESERVER_ADMIN_PASSWORD,
