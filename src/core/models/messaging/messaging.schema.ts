@@ -21,12 +21,15 @@ import type { ConversationOrigin } from '@/libs/messaging/first-contact';
  *   unrecoverable: they are treated as lost and the user re-enables. The
  *   multi-device backup-key decision stays deliberately unmade — wrapped
  *   rows remain device-local. Do not sync, export, or log them.
- * - `commerce_messaging_messages.body` is plaintext message history, local to
- *   this device by design. Bodies never enter logs, telemetry, or projections.
- * - `commerce_messaging_outbox.body` is a plaintext message that has NOT been
- *   sent yet: it waits on this device until the Encrypted Link is ready. Same
- *   at-rest posture as history — device-local, unencrypted pending the
- *   backup-key decision, never synced, logged, or projected.
+ * - Message bodies — history (`commerce_messaging_messages`) and messages
+ *   queued until the Encrypted Link is ready (`commerce_messaging_outbox`) —
+ *   are encrypted AT REST the same way: the body lives in `sealed_body`
+ *   (AES-GCM-256 under the keyring key, AAD-bound to table + row id,
+ *   `wrap_version` 1) and the stored `body` is the empty string. Absent/0
+ *   `wrap_version` is a legacy plaintext row written before history was
+ *   wrapped; the boot sweep wraps those in place (`franky.migrations.ts`) and
+ *   reads tolerate them until then. Device-local, never synced, logged, or
+ *   projected.
  */
 
 /**
@@ -182,9 +185,9 @@ export const commerceMessagingConversationTableSchema = [
 export type CommerceMessagingDirection = 'sent' | 'received';
 
 /**
- * Device-local message history (plaintext bodies; see file header). Keyed by
- * the sender-minted `event_id` so replayed deliveries (expected after a
- * snapshot restore) upsert idempotently instead of duplicating.
+ * Device-local message history (bodies encrypted at rest; see file header).
+ * Keyed by the sender-minted `event_id` so replayed deliveries (expected
+ * after a snapshot restore) upsert idempotently instead of duplicating.
  */
 export interface CommerceMessagingMessageModelSchema {
   /** `${owner_id}:${event_id}` */
@@ -195,7 +198,16 @@ export interface CommerceMessagingMessageModelSchema {
   listing_ref: string | null;
   counterparty_pubky: string;
   direction: CommerceMessagingDirection;
+  /**
+   * The plaintext body on rows the service returns. At rest it is the empty
+   * string whenever `wrap_version` is 1 (the body is in `sealed_body`), and
+   * the plaintext only on a legacy row.
+   */
   body: string;
+  /** The wrapped body (`iv || ciphertext || tag`) when `wrap_version` is 1. Not indexed. */
+  sealed_body?: Uint8Array;
+  /** At-rest wrap format of the body: absent/0 = legacy plaintext, 1 = AES-GCM-256. Not indexed. */
+  wrap_version?: number;
   /** Sender wall clock from the envelope (Unix milliseconds, display ordering only). */
   sent_at: number;
   /** Local receipt/persist time, the stable sort key on this device. */
@@ -230,10 +242,9 @@ export type CommerceMessagingOutboxKind = 'chat' | 'dm';
  * replays idempotently (receivers and local history dedupe by `event_id`)
  * instead of double-delivering.
  *
- * Device-local plaintext like all messaging state (see file header): same
- * at-rest posture as history and link snapshots, unencrypted pending the
- * backup-key decision, cleared with every other table on sign-out/account
- * switch (`clearDatabase()` wipes all Dexie tables).
+ * Device-local like all messaging state, with the body encrypted at rest
+ * exactly like history (see file header), and cleared with the messaging
+ * wrapping key on sign-out/account switch (`clearDatabase()`).
  */
 export interface CommerceMessagingOutboxModelSchema {
   /** Queue-time UUID; reused as the envelope `event_id` at flush time. */
@@ -245,8 +256,16 @@ export interface CommerceMessagingOutboxModelSchema {
   conversation_id: string | null;
   /** `listing:{seller}:{listingId}` for `chat` rows; `null` for DMs. */
   listing_ref: string | null;
-  /** Plaintext body, validated against the live-send byte ceiling at queue time. */
+  /**
+   * The body, validated against the live-send byte ceiling at queue time.
+   * Plaintext on rows the service returns; at rest the empty string whenever
+   * `wrap_version` is 1 (the body is in `sealed_body`).
+   */
   body: string;
+  /** The wrapped body (`iv || ciphertext || tag`) when `wrap_version` is 1. Not indexed. */
+  sealed_body?: Uint8Array;
+  /** At-rest wrap format of the body: absent/0 = legacy plaintext, 1 = AES-GCM-256. Not indexed. */
+  wrap_version?: number;
   /** Queue time — the flush order within one (owner, counterparty) pair. */
   queued_at: number;
   /** Failed flush attempts so far (0 until a flush actually failed). */

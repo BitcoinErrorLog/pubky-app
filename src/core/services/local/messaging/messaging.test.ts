@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { dropCachedWrappingKeyForTests, resetMessagingKeyringForTests } from '@/libs/crypto/messaging-keyring';
-import { WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
+import {
+  dropCachedWrappingKeyForTests,
+  getOrCreateWrappingKey,
+  resetMessagingKeyringForTests,
+} from '@/libs/crypto/messaging-keyring';
+import { buildWrapAad, unwrapPayload, WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } from '@/libs/crypto/secret-wrapping';
 import { isAppError } from '@/libs/error/error';
 import {
   CommerceMessagingConversationModel,
@@ -436,9 +440,12 @@ describe('LocalMessagingService', () => {
         });
       }
       await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`)).resolves.toMatchObject({
-        body: 'message one',
+        body: '',
+        wrap_version: WRAP_VERSION_AES_GCM_256,
         recorded_at: 100,
       });
+      const [stored] = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
+      expect(stored).toMatchObject({ body: 'message one', recorded_at: 100 });
     });
 
     it('never overwrites a sent message that holds the id', async () => {
@@ -538,6 +545,154 @@ describe('LocalMessagingService', () => {
         [CONVERSATION_ID, `dm:${COUNTERPARTY}`].sort(),
       );
       await expect(LocalMessagingService.getConversation(OWNER, plantedThread)).resolves.not.toBeNull();
+    });
+  });
+
+  describe('message bodies encrypted at rest', () => {
+    const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
+    it('stores a history body only sealed, bound to its table and row, and opens it on read', async () => {
+      const eventId = crypto.randomUUID();
+      await LocalMessagingService.upsertMessage(eventId, { ...messageRow('secret', 100), direction: 'sent' });
+
+      const raw = (await CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`))!;
+      expect(raw.body).toBe('');
+      expect(raw.wrap_version).toBe(WRAP_VERSION_AES_GCM_256);
+      expect(JSON.stringify([...raw.sealed_body!])).not.toContain(
+        JSON.stringify([...new TextEncoder().encode('secret')]),
+      );
+      const key = await getOrCreateWrappingKey();
+      const opened = await unwrapPayload(key, buildWrapAad('commerce_messaging_messages', raw.id), raw.sealed_body!);
+      expect(decode(opened)).toBe('message secret');
+      // Bound to its row: the same ciphertext does not open as another row.
+      await expect(
+        unwrapPayload(key, buildWrapAad('commerce_messaging_messages', `${OWNER}:other`), raw.sealed_body!),
+      ).rejects.toMatchObject({ name: 'OperationError' });
+
+      const [message] = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
+      expect(message.body).toBe('message secret');
+      expect(message).not.toHaveProperty('sealed_body');
+      expect(message).not.toHaveProperty('wrap_version');
+    });
+
+    it('stores a received body sealed too', async () => {
+      const eventId = crypto.randomUUID();
+      const { direction: _direction, ...row } = messageRow('inbound', 100);
+      await LocalMessagingService.insertReceivedMessage(eventId, row);
+
+      const raw = (await CommerceMessagingMessageModel.table.get(`${OWNER}:${eventId}`))!;
+      expect(raw).toMatchObject({ body: '', wrap_version: WRAP_VERSION_AES_GCM_256 });
+      expect(raw.sealed_body!.byteLength).toBe(WRAP_IV_BYTES + new TextEncoder().encode('message inbound').length + 16);
+    });
+
+    it('stores a queued body only sealed and opens it for the flush and the thread', async () => {
+      const row = outboxRow({ body: 'not sent yet' });
+      await LocalMessagingService.enqueueOutboxMessage(row);
+
+      const raw = (await CommerceMessagingOutboxModel.table.get(row.id))!;
+      expect(raw).toMatchObject({ body: '', wrap_version: WRAP_VERSION_AES_GCM_256 });
+      const key = await getOrCreateWrappingKey();
+      expect(
+        decode(await unwrapPayload(key, buildWrapAad('commerce_messaging_outbox', row.id), raw.sealed_body!)),
+      ).toBe('not sent yet');
+      const [queued] = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+      expect(queued).toEqual(row);
+      await expect(LocalMessagingService.getQueuedMessagesByOwner(OWNER)).resolves.toEqual([row]);
+    });
+
+    it('keeps the sealed body when a failed flush is recorded', async () => {
+      const row = outboxRow({ body: 'retry me' });
+      await LocalMessagingService.enqueueOutboxMessage(row);
+      const sealedBefore = [...(await CommerceMessagingOutboxModel.table.get(row.id))!.sealed_body!];
+
+      await LocalMessagingService.recordOutboxFailure(OWNER, row.id, 'homeserver down', 500);
+
+      const raw = (await CommerceMessagingOutboxModel.table.get(row.id))!;
+      expect([...raw.sealed_body!]).toEqual(sealedBefore);
+      expect(raw).toMatchObject({ body: '', attempts: 1, last_error: 'homeserver down' });
+      const [queued] = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+      expect(queued.body).toBe('retry me');
+    });
+
+    it('still reads a legacy plaintext row written before bodies were sealed', async () => {
+      await CommerceMessagingMessageModel.table.put({ ...messageRow('legacy', 100), id: `${OWNER}:legacy` });
+      await CommerceMessagingOutboxModel.table.put(outboxRow({ id: 'legacy-queued', body: 'legacy queued' }));
+
+      const [message] = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
+      expect(message.body).toBe('message legacy');
+      const [queued] = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
+      expect(queued.body).toBe('legacy queued');
+    });
+
+    it('treats a tampered, transplanted or unknown-format row as lost instead of showing it', async () => {
+      const kept = crypto.randomUUID();
+      const tampered = crypto.randomUUID();
+      await LocalMessagingService.upsertMessage(kept, messageRow('kept', 100));
+      await LocalMessagingService.upsertMessage(tampered, messageRow('tampered', 200));
+      const row = (await CommerceMessagingMessageModel.table.get(`${OWNER}:${tampered}`))!;
+      const flipped = new Uint8Array(row.sealed_body!);
+      flipped[flipped.length - 1] ^= 0xff;
+      await CommerceMessagingMessageModel.table.put({ ...row, sealed_body: flipped });
+      // The kept row's ciphertext copied under another id does not open there.
+      const keptRow = (await CommerceMessagingMessageModel.table.get(`${OWNER}:${kept}`))!;
+      await CommerceMessagingMessageModel.table.put({ ...keptRow, id: `${OWNER}:transplanted`, recorded_at: 300 });
+      await CommerceMessagingMessageModel.table.put({
+        ...messageRow('future', 400),
+        id: `${OWNER}:future`,
+        body: 'not plaintext',
+        wrap_version: 7,
+      });
+
+      const messages = await LocalMessagingService.getMessages(OWNER, CONVERSATION_ID);
+      expect(messages.map(({ body }) => body)).toEqual(['message kept']);
+      // A stored row that no longer opens is never overwritten by a redelivery.
+      const { direction: _direction, ...redelivery } = messageRow('tampered', 200);
+      await expect(LocalMessagingService.insertReceivedMessage(tampered, redelivery)).resolves.toEqual({
+        status: 'conflict',
+      });
+    });
+
+    it('treats every sealed body as lost once the wrapping key is gone', async () => {
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('one', 100));
+      await LocalMessagingService.enqueueOutboxMessage(outboxRow());
+
+      await resetMessagingKeyringForTests();
+
+      await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toEqual([]);
+      await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toEqual([]);
+    });
+
+    it('refuses to write a body without the key fence: never a plaintext fallback', async () => {
+      removeWebLocks();
+      await expect(LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('x', 1))).rejects.toThrow(
+        /Private messages are paused/,
+      );
+      await expect(LocalMessagingService.enqueueOutboxMessage(outboxRow())).rejects.toThrow(
+        /Private messages are paused/,
+      );
+      installWebLocks();
+      await expect(CommerceMessagingMessageModel.table.count()).resolves.toBe(0);
+      await expect(CommerceMessagingOutboxModel.table.count()).resolves.toBe(0);
+    });
+
+    it('answers metadata questions without opening bodies', async () => {
+      await LocalMessagingService.touchConversation({
+        owner_id: OWNER,
+        conversation_id: CONVERSATION_ID,
+        kind: 'listing',
+        listing_ref: `listing:${COUNTERPARTY}:L1`,
+        counterparty_pubky: COUNTERPARTY,
+        last_message_at: 100,
+        updated_at: 100,
+      });
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), { ...messageRow('mine', 100), direction: 'sent' });
+      await LocalMessagingService.upsertMessage(crypto.randomUUID(), messageRow('theirs', 200));
+
+      await resetMessagingKeyringForTests();
+
+      // The bodies no longer open, but the facts about the rows still hold.
+      await expect(LocalMessagingService.hasSentTo(OWNER, COUNTERPARTY)).resolves.toBe(true);
+      await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(1);
     });
   });
 });

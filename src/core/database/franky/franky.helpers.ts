@@ -33,6 +33,8 @@ export const IDENTITY_SCOPED_DEVICE_TABLES: ReadonlySet<string> = new Set(['comm
 const KEY_WRAPPED_MESSAGING_TABLES: ReadonlySet<string> = new Set([
   'commerce_messaging_receivers',
   'commerce_messaging_links',
+  'commerce_messaging_messages',
+  'commerce_messaging_outbox',
   'commerce_messaging_unprocessed',
 ]);
 

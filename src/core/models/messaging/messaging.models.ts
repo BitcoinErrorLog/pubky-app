@@ -151,6 +151,8 @@ export class CommerceMessagingMessageModel
   counterparty_pubky: string;
   direction: CommerceMessagingMessageModelSchema['direction'];
   body: string;
+  sealed_body?: Uint8Array;
+  wrap_version?: number;
   sent_at: number;
   recorded_at: number;
 
@@ -162,6 +164,8 @@ export class CommerceMessagingMessageModel
     this.counterparty_pubky = message.counterparty_pubky;
     this.direction = message.direction;
     this.body = message.body;
+    this.sealed_body = message.sealed_body;
+    this.wrap_version = message.wrap_version;
     this.sent_at = message.sent_at;
     this.recorded_at = message.recorded_at;
   }
@@ -227,6 +231,8 @@ export class CommerceMessagingOutboxModel
   conversation_id: string | null;
   listing_ref: string | null;
   body: string;
+  sealed_body?: Uint8Array;
+  wrap_version?: number;
   queued_at: number;
   attempts: number;
   last_attempt_at: number | null;
@@ -240,6 +246,8 @@ export class CommerceMessagingOutboxModel
     this.conversation_id = row.conversation_id;
     this.listing_ref = row.listing_ref;
     this.body = row.body;
+    this.sealed_body = row.sealed_body;
+    this.wrap_version = row.wrap_version;
     this.queued_at = row.queued_at;
     this.attempts = row.attempts;
     this.last_attempt_at = row.last_attempt_at;

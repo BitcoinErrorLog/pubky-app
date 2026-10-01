@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppDatabase, MESSAGING_WRAP_BASE_DB_VERSION } from '@/database/franky/franky';
-import { migrateMessagingSecretsToWrappedStorage } from '@/database/franky/franky.migrations';
+import {
+  migrateMessagingHistoryToWrappedStorage,
+  migrateMessagingSecretsToWrappedStorage,
+} from '@/database/franky/franky.migrations';
 import {
   dropCachedWrappingKeyForTests,
   getOrCreateWrappingKey,
@@ -10,6 +13,8 @@ import { buildWrapAad, unwrapPayload, WRAP_IV_BYTES, WRAP_VERSION_AES_GCM_256 } 
 import { isAppError } from '@/libs/error/error';
 import type {
   CommerceMessagingLinkModelSchema,
+  CommerceMessagingMessageModelSchema,
+  CommerceMessagingOutboxModelSchema,
   CommerceMessagingReceiverModelSchema,
 } from '@/models/messaging/messaging.schema';
 
@@ -215,5 +220,169 @@ describe('migrateMessagingSecretsToWrappedStorage (DB 4 → 5)', () => {
     expect(receiver.wrap_version).toBeUndefined();
     upgraded.close();
     await resetMessagingKeyringForTests();
+  });
+});
+
+/** A history row as builds before sealed bodies wrote it: plaintext body, no wrap_version. */
+function legacyMessageRow(suffix: string): CommerceMessagingMessageModelSchema {
+  return {
+    id: `${OWNER}:event-${suffix}`,
+    owner_id: OWNER,
+    conversation_id: `conversation:${COUNTERPARTY}_${OWNER}_L1`,
+    listing_ref: `listing:${COUNTERPARTY}:L1`,
+    counterparty_pubky: COUNTERPARTY,
+    direction: 'received',
+    body: `plaintext ${suffix}`,
+    sent_at: 1,
+    recorded_at: 1,
+  };
+}
+
+/** A queued row as builds before sealed bodies wrote it. */
+function legacyOutboxRow(suffix: string): CommerceMessagingOutboxModelSchema {
+  return {
+    id: `queued-${suffix}`,
+    owner_pubky: OWNER,
+    counterparty_pubky: COUNTERPARTY,
+    kind: 'dm',
+    conversation_id: null,
+    listing_ref: null,
+    body: `queued ${suffix}`,
+    queued_at: 1,
+    attempts: 0,
+    last_attempt_at: null,
+    last_error: null,
+  };
+}
+
+async function openedBody(table: string, row: { id: string; sealed_body?: Uint8Array }): Promise<string> {
+  const key = await getOrCreateWrappingKey();
+  return new TextDecoder().decode(await unwrapPayload(key, buildWrapAad(table, row.id), row.sealed_body!));
+}
+
+/** A database at `version` holding plaintext history and a plaintext queued message, as shipped builds left it. */
+async function seedPlaintextHistory(name: string, version: number): Promise<void> {
+  const shipped = new AppDatabase(name, version);
+  await shipped.initialize();
+  await shipped.commerce_messaging_messages.bulkPut([legacyMessageRow('a'), legacyMessageRow('b')]);
+  await shipped.commerce_messaging_outbox.put(legacyOutboxRow('a'));
+  await shipped.user_counts.put({ id: OWNER, followers: 3 } as never);
+  shipped.close();
+}
+
+describe('migrateMessagingHistoryToWrappedStorage (plaintext history sealed in place)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('seals plaintext history and queued bodies on the next boot of a current database, wiping nothing', async () => {
+    const name = `franky-hist-${crypto.randomUUID()}`;
+    await seedPlaintextHistory(name, 8);
+
+    const booted = new AppDatabase(name, 8);
+    const result = await booted.initialize();
+
+    expect(result).toEqual({ wasDbReset: false, messagingAtRestDegraded: false });
+    await expect(booted.user_counts.get(OWNER)).resolves.toMatchObject({ followers: 3 });
+    for (const suffix of ['a', 'b']) {
+      const row = (await booted.commerce_messaging_messages.get(`${OWNER}:event-${suffix}`))!;
+      expect(row).toMatchObject({ body: '', wrap_version: WRAP_VERSION_AES_GCM_256, direction: 'received' });
+      await expect(openedBody('commerce_messaging_messages', row)).resolves.toBe(`plaintext ${suffix}`);
+    }
+    const queued = (await booted.commerce_messaging_outbox.get('queued-a'))!;
+    expect(queued).toMatchObject({ body: '', wrap_version: WRAP_VERSION_AES_GCM_256 });
+    await expect(openedBody('commerce_messaging_outbox', queued)).resolves.toBe('queued a');
+    booted.close();
+  });
+
+  it('seals them during an in-place version upgrade too', async () => {
+    const name = `franky-hist-${crypto.randomUUID()}`;
+    await seedPlaintextHistory(name, 7);
+
+    const upgraded = new AppDatabase(name, 8);
+    const result = await upgraded.initialize();
+
+    expect(result).toEqual({ wasDbReset: false, messagingAtRestDegraded: false });
+    const row = (await upgraded.commerce_messaging_messages.get(`${OWNER}:event-a`))!;
+    expect(row.wrap_version).toBe(WRAP_VERSION_AES_GCM_256);
+    await expect(openedBody('commerce_messaging_messages', row)).resolves.toBe('plaintext a');
+    upgraded.close();
+  });
+
+  it('is idempotent and leaves sealed rows and rows of an unknown format untouched', async () => {
+    const name = `franky-hist-${crypto.randomUUID()}`;
+    await seedPlaintextHistory(name, 8);
+    const booted = new AppDatabase(name, 8);
+    await booted.initialize();
+    const future = { ...legacyMessageRow('future'), body: 'not plaintext', wrap_version: 7 };
+    await booted.commerce_messaging_messages.put(future);
+    const sealedBefore = [...(await booted.commerce_messaging_messages.get(`${OWNER}:event-a`))!.sealed_body!];
+
+    await migrateMessagingHistoryToWrappedStorage(booted);
+    await migrateMessagingHistoryToWrappedStorage(booted);
+
+    const sealedAfter = [...(await booted.commerce_messaging_messages.get(`${OWNER}:event-a`))!.sealed_body!];
+    expect(sealedAfter).toEqual(sealedBefore);
+    await expect(booted.commerce_messaging_messages.get(future.id)).resolves.toEqual(future);
+    booted.close();
+  });
+
+  it('never seals an older body over one another tab rewrote while it was being wrapped', async () => {
+    const name = `franky-hist-${crypto.randomUUID()}`;
+    const database = new AppDatabase(name, 8);
+    await database.initialize();
+    await database.commerce_messaging_messages.put(legacyMessageRow('a'));
+    const rewritten = { ...legacyMessageRow('a'), body: 'rewritten meanwhile' };
+    const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+      await database.commerce_messaging_messages.put(rewritten);
+      return await encrypt(...args);
+    });
+
+    await migrateMessagingHistoryToWrappedStorage(database);
+
+    await expect(database.commerce_messaging_messages.get(rewritten.id)).resolves.toEqual(rewritten);
+    vi.restoreAllMocks();
+    // The next sweep seals what is there now.
+    await migrateMessagingHistoryToWrappedStorage(database);
+    const row = (await database.commerce_messaging_messages.get(rewritten.id))!;
+    await expect(openedBody('commerce_messaging_messages', row)).resolves.toBe('rewritten meanwhile');
+    database.close();
+  });
+
+  it('seals a history larger than one batch', async () => {
+    const name = `franky-hist-${crypto.randomUUID()}`;
+    const database = new AppDatabase(name, 8);
+    await database.initialize();
+    await database.commerce_messaging_messages.bulkPut(
+      Array.from({ length: 450 }, (_, index) => legacyMessageRow(String(index))),
+    );
+
+    await migrateMessagingHistoryToWrappedStorage(database);
+
+    const rows = await database.commerce_messaging_messages.toArray();
+    expect(rows).toHaveLength(450);
+    expect(rows.every((row) => row.wrap_version === WRAP_VERSION_AES_GCM_256 && row.body === '')).toBe(true);
+    database.close();
+  });
+
+  it('reports messaging degraded, and keeps the plaintext readable, when sealing fails', async () => {
+    const name = `franky-hist-${crypto.randomUUID()}`;
+    await seedPlaintextHistory(name, 8);
+    const booted = new AppDatabase(name, 8);
+    vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValue(new Error('encrypt unavailable'));
+
+    const result = await booted.initialize();
+
+    expect(result).toEqual({ wasDbReset: false, messagingAtRestDegraded: true });
+    await expect(booted.commerce_messaging_messages.get(`${OWNER}:event-a`)).resolves.toEqual(legacyMessageRow('a'));
+    vi.restoreAllMocks();
+    // A later boot seals it.
+    await expect(booted.initialize()).resolves.toEqual({ wasDbReset: false, messagingAtRestDegraded: false });
+    expect((await booted.commerce_messaging_messages.get(`${OWNER}:event-a`))!.wrap_version).toBe(
+      WRAP_VERSION_AES_GCM_256,
+    );
+    booted.close();
   });
 });

@@ -148,7 +148,7 @@ async function rowsOf(owner: string) {
 
 /** The bodies stored in one thread, sorted (receipt times tie under the frozen clock). */
 async function bodiesIn(owner: string, conversationId: string) {
-  return (await CommerceMessagingMessageModel.findByConversation(owner, conversationId)).map((row) => row.body).sort();
+  return (await LocalMessagingService.getMessages(owner, conversationId)).map((row) => row.body).sort();
 }
 
 /** The buyer's first message reaches the seller: request, handshake, delivery. */

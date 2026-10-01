@@ -1071,6 +1071,9 @@ export class PaykitMessagingService {
         failure = { error };
       }
     }
+    // Keys reset in another tab: the link row and its key are gone, so there
+    // is no snapshot to save, and this session must end on this error.
+    if (failure && isMessagingKeyringChanged(failure.error)) throw failure.error;
     try {
       await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
     } catch (error) {

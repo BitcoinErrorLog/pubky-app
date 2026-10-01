@@ -36,18 +36,20 @@ import type {
 const RECEIVERS_TABLE = 'commerce_messaging_receivers';
 const LINKS_TABLE = 'commerce_messaging_links';
 const UNPROCESSED_TABLE = 'commerce_messaging_unprocessed';
+export const MESSAGES_TABLE = 'commerce_messaging_messages';
+export const OUTBOX_TABLE = 'commerce_messaging_outbox';
 
 /**
  * Account-scoped Dexie persistence for encrypted marketplace messaging.
  *
- * Everything here is DEVICE-LOCAL by design. The receiver Noise secret and
- * link snapshots are key material, encrypted AT REST by this service:
- * wrapped with AES-GCM-256 under a non-extractable CryptoKey from the
- * messaging keyring (`@/libs/crypto/messaging-keyring`), AAD-bound to their
- * table + row id (`@/libs/crypto/secret-wrapping`). Reads unwrap on the way
- * out, so nothing outside this service sees the wrapping. Message bodies
- * are local plaintext history. None of it syncs anywhere, and none of it
- * may enter logs, telemetry, or projections.
+ * Everything here is DEVICE-LOCAL by design. The receiver Noise secret,
+ * link snapshots and message bodies (history and the queued outbox) are
+ * encrypted AT REST by this service: wrapped with AES-GCM-256 under a
+ * non-extractable CryptoKey from the messaging keyring
+ * (`@/libs/crypto/messaging-keyring`), AAD-bound to their table + row id
+ * (`@/libs/crypto/secret-wrapping`). Reads unwrap on the way out, so nothing
+ * outside this service sees the wrapping. None of it syncs anywhere, and
+ * none of it may enter logs, telemetry, or projections.
  *
  * Failure posture: writes FAIL CLOSED (no wrapping key → AppError, never a
  * plaintext write); a row whose ciphertext fails authentication (lost key,
@@ -383,7 +385,7 @@ export class LocalMessagingService {
     if ((await this.getQueuedMessages(ownerId, counterpartyPubky)).length > 0) return true;
     for (const conversation of await this.getConversationsByOwner(ownerId)) {
       if (conversation.counterparty_pubky !== counterpartyPubky) continue;
-      if ((await this.getMessages(ownerId, conversation.conversation_id)).length > 0) return true;
+      if ((await this.getStoredMessageRows(ownerId, conversation.conversation_id)).length > 0) return true;
     }
     return false;
   }
@@ -392,7 +394,7 @@ export class LocalMessagingService {
   static async hasSentTo(ownerId: string, counterpartyPubky: string): Promise<boolean> {
     for (const conversation of await this.getConversationsByOwner(ownerId)) {
       if (conversation.counterparty_pubky !== counterpartyPubky) continue;
-      const messages = await this.getMessages(ownerId, conversation.conversation_id);
+      const messages = await this.getStoredMessageRows(ownerId, conversation.conversation_id);
       if (messages.some((message) => message.direction === 'sent')) return true;
     }
     return false;
@@ -426,7 +428,7 @@ export class LocalMessagingService {
       if (conversation.origin === 'request') continue;
       if (excludedCounterparties?.has(conversation.counterparty_pubky)) continue;
       const checkpoint = conversation.last_read_at ?? 0;
-      const messages = await this.getMessages(ownerId, conversation.conversation_id);
+      const messages = await this.getStoredMessageRows(ownerId, conversation.conversation_id);
       if (messages.some((message) => message.direction === 'received' && message.recorded_at > checkpoint)) {
         unread += 1;
       }
@@ -439,9 +441,27 @@ export class LocalMessagingService {
    * of that conversation. A row whose counterparty is not named by the
    * conversation reference was planted by a contact before inbound binding
    * existed (or was sent into such a planted thread); it stays in storage,
-   * quarantined, and is never shown or counted.
+   * quarantined, and is never shown or counted. Bodies are unwrapped; a row
+   * whose body no longer opens (lost wrapping key, tampered or transplanted
+   * row) is treated as lost and left out.
    */
   static async getMessages(ownerId: string, conversationId: string): Promise<CommerceMessagingMessageModelSchema[]> {
+    return await withCurrentWrappingKey(async (key) => {
+      const rows = await this.getStoredMessageRows(ownerId, conversationId);
+      const messages: CommerceMessagingMessageModelSchema[] = [];
+      for (const row of rows) {
+        const body = await this.openBody(key, MESSAGES_TABLE, row, 'getMessages');
+        if (body !== null) messages.push(withoutSeal({ ...row, body }));
+      }
+      return messages;
+    });
+  }
+
+  /** {@link getMessages} without opening bodies, for facts that need only the row metadata. */
+  private static async getStoredMessageRows(
+    ownerId: string,
+    conversationId: string,
+  ): Promise<CommerceMessagingMessageModelSchema[]> {
     const messages = await CommerceMessagingMessageModel.findByConversation(ownerId, conversationId);
     return messages.filter(isBoundToCounterparty);
   }
@@ -485,7 +505,8 @@ export class LocalMessagingService {
    *   written and the caller drops the message.
    *
    * The claim is atomic, so concurrent drains on different links cannot
-   * both insert one id.
+   * both insert one id. The body is stored wrapped; a stored row whose body
+   * no longer opens is a `conflict`, never overwritten.
    */
   static async insertReceivedMessage(
     eventId: string,
@@ -496,26 +517,35 @@ export class LocalMessagingService {
       id: `${message.owner_id}:${eventId}`,
       direction: 'received',
     };
-    const existing = await CommerceMessagingMessageModel.insertIfAbsent(row);
-    if (!existing) return { status: 'inserted' };
-    const sameMessage =
-      existing.owner_id === row.owner_id &&
-      existing.direction === 'received' &&
-      existing.counterparty_pubky === row.counterparty_pubky &&
-      existing.conversation_id === row.conversation_id &&
-      existing.listing_ref === row.listing_ref &&
-      existing.body === row.body &&
-      parsePamSentAt((existing as { sent_at: unknown }).sent_at) === row.sent_at;
-    return sameMessage ? { status: 'replay', recordedAt: existing.recorded_at } : { status: 'conflict' };
+    return await withCurrentWrappingKey(async (key) => {
+      const sealed = await this.sealBody(key, MESSAGES_TABLE, row, 'insertReceivedMessage');
+      const existing = await CommerceMessagingMessageModel.insertIfAbsent(sealed);
+      if (!existing) return { status: 'inserted' };
+      const existingBody = await this.openBody(key, MESSAGES_TABLE, existing, 'insertReceivedMessage');
+      const sameMessage =
+        existingBody !== null &&
+        existing.owner_id === row.owner_id &&
+        existing.direction === 'received' &&
+        existing.counterparty_pubky === row.counterparty_pubky &&
+        existing.conversation_id === row.conversation_id &&
+        existing.listing_ref === row.listing_ref &&
+        existingBody === row.body &&
+        parsePamSentAt((existing as { sent_at: unknown }).sent_at) === row.sent_at;
+      return sameMessage ? { status: 'replay', recordedAt: existing.recorded_at } : { status: 'conflict' };
+    });
   }
 
   /**
    * Idempotent by construction: the row id is `${owner}:${event_id}` (the
    * sender-minted envelope UUID), so a replayed delivery (expected after a
-   * snapshot restore) overwrites itself instead of duplicating.
+   * snapshot restore) overwrites itself instead of duplicating. The body is
+   * stored wrapped.
    */
   static async upsertMessage(eventId: string, message: Omit<CommerceMessagingMessageModelSchema, 'id'>): Promise<void> {
-    await CommerceMessagingMessageModel.upsert({ ...message, id: `${message.owner_id}:${eventId}` });
+    await withCurrentWrappingKey(async (key) => {
+      const row = { ...message, id: `${message.owner_id}:${eventId}` };
+      await CommerceMessagingMessageModel.upsert(await this.sealBody(key, MESSAGES_TABLE, row, 'upsertMessage'));
+    });
   }
 
   // --- unprocessed inbound events --------------------------------------------
@@ -610,25 +640,50 @@ export class LocalMessagingService {
   }
 
   // --- queued-message outbox -------------------------------------------------
-  // Device-local plaintext rows for messages composed while the Encrypted
-  // Link was not ready. Same at-rest posture as history (see the schema file
-  // header); cleared with every other table on sign-out (`clearDatabase()`).
+  // Device-local rows for messages composed while the Encrypted Link was not
+  // ready. Bodies are wrapped at rest like history (see the schema file
+  // header); cleared with the wrapping key on sign-out (`clearDatabase()`).
 
   static async enqueueOutboxMessage(row: CommerceMessagingOutboxModelSchema): Promise<void> {
-    await CommerceMessagingOutboxModel.upsert(row);
+    await withCurrentWrappingKey(async (key) => {
+      await CommerceMessagingOutboxModel.upsert(await this.sealBody(key, OUTBOX_TABLE, row, 'enqueueOutboxMessage'));
+    });
   }
 
-  /** Queued rows toward one counterparty, oldest first — the flush order. */
+  /**
+   * Queued rows toward one counterparty, oldest first — the flush order.
+   * A row whose body no longer opens is treated as lost and left out.
+   */
   static async getQueuedMessages(
     ownerPubky: string,
     counterpartyPubky: string,
   ): Promise<CommerceMessagingOutboxModelSchema[]> {
-    return await CommerceMessagingOutboxModel.findByOwnerAndCounterparty(ownerPubky, counterpartyPubky);
+    return await this.openOutboxRows(
+      () => CommerceMessagingOutboxModel.findByOwnerAndCounterparty(ownerPubky, counterpartyPubky),
+      'getQueuedMessages',
+    );
   }
 
   /** All of one account's queued rows, oldest first. */
   static async getQueuedMessagesByOwner(ownerPubky: string): Promise<CommerceMessagingOutboxModelSchema[]> {
-    return await CommerceMessagingOutboxModel.findByOwner(ownerPubky);
+    return await this.openOutboxRows(
+      () => CommerceMessagingOutboxModel.findByOwner(ownerPubky),
+      'getQueuedMessagesByOwner',
+    );
+  }
+
+  private static async openOutboxRows(
+    read: () => Promise<CommerceMessagingOutboxModelSchema[]>,
+    operation: string,
+  ): Promise<CommerceMessagingOutboxModelSchema[]> {
+    return await withCurrentWrappingKey(async (key) => {
+      const opened: CommerceMessagingOutboxModelSchema[] = [];
+      for (const row of await read()) {
+        const body = await this.openBody(key, OUTBOX_TABLE, row, operation);
+        if (body !== null) opened.push(withoutSeal({ ...row, body }));
+      }
+      return opened;
+    });
   }
 
   /**
@@ -642,15 +697,17 @@ export class LocalMessagingService {
     await CommerceMessagingOutboxModel.deleteById(id);
   }
 
-  /** Records one failed flush attempt on a queued row (attempts, time, error). */
+  /** Records one failed flush attempt on a queued row (attempts, time, error); the stored body is kept as it is. */
   static async recordOutboxFailure(ownerPubky: string, id: string, error: string, now: number): Promise<void> {
-    const row = await CommerceMessagingOutboxModel.findById(id);
-    if (!row || row.owner_pubky !== ownerPubky) return;
-    await CommerceMessagingOutboxModel.upsert({
-      ...row,
-      attempts: row.attempts + 1,
-      last_attempt_at: now,
-      last_error: error,
+    await withCurrentWrappingKey(async () => {
+      const row = await CommerceMessagingOutboxModel.findById(id);
+      if (!row || row.owner_pubky !== ownerPubky) return;
+      await CommerceMessagingOutboxModel.upsert({
+        ...row,
+        attempts: row.attempts + 1,
+        last_attempt_at: now,
+        last_error: error,
+      });
     });
   }
 
@@ -672,11 +729,37 @@ export class LocalMessagingService {
     return true;
   }
 
+  /** `row` as stored: the body wrapped into `sealed_body` and the stored `body` empty. */
+  private static async sealBody<T extends { id: string; body: string }>(
+    key: CryptoKey,
+    table: string,
+    row: T,
+    operation: string,
+  ): Promise<T & { sealed_body: Uint8Array; wrap_version: number }> {
+    const sealed = await this.wrapSecretField(key, table, row.id, new TextEncoder().encode(row.body), operation);
+    return { ...row, body: '', sealed_body: sealed, wrap_version: WRAP_VERSION_AES_GCM_256 };
+  }
+
   /**
-   * Wraps a secret field for at-rest storage under a fresh IV, AAD-bound to
-   * its table + row id. FAIL CLOSED: with no working wrapping key this
-   * throws — a plaintext write is never an option.
+   * The plaintext body of a stored row: unwrapped when `wrap_version` is 1,
+   * the stored body of a legacy row, and `null` when the row is lost (its
+   * body does not open, or it carries an unknown wrap format).
    */
+  private static async openBody(
+    key: CryptoKey,
+    table: string,
+    row: { id: string; body: string; sealed_body?: Uint8Array; wrap_version?: number },
+    operation: string,
+  ): Promise<string | null> {
+    if (row.wrap_version === WRAP_VERSION_AES_GCM_256) {
+      if (!row.sealed_body) return null;
+      const bytes = await this.unwrapSecretField(key, table, row.id, row.sealed_body, operation);
+      return bytes ? new TextDecoder().decode(bytes) : null;
+    }
+    if (this.isUnknownWrapVersion(row.wrap_version, table, operation)) return null;
+    return row.body;
+  }
+
   /** The pair's link row unwrapped with `key`; `null` when absent or lost. */
   private static async readLinkWith(
     key: CryptoKey,
@@ -695,6 +778,11 @@ export class LocalMessagingService {
     return row;
   }
 
+  /**
+   * Wraps a secret field for at-rest storage under a fresh IV, AAD-bound to
+   * its table + row id. FAIL CLOSED: with no working wrapping key this
+   * throws — a plaintext write is never an option.
+   */
   private static async wrapSecretField(
     key: CryptoKey,
     table: string,
@@ -763,6 +851,14 @@ function isBoundToCounterparty(row: {
     return row.conversation_id === buildDmConversationId(row.counterparty_pubky);
   }
   return listingConversationBetween(row.conversation_id, row.owner_id, row.counterparty_pubky) !== null;
+}
+
+/** An opened row without its at-rest wrapping fields. */
+function withoutSeal<T extends { sealed_body?: Uint8Array; wrap_version?: number }>(
+  row: T,
+): Omit<T, 'sealed_body' | 'wrap_version'> {
+  const { sealed_body: _sealed, wrap_version: _version, ...opened } = row;
+  return opened;
 }
 
 function latest(left: number | null, right: number | null): number | null {

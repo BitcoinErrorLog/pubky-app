@@ -2427,7 +2427,6 @@ describe('PaykitMessagingService', () => {
       });
 
       it('refuses to send, receive or advance a link without the Web Locks API', async () => {
-        removeWebLocks();
         const queuedId = crypto.randomUUID();
         await LocalMessagingService.enqueueOutboxMessage({
           id: queuedId,
@@ -2442,6 +2441,7 @@ describe('PaykitMessagingService', () => {
           last_attempt_at: null,
           last_error: null,
         });
+        removeWebLocks();
         const revisionBefore = await LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY);
         world.calls.length = 0;
         world.links.at(-1)!.inboundQueue.push({
@@ -2464,8 +2464,9 @@ describe('PaykitMessagingService', () => {
           tabA.service.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE),
           tabA.service.ensureLink(OWNER, COUNTERPARTY),
           tabA.service.probeCounterparty(OWNER, COUNTERPARTY),
+          // Queued bodies are encrypted at rest, so not even the flush reads them.
+          MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY),
         ]);
-        const flushed = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
 
         // Nothing ran: no ciphertext left, nothing was read, no link state moved.
         expect(world.sentCounters).toEqual([]);
@@ -2473,8 +2474,8 @@ describe('PaykitMessagingService', () => {
         expect(world.calls).not.toContain('restoreEncryptedLink');
         expect(world.calls).not.toContain('initiateEncryptedLink');
         await expect(LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY)).resolves.toBe(revisionBefore);
+        installWebLocks();
         await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toEqual([]);
-        expect(flushed).toEqual({ delivered: 0, remaining: 1 });
         const queued = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
         expect(queued.map((row) => row.id)).toEqual([queuedId]);
         // And each refusal says why.
