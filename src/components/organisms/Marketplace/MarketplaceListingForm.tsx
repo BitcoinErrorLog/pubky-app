@@ -1013,7 +1013,8 @@ function SectionProgressRail({
   return (
     <nav
       aria-label={align === 'left' ? 'Listing sections' : 'Listing section status'}
-      className="sticky top-24 z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
+      className="sticky top-(--header-offset-main) z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
+      data-testid={align === 'left' ? 'listing-section-rail' : 'listing-section-status-rail'}
     >
       {LISTING_FORM_SECTIONS.map((section, index) => {
         const complete = sectionStatuses[section.id];
@@ -1146,7 +1147,14 @@ function ListingFormSection({
   children: ReactNode;
 }) {
   return (
-    <section id={id} tabIndex={-1} aria-labelledby={`${id}-title`} data-section-complete={complete} data-surface={id}>
+    <section
+      id={id}
+      tabIndex={-1}
+      aria-labelledby={`${id}-title`}
+      data-section-complete={complete}
+      data-surface={id}
+      className="lg:scroll-mt-(--header-offset-main)"
+    >
       <Card className="border">
         <CardContent className="grid gap-5 px-6">
           <div className="flex items-start justify-between gap-4">

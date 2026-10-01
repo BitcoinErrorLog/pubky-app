@@ -173,6 +173,39 @@ describe('Marketplace edit listing — visual regression', () => {
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('edit-listing-prefilled-mobile');
   });
 
+  it('keeps every step of both rails below the main header after scrolling at desktop viewport', async () => {
+    const { seller, record } = await fixtures;
+    view.record = record;
+    view.currentUserPubky = seller;
+
+    const screen = await renderForVRT(<MarketplaceEditListing sellerPubky={seller} listingId="boots_01" />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await waitForHydration(screen, record.title);
+    const root = screen.getByTestId(VRT_ROOT_TESTID).element() as HTMLElement;
+    root.scrollTop = 900;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    expect(root.scrollTop).toBe(900);
+
+    const headerOffset = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--header-offset-main'),
+    );
+    expect(headerOffset).toBe(144);
+    const rootTop = root.getBoundingClientRect().top;
+    for (const testId of ['listing-section-rail', 'listing-section-status-rail']) {
+      const rail = screen.getByTestId(testId).element() as HTMLElement;
+      expect(rail.getBoundingClientRect().top - rootTop).toBeCloseTo(headerOffset, 0);
+      const steps = Array.from(rail.querySelectorAll('a'));
+      expect(steps).toHaveLength(5);
+      for (const step of steps) {
+        expect(step.getBoundingClientRect().top - rootTop).toBeGreaterThanOrEqual(headerOffset);
+      }
+    }
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('edit-listing-rails-scrolled-desktop');
+  });
+
   it('renders a digital-only listing in the edit studio at desktop viewport', async () => {
     const { seller, digitalRecord } = await fixtures;
     view.record = digitalRecord;
