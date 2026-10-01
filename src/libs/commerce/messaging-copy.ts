@@ -20,14 +20,17 @@ export const MESSAGING_COPY = {
   listingEmptyThread: 'Ask about condition, shipping, or item details. Do not share payment credentials.',
   notEnrolledSeller: 'This seller has not turned on private messages yet. Nothing can be delivered until they do.',
   notEnrolledBuyer: 'This buyer has not turned on private messages yet.',
-  handshakeInitiator: 'Waiting for them to open Messages. Your notes stay on this device until then.',
-  handshakeResponder: 'Still opening this conversation. Your notes stay on this device until it is ready.',
+  handshakeInitiator:
+    'Not delivered yet: their device has not answered. It sends once they open the Shop where they message from, while the Shop is open here too.',
+  handshakeResponder:
+    'Waiting for them to open the Shop again to finish connecting. Your notes stay on this device until then.',
   linkRecoveryNeeded:
     'This private conversation cannot finish connecting on this device. Nothing was deleted. Your notes stay on this device and are sent only if the connection recovers.',
   counterpartyUnreachable:
     "We could not reach this person's messaging setup right now. We will keep trying. Your notes stay on this device until then.",
   inboxSyncFailed: 'Your messages could not be loaded right now. Check your connection and try again.',
   queued: 'Queued',
+  queuedToast: 'Queued. It sends while the Shop is open on this device.',
   composerOverLimit: 'Shorten this message to send it.',
   noAttachments: 'Images are not available in private messages yet.',
   orderCta: 'Message about this order',
@@ -77,6 +80,11 @@ export const MESSAGING_COPY = {
  */
 export function messagingReportText(input: { conversationId: string; counterpartyPubky: string }): string {
   return `Pubky Shop message report\nConversation: ${input.conversationId}\nAccount: ${input.counterpartyPubky}`;
+}
+
+/** What a queued message says once a send of it failed: the reason, and that it is tried again. */
+export function queuedSendFailedText(reason: string): string {
+  return `Not sent yet: ${reason.trim().replace(/\.$/, '')}. Trying again.`;
 }
 
 export function marketplaceCounterpartyLabel(input: {

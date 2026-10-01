@@ -91,7 +91,14 @@ describe('EncryptedConversationBody queued rendering', () => {
     render(<EncryptedConversationBody conversation={conversation} />);
 
     expect(screen.getByText(MESSAGING_COPY.queued)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Not sent yet: homeserver write failed. Trying again.');
     expect(screen.queryByText('Sent')).not.toBeInTheDocument();
+  });
+
+  it('shows no failure note on a queued message no send has failed for', () => {
+    render(<EncryptedConversationBody conversation={conversationFixture([queuedItem('waiting')])} />);
+
+    expect(screen.queryByText(/Not sent yet/)).not.toBeInTheDocument();
   });
 
   it('keeps the composer enabled while the handshake is pending', () => {
