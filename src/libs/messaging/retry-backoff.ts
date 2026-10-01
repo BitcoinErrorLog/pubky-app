@@ -55,6 +55,19 @@ export class RetryBackoff<T> {
     this.entries.delete(key);
   }
 
+  /**
+   * Restarts the schedule of every failed key `matches` accepts: its next
+   * attempt is due at `now` and its next failure waits the first delay
+   * again. A restarted key stays `due`, not `none`, so callers that keep
+   * retries out of a healthy budget still do. Keys with no recorded failure
+   * are untouched.
+   */
+  restart(matches: (key: string) => boolean, now: number = Date.now()): void {
+    for (const [key, entry] of this.entries) {
+      if (matches(key)) this.entries.set(key, { failures: 0, nextAttemptAt: now, value: entry.value });
+    }
+  }
+
   clear(): void {
     this.entries.clear();
   }

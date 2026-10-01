@@ -1113,6 +1113,19 @@ export class PaykitMessagingService {
     return this.linkRetry.status(this.linkKey(ownerPubky, counterpartyPubky));
   }
 
+  /**
+   * Makes the failed link attempts of `ownerPubky` — with `counterpartyPubky`
+   * only, when given — due now on a restarted schedule. Memory only: no
+   * request is made here, and nothing changes for a pair with no recorded
+   * failure. An attempt already running under the pair's lock finishes and
+   * records its outcome on the restarted schedule.
+   */
+  static restartLinkRetries(ownerPubky: string, counterpartyPubky?: string): void {
+    const exact = counterpartyPubky === undefined ? null : this.linkKey(ownerPubky, counterpartyPubky);
+    const prefix = this.linkKey(ownerPubky, '');
+    this.linkRetry.restart((key) => (exact === null ? key.startsWith(prefix) : key === exact));
+  }
+
   /** Reports `state` until the pair's next backoff-spaced attempt is due. */
   private static deferLink<T extends MessagingProbeState>(key: string, state: T): T {
     this.linkRetry.fail(key, state);

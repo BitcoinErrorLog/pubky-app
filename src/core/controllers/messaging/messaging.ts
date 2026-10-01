@@ -20,6 +20,7 @@ import {
   buildMarketplaceConversationAggregateId,
   buildMarketplaceListingAggregateId,
 } from '@/libs/commerce/transaction-commands';
+import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -105,6 +106,36 @@ export class MessagingController {
       confirmed.policy,
     );
     return { state, conversationId, counterpartyPubky };
+  }
+
+  /**
+   * A listing conversation was opened, became visible again, or was retried:
+   * the failed link and queued-send attempts with the other party run on
+   * the next poll instead of waiting out their backoff. Memory only, and
+   * never throws: a conversation that is not the signed-in account's
+   * restarts nothing (its open reports why).
+   */
+  static restartConversationRetries(sellerPubky: unknown, buyerPubky: unknown): void {
+    const ownerPubky = useAuthStore.getState().currentUserPubky;
+    const seller = commercePubkySchema.safeParse(sellerPubky);
+    const buyer = commercePubkySchema.safeParse(buyerPubky);
+    if (!ownerPubky || !seller.success || !buyer.success || seller.data === buyer.data) return;
+    if (ownerPubky === seller.data) MessagingApplication.restartRetries(ownerPubky, buyer.data);
+    else if (ownerPubky === buyer.data) MessagingApplication.restartRetries(ownerPubky, seller.data);
+  }
+
+  /** {@link restartConversationRetries} for the direct-message conversation with `counterpartyPubky`. */
+  static restartDmConversationRetries(counterpartyPubky: unknown): void {
+    const ownerPubky = useAuthStore.getState().currentUserPubky;
+    const counterparty = commercePubkySchema.safeParse(counterpartyPubky);
+    if (!ownerPubky || !counterparty.success || counterparty.data === ownerPubky) return;
+    MessagingApplication.restartRetries(ownerPubky, counterparty.data);
+  }
+
+  /** The inbox was opened, became visible again, or was retried: every conversation's failed attempts run soon. */
+  static restartInboxRetries(): void {
+    const ownerPubky = useAuthStore.getState().currentUserPubky;
+    if (ownerPubky) MessagingApplication.restartRetries(ownerPubky);
   }
 
   static async pollConversation(sellerPubky: unknown, buyerPubky: unknown, listingId: unknown) {
