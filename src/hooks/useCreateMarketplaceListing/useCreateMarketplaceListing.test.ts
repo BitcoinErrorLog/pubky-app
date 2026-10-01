@@ -114,7 +114,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     commitUpdateListingDraft: vi.fn(),
     commitDeleteListingDraft: vi.fn(),
     commitCreateMedia: vi.fn(),
-    commitUpsertListing: vi.fn(async () => ({ registered: true })),
+    commitUpsertListing: vi.fn(async () => ({ registered: true, verified: true })),
     getSellerPaymentConfig: vi.fn(async () => ({
       bitcoinAvailable: true,
       bitcoinOfferAvailable: true,
@@ -219,7 +219,7 @@ describe('useCreateMarketplaceListing', () => {
   });
 
   it('reports the two truths separately when the record published but service registration failed', async () => {
-    vi.mocked(CommerceController.commitUpsertListing).mockResolvedValueOnce({ registered: false });
+    vi.mocked(CommerceController.commitUpsertListing).mockResolvedValueOnce({ registered: false, verified: true });
     const { result } = renderHook(() => useCreateMarketplaceListing());
     act(() => {
       result.current.form.setValue('title', 'Vintage leather boots');
@@ -241,6 +241,36 @@ describe('useCreateMarketplaceListing', () => {
     expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
     expect(toast).toHaveBeenCalledWith({
       description: 'Published, but not yet registered for checkout — retry from your listing',
+    });
+    expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalled();
+  });
+
+  it('reports confirmation pending — never a failed publish — while the homeserver has not served the listing back', async () => {
+    vi.mocked(CommerceController.commitUpsertListing).mockResolvedValueOnce({ registered: true, verified: false });
+    const { result } = renderHook(() => useCreateMarketplaceListing());
+    act(() => {
+      result.current.form.setValue('title', 'Vintage leather boots');
+      result.current.form.setValue('description', 'Well cared for boots with light wear.');
+      result.current.form.setValue('categoryId', 'fashion-men-footwear-boots');
+      result.current.form.setValue('attrSize', 'US 9');
+      result.current.form.setValue('price', '125.00');
+      result.current.form.setValue('fulfillment', 'pickup');
+      result.current.form.setValue('countryCode', 'US');
+    });
+
+    let createdId: string | null = null;
+    await act(async () => {
+      createdId = await result.current.submit();
+    });
+
+    // The write was acked — the submit reports it as published with the
+    // honest confirmation caveat ("do not publish it again" is the point),
+    // and the draft is consumed so a retry cannot duplicate the listing.
+    expect(createdId).toBe(`${OWNER}:018f47d26a277c23a49d6b21bb770121`);
+    expect(toast).toHaveBeenCalledWith({
+      title: 'Listing published — confirmation pending',
+      description:
+        'Your homeserver accepted the listing but has not served it back yet. Check your seller dashboard in a moment before publishing it again.',
     });
     expect(CommerceController.commitDeleteListingDraft).toHaveBeenCalled();
   });
@@ -285,7 +315,7 @@ describe('useCreateMarketplaceListing', () => {
     );
     vi.mocked(CommerceController.commitUpsertListing)
       .mockRejectedValueOnce(new Error('homeserver unreachable'))
-      .mockResolvedValueOnce({ registered: true });
+      .mockResolvedValueOnce({ registered: true, verified: true });
     const { result } = renderHook(() => useCreateMarketplaceListing());
     act(() => {
       result.current.form.setValue('title', 'Vintage leather boots');

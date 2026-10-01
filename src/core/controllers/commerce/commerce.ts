@@ -1658,7 +1658,10 @@ export class CommerceController {
     await this.withPending(`shop:${record.ownerPubky}`, () => CommerceApplication.commitUpsertShop(record));
   }
 
-  static async commitUpsertListing(input: unknown, reservePrice?: unknown): Promise<{ registered: boolean }> {
+  static async commitUpsertListing(
+    input: unknown,
+    reservePrice?: unknown,
+  ): Promise<{ registered: boolean; verified: boolean }> {
     const record = CommerceRecordNormalizer.listing(input);
     const reserve = reservePrice === undefined ? undefined : commercePositiveMoneySchema.nullable().parse(reservePrice);
     this.assertCurrentUserOwns(record.ownerPubky);
