@@ -9,6 +9,16 @@ import type { XCallbackParams } from '@synonymdev/pubky';
  * a purchase grant. Passport's outcome messages and the callback page only
  * steer the UI. `success` never completes an attempt; `cancel` and `error`
  * end it, and so does closing the popup.
+ *
+ * Integration requirement: the popup's `window.opener` must survive the
+ * navigation to Passport. The Shop opens it without `noopener`, and its own
+ * COOP is `same-origin-allow-popups`; Passport's `/authorize` (and the Google
+ * pages it navigates through) must not send `Cross-Origin-Opener-Policy:
+ * same-origin`. If one does, the opener is severed: the outcome message and
+ * the callback-page fallback both stop reaching the Shop, `popup.closed`
+ * reads true, and an attempt can end as `closed` after the grace period even
+ * though an approval may still land on the relay. Re-check this against both
+ * Passport deployments whenever Passport changes its headers.
  */
 
 export type PassportOutcome = 'success' | 'error' | 'cancel';
