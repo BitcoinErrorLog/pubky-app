@@ -10,9 +10,9 @@ import { useMessagingStore } from '@/stores/messaging/messaging.store';
  * Device-local unread conversation count for the Messages entry points.
  *
  * HONESTY CONTRACT: this counts only messages already RECEIVED AND PERSISTED
- * on this device past each conversation's read checkpoint. It deliberately
- * does NOT poll homeservers — receiving happens only while a messaging
- * surface is open (the bounded, focus-resumed sync), so this badge can lag
+ * on this device past each conversation's read checkpoint. It does not poll
+ * homeservers itself: receiving happens in the inbox sync (an open messaging
+ * surface, or `MessagingSyncCoordinator` on any page), so this badge can lag
  * reality but can never invent it. Hydrates once per sign-in/enable change;
  * afterwards the controller keeps the store fact fresh on every
  * sync/receive/mark-read.
