@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AUTH_ROUTES, ROOT_ROUTES } from '@/app/routes';
-import { LogoutContent, LogoutHeader, LogoutNavigation } from './Logout';
+import { LogoutContent, LogoutHeader, LogoutNavigation, SIGNED_OUT_COPY } from './Logout';
 
 // Mock Next.js router
 const mockPush = vi.fn();
@@ -106,7 +106,8 @@ describe('LogoutHeader', () => {
 
   it('renders subtitle correctly', () => {
     render(<LogoutHeader />);
-    expect(screen.getByText('You have securely signed out.')).toBeInTheDocument();
+    expect(screen.getByText(SIGNED_OUT_COPY)).toBeInTheDocument();
+    expect(SIGNED_OUT_COPY).toContain('pubky.app in this browser is signed out too');
   });
 });
 

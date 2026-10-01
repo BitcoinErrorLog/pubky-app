@@ -252,6 +252,7 @@ export function MarketplaceOrders() {
                     <MarketplaceOrderReference
                       order={linkedUnlistedOrder}
                       isBuyer={currentUserPubky === linkedUnlistedOrder.buyerPubky}
+                      showPlacedAt
                     />
                   </CardContent>
                 </Card>
@@ -272,7 +273,7 @@ export function MarketplaceOrders() {
                         <Typography as="p" className="text-sm text-muted-foreground">
                           {buyerCheckoutProgressCopy(order, payment, nowMs)}
                         </Typography>
-                        <MarketplaceOrderReference order={order} isBuyer />
+                        <MarketplaceOrderReference order={order} isBuyer showPlacedAt />
                       </div>
                       <Button asChild className="rounded-full">
                         <Link href={getMarketplaceCheckoutRoute(order.id)} overrideDefaults>
@@ -308,7 +309,7 @@ export function MarketplaceOrders() {
                         <Typography as="p" className="text-sm text-muted-foreground">
                           {decision ? PAYMENT_SEEN_LABEL : sellerReservationCopy(order.holdExpiresAt)}
                         </Typography>
-                        <MarketplaceOrderReference order={order} isBuyer={false} />
+                        <MarketplaceOrderReference order={order} isBuyer={false} showPlacedAt />
                         {decision && (
                           <MarketplacePaymentStatusCard
                             order={order}
@@ -413,7 +414,7 @@ export function MarketplaceOrders() {
                                 {formatCommerceMoney(order.shipping)}
                               </Typography>
                             )}
-                            <MarketplaceOrderReference order={order} isBuyer={isBuyer} />
+                            <MarketplaceOrderReference order={order} isBuyer={isBuyer} showPlacedAt />
                             {order.state === 'pending_payment' &&
                               order.holdExpiresAt &&
                               (isBuyer || !sellerBitcoinDecision(order, payment)) && (
@@ -597,7 +598,11 @@ export function MarketplaceOrders() {
                       <Typography as="p" className="text-sm text-muted-foreground">
                         Checkout ended before payment.
                       </Typography>
-                      <MarketplaceOrderReference order={order} isBuyer={currentUserPubky === order.buyerPubky} />
+                      <MarketplaceOrderReference
+                        order={order}
+                        isBuyer={currentUserPubky === order.buyerPubky}
+                        showPlacedAt
+                      />
                     </CardContent>
                   </Card>
                 ))}

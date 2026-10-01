@@ -6,7 +6,8 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
 >
   <nav
     aria-label="Listing sections"
-    class="sticky top-24 z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
+    class="sticky top-(--header-offset-main) z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
+    data-testid="listing-section-rail"
   >
     <a
       aria-current="step"
@@ -164,7 +165,8 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     class="flex flex-col gap-6"
   >
     <div
-      class="sticky top-2 z-10 flex flex-col gap-3 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur lg:hidden"
+      class="sticky top-(--header-offset-mobile) z-10 flex flex-col gap-3 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur lg:hidden"
+      data-testid="listing-mobile-stepper"
     >
       <div
         class="flex items-center justify-between gap-3"
@@ -318,6 +320,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     </div>
     <section
       aria-labelledby="listing-section-photos-title"
+      class="scroll-mt-[calc(var(--header-offset-mobile)+8.5rem)] lg:scroll-mt-(--header-offset-main)"
       data-section-complete="false"
       data-surface="listing-section-photos"
       id="listing-section-photos"
@@ -411,6 +414,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     </section>
     <section
       aria-labelledby="listing-section-item-title"
+      class="scroll-mt-[calc(var(--header-offset-mobile)+8.5rem)] lg:scroll-mt-(--header-offset-main)"
       data-section-complete="false"
       data-surface="listing-section-item"
       id="listing-section-item"
@@ -775,6 +779,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     </section>
     <section
       aria-labelledby="listing-section-price-title"
+      class="scroll-mt-[calc(var(--header-offset-mobile)+8.5rem)] lg:scroll-mt-(--header-offset-main)"
       data-section-complete="false"
       data-surface="listing-section-price"
       id="listing-section-price"
@@ -1201,6 +1206,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     </section>
     <section
       aria-labelledby="listing-section-shipping-title"
+      class="scroll-mt-[calc(var(--header-offset-mobile)+8.5rem)] lg:scroll-mt-(--header-offset-main)"
       data-section-complete="false"
       data-surface="listing-section-shipping"
       id="listing-section-shipping"
@@ -1763,6 +1769,7 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
     </section>
     <section
       aria-labelledby="listing-section-review-title"
+      class="scroll-mt-[calc(var(--header-offset-mobile)+8.5rem)] lg:scroll-mt-(--header-offset-main)"
       data-section-complete="false"
       data-surface="listing-section-review"
       id="listing-section-review"
@@ -1928,7 +1935,8 @@ exports[`MarketplaceListingForm - Snapshots > matches the physical listing form 
   </div>
   <nav
     aria-label="Listing section status"
-    class="sticky top-24 z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
+    class="sticky top-(--header-offset-main) z-10 hidden h-fit flex-col gap-2 self-start rounded-xl bg-background/95 py-1 backdrop-blur lg:flex"
+    data-testid="listing-section-status-rail"
   >
     <a
       aria-current="step"

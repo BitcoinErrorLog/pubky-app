@@ -829,6 +829,43 @@ describe('MarketplaceOrders tabs', () => {
     expect(within(soldCard as HTMLElement).getByTestId('order-reference-label')).toHaveTextContent('Order test-sol');
   });
 
+  it('shows when each order was placed, and the day a held item restocks', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-01T09:00:00.000Z'));
+    ordersState.orders = [
+      orderView('paid', 'Bought dated coat', 'buyer', { createdAt: '2026-09-30T18:45:00.000Z' }),
+      orderView(
+        'pending_payment',
+        'Sold held boots',
+        'seller',
+        { createdAt: '2026-10-01T08:10:00.000Z', holdExpiresAt: '2026-10-02T08:10:00.000Z', nextActor: 'buyer' },
+        'awaiting_entitlement',
+      ),
+      orderView(
+        'pending_payment',
+        'Bought checkout scarf',
+        'buyer',
+        { createdAt: '2026-10-01T08:55:00.000Z', holdExpiresAt: '2026-10-01T09:10:00.000Z', nextActor: 'buyer' },
+        'awaiting_entitlement',
+      ),
+    ];
+
+    render(<MarketplaceOrders />);
+    await user.click(screen.getByRole('tab', { name: /^All/i }));
+
+    const placedAt = (title: RegExp) => {
+      const card = screen.getAllByText(title)[0].closest('[data-slot="card"]') as HTMLElement;
+      return within(card).getByTestId('order-placed-at');
+    };
+    expect(placedAt(/Bought dated coat/)).toHaveTextContent('Placed Sep 30, 2026, 6:45 PM UTC');
+    expect(placedAt(/Bought dated coat/)).toHaveAttribute('dateTime', '2026-09-30T18:45:00.000Z');
+    expect(placedAt(/Sold held boots/)).toHaveTextContent('Placed Oct 1, 2026, 8:10 AM UTC');
+    expect(placedAt(/Bought checkout scarf/)).toHaveTextContent('Placed Oct 1, 2026, 8:55 AM UTC');
+    expect(within(screen.getByTestId('marketplace-reservations')).getByText(/restocks/)).toHaveTextContent(
+      'Held for a buyer · restocks Oct 2, 2026, 8:10 AM UTC',
+    );
+  });
+
   it('opens PayPal for the seller when the order stores a txn id', async () => {
     ordersState.orders = [
       orderView('paid', 'Bought paypal coat', 'buyer', {

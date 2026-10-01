@@ -25,15 +25,20 @@ export const CHECKOUT_HOLD_COPY = {
   stripeRefundRefused: 'The refund was refused. Refund it from the account that received the payment.',
 } as const;
 
-export function formatHoldDeadline(holdExpiresAt: string | null | undefined): string | null {
-  if (!holdExpiresAt) return null;
-  const date = new Date(holdExpiresAt);
+/** An order timestamp with its day, e.g. `Oct 1, 2026, 10:10 AM UTC`. Holds can run 24 hours. */
+export function formatOrderInstant(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return `${new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
   }).format(date)} UTC`;
+}
+
+export function formatHoldDeadline(holdExpiresAt: string | null | undefined): string | null {
+  return formatOrderInstant(holdExpiresAt);
 }
 
 export function holderUnboundCopy(holdExpiresAt: string | null | undefined): string {

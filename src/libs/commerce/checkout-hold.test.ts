@@ -5,6 +5,7 @@ import {
   findViewerAcceptedOfferHold,
   findViewerPendingHoldOrder,
   formatHoldDeadline,
+  formatOrderInstant,
   holderBoundCopy,
   holderUnboundCopy,
   isHoldExpiredNoLateMoney,
@@ -19,6 +20,14 @@ import {
 describe('checkout-hold copy', () => {
   it('formats hold deadlines in en-US UTC', () => {
     expect(formatHoldDeadline('2026-08-20T21:15:00.000Z')).toBe('Aug 20, 2026, 9:15 PM UTC');
+  });
+
+  it('formats order timestamps with the day, and nothing for a missing or invalid value', () => {
+    expect(formatOrderInstant('2026-10-01T08:10:00.000Z')).toBe('Oct 1, 2026, 8:10 AM UTC');
+    expect(formatOrderInstant(null)).toBeNull();
+    expect(formatOrderInstant(undefined)).toBeNull();
+    expect(formatOrderInstant('')).toBeNull();
+    expect(formatOrderInstant('not a date')).toBeNull();
   });
 
   it('renders unbound and bound holder copy with the deadline', () => {

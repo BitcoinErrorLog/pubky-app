@@ -301,6 +301,8 @@ const fixtures = vi.hoisted(async () => {
         id: '018f47d2-6a27-7c23-a49d-000000000731',
         buyerPubky: 't'.repeat(52),
         sellerPubky: ORDER_FIXTURE_BUYER,
+        // A 24-hour Bitcoin hold: placed yesterday, restocks today.
+        createdAt: new Date(VRT_FROZEN_NOW_MS - 22 * HOUR_MS).toISOString(),
         holdExpiresAt: pendingDeadline,
         nextActor: 'buyer',
         lines: [
@@ -704,7 +706,8 @@ describe('Marketplace orders — visual regression', () => {
     const screen = await renderForVRT(<MarketplaceOrders />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect.element(screen.getByRole('heading', { name: 'Reservations' })).toBeVisible();
     await expect.element(screen.getByText('Seller pending-payment zine')).toBeVisible();
-    await expect.element(screen.getByText(/Held for a buyer/i)).toBeVisible();
+    await expect.element(screen.getByText('Held for a buyer · restocks Jan 1, 2026, 2:00 PM UTC')).toBeVisible();
+    await expect.element(screen.getByTestId('order-placed-at')).toHaveTextContent('Placed Dec 31, 2025, 2:00 PM UTC');
     await expect(expectVrtSurface('marketplace-orders')).toMatchScreenshot('orders-pending-payment-seller-desktop');
   });
 

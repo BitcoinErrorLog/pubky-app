@@ -246,6 +246,28 @@ describe('MarketplaceListingForm', () => {
 
     expect(screen.getByRole('navigation', { name: 'Listing sections' })).toHaveClass('sticky');
   });
+
+  it('pins both step rails, and section jumps, below the main header', () => {
+    render(<FormHarness />);
+
+    for (const name of ['Listing sections', 'Listing section status']) {
+      const rail = screen.getByRole('navigation', { name });
+      expect(rail).toHaveClass('top-(--header-offset-main)');
+      expect(rail).not.toHaveClass('top-24');
+    }
+    expect(document.getElementById('listing-section-photos')).toHaveClass('lg:scroll-mt-(--header-offset-main)');
+  });
+
+  it('pins the mobile step bar, and mobile section jumps, below the mobile header', () => {
+    render(<FormHarness />);
+
+    const stepper = screen.getByTestId('listing-mobile-stepper');
+    expect(stepper).toHaveClass('sticky', 'top-(--header-offset-mobile)');
+    expect(stepper).not.toHaveClass('top-2');
+    expect(document.getElementById('listing-section-photos')).toHaveClass(
+      'scroll-mt-[calc(var(--header-offset-mobile)+8.5rem)]',
+    );
+  });
 });
 
 function deliveryBox(name: 'Ship' | 'Local pickup' | 'Digital delivery') {
