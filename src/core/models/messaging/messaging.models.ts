@@ -53,6 +53,8 @@ export class CommerceMessagingLinkModel
   local_receiver_path: string;
   remote_receiver_path: string;
   remote_noise_public_key: string;
+  observed_noise_public_key?: string | null;
+  key_changed_at?: number | null;
   snapshot: Uint8Array;
   wrap_version?: number;
   send_pending?: boolean;
@@ -69,6 +71,8 @@ export class CommerceMessagingLinkModel
     this.local_receiver_path = link.local_receiver_path;
     this.remote_receiver_path = link.remote_receiver_path;
     this.remote_noise_public_key = link.remote_noise_public_key;
+    this.observed_noise_public_key = link.observed_noise_public_key;
+    this.key_changed_at = link.key_changed_at;
     this.snapshot = link.snapshot;
     this.wrap_version = link.wrap_version;
     this.send_pending = link.send_pending;
@@ -151,6 +155,8 @@ export class CommerceMessagingMessageModel
   counterparty_pubky: string;
   direction: CommerceMessagingMessageModelSchema['direction'];
   body: string;
+  sealed_body?: Uint8Array;
+  wrap_version?: number;
   sent_at: number;
   recorded_at: number;
 
@@ -162,6 +168,8 @@ export class CommerceMessagingMessageModel
     this.counterparty_pubky = message.counterparty_pubky;
     this.direction = message.direction;
     this.body = message.body;
+    this.sealed_body = message.sealed_body;
+    this.wrap_version = message.wrap_version;
     this.sent_at = message.sent_at;
     this.recorded_at = message.recorded_at;
   }
@@ -227,6 +235,8 @@ export class CommerceMessagingOutboxModel
   conversation_id: string | null;
   listing_ref: string | null;
   body: string;
+  sealed_body?: Uint8Array;
+  wrap_version?: number;
   queued_at: number;
   attempts: number;
   last_attempt_at: number | null;
@@ -240,6 +250,8 @@ export class CommerceMessagingOutboxModel
     this.conversation_id = row.conversation_id;
     this.listing_ref = row.listing_ref;
     this.body = row.body;
+    this.sealed_body = row.sealed_body;
+    this.wrap_version = row.wrap_version;
     this.queued_at = row.queued_at;
     this.attempts = row.attempts;
     this.last_attempt_at = row.last_attempt_at;

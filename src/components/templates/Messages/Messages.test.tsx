@@ -1,6 +1,6 @@
 // Intentional import order — mock factories rely on stable aliases.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import type { UseEncryptedConversationReturn } from '@/hooks/useEncryptedConversation/useEncryptedConversation.types';
@@ -28,6 +28,8 @@ vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
 const dmView = vi.hoisted(() => ({
   status: 'ready' as string,
   thread: [] as unknown[],
+  keyChange: null as { pinnedKey: string; observedKey: string } | null,
+  acceptKeyChange: (() => Promise.resolve()) as () => Promise<void>,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -65,6 +67,9 @@ vi.mock('@/hooks/useDmConversation/useDmConversation', () => ({
     send: vi.fn(async () => 'queued' as const),
     cancelQueued: vi.fn(async () => {}),
     refresh: vi.fn(),
+    keyChange: dmView.keyChange,
+    acceptKeyChange: dmView.acceptKeyChange,
+    isAcceptingKey: false,
   }),
 }));
 
@@ -268,5 +273,43 @@ describe('Messages inbox for a grant sign-in', () => {
     expect(screen.getByRole('heading', { name: 'Enable encrypted messaging' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Enable encrypted messaging/ })).toBeInTheDocument();
     expect(screen.queryByTestId('grant-session-messaging-unavailable')).not.toBeInTheDocument();
+  });
+});
+
+describe('MessagesConversation key change notice', () => {
+  const P_KEY = 'p'.repeat(52);
+  const Q_KEY = 'q'.repeat(52);
+
+  beforeEach(() => {
+    dmView.status = 'key-changed';
+    dmView.thread = [];
+    dmView.keyChange = { pinnedKey: P_KEY, observedKey: Q_KEY };
+  });
+
+  it('says the key changed, keeps the composer for queued notes, and hides the keys until Verify', () => {
+    render(<MessagesConversation counterpartyPubky={COUNTERPARTY} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(MESSAGING_COPY.keyChangedTitle);
+    expect(screen.getByText(MESSAGING_COPY.keyChangedBody)).toBeInTheDocument();
+    expect(screen.getByLabelText('Message')).toBeEnabled();
+    expect(screen.queryByTestId('messaging-key-verify')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: MESSAGING_COPY.keyChangedVerify }));
+
+    const verify = screen.getByTestId('messaging-key-verify');
+    expect(verify).toHaveTextContent(MESSAGING_COPY.keyChangedVerifyHelp);
+    expect(verify).toHaveTextContent('qqqq qqqq');
+    expect(verify).toHaveTextContent('pppp pppp');
+  });
+
+  it('accepts only on the explicit action', () => {
+    const accept = vi.fn(() => Promise.resolve());
+    dmView.acceptKeyChange = accept;
+    render(<MessagesConversation counterpartyPubky={COUNTERPARTY} />);
+    expect(accept).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: MESSAGING_COPY.keyChangedAccept }));
+
+    expect(accept).toHaveBeenCalledOnce();
   });
 });

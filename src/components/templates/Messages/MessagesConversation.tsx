@@ -19,6 +19,7 @@ import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceMessagingEnablePanel } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
 import { ConversationSafetyActions, MutedConversationPanel } from '@/organisms/Messaging/ConversationSafetyActions';
 import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
+import { MessagingKeyChangedNotice } from '@/organisms/Messaging/MessagingKeys';
 import { MessagingMutesNotice } from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -162,6 +163,20 @@ export function MessagesConversation({ counterpartyPubky }: { counterpartyPubky:
                 >
                   {MESSAGING_COPY.handshakeResponder}
                 </Typography>
+              </EncryptedConversationBody>
+            )}
+
+            {conversation.status === 'key-changed' && conversation.keyChange && (
+              <EncryptedConversationBody
+                conversation={conversation}
+                composerPlaceholder={`Message ${displayName}`}
+                emptyPrompt=""
+              >
+                <MessagingKeyChangedNotice
+                  keyChange={conversation.keyChange}
+                  onAccept={() => void conversation.acceptKeyChange()}
+                  isAccepting={conversation.isAcceptingKey}
+                />
               </EncryptedConversationBody>
             )}
 

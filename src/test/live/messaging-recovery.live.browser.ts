@@ -207,12 +207,13 @@ describe('encrypted link recovery — live pair survival', () => {
     expect(received.map((message) => message.body)).toEqual([unread.message.body]);
   }, 180_000);
 
-  it('a counterparty key flip keeps the pair: the original device still completes the handshake', async () => {
+  it('a counterparty key flip holds the pair: the original device still completes the pinned handshake, and nothing is sent', async () => {
     setPaykitWasmModuleForTests(wasm);
     PaykitMessagingService.clearSession();
     const bob = await enrolledBob();
     const alice = await signup();
     const enabled = await PaykitMessagingService.enableWithSessionForTests(alice.session);
+    const pinnedKey = wasm.noisePublicKeyFromSecret(bob.noiseSecret);
 
     // Alice initiates toward Bob's first device.
     const first = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
@@ -220,13 +221,19 @@ describe('encrypted link recovery — live pair survival', () => {
 
     // Bob's second device publishes its own key over the shared marker path
     // before the first device has answered; Alice reloads and sees it.
-    await publishBobKey(bob, wasm.generateNoiseSecretKey());
+    const secondSecret = wasm.generateNoiseSecretKey();
+    await publishBobKey(bob, secondSecret);
     await reloadAlice(alice.pubky);
     const flipped = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
-    expect.soft(flipped).toEqual({ status: 'recovery-needed', reason: 'counterparty-key-changed' });
+    expect.soft(flipped).toEqual({
+      status: 'key-changed',
+      pinnedKey,
+      observedKey: wasm.noisePublicKeyFromSecret(secondSecret),
+    });
 
     // Bob's first device answers the handshake it can still read. The other
-    // key stays published throughout.
+    // key stays published throughout, so Alice stays held while her
+    // handshake on the pinned key completes.
     const bobHandshake = wasm.acceptEncryptedLink(
       bob.session,
       bob.noiseSecret,
@@ -238,22 +245,38 @@ describe('encrypted link recovery — live pair survival', () => {
     );
     let bobLink: EncryptedLinkHandle | null = null;
     let aliceState: MessagingProbeState = flipped;
+    const established = async () =>
+      (await LocalMessagingService.getLink(alice.pubky, bob.pubky))?.status === 'established';
     const deadline = Date.now() + 60_000;
-    while (Date.now() < deadline && (!bobLink || aliceState.status !== 'ready')) {
+    while (Date.now() < deadline && (!bobLink || !(await established()))) {
       if (!bobLink) bobLink = await stepBob(bobHandshake);
-      if (aliceState.status !== 'ready') aliceState = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
-      if (!bobLink || aliceState.status !== 'ready') await sleep(STEP_MS);
+      // An open conversation restarts the pair's retries while it is visible.
+      PaykitMessagingService.restartLinkRetries(alice.pubky, bob.pubky);
+      aliceState = await PaykitMessagingService.ensureLink(alice.pubky, bob.pubky);
+      if (!bobLink || !(await established())) await sleep(STEP_MS);
     }
-    expect(aliceState).toEqual({ status: 'ready' });
     expect(bobLink).toBeTruthy();
+    await expect(established()).resolves.toBe(true);
+    expect(aliceState).toMatchObject({ status: 'key-changed', pinnedKey });
 
+    // The pinned link receives.
     const reply = buildDmMessage({
       eventId: crypto.randomUUID(),
       sentAt: Date.now(),
-      body: 'Delivered after the key flip (live recovery proof).',
+      body: 'Delivered on the pinned key while held (live recovery proof).',
     });
     await bobLink!.sendPrivateApplicationMessageJson(reply.json);
-    const { received } = await drainAlice(alice.pubky, bob.pubky, 30_000);
+    const received: Awaited<ReturnType<typeof PaykitMessagingService.receiveMessages>> = [];
+    const receiveDeadline = Date.now() + 30_000;
+    while (Date.now() < receiveDeadline && received.length === 0) {
+      received.push(...(await PaykitMessagingService.receiveMessages(alice.pubky, bob.pubky, ADMIT_ALL_GATE)));
+      if (received.length === 0) await sleep(STEP_MS);
+    }
     expect(received.map((message) => message.body)).toEqual([reply.message.body]);
+
+    // Nothing is sent while held.
+    await expect(
+      PaykitMessagingService.sendDmMessage(alice.pubky, bob.pubky, { body: 'must not leave' }),
+    ).rejects.toMatchObject({ context: { linkStatus: 'key-changed' } });
   }, 180_000);
 });

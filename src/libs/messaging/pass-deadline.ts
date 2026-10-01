@@ -6,6 +6,13 @@ import { ErrorService } from '@/libs/error/error.types';
 export const MESSAGING_SYNC_PASS_TIMEOUT_MS = 60_000;
 
 /**
+ * Longest the session resume at the start of a background pass may take.
+ * It runs inside the pass's provisioning hold, so bounding it bounds how
+ * long a hung resume can keep the hold on.
+ */
+export const MESSAGING_SYNC_RESUME_TIMEOUT_MS = 20_000;
+
+/**
  * Settles like `work`, or rejects with a timeout once `timeoutMs` passed,
  * after calling `onExpire`. Nothing can cancel `work` itself: `onExpire` is
  * where the caller tells it to stop at its next check.

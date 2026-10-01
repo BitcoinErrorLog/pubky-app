@@ -1,6 +1,9 @@
 import Dexie from 'dexie';
 import { DB_INIT_MAX_ATTEMPTS, DB_INIT_RETRY_BASE_DELAY_MS, DB_NAME, DB_VERSION } from '@/config/database';
-import { migrateMessagingSecretsToWrappedStorage } from '@/database/franky/franky.migrations';
+import {
+  migrateMessagingHistoryToWrappedStorage,
+  migrateMessagingSecretsToWrappedStorage,
+} from '@/database/franky/franky.migrations';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -579,7 +582,7 @@ export class AppDatabase extends Dexie {
         if (currentVersion === MESSAGING_WRAP_BASE_DB_VERSION) {
           await migrateMessagingSecretsToWrappedStorage(this);
         }
-        return { wasDbReset: false, messagingAtRestDegraded: false };
+        return { wasDbReset: false, messagingAtRestDegraded: await this.wrapMessageHistory() };
       }
       Logger.info(`Database version mismatch. Current: ${currentVersion}, Expected: ${this.declaredVersion}`, {
         rawVersion,
@@ -614,9 +617,30 @@ export class AppDatabase extends Dexie {
         { error },
       );
     }
+    if (await this.wrapMessageHistory()) messagingAtRestDegraded = true;
 
     Logger.debug('Database version is current');
     return { wasDbReset: false, messagingAtRestDegraded };
+  }
+
+  /**
+   * Best-effort in-place wrap of message bodies left in plaintext by builds
+   * before history was encrypted at rest. Runs on every boot of an existing
+   * database (it is idempotent) and resolves `true` when it failed: those
+   * bodies then stay plaintext at rest, readable, until a later boot
+   * succeeds, and messaging is reported degraded meanwhile.
+   */
+  private async wrapMessageHistory(): Promise<boolean> {
+    try {
+      await migrateMessagingHistoryToWrappedStorage(this);
+      return false;
+    } catch (error) {
+      Logger.warn(
+        'Message history wrap sweep failed; legacy bodies stay plaintext at rest until a later boot succeeds, and messaging is marked degraded',
+        { error },
+      );
+      return true;
+    }
   }
 }
 

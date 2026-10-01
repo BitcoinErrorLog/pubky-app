@@ -17,10 +17,12 @@ import { toast } from '@/molecules/Toaster/use-toast';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import type {
   ConversationThreadItem,
+  EncryptedConversationKeyChange,
   EncryptedConversationStatus,
   EncryptedSendOutcome,
   UseEncryptedConversationReturn,
 } from './useEncryptedConversation.types';
+import { encryptedConversationStatusOf, keyChangeOf, ownKeyRepublishedCopy } from './useEncryptedConversation.utils';
 
 /**
  * Drives one encrypted listing conversation while its surface is OPEN:
@@ -51,6 +53,10 @@ export function useEncryptedConversation(
   const [pausedReason, setPausedReason] = useState<UseEncryptedConversationReturn['pausedReason']>(null);
   const [followOnSend, setFollowOnSend] = useState(false);
   const [firstContactNotice, setFirstContactNotice] = useState<string | null>(null);
+  const [keyChange, setKeyChange] = useState<EncryptedConversationKeyChange | null>(null);
+  const [isAcceptingKey, setIsAcceptingKey] = useState(false);
+  // The other person of this thread, as the open resolved it.
+  const counterpartyRef = useRef<string | null>(null);
   // The "your message is queued" toast fires once per surface, not per send.
   const queuedToastShownRef = useRef(false);
   const rateCapToastShownRef = useRef(false);
@@ -68,6 +74,12 @@ export function useEncryptedConversation(
     [conversationId, listingRef],
   );
   const draftBytes = useMemo(() => bodyByteSize(draft.trim()), [draft]);
+
+  const applyThreadState = useCallback((state: MessagingThreadState) => {
+    setPausedReason(state.status === 'paused' ? state.reason : null);
+    setKeyChange(keyChangeOf(state));
+    setStatus(encryptedConversationStatusOf(state));
+  }, []);
 
   const loadThread = useCallback(async () => {
     try {
@@ -103,14 +115,7 @@ export function useEncryptedConversation(
 
     const applyLinkState = (state: MessagingThreadState) => {
       if (cancelled) return;
-      setPausedReason(state.status === 'paused' ? state.reason : null);
-      if (state.status === 'paused') setStatus('paused');
-      else if (state.status === 'muted') setStatus('muted');
-      else if (state.status === 'ready') setStatus('ready');
-      else if (state.status === 'not-enrolled') setStatus('not-enrolled');
-      else if (state.status === 'recovery-needed') setStatus('recovery-needed');
-      else if (state.status === 'unreachable') setStatus('unreachable');
-      else setStatus(state.role === 'initiator' ? 'handshaking-initiator' : 'handshaking-responder');
+      applyThreadState(state);
     };
 
     const poll = async () => {
@@ -143,6 +148,7 @@ export function useEncryptedConversation(
 
     const open = async () => {
       const result = await MessagingController.openConversation(sellerPubky, buyerPubky, listingId);
+      counterpartyRef.current = result.counterpartyPubky;
       applyLinkState(result.state);
       if (result.state.status === 'muted' || result.state.status === 'paused') return;
       opened = true;
@@ -160,6 +166,9 @@ export function useEncryptedConversation(
         const messagingStatus = await MessagingController.getMessagingStatus();
         if (cancelled) return;
         setReceiverProvisioned(messagingStatus.receiverProvisioned);
+        if (messagingStatus.ownKeyRepublished) {
+          toast({ variant: 'warning', description: ownKeyRepublishedCopy(messagingStatus.ownKeyRepublished) });
+        }
         if (!messagingStatus.sessionActive) {
           setStatus('needs-enable');
           return;
@@ -191,7 +200,7 @@ export function useEncryptedConversation(
       document.removeEventListener('visibilitychange', onVisibilityChange);
       if (timer !== null) window.clearInterval(timer);
     };
-  }, [active, enabledPubky, refreshNonce, sellerPubky, buyerPubky, listingId, loadThread]);
+  }, [active, enabledPubky, refreshNonce, sellerPubky, buyerPubky, listingId, loadThread, applyThreadState]);
 
   const send = useCallback(async (): Promise<EncryptedSendOutcome> => {
     const body = draft.trim();
@@ -235,6 +244,23 @@ export function useEncryptedConversation(
     [loadThread],
   );
 
+  const acceptKeyChange = useCallback(async () => {
+    const counterpartyPubky = counterpartyRef.current;
+    if (!keyChange || !counterpartyPubky || isAcceptingKey) return;
+    setIsAcceptingKey(true);
+    try {
+      const state = await MessagingController.acceptCounterpartyKey(counterpartyPubky, keyChange.observedKey);
+      applyThreadState(state);
+      await loadThread();
+      if (state.status !== 'key-changed') toast({ description: MESSAGING_COPY.keyAccepted });
+    } catch (error) {
+      Logger.error('Failed to accept a changed messaging key', { error });
+      toast({ variant: 'warning', description: MESSAGING_COPY.keyAcceptFailed });
+    } finally {
+      setIsAcceptingKey(false);
+    }
+  }, [keyChange, isAcceptingKey, applyThreadState, loadThread]);
+
   const refresh = useCallback(() => setRefreshNonce((nonce) => nonce + 1), []);
 
   return {
@@ -254,5 +280,8 @@ export function useEncryptedConversation(
     pausedReason,
     followOnSend,
     firstContactNotice,
+    keyChange,
+    acceptKeyChange,
+    isAcceptingKey,
   };
 }

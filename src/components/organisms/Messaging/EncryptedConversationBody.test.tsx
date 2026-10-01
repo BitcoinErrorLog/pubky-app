@@ -64,6 +64,9 @@ function conversationFixture(
     send: vi.fn(async () => 'queued' as const),
     cancelQueued,
     refresh: vi.fn(),
+    keyChange: null,
+    acceptKeyChange: vi.fn(async () => {}),
+    isAcceptingKey: false,
   };
 }
 

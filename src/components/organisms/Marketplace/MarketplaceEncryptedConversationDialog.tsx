@@ -13,6 +13,7 @@ import { marketplaceCounterpartyLabel, MESSAGING_COPY } from '@/libs/commerce/me
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
 import { ConversationSafetyActions, MutedConversationPanel } from '@/organisms/Messaging/ConversationSafetyActions';
 import { EncryptedConversationBody } from '@/organisms/Messaging/EncryptedConversationBody';
+import { MessagingKeyChangedNotice } from '@/organisms/Messaging/MessagingKeys';
 import { MessagingMutesNotice } from '@/organisms/Messaging/MessagingRequests';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { MarketplaceMessagingEnablePanel } from './MarketplaceMessagingEnableDialog';
@@ -126,6 +127,16 @@ export function MarketplaceEncryptedConversationDialog({
             >
               {MESSAGING_COPY.handshakeResponder}
             </Typography>
+          </EncryptedConversationBody>
+        )}
+
+        {conversation.status === 'key-changed' && conversation.keyChange && (
+          <EncryptedConversationBody conversation={conversation}>
+            <MessagingKeyChangedNotice
+              keyChange={conversation.keyChange}
+              onAccept={() => void conversation.acceptKeyChange()}
+              isAccepting={conversation.isAcceptingKey}
+            />
           </EncryptedConversationBody>
         )}
 

@@ -76,6 +76,7 @@ const conversationView = vi.hoisted(() => ({
   followOnSend: false,
   firstContactNotice: null as string | null,
   pausedReason: null as string | null,
+  keyChange: null as { pinnedKey: string; observedKey: string } | null,
 }));
 
 const enableView = vi.hoisted(() => ({
@@ -133,6 +134,9 @@ vi.mock('@/hooks/useEncryptedConversation/useEncryptedConversation', () => ({
     followOnSend: conversationView.followOnSend,
     firstContactNotice: conversationView.firstContactNotice,
     pausedReason: conversationView.pausedReason,
+    keyChange: conversationView.keyChange,
+    acceptKeyChange: vi.fn(async () => {}),
+    isAcceptingKey: false,
   }),
 }));
 
@@ -209,6 +213,7 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     conversationView.followOnSend = false;
     conversationView.firstContactNotice = null;
     conversationView.pausedReason = null;
+    conversationView.keyChange = null;
     enableView.status = 'awaiting';
     enableView.authorizationUrl = '';
     enableView.errorMessage = null;
@@ -357,6 +362,32 @@ describe('Marketplace encrypted messaging — visual regression', () => {
     await openDialog(screen.getByRole('button', { name: 'Message seller' }));
     await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
       'messaging-recovery-needed-desktop',
+    );
+  });
+
+  it('renders the changed-key notice with a held queued message at desktop viewport', async () => {
+    conversationView.status = 'key-changed';
+    conversationView.keyChange = { pinnedKey: 'p'.repeat(52), observedKey: 'q'.repeat(52) };
+    conversationView.thread = [
+      fixedQueued('00000000-0000-4000-8000-000000000905', 'Is it still available?', VRT_FROZEN_NOW_MS - 60_000),
+    ];
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-key-changed-desktop',
+    );
+  });
+
+  it('renders the changed-key notice with both keys shown for verification at desktop viewport', async () => {
+    conversationView.status = 'key-changed';
+    conversationView.keyChange = { pinnedKey: 'p'.repeat(52), observedKey: 'q'.repeat(52) };
+
+    const screen = await renderForVRT(renderConversationDialog(), { viewport: VRT_VIEWPORT_DESKTOP });
+    await openDialog(screen.getByRole('button', { name: 'Message seller' }));
+    await screen.getByRole('button', { name: 'Verify key' }).click();
+    await expect(expectVrtSurface('marketplace-encrypted-conversation')).toMatchScreenshot(
+      'messaging-key-changed-verify-desktop',
     );
   });
 

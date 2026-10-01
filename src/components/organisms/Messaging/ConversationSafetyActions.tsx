@@ -5,10 +5,12 @@ import { Button } from '@/atoms/Button/Button';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useMessagingSafety } from '@/hooks/useMessagingSafety/useMessagingSafety';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { MessagingKeysToggle } from './MessagingKeys';
 
 /**
- * Mute and Report for one conversation. Mute is saved in the account's
- * private mute list; Report only copies details to the clipboard.
+ * Mute, Report and Messaging keys for one conversation. Mute is saved in the
+ * account's private mute list; Report only copies details to the clipboard;
+ * Messaging keys shows both keys for comparison out of band.
  */
 export function ConversationSafetyActions({
   counterpartyPubky,
@@ -60,6 +62,7 @@ export function ConversationSafetyActions({
         <Flag className="mr-1.5 size-4" aria-hidden />
         {MESSAGING_COPY.report}
       </Button>
+      <MessagingKeysToggle counterpartyPubky={counterpartyPubky} />
     </div>
   );
 }

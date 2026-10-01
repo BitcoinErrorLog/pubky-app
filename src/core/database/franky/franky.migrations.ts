@@ -1,3 +1,4 @@
+import type { Table } from 'dexie';
 import { withCurrentWrappingKey } from '@/libs/crypto/messaging-keyring';
 import { buildWrapAad, WRAP_VERSION_AES_GCM_256, wrapPayload } from '@/libs/crypto/secret-wrapping';
 import { isAppError } from '@/libs/error/error';
@@ -98,4 +99,75 @@ export async function migrateMessagingSecretsToWrappedStorage(database: AppDatab
       { service: ErrorService.Local, operation: 'migrateMessagingSecretsToWrappedStorage', cause: error },
     );
   }
+}
+
+/** Rows wrapped per key-fence hold, so a large history never holds the fence for long. */
+const HISTORY_WRAP_BATCH = 200;
+
+type BodyRow = { id: string; body: string; sealed_body?: Uint8Array; wrap_version?: number };
+
+/**
+ * Wraps message bodies left in plaintext by builds that stored history and
+ * the queued outbox unencrypted: each legacy row of
+ * `commerce_messaging_messages` and `commerce_messaging_outbox` gets its
+ * body sealed into `sealed_body` (AES-GCM-256 under the keyring key,
+ * AAD-bound to table + row id), its stored `body` emptied and `wrap_version`
+ * 1, in place. No Dexie schema change is involved: the new fields are not
+ * indexed.
+ *
+ * IDEMPOTENT: only rows with no wrap format (absent or 0) are touched, and a
+ * row is replaced only if it still holds the exact plaintext that was
+ * wrapped, so a row another tab rewrote meanwhile is left to that write. A
+ * row with an unknown wrap format is never treated as plaintext.
+ *
+ * FAIL CLOSED: any failure throws, and the caller reports messaging at rest
+ * as degraded until a later boot's sweep succeeds.
+ */
+export async function migrateMessagingHistoryToWrappedStorage(database: AppDatabase): Promise<void> {
+  try {
+    const messages = await wrapLegacyBodies(database, database.commerce_messaging_messages);
+    const outbox = await wrapLegacyBodies(database, database.commerce_messaging_outbox);
+    if (messages + outbox > 0) {
+      Logger.info('Wrapped legacy plaintext message bodies at rest', { messages, outbox });
+    }
+  } catch (error) {
+    if (isAppError(error)) throw error;
+    throw Err.database(
+      DatabaseErrorCode.INIT_FAILED,
+      'Failed to wrap legacy plaintext message history at rest; it stays unencrypted until a later attempt succeeds.',
+      { service: ErrorService.Local, operation: 'migrateMessagingHistoryToWrappedStorage', cause: error },
+    );
+  }
+}
+
+async function wrapLegacyBodies<T extends BodyRow>(database: AppDatabase, table: Table<T, string>): Promise<number> {
+  const legacy = (await table.toArray()).filter((row) => row.wrap_version === undefined || row.wrap_version === 0);
+  let wrapped = 0;
+  for (let start = 0; start < legacy.length; start += HISTORY_WRAP_BATCH) {
+    const batch = legacy.slice(start, start + HISTORY_WRAP_BATCH);
+    wrapped += await withCurrentWrappingKey(
+      async (key) => {
+        const sealed = await Promise.all(
+          batch.map(async (row) => ({
+            id: row.id,
+            body: row.body,
+            sealed: await wrapPayload(key, buildWrapAad(table.name, row.id), new TextEncoder().encode(row.body)),
+          })),
+        );
+        return await database.transaction('rw', table, async () => {
+          let written = 0;
+          for (const { id, body, sealed: sealedBody } of sealed) {
+            const current = await table.get(id);
+            if (!current || (current.wrap_version !== undefined && current.wrap_version !== 0)) continue;
+            if (current.body !== body) continue;
+            await table.put({ ...current, body: '', sealed_body: sealedBody, wrap_version: WRAP_VERSION_AES_GCM_256 });
+            written += 1;
+          }
+          return written;
+        });
+      },
+      { whenUnavailable: 'run' },
+    );
+  }
+  return wrapped;
 }

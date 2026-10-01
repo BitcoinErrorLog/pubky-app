@@ -3,6 +3,7 @@ import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { getErrorMessage } from '@/libs/error/error.utils';
+import { Logger } from '@/libs/logger/logger';
 import {
   buildDmConversationId,
   buildDmMessage,
@@ -20,7 +21,9 @@ import { LocalMessagingService } from '@/services/local/messaging/messaging';
 import {
   assertListingConversationBound,
   type MessagingEnableFlow,
+  type MessagingKeys,
   type MessagingLinkState,
+  type OwnMarkerRepublished,
   PaykitMessagingService,
   type ReceivedMessage,
 } from '@/services/paykit/paykit-messaging';
@@ -45,6 +48,12 @@ export type MessagingStatus = {
   sessionActive: boolean;
   /** A receiver Noise key exists on this device and its marker was published. */
   receiverProvisioned: boolean;
+  /**
+   * Set once, on the status read after this device found its published
+   * marker advertising another key (`replaced`) or none (`missing`) and
+   * published its own key again; `null` otherwise.
+   */
+  ownKeyRepublished: OwnMarkerRepublished | null;
 };
 
 export type MessagingConversationSummary = CommerceMessagingConversationModelSchema & {
@@ -106,9 +115,12 @@ export class MessagingApplication {
     // with receiver provisioning ensured on success — so surfaces never
     // show the enable/reconnect card while a valid session is actually
     // recoverable without a signer.
+    const sessionActive = await PaykitMessagingService.restorePersistedSession(ownerPubky);
+    await this.sealPlaintextHistoryNow(Date.now());
     return {
-      sessionActive: await PaykitMessagingService.restorePersistedSession(ownerPubky),
+      sessionActive,
       receiverProvisioned: await PaykitMessagingService.isReceiverProvisioned(ownerPubky),
+      ownKeyRepublished: PaykitMessagingService.takeOwnMarkerRepublished(ownerPubky),
     };
   }
 
@@ -123,17 +135,65 @@ export class MessagingApplication {
   }
 
   /**
-   * Resumes the account's messaging session without the signer. Inside
-   * {@link withoutReceiverProvisioning} it touches no receiver key.
+   * Resumes the account's messaging session without the signer. It never
+   * touches the receiver key, even when it settles after a caller stopped
+   * waiting for it.
    */
   static async resumeSession(ownerPubky: string): Promise<boolean> {
-    return await PaykitMessagingService.restorePersistedSession(ownerPubky);
+    return await PaykitMessagingService.restorePersistedSession(ownerPubky, { provision: false });
+  }
+
+  /** This device's messaging key and the one pinned for the counterparty, for the Verify step. */
+  static async getMessagingKeys(ownerPubky: string, counterpartyPubky: string): Promise<MessagingKeys> {
+    return await PaykitMessagingService.getMessagingKeys(ownerPubky, counterpartyPubky);
+  }
+
+  /**
+   * The user accepts the counterparty's changed key, the one they were
+   * shown. Messages still waiting on the link with the old key are received
+   * first, then the pair moves to the accepted key; once that link is ready,
+   * the messages queued meanwhile are sent to it at once, whatever retry
+   * schedule an earlier failed flush left.
+   */
+  static async acceptCounterpartyKey(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    acceptedKey: string,
+    policy: MessagingPolicy,
+  ): Promise<MessagingLinkState> {
+    assertReachable(policy, counterpartyPubky, 'acceptCounterpartyKey');
+    await PaykitMessagingService.receiveMessages(ownerPubky, counterpartyPubky, policy.gate);
+    const state = await PaykitMessagingService.acceptCounterpartyKey(ownerPubky, counterpartyPubky, acceptedKey);
+    if (state.status === 'ready') {
+      this.restartRetries(ownerPubky, counterpartyPubky);
+      await this.flushOutbox(ownerPubky, counterpartyPubky, policy);
+    }
+    return state;
   }
 
   /** Sign-out teardown: drops the in-memory session and all live link handles. */
   static clearMessagingSession(): void {
     PaykitMessagingService.clearSession();
     this.outboxRetry.clear();
+    this.plaintextSweepAt = null;
+  }
+
+  /** When this tab last swept plaintext bodies, so status reads sweep at most once per {@link MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS}. */
+  private static plaintextSweepAt: number | null = null;
+
+  /**
+   * Seals plaintext bodies an older build still open in another tab wrote
+   * since boot, at most once per interval. Best effort: a failure is logged
+   * and retried at the next interval, and never fails the status read.
+   */
+  private static async sealPlaintextHistoryNow(now: number): Promise<void> {
+    if (this.plaintextSweepAt !== null && now - this.plaintextSweepAt < MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS) return;
+    this.plaintextSweepAt = now;
+    try {
+      await LocalMessagingService.sealPlaintextHistory();
+    } catch (error) {
+      Logger.warn('Could not seal plaintext message history; the next status read retries', { error });
+    }
   }
 
   /** Account switch without a sign-out: drops the messaging session of any account but `keepPubky`. */
@@ -244,6 +304,15 @@ export class MessagingApplication {
   ): Promise<{ state: MessagingLinkState; received: ReceivedMessage[]; flushed: number }> {
     assertReachable(policy, counterpartyPubky, 'pollConversation');
     const state = await PaykitMessagingService.ensureLink(ownerPubky, counterpartyPubky);
+    // A pair held for a key change sends nothing, but its link on the pinned
+    // key, when there is one, keeps receiving.
+    if (state.status === 'key-changed') {
+      return {
+        state,
+        received: await PaykitMessagingService.receiveMessages(ownerPubky, counterpartyPubky, policy.gate),
+        flushed: 0,
+      };
+    }
     if (state.status !== 'ready') return { state, received: [], flushed: 0 };
     const { delivered } = await this.flushOutbox(ownerPubky, counterpartyPubky, policy);
     const received = await PaykitMessagingService.receiveMessages(ownerPubky, counterpartyPubky, policy.gate);
@@ -616,6 +685,11 @@ export class MessagingApplication {
     for (const counterparty of [...existingProbes, ...freshProbes]) {
       if (!shouldContinue()) return;
       const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
+      if (state.status === 'key-changed') {
+        if (!shouldContinue()) return;
+        await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
+        continue;
+      }
       if (state.status !== 'ready') continue;
       if (this.outboxRetry.status(`${ownerPubky}:${counterparty}`) === 'due') {
         flushRetries.push(counterparty);
@@ -642,7 +716,12 @@ export class MessagingApplication {
         continue;
       }
       const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
-      if (state.status !== 'ready' || !shouldContinue()) continue;
+      if (!shouldContinue()) continue;
+      if (state.status === 'key-changed') {
+        await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
+        continue;
+      }
+      if (state.status !== 'ready') continue;
       await this.flushOutbox(ownerPubky, counterparty, policy);
       if (!shouldContinue()) return;
       await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
@@ -676,6 +755,9 @@ export class MessagingApplication {
       .map(([pubky]) => pubky);
   }
 }
+
+/** Least time between two plaintext-history sweeps from status reads in one tab. */
+export const MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS = 5 * 60_000;
 
 /** Upper bound on healthy counterparties probed per inbox sync pass. */
 export const MESSAGING_SYNC_MAX_COUNTERPARTIES = 25;

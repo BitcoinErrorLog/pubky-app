@@ -11,7 +11,7 @@
 // browser e2e at the pinned commit.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MessagingApplication } from '@/application/messaging/messaging';
+import { MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS, MessagingApplication } from '@/application/messaging/messaging';
 import { DB_NAME } from '@/config/database';
 import { resumePendingMessagingTeardown } from '@/database/franky/franky.helpers';
 import {
@@ -128,9 +128,16 @@ function createFakeWorld() {
     // Scripted marker read rejections per owner: the binding's own message text,
     // for `remaining` reads (Infinity = every read).
     markerReadFailures: new Map<string, { message: string; remaining: number }>(),
+    // When set, every link reports this counterparty key instead of the one it was created with.
+    linkKeyOverride: null as string | null,
   };
 
   let keyCounter = 0;
+  // Like the binding, a handshake or link carries the counterparty key it was
+  // created with, in memory and in its snapshot, and a restore reads it back.
+  const withKey = (header: number[], remoteKey: string) =>
+    new Uint8Array([...header, ...new TextEncoder().encode(remoteKey)]);
+  const keyOf = (snapshot: Uint8Array) => new TextDecoder().decode(snapshot.subarray(3));
 
   class FakeSessionHandle {
     constructor(private readonly owner: string) {}
@@ -152,9 +159,13 @@ function createFakeWorld() {
     snapshotCounter = 0;
     constructor(
       public readonly counterparty: string,
+      public readonly remoteKey: string,
       public sendCounter = 0,
     ) {
       world.links.push(this);
+    }
+    remoteNoisePublicKey() {
+      return world.linkKeyOverride ?? this.remoteKey;
     }
     async sendPrivateApplicationMessageJson(rawJson: string) {
       if (new TextEncoder().encode(rawJson).byteLength > 1000) throw new Error('exceeds max Noise message size');
@@ -187,7 +198,7 @@ function createFakeWorld() {
     }
     snapshot() {
       this.snapshotCounter += 1;
-      return new Uint8Array([76, this.snapshotCounter, this.sendCounter]);
+      return withKey([76, this.snapshotCounter, this.sendCounter], this.remoteKey);
     }
     closed = false;
     async close() {
@@ -201,6 +212,7 @@ function createFakeWorld() {
     constructor(
       private readonly role: 'initiator' | 'responder',
       private readonly counterparty: string,
+      private readonly remoteKey: string,
     ) {}
     async advance() {
       world.calls.push(`handshake.advance:${this.role}`);
@@ -208,20 +220,20 @@ function createFakeWorld() {
         // An accept-probe only progresses when an inbound handshake exists.
         if (!world.inboundFrom.has(this.counterparty)) return { status: 'pending' };
         if (world.responderCompletes.has(this.counterparty)) {
-          return { status: 'complete', link: new FakeLink(this.counterparty) };
+          return { status: 'complete', link: new FakeLink(this.counterparty, this.remoteKey) };
         }
         this.advanced += 1;
         return { status: 'pending' };
       }
       const outcome = world.advanceScript.shift() ?? 'pending';
       if (outcome === 'error') throw new Error('handshake step failed (scripted transient homeserver error)');
-      if (outcome === 'complete') return { status: 'complete', link: new FakeLink(this.counterparty) };
+      if (outcome === 'complete') return { status: 'complete', link: new FakeLink(this.counterparty, this.remoteKey) };
       return { status: 'pending' };
     }
     snapshot() {
       // Progress must be visible in snapshot bytes (the service's probe
       // detector compares them).
-      return new Uint8Array([72, this.role === 'initiator' ? 1 : 2, this.advanced]);
+      return withKey([72, this.role === 'initiator' ? 1 : 2, this.advanced], this.remoteKey);
     }
     setMaxRecoveryAttempts(max: number) {
       world.calls.push(`handshake.setMaxRecoveryAttempts:${max}`);
@@ -296,6 +308,7 @@ function createFakeWorld() {
       if (acceptDelay > 0) await new Promise((resolve) => setTimeout(resolve, acceptDelay));
       if (world.publishHold) await world.publishHold;
       world.lastPublishedMarker = { path, noisePublicKey, capabilities };
+      world.markers.set((_session as FakeSessionHandle).pubky(), { receiverPath: path, noisePublicKey });
     },
     getReceiverMarker: async (_client: unknown, ownerPubky: string, path?: string) => {
       world.calls.push(`getReceiverMarker:${ownerPubky.slice(0, 4)}`);
@@ -318,12 +331,12 @@ function createFakeWorld() {
     initiateEncryptedLink: (...args: unknown[]) => {
       world.calls.push('initiateEncryptedLink');
       const counterparty = args[2] as string;
-      return new FakeHandshake('initiator', counterparty);
+      return new FakeHandshake('initiator', counterparty, args[3] as string);
     },
     acceptEncryptedLink: (...args: unknown[]) => {
       world.calls.push('acceptEncryptedLink');
       const counterparty = args[2] as string;
-      return new FakeHandshake('responder', counterparty);
+      return new FakeHandshake('responder', counterparty, args[3] as string);
     },
     restoreEncryptedLink: async (...args: unknown[]) => {
       world.calls.push('restoreEncryptedLink');
@@ -333,7 +346,7 @@ function createFakeWorld() {
       }
       const counterparty = args[2] as string;
       const snapshot = args[6] as Uint8Array;
-      return new FakeLink(counterparty, snapshot[2] ?? 0);
+      return new FakeLink(counterparty, keyOf(snapshot), snapshot[2] ?? 0);
     },
     restoreEncryptedLinkHandshake: async (...args: unknown[]) => {
       world.calls.push('restoreEncryptedLinkHandshake');
@@ -342,7 +355,7 @@ function createFakeWorld() {
         throw new Error('handshake restore failed (scripted transient homeserver error)');
       }
       const counterparty = args[2] as string;
-      return new FakeHandshake('initiator', counterparty);
+      return new FakeHandshake('initiator', counterparty, keyOf(args[6] as Uint8Array));
     },
     clearEncryptedLinkOutbox: async () => {
       world.calls.push('clearEncryptedLinkOutbox');
@@ -629,13 +642,17 @@ describe('PaykitMessagingService', () => {
         }
       }
 
-      it('advances the kept handshake first, then reports a changed counterparty key without deleting anything', async () => {
+      it('advances the kept handshake first, then holds the pair for the changed key without deleting anything', async () => {
         const before = await reloadMidHandshake();
         world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY });
 
         const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
 
-        expect(state).toEqual({ status: 'recovery-needed', reason: 'counterparty-key-changed' });
+        expect(state).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY });
+        await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+          pinnedKey: P_KEY,
+          observedKey: Q_KEY,
+        });
         expect(world.calls.indexOf('restoreEncryptedLinkHandshake')).toBeGreaterThanOrEqual(0);
         expect(world.calls.indexOf('handshake.advance:initiator')).toBeGreaterThan(
           world.calls.indexOf('restoreEncryptedLinkHandshake'),
@@ -658,13 +675,14 @@ describe('PaykitMessagingService', () => {
         expectNothingDestroyed();
       });
 
-      it('inbox sync reports the same recovery state and starts nothing', async () => {
+      it('inbox sync reports the same key change and starts nothing', async () => {
         const before = await reloadMidHandshake();
         world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY });
 
         const state = await PaykitMessagingService.probeCounterparty(OWNER, COUNTERPARTY);
 
-        expect(state).toEqual({ status: 'recovery-needed', reason: 'counterparty-key-changed' });
+        expect(state).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY });
+        expect(world.calls).not.toContain('acceptEncryptedLink');
         expectNothingDestroyed();
         await expectRowKept(before);
       });
@@ -765,13 +783,21 @@ describe('PaykitMessagingService', () => {
 
       it.each([
         [
-          'counterparty-key-changed',
+          'key-changed',
           () => world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: Q_KEY }),
+          { status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY },
+          // A held pair is re-checked by reading the marker again.
+          `getReceiverMarker:${COUNTERPARTY.slice(0, 4)}`,
         ],
-        ['handshake-restore-failed', () => (world.restoreHandshakeFailures = Number.POSITIVE_INFINITY)],
+        [
+          'handshake-restore-failed',
+          () => (world.restoreHandshakeFailures = Number.POSITIVE_INFINITY),
+          { status: 'recovery-needed', reason: 'handshake-restore-failed' },
+          'restoreEncryptedLinkHandshake',
+        ],
       ] as const)(
         'an open conversation polled every 2 s retries a %s link on a capped exponential schedule',
-        async (reason, breakLink) => {
+        async (_label, breakLink, expected, attemptCall) => {
           vi.spyOn(Math, 'random').mockReturnValue(0);
           world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
           await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
@@ -783,10 +809,10 @@ describe('PaykitMessagingService', () => {
           const start = Date.now();
           const attempts: number[] = [];
           for (let elapsed = 0; elapsed <= THIRTY_MINUTES; elapsed += POLL_MS) {
-            const before = world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length;
+            const before = world.calls.filter((call) => call === attemptCall).length;
             const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
-            expect(state).toEqual({ status: 'recovery-needed', reason });
-            if (world.calls.filter((call) => call === 'restoreEncryptedLinkHandshake').length > before) {
+            expect(state).toEqual(expected);
+            if (world.calls.filter((call) => call === attemptCall).length > before) {
               attempts.push(Date.now() - start);
             }
             advanceClock(POLL_MS);
@@ -2427,7 +2453,6 @@ describe('PaykitMessagingService', () => {
       });
 
       it('refuses to send, receive or advance a link without the Web Locks API', async () => {
-        removeWebLocks();
         const queuedId = crypto.randomUUID();
         await LocalMessagingService.enqueueOutboxMessage({
           id: queuedId,
@@ -2442,6 +2467,7 @@ describe('PaykitMessagingService', () => {
           last_attempt_at: null,
           last_error: null,
         });
+        removeWebLocks();
         const revisionBefore = await LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY);
         world.calls.length = 0;
         world.links.at(-1)!.inboundQueue.push({
@@ -2464,8 +2490,9 @@ describe('PaykitMessagingService', () => {
           tabA.service.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE),
           tabA.service.ensureLink(OWNER, COUNTERPARTY),
           tabA.service.probeCounterparty(OWNER, COUNTERPARTY),
+          // Queued bodies are encrypted at rest, so not even the flush reads them.
+          MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY),
         ]);
-        const flushed = await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
 
         // Nothing ran: no ciphertext left, nothing was read, no link state moved.
         expect(world.sentCounters).toEqual([]);
@@ -2473,8 +2500,8 @@ describe('PaykitMessagingService', () => {
         expect(world.calls).not.toContain('restoreEncryptedLink');
         expect(world.calls).not.toContain('initiateEncryptedLink');
         await expect(LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY)).resolves.toBe(revisionBefore);
+        installWebLocks();
         await expect(LocalMessagingService.getMessages(OWNER, CONVERSATION_ID)).resolves.toEqual([]);
-        expect(flushed).toEqual({ delivered: 0, remaining: 1 });
         const queued = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
         expect(queued.map((row) => row.id)).toEqual([queuedId]);
         // And each refusal says why.
@@ -3119,13 +3146,14 @@ describe('PaykitMessagingService', () => {
       world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: 'p'.repeat(52) });
       await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
 
-      // The fake handshake's initial snapshot is [72, 1, 0].
+      // The fake handshake's initial snapshot is [72, 1, 0] followed by the key it is bound to.
+      const initial = [72, 1, 0, ...new TextEncoder().encode('p'.repeat(52))];
       const raw = await CommerceMessagingLinkModel.findById(`${OWNER}:${COUNTERPARTY}`);
       expect(raw?.wrap_version).toBe(WRAP_VERSION_AES_GCM_256);
-      expect([...(raw?.snapshot ?? [])]).not.toEqual([72, 1, 0]);
+      expect([...(raw?.snapshot ?? [])]).not.toEqual(initial);
 
       const link = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
-      expect([...(link?.snapshot ?? [])]).toEqual([72, 1, 0]);
+      expect([...(link?.snapshot ?? [])]).toEqual(initial);
     });
 
     it('treats the receiver as lost when the wrapping key is gone, and re-enable re-provisions it', async () => {
@@ -3172,6 +3200,512 @@ describe('PaykitMessagingService', () => {
       expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
       expect(world.calls).toContain('initiateEncryptedLink');
       expect(world.calls).not.toContain('restoreEncryptedLink');
+    });
+  });
+
+  describe('counterparty key pinning (trust on first use)', () => {
+    const P_KEY = 'p'.repeat(52);
+    const Q_KEY = 'q'.repeat(52);
+    const R_KEY = 'r'.repeat(52);
+    const markerFor = (noisePublicKey: string) => ({ receiverPath: 'marketplace/wallet', noisePublicKey });
+    const inboundDm = (body: string) => {
+      const rawJson = JSON.stringify({
+        version: 1,
+        kind: 'pubky_app.dm.v0',
+        event_id: crypto.randomUUID(),
+        sent_at: '2026-08-21T10:00:00.000Z',
+        body,
+      });
+      return { version: 1, kind: 'pubky_app.dm.v0', rawJson };
+    };
+
+    /** An established link on P_KEY, then a reload: only the stored rows survive. */
+    async function establishThenReload() {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(P_KEY));
+      world.advanceScript.push('complete');
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+      PaykitMessagingService.clearSession();
+      await enableMessaging(world);
+      world.calls = [];
+    }
+
+    beforeEach(() => MessagingApplication.clearMessagingSession());
+    afterEach(() => MessagingApplication.clearMessagingSession());
+
+    async function holdForQ() {
+      await establishThenReload();
+      world.markers.set(COUNTERPARTY, markerFor(Q_KEY));
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({
+        status: 'key-changed',
+        pinnedKey: P_KEY,
+        observedKey: Q_KEY,
+      });
+    }
+
+    it('pins the key of the first link', async () => {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(P_KEY));
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toEqual({
+        pinnedKey: P_KEY,
+        observedKey: null,
+        changedAt: null,
+      });
+    });
+
+    it('holds an established link when the marker advertises another key: nothing is sent or started', async () => {
+      await holdForQ();
+
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        pinnedKey: P_KEY,
+        observedKey: Q_KEY,
+      });
+      await expect(PaykitMessagingService.sendDmMessage(OWNER, COUNTERPARTY, { body: 'hi' })).rejects.toMatchObject({
+        context: { linkStatus: 'key-changed' },
+      });
+      const queued = await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'later', ADMIT_ALL_POLICY);
+      expect(queued.delivered).toBe(false);
+      expect(world.sentCounters).toEqual([]);
+      expect(world.calls).not.toContain('link.send');
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+      // The pin is unchanged: the link row still names the first key.
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        remote_noise_public_key: P_KEY,
+        status: 'established',
+      });
+    });
+
+    it('keeps receiving on the pinned link while held, and flushes nothing', async () => {
+      await holdForQ();
+      await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'waiting', ADMIT_ALL_POLICY);
+      world.links.at(-1)!.inboundQueue.push(inboundDm('sent before they changed devices'));
+
+      advanceClock(MESSAGING_RETRY_POLICY.maxMs);
+      const polled = await MessagingApplication.pollConversation(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
+
+      expect(polled.state).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY });
+      expect(polled.received.map((message) => message.body)).toEqual(['sent before they changed devices']);
+      expect(polled.flushed).toBe(0);
+      expect(world.sentCounters).toEqual([]);
+      await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toHaveLength(1);
+    });
+
+    it('inbox sync receives on a held pair without sending', async () => {
+      await holdForQ();
+      await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'waiting', ADMIT_ALL_POLICY);
+      world.links.at(-1)!.inboundQueue.push(inboundDm('hello from the pinned key'));
+
+      advanceClock(MESSAGING_RETRY_POLICY.maxMs);
+      await MessagingApplication.syncCounterparties(OWNER, [], { policy: ADMIT_ALL_POLICY });
+
+      const messages = await LocalMessagingService.getMessages(OWNER, `dm:${COUNTERPARTY}`);
+      expect(messages.map((message) => message.body)).toEqual(['hello from the pinned key']);
+      expect(world.sentCounters).toEqual([]);
+    });
+
+    it('a held pair still completes its pending handshake on the pinned key, and receives but sends nothing', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(P_KEY));
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      PaykitMessagingService.clearSession();
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(Q_KEY));
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        status: 'key-changed',
+      });
+      await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'held back', ADMIT_ALL_POLICY);
+
+      // The device holding the pinned key answers the handshake.
+      world.calls = [];
+      world.advanceScript.push('complete');
+      advanceClock(MESSAGING_RETRY_POLICY.maxMs);
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY });
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        status: 'established',
+        remote_noise_public_key: P_KEY,
+        observed_noise_public_key: Q_KEY,
+      });
+      const pinnedLink = world.links.at(-1)!;
+      expect(pinnedLink.remoteNoisePublicKey()).toBe(P_KEY);
+      pinnedLink.inboundQueue.push(inboundDm('answered from the pinned key'));
+      await expect(PaykitMessagingService.receiveMessages(OWNER, COUNTERPARTY, ADMIT_ALL_GATE)).resolves.toMatchObject([
+        { body: 'answered from the pinned key' },
+      ]);
+      await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY)).resolves.toEqual({
+        delivered: 0,
+        remaining: 1,
+      });
+      expect(world.sentCounters).toEqual([]);
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+    });
+
+    it('accepting the shown key moves the pair to it, re-pins, and sends what was queued once ready', async () => {
+      await holdForQ();
+      const oldLink = world.links.at(-1)!;
+      await MessagingApplication.sendOrQueueDmMessage(OWNER, COUNTERPARTY, 'queued while held', ADMIT_ALL_POLICY);
+      // A flush that failed while the pair was held leaves a retry waiting; accepting does not wait it out.
+      await MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY);
+      // Their new device already initiated toward us with the new key.
+      world.inboundFrom.add(COUNTERPARTY);
+      world.responderCompletes.add(COUNTERPARTY);
+      world.calls = [];
+
+      const state = await MessagingApplication.acceptCounterpartyKey(OWNER, COUNTERPARTY, Q_KEY, ADMIT_ALL_POLICY);
+
+      expect(state).toEqual({ status: 'ready' });
+      expect(world.calls).toContain('acceptEncryptedLink');
+      expect(oldLink.closed).toBe(true);
+      const newLink = world.links.at(-1)!;
+      expect(newLink).not.toBe(oldLink);
+      expect(newLink.remoteNoisePublicKey()).toBe(Q_KEY);
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toEqual({
+        pinnedKey: Q_KEY,
+        observedKey: null,
+        changedAt: null,
+      });
+      expect(newLink.sent.map((raw) => JSON.parse(raw).body)).toEqual(['queued while held']);
+      expect(oldLink.sent).toEqual([]);
+      await expect(LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY)).resolves.toEqual([]);
+    });
+
+    it('accepting initiates on the accepted key when nothing inbound waits', async () => {
+      await holdForQ();
+      world.calls = [];
+
+      const state = await PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, Q_KEY);
+
+      expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
+      expect(world.calls).toContain('initiateEncryptedLink');
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        status: 'handshaking',
+        role: 'initiator',
+        remote_noise_public_key: Q_KEY,
+      });
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        observedKey: null,
+      });
+    });
+
+    it('accepts nothing when the marker moved on to yet another key, and shows that key instead', async () => {
+      await holdForQ();
+      world.markers.set(COUNTERPARTY, markerFor(R_KEY));
+      world.calls = [];
+
+      const state = await PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, Q_KEY);
+
+      expect(state).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: R_KEY });
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        remote_noise_public_key: P_KEY,
+      });
+    });
+
+    it('never pins a key the user was not shown: Q shown, the marker moves to R, accepting R is refused and re-prompts', async () => {
+      await holdForQ();
+      world.markers.set(COUNTERPARTY, markerFor(R_KEY));
+      world.calls = [];
+
+      const refused = await PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, R_KEY);
+
+      expect(refused).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: R_KEY });
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        pinnedKey: P_KEY,
+        observedKey: R_KEY,
+      });
+
+      // R has now been shown, so accepting R is the user's decision.
+      await expect(PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, R_KEY)).resolves.toEqual({
+        status: 'handshaking',
+        role: 'initiator',
+      });
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        pinnedKey: R_KEY,
+        observedKey: null,
+      });
+    });
+
+    it('refuses a key that was never shown or published, and changes nothing', async () => {
+      await holdForQ();
+      world.calls = [];
+
+      const refused = await PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, 's'.repeat(52));
+
+      expect(refused).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY });
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        remote_noise_public_key: P_KEY,
+        status: 'established',
+      });
+    });
+
+    it('accepts nothing while the marker cannot be read', async () => {
+      await holdForQ();
+      PaykitMessagingService.setMarkerReadSleepForTests(async () => undefined);
+      world.markerReadFailures.set(COUNTERPARTY, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+      world.calls = [];
+
+      await expect(PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, Q_KEY)).rejects.toMatchObject({
+        name: 'MarkerReadFailure',
+      });
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        pinnedKey: P_KEY,
+        observedKey: Q_KEY,
+      });
+      PaykitMessagingService.setMarkerReadSleepForTests(null);
+    });
+
+    it('clears the hold on its own once the marker advertises the pinned key again', async () => {
+      await holdForQ();
+      world.markers.set(COUNTERPARTY, markerFor(P_KEY));
+
+      advanceClock(POLL_MS);
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        status: 'key-changed',
+      });
+      advanceClock(MESSAGING_RETRY_POLICY.maxMs);
+      await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({ status: 'ready' });
+
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        pinnedKey: P_KEY,
+        observedKey: null,
+      });
+      await PaykitMessagingService.sendDmMessage(OWNER, COUNTERPARTY, { body: 'back on the pinned key' });
+      expect(world.sentCounters).toHaveLength(1);
+    });
+
+    it('never starts a handshake on a new key for a pair whose snapshot no longer opens', async () => {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(P_KEY));
+      world.advanceScript.push('complete');
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      const raw = await CommerceMessagingLinkModel.findById(`${OWNER}:${COUNTERPARTY}`);
+      const tampered = new Uint8Array(raw!.snapshot);
+      tampered[tampered.byteLength - 1] ^= 0xff;
+      await CommerceMessagingLinkModel.upsert({ ...raw!, snapshot: tampered });
+      PaykitMessagingService.clearSession();
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(Q_KEY));
+      world.inboundFrom.add(COUNTERPARTY);
+      world.calls = [];
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY });
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+    });
+
+    it('refuses a completed handshake whose link reports another key than the one it started with', async () => {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(P_KEY));
+      world.linkKeyOverride = Q_KEY;
+      world.advanceScript.push('complete');
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'recovery-needed', reason: 'link-key-mismatch' });
+      expect(world.links.at(-1)!.closed).toBe(true);
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        status: 'handshaking',
+        remote_noise_public_key: P_KEY,
+      });
+      await expect(PaykitMessagingService.sendDmMessage(OWNER, COUNTERPARTY, { body: 'x' })).rejects.toThrow();
+      expect(world.sentCounters).toEqual([]);
+    });
+
+    it('refuses an answered inbound link that reports another key than the one it was answered with', async () => {
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(P_KEY));
+      world.inboundFrom.add(COUNTERPARTY);
+      world.responderCompletes.add(COUNTERPARTY);
+      world.linkKeyOverride = Q_KEY;
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'recovery-needed', reason: 'link-key-mismatch' });
+      expect(world.links.at(-1)!.closed).toBe(true);
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toBeNull();
+    });
+
+    it('refuses to restore an established link that reports another key than its pin', async () => {
+      await establishThenReload();
+      world.linkKeyOverride = Q_KEY;
+
+      const state = await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(state).toEqual({ status: 'recovery-needed', reason: 'link-key-mismatch' });
+      expect(world.links.at(-1)!.closed).toBe(true);
+      await expect(PaykitMessagingService.sendDmMessage(OWNER, COUNTERPARTY, { body: 'x' })).rejects.toThrow();
+      expect(world.sentCounters).toEqual([]);
+    });
+
+    it('a pending handshake on the pinned key does not answer a crossed handshake on a new key', async () => {
+      // OWNER ('a…') sorts before COUNTERPARTY ('z…'), so it is the side that probes for a crossed handshake.
+      await enableMessaging(world);
+      world.markers.set(COUNTERPARTY, markerFor(P_KEY));
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+      world.markers.set(COUNTERPARTY, markerFor(Q_KEY));
+      world.inboundFrom.add(COUNTERPARTY);
+      world.calls = [];
+
+      advanceClock(MESSAGING_RETRY_POLICY.maxMs);
+      await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+    });
+
+    it('reads the pinned and changed keys for the Verify step', async () => {
+      await holdForQ();
+
+      await expect(PaykitMessagingService.getMessagingKeys(OWNER, COUNTERPARTY)).resolves.toEqual({
+        ownKey: (await LocalMessagingService.getReceiver(OWNER))!.noise_public_key,
+        pinnedKey: P_KEY,
+        observedKey: Q_KEY,
+      });
+    });
+  });
+
+  describe('own marker check', () => {
+    const OTHER_KEY = 'x'.repeat(52);
+
+    /** A receiver published by an earlier load, then a reload that resumes from the cookie. */
+    async function publishedThenReload() {
+      world.cookieResume = 'success';
+      await PaykitMessagingService.restorePersistedSession(OWNER);
+      PaykitMessagingService.clearSession();
+      world.cookieResume = 'success';
+      world.calls = [];
+    }
+
+    const ownKey = async () => (await LocalMessagingService.getReceiver(OWNER))!.noise_public_key;
+
+    it('republishes this device key when the published marker advertises another one, and says so once', async () => {
+      await publishedThenReload();
+      world.markers.set(OWNER, { receiverPath: 'marketplace/wallet', noisePublicKey: OTHER_KEY });
+
+      const status = await MessagingApplication.getStatus(OWNER);
+
+      expect(status).toEqual({ sessionActive: true, receiverProvisioned: true, ownKeyRepublished: 'replaced' });
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(1);
+      expect(world.lastPublishedMarker?.noisePublicKey).toBe(await ownKey());
+      expect(world.calls).not.toContain('generateNoiseSecretKey');
+      // Told once; checked once per session.
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({ ownKeyRepublished: null });
+      expect(world.calls.filter((call) => call === 'publishReceiverMarker')).toHaveLength(1);
+    });
+
+    it('republishes it when no marker is published', async () => {
+      await publishedThenReload();
+      world.markers.delete(OWNER);
+
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({ ownKeyRepublished: 'missing' });
+      expect(world.markers.get(OWNER)?.noisePublicKey).toBe(await ownKey());
+    });
+
+    it('changes nothing when the published marker advertises this device key', async () => {
+      await publishedThenReload();
+
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({ ownKeyRepublished: null });
+      expect(world.calls).toContain(`getReceiverMarker:${OWNER.slice(0, 4)}`);
+      expect(world.calls).not.toContain('publishReceiverMarker');
+    });
+
+    it('publishes nothing on a failed read, and checks again on the spaced schedule', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      PaykitMessagingService.setMarkerReadSleepForTests(async () => undefined);
+      await publishedThenReload();
+      world.markers.set(OWNER, { receiverPath: 'marketplace/wallet', noisePublicKey: OTHER_KEY });
+      world.markerReadFailures.set(OWNER, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({
+        sessionActive: true,
+        ownKeyRepublished: null,
+      });
+      expect(world.calls).not.toContain('publishReceiverMarker');
+
+      world.markerReadFailures.delete(OWNER);
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({ ownKeyRepublished: null });
+      expect(world.calls).not.toContain('publishReceiverMarker');
+
+      advanceClock(MESSAGING_RETRY_POLICY.maxMs);
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({ ownKeyRepublished: 'replaced' });
+      expect(world.lastPublishedMarker?.noisePublicKey).toBe(await ownKey());
+      PaykitMessagingService.setMarkerReadSleepForTests(null);
+    });
+
+    it('forgets an untold notice on sign-out', async () => {
+      await publishedThenReload();
+      world.markers.delete(OWNER);
+      await PaykitMessagingService.restorePersistedSession(OWNER);
+
+      PaykitMessagingService.clearSession();
+
+      expect(PaykitMessagingService.takeOwnMarkerRepublished(OWNER)).toBeNull();
+    });
+  });
+
+  describe('plaintext written by an older build still open in another tab', () => {
+    const plaintextRow = (suffix: string) => ({
+      id: `${OWNER}:old-build-${suffix}`,
+      owner_id: OWNER,
+      conversation_id: `dm:${COUNTERPARTY}`,
+      listing_ref: null,
+      counterparty_pubky: COUNTERPARTY,
+      direction: 'sent' as const,
+      body: `written by the old build ${suffix}`,
+      sent_at: 1,
+      recorded_at: 1,
+    });
+
+    beforeEach(() => MessagingApplication.clearMessagingSession());
+    afterEach(() => MessagingApplication.clearMessagingSession());
+
+    it('is sealed by the next status read, at most once per interval', async () => {
+      await enableMessaging(world);
+      await CommerceMessagingMessageModel.table.put(plaintextRow('a'));
+
+      await MessagingApplication.getStatus(OWNER);
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:old-build-a`)).resolves.toMatchObject({
+        body: '',
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+      });
+
+      await CommerceMessagingMessageModel.table.put(plaintextRow('b'));
+      await MessagingApplication.getStatus(OWNER);
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:old-build-b`)).resolves.toMatchObject({
+        body: 'written by the old build b',
+      });
+
+      advanceClock(MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS);
+      await MessagingApplication.getStatus(OWNER);
+      await expect(CommerceMessagingMessageModel.table.get(`${OWNER}:old-build-b`)).resolves.toMatchObject({
+        body: '',
+        wrap_version: WRAP_VERSION_AES_GCM_256,
+      });
+      const [opened] = await LocalMessagingService.getMessages(OWNER, `dm:${COUNTERPARTY}`).then((rows) =>
+        rows.filter((row) => row.id === `${OWNER}:old-build-b`),
+      );
+      expect(opened.body).toBe('written by the old build b');
+    });
+
+    it('never fails the status read when sealing fails', async () => {
+      await enableMessaging(world);
+      vi.spyOn(LocalMessagingService, 'sealPlaintextHistory').mockRejectedValue(new Error('encrypt unavailable'));
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({ sessionActive: true });
     });
   });
 });

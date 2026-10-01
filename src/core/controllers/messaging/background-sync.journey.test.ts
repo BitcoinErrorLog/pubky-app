@@ -11,7 +11,9 @@ import { FirstContactApplication } from '@/application/messaging/first-contact';
 import { MessagingApplication } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
+import { Logger } from '@/libs/logger/logger';
 import { CONVERSATION_REQUEST_KIND, conversationRequestUrl } from '@/libs/messaging/first-contact';
+import { MESSAGING_SYNC_RESUME_TIMEOUT_MS } from '@/libs/messaging/pass-deadline';
 import {
   CommerceMessagingConversationModel,
   CommerceMessagingLinkModel,
@@ -36,6 +38,12 @@ vi.mock('@/libs/runtime-config/runtime-config', async () => {
   );
   return { ...actual, getTestnet: () => true, getCommerceAdapterMode: () => 'unavailable' };
 });
+
+// A short resume bound, so a hung resume ends within the test on real timers.
+vi.mock('@/libs/messaging/pass-deadline', async () => ({
+  ...(await vi.importActual<typeof import('@/libs/messaging/pass-deadline')>('@/libs/messaging/pass-deadline')),
+  MESSAGING_SYNC_RESUME_TIMEOUT_MS: 50,
+}));
 
 const SELLER = 'i9cewoshwtswuzh6h7hzrjkqbkmf9d7o7kqqx7qnfp76mi3tbwiy';
 const OTHER = 'ep4ej6h5xyb4ouzob63w1kwg4uuxncyj7cphd1tobcik8fg9guno';
@@ -282,5 +290,107 @@ describe('account switch without a sign-out', () => {
     FirstContactApplication.clearOtherAccounts(SELLER);
 
     await expect(FirstContactApplication.originFor(SELLER, BUYER)).resolves.toBe('known');
+  });
+});
+
+describe('the provisioning hold of a background pass', () => {
+  const HELD_LOG = 'Skipped receiver provisioning while background sync holds it';
+
+  it('says when a resume inside the hold skips provisioning', async () => {
+    await setUpMessagingHere(SELLER);
+    reload();
+    await CommerceMessagingReceiverModel.clear();
+    const info = vi.spyOn(Logger, 'info');
+
+    await MessagingApplication.withoutReceiverProvisioning(SELLER, () => MessagingController.getMessagingStatus());
+
+    expect(info).toHaveBeenCalledWith(HELD_LOG, { reason: 'receiver_provisioning_held' });
+    expect(await LocalMessagingService.getReceiver(SELLER)).toBeNull();
+  });
+
+  it('ends when the session resume hangs, and the resume that settles later touches no key', async () => {
+    await setUpMessagingHere(SELLER);
+    const publishedKey = pair.marker(SELLER)?.noisePublicKey;
+    reload();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const resume = MessagingApplication.resumeSession.bind(MessagingApplication);
+    let lateResume: Promise<boolean> | null = null;
+    vi.spyOn(MessagingApplication, 'resumeSession').mockImplementation((pubky: string) => {
+      lateResume = gate.then(() => resume(pubky));
+      return lateResume;
+    });
+    vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+    const syncSpy = vi.spyOn(MessagingController, 'syncInbox');
+
+    await expect(MessagingController.syncInboxInBackground(SELLER, () => true)).rejects.toMatchObject({
+      context: { timeoutMs: MESSAGING_SYNC_RESUME_TIMEOUT_MS },
+    });
+    expect(syncSpy).not.toHaveBeenCalled();
+
+    // The resume settles after the pass gave up: it resumes the session, and
+    // even with the key gone it creates and publishes nothing.
+    await CommerceMessagingReceiverModel.clear();
+    release();
+    await expect(lateResume).resolves.toBe(true);
+    expect(await LocalMessagingService.getReceiver(SELLER)).toBeNull();
+    expect(pair.marker(SELLER)?.noisePublicKey).toBe(publishedKey);
+
+    // The hold is gone: the foreground provisions again.
+    const info = vi.spyOn(Logger, 'info');
+    await expect(MessagingController.getMessagingStatus()).resolves.toMatchObject({ sessionActive: true });
+    expect(info).not.toHaveBeenCalledWith(HELD_LOG, expect.anything());
+    expect(await LocalMessagingService.getReceiver(SELLER)).not.toBeNull();
+  });
+});
+
+describe('a foreground inbox sync during a background pass', () => {
+  /** Holds the first pass's two follow-graph reads (follows and followers) until `release`; later reads answer at once. */
+  function holdFirstFollowRead() {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    vi.mocked(UserStreamApplication.fetchStreamIds).mockImplementation(async () => {
+      calls += 1;
+      if (calls <= 2) await gate;
+      return [];
+    });
+    return { release, calls: () => calls };
+  }
+
+  it('starts its own pass instead of inheriting the background stop and deadline', async () => {
+    await setUpMessagingHere(SELLER);
+    const reads = holdFirstFollowRead();
+    let backgroundContinues = true;
+    const background = MessagingController.syncInbox({
+      ownerPubky: SELLER,
+      shouldContinue: () => backgroundContinues,
+    });
+    await vi.waitFor(() => expect(reads.calls()).toBe(2));
+    backgroundContinues = false;
+
+    await expect(MessagingController.syncInbox()).resolves.toMatchObject({ rateLimited: 0 });
+    expect(reads.calls()).toBe(4);
+
+    reads.release();
+    await background;
+  });
+
+  it('a background pass joins a foreground pass already running', async () => {
+    await setUpMessagingHere(SELLER);
+    const reads = holdFirstFollowRead();
+    const foreground = MessagingController.syncInbox();
+    await vi.waitFor(() => expect(reads.calls()).toBe(2));
+
+    const joined = MessagingController.syncInbox({ ownerPubky: SELLER, shouldContinue: () => true });
+    reads.release();
+
+    const [first, second] = await Promise.all([foreground, joined]);
+    expect(second).toBe(first);
+    expect(reads.calls()).toBe(2);
   });
 });

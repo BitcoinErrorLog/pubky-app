@@ -28,6 +28,27 @@ export const MESSAGING_COPY = {
     'This private conversation cannot finish connecting on this device. Nothing was deleted. Your notes stay on this device and are sent only if the connection recovers.',
   counterpartyUnreachable:
     "We could not reach this person's messaging setup right now. We will keep trying. Your notes stay on this device until then.",
+  keyChangedTitle: "This contact's messaging key changed",
+  keyChangedBody:
+    'They may have set up messages on a new device or app, or someone else may have replaced their key. Nothing is sent until you accept the new key; messages you write wait on this device.',
+  keyChangedVerify: 'Verify key',
+  keyChangedHideVerify: 'Hide keys',
+  keyChangedAccept: 'Accept new key',
+  keyChangedVerifyHelp:
+    'Ask them, through a channel you already trust, to read the key under Messaging keys in this conversation on their device. Accept only if it matches the new key.',
+  keyChangedNewKey: 'New key',
+  keyChangedPreviousKey: 'Previous key',
+  keyAccepted: 'New key accepted. Waiting messages are sent once the conversation reconnects.',
+  keyAcceptFailed: 'The new key could not be accepted. Try again.',
+  messagingKeys: 'Messaging keys',
+  messagingKeysHelp:
+    'Compare these with the other person through a channel you already trust. If they match, your messages reach their device.',
+  messagingKeysYours: 'Your key',
+  messagingKeysTheirs: 'Their key',
+  messagingKeysNone: 'Not set up yet',
+  ownKeyReplaced:
+    'Another app or device replaced your private-messaging key. This device published its own key again; conversations started elsewhere may need to reconnect.',
+  ownKeyMissing: 'Your private-messaging key was missing from your account. This device published it again.',
   inboxSyncFailed: 'Your messages could not be loaded right now. Check your connection and try again.',
   queued: 'Queued',
   queuedToast: 'Queued. It sends while the Shop is open on this device.',

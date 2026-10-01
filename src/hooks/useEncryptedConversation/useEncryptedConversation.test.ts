@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessagingController } from '@/controllers/messaging/messaging';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { useEncryptedConversation } from './useEncryptedConversation';
 
 const SELLER = 's'.repeat(52);
@@ -27,6 +29,7 @@ vi.mock('@/controllers/messaging/messaging', () => ({
     pollConversation: vi.fn(),
     willFollowOnSend: vi.fn(),
     restartConversationRetries: vi.fn(),
+    acceptCounterpartyKey: vi.fn(),
   },
 }));
 
@@ -44,6 +47,7 @@ describe('useEncryptedConversation retry backoff restarts only while someone can
     vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
       sessionActive: true,
       receiverProvisioned: true,
+      ownKeyRepublished: null,
     });
     vi.mocked(MessagingController.openConversation).mockResolvedValue({
       state: { status: 'unreachable', reason: 'unreachable' },
@@ -107,5 +111,81 @@ describe('useEncryptedConversation retry backoff restarts only while someone can
     } finally {
       hidden.mockRestore();
     }
+  });
+});
+
+describe('useEncryptedConversation key changes', () => {
+  const P_KEY = 'p'.repeat(52);
+  const Q_KEY = 'q'.repeat(52);
+  const held = { status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY } as const;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(MessagingController.getConversationMessages).mockResolvedValue([]);
+    vi.mocked(MessagingController.getQueuedConversationMessages).mockResolvedValue([]);
+    vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
+      sessionActive: true,
+      receiverProvisioned: true,
+      ownKeyRepublished: null,
+    });
+    vi.mocked(MessagingController.openConversation).mockResolvedValue({
+      state: held,
+      conversationId: `conversation:${SELLER}_${BUYER}_${LISTING_ID}`,
+      counterpartyPubky: SELLER,
+    });
+    vi.mocked(MessagingController.willFollowOnSend).mockResolvedValue(false);
+  });
+
+  it('shows a held conversation as key-changed with both keys, never as ready or handshaking', async () => {
+    const { result } = renderHook(() => useEncryptedConversation(SELLER, BUYER, LISTING_ID, true));
+
+    await waitFor(() => expect(result.current.status).toBe('key-changed'));
+    expect(result.current.keyChange).toEqual({ pinnedKey: P_KEY, observedKey: Q_KEY });
+  });
+
+  it('accepts exactly the shown key for the other person, then shows the new state', async () => {
+    vi.mocked(MessagingController.acceptCounterpartyKey).mockResolvedValue({
+      status: 'handshaking',
+      role: 'initiator',
+    });
+    const { result } = renderHook(() => useEncryptedConversation(SELLER, BUYER, LISTING_ID, true));
+    await waitFor(() => expect(result.current.status).toBe('key-changed'));
+
+    await act(async () => {
+      await result.current.acceptKeyChange();
+    });
+
+    expect(MessagingController.acceptCounterpartyKey).toHaveBeenCalledWith(SELLER, Q_KEY);
+    expect(result.current.status).toBe('handshaking-initiator');
+    expect(result.current.keyChange).toBeNull();
+    expect(toast).toHaveBeenCalledWith({ description: MESSAGING_COPY.keyAccepted });
+  });
+
+  it('stays held, and says so, when the accept fails', async () => {
+    vi.mocked(MessagingController.acceptCounterpartyKey).mockRejectedValue(new Error('marker unreachable'));
+    const { result } = renderHook(() => useEncryptedConversation(SELLER, BUYER, LISTING_ID, true));
+    await waitFor(() => expect(result.current.status).toBe('key-changed'));
+
+    await act(async () => {
+      await result.current.acceptKeyChange();
+    });
+
+    expect(result.current.status).toBe('key-changed');
+    expect(result.current.isAcceptingKey).toBe(false);
+    expect(toast).toHaveBeenCalledWith({ variant: 'warning', description: MESSAGING_COPY.keyAcceptFailed });
+  });
+
+  it('tells the user when this device republished its own messaging key', async () => {
+    vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
+      sessionActive: true,
+      receiverProvisioned: true,
+      ownKeyRepublished: 'replaced',
+    });
+
+    renderHook(() => useEncryptedConversation(SELLER, BUYER, LISTING_ID, true));
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith({ variant: 'warning', description: MESSAGING_COPY.ownKeyReplaced }),
+    );
   });
 });

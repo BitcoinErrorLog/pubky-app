@@ -117,12 +117,21 @@ export type MessagingEnabledInfo = {
  *   an inbound handshake is being answered and completion needs the
  *   initiator to come back online for the final round.
  * - `ready`: the link is established; sends/receives are live.
- * - `recovery-needed`: a persisted link cannot proceed — a pending
- *   handshake is bound to a key the counterparty no longer publishes, or a
- *   handshake or established snapshot failed to restore. Every local row and
- *   remote slot is kept and the link is retried unchanged on an exponential,
- *   jittered, capped schedule (`MESSAGING_RETRY_POLICY`); nothing is
- *   deleted or restarted.
+ * - `key-changed`: the counterparty's marker advertises a different key than
+ *   the one pinned for them on this device (trust on first use: the key of
+ *   the first link). It may be their new device or app, or a takeover of
+ *   their marker; nothing tells the two apart. No handshake is started with
+ *   the new key and nothing is sent until the user accepts it
+ *   ({@link PaykitMessagingService.acceptCounterpartyKey}); an established
+ *   link on the pinned key keeps receiving. The marker is read again on the
+ *   retry schedule, and the state clears if it advertises the pinned key
+ *   again.
+ * - `recovery-needed`: a persisted link cannot proceed — a handshake or
+ *   established snapshot failed to restore, a send may have left after the
+ *   saved snapshot, or the binding reported a link bound to another key than
+ *   the pinned one. Every local row and remote slot is kept and the link is
+ *   retried unchanged on an exponential, jittered, capped schedule
+ *   (`MESSAGING_RETRY_POLICY`); nothing is deleted or restarted.
  * - `unreachable`: the counterparty's receiver marker could not be read —
  *   their homeserver did not resolve or answer, or the marker they publish is
  *   unusable. This says nothing about whether they enabled messaging, so it
@@ -134,11 +143,27 @@ export type MessagingLinkState =
   | { status: 'not-enrolled' }
   | { status: 'unreachable'; reason: MarkerReadFailureReason }
   | { status: 'handshaking'; role: 'initiator' | 'responder' }
+  | { status: 'key-changed'; pinnedKey: string; observedKey: string }
   | {
       status: 'recovery-needed';
-      reason: 'counterparty-key-changed' | 'handshake-restore-failed' | 'link-restore-failed' | 'send-state-unknown';
+      reason: 'handshake-restore-failed' | 'link-restore-failed' | 'link-key-mismatch' | 'send-state-unknown';
     }
   | { status: 'ready' };
+
+/**
+ * What the own-marker check found and did on a resumed session: `replaced`
+ * — the published marker advertised another key (another app or device
+ * wrote it), and this device published its own again; `missing` — no marker
+ * was published, and this device published it again.
+ */
+export type OwnMarkerRepublished = 'replaced' | 'missing';
+
+/** The keys a conversation's Verify step shows: this device's, and the one pinned for the counterparty. */
+export type MessagingKeys = {
+  ownKey: string | null;
+  pinnedKey: string | null;
+  observedKey: string | null;
+};
 
 /** Probe-only result: `none` means no local state and no inbound handshake — nothing was started. */
 export type MessagingProbeState = MessagingLinkState | { status: 'none' };
@@ -161,7 +186,8 @@ export type ReceivedMessage = {
 };
 
 type ActiveSession = { handle: SessionHandle; pubky: string };
-type ActiveHandshake = { handle: LinkHandshakeHandle; role: 'initiator' | 'responder' };
+/** `boundKey` is the counterparty key the handshake was created with: the key its link must report. */
+type ActiveHandshake = { handle: LinkHandshakeHandle; role: 'initiator' | 'responder'; boundKey: string };
 
 /**
  * `localStorage` key for the persisted messaging-session metadata. The
@@ -264,6 +290,10 @@ export class PaykitMessagingService {
   private static receiverRetry = new RetryBackoff<true>();
   /** Accounts under {@link withoutReceiverProvisioning}, with how many holds each. */
   private static provisioningHolds = new Map<string, number>();
+  /** Accounts whose published marker was confirmed (or published) by this session. Cleared with the session. */
+  private static ownMarkerChecked = new Set<string>();
+  /** What the own-marker check republished and the user has not been told yet, per account. */
+  private static ownMarkerNotices = new Map<string, OwnMarkerRepublished>();
   private static markerReadSleep: MarkerReadSleep = realMarkerReadSleep;
 
   /** Test seam: replaces the wait between marker read attempts. Never used in production. */
@@ -346,10 +376,17 @@ export class PaykitMessagingService {
    * also ensures the receiver key + marker are provisioned, so messaging
    * surfaces go straight to ready after sign-in. Never throws for "no
    * session"; concurrent callers share one in-flight resume.
+   *
+   * `provision: false` resumes the session only: whenever it settles, it
+   * never creates, replaces or publishes a receiver key. A caller that
+   * joins a resume already in flight gets that resume's outcome.
    */
-  static async restorePersistedSession(expectedPubky: string): Promise<boolean> {
+  static async restorePersistedSession(
+    expectedPubky: string,
+    { provision = true }: { provision?: boolean } = {},
+  ): Promise<boolean> {
     if (this.hasActiveSession(expectedPubky)) {
-      await this.ensureReceiverProvisioned(expectedPubky);
+      if (provision) await this.ensureReceiverProvisioned(expectedPubky);
       return true;
     }
     if (this.restoreInFlight?.pubky === expectedPubky) return await this.restoreInFlight.done;
@@ -357,7 +394,7 @@ export class PaykitMessagingService {
     // next spaced attempt the answer stays "no session" (the enable flow and
     // sign-out both reset the schedule).
     if (this.sessionRetry.status(expectedPubky) === 'waiting') return false;
-    const done = this.resumeSessionSilently(expectedPubky);
+    const done = this.resumeSessionSilently(expectedPubky, provision);
     this.restoreInFlight = { pubky: expectedPubky, done };
     try {
       const resumed = await done;
@@ -369,11 +406,11 @@ export class PaykitMessagingService {
     }
   }
 
-  /** Paths 2 and 3 of the resume order, plus receiver provisioning on success. */
-  private static async resumeSessionSilently(expectedPubky: string): Promise<boolean> {
+  /** Paths 2 and 3 of the resume order, plus receiver provisioning on success when `provision` is set. */
+  private static async resumeSessionSilently(expectedPubky: string, provision: boolean): Promise<boolean> {
     const resumed =
       (await this.restoreSessionFromStorage(expectedPubky)) || (await this.resumeSessionFromCookie(expectedPubky));
-    if (resumed) await this.ensureReceiverProvisioned(expectedPubky);
+    if (resumed && provision) await this.ensureReceiverProvisioned(expectedPubky);
     return resumed;
   }
 
@@ -426,18 +463,43 @@ export class PaykitMessagingService {
    * the same idempotent {@link provisionReceiver} the approval path runs; a
    * transient publish failure is logged and retried on a spaced schedule
    * (this method is on every resume path) instead of failing the session.
+   *
+   * Once per session, a receiver already marked published is also checked
+   * against the marker actually published ({@link reconcileOwnMarker}): any
+   * app holding the Paykit scope, or another device of this account, can
+   * overwrite it. A marker that advertises another key, or none, is
+   * republished with this device's key and the user is told
+   * ({@link takeOwnMarkerRepublished}). A marker that cannot be read is
+   * checked again on the spaced schedule; nothing is republished on a
+   * failed read.
    */
   private static async ensureReceiverProvisioned(pubky: string): Promise<void> {
-    if (this.session?.pubky !== pubky) return;
-    if (this.provisioningHolds.has(pubky)) return;
+    const session = this.session;
+    if (session?.pubky !== pubky) return;
+    if (this.provisioningHolds.has(pubky)) {
+      Logger.info('Skipped receiver provisioning while background sync holds it', {
+        reason: 'receiver_provisioning_held',
+      });
+      return;
+    }
     const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(pubky));
-    if (receiver?.marker_published) return;
+    if (receiver?.marker_published && this.ownMarkerChecked.has(pubky)) return;
     if (this.receiverRetry.status(pubky) === 'waiting') return;
     try {
       const wasmModule = await loadPaykitWasm();
-      await this.provisionReceiver(wasmModule, this.session.handle, pubky);
+      if (receiver?.marker_published) {
+        const outcome = await this.reconcileOwnMarker(wasmModule, session.handle, pubky);
+        if (outcome !== 'match') {
+          this.ownMarkerNotices.set(pubky, outcome);
+          Logger.warn('The published messaging marker did not advertise this device key; republished it', {
+            reason: outcome === 'replaced' ? 'own_marker_replaced' : 'own_marker_missing',
+          });
+        }
+      } else {
+        await this.provisionReceiver(wasmModule, session.handle, pubky);
+        Logger.info('Provisioned the messaging receiver automatically for the resumed session', { pubky });
+      }
       this.receiverRetry.succeed(pubky);
-      Logger.info('Provisioned the messaging receiver automatically for the resumed session', { pubky });
     } catch (error) {
       // Keys reset in another tab end this session; there is nothing to retry.
       if (isMessagingKeyringChanged(error)) throw error;
@@ -572,6 +634,8 @@ export class PaykitMessagingService {
     this.linkRetry.clear();
     this.sessionRetry.clear();
     this.receiverRetry.clear();
+    this.ownMarkerChecked.clear();
+    this.ownMarkerNotices.clear();
     if (this.session) closeQuietly(() => this.session?.handle.free());
     this.session = null;
     // The client is stateless config; dropping it costs one lazy re-create
@@ -642,6 +706,78 @@ export class PaykitMessagingService {
     return await this.withQueue(ownerPubky, counterpartyPubky, () =>
       this.ensureLinkLocked(ownerPubky, counterpartyPubky, false),
     );
+  }
+
+  /**
+   * The user's explicit acceptance of a counterparty's changed key.
+   * `acceptedKey` must be the key recorded as shown to the user (the row's
+   * `observed_noise_public_key`); any other key is refused and the user is
+   * asked again about the key published now. It is accepted only while
+   * the counterparty's marker still advertises exactly it. Then the pair's
+   * link state on the old key is replaced: live handles are dropped and a
+   * fresh handshake on the accepted key is answered or initiated, whose
+   * link row pins the accepted key from now on. If the marker meanwhile
+   * advertises the pinned key again, the hold is simply cleared; if it
+   * advertises yet another key, that key is recorded as the shown key and
+   * reported instead, and nothing is accepted. A marker that cannot be read rejects with the
+   * marker read failure and changes nothing.
+   */
+  static async acceptCounterpartyKey(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    acceptedKey: string,
+  ): Promise<MessagingLinkState> {
+    return await this.withQueue(ownerPubky, counterpartyPubky, async () => {
+      const wasmModule = await loadPaykitWasm();
+      const session = await this.requireSessionOrRestore(ownerPubky);
+      const key = this.linkKey(ownerPubky, counterpartyPubky);
+      const pin = await LocalMessagingService.getPeerKeyPin(ownerPubky, counterpartyPubky);
+      if (!pin?.observedKey)
+        return (await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true)) as MessagingLinkState;
+      // Only the key recorded as shown to the user can be accepted.
+      if (acceptedKey !== pin.observedKey) {
+        Logger.warn('Refused to accept a messaging key that was not the one shown', {
+          reason: 'accepted_key_not_shown',
+        });
+        return await this.repromptKeyChange(ownerPubky, counterpartyPubky);
+      }
+      const marker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
+      if (!marker) {
+        return { status: 'key-changed', pinnedKey: pin.pinnedKey, observedKey: pin.observedKey };
+      }
+      if (marker.noisePublicKey !== acceptedKey) {
+        Logger.warn('The contact published another messaging key after it was shown; nothing was accepted', {
+          reason: 'shown_key_superseded',
+        });
+        return await this.repromptKeyChange(ownerPubky, counterpartyPubky);
+      }
+      const receiver = await this.requireReceiver(ownerPubky);
+      this.dropPairState(key);
+      this.linkRetry.succeed(key);
+      Logger.info('The user accepted a changed messaging key for a counterparty', {
+        reason: 'counterparty_key_accepted',
+      });
+      return (await this.discoverAndStart(
+        wasmModule,
+        session,
+        receiver,
+        ownerPubky,
+        counterpartyPubky,
+        marker,
+        true,
+      )) as MessagingLinkState;
+    });
+  }
+
+  /**
+   * After a refused accept: reads the marker again now, so the key recorded
+   * as shown becomes the one published (or the hold clears when the pinned
+   * key is back), and reports the state the user must decide on again.
+   */
+  private static async repromptKeyChange(ownerPubky: string, counterpartyPubky: string): Promise<MessagingLinkState> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    this.linkRetry.restart((candidate) => candidate === key);
+    return (await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true)) as MessagingLinkState;
   }
 
   /**
@@ -1071,6 +1207,9 @@ export class PaykitMessagingService {
         failure = { error };
       }
     }
+    // Keys reset in another tab: the link row and its key are gone, so there
+    // is no snapshot to save, and this session must end on this error.
+    if (failure && isMessagingKeyringChanged(failure.error)) throw failure.error;
     try {
       await this.persistLinkSnapshot(ownerPubky, counterpartyPubky, link);
     } catch (error) {
@@ -1110,6 +1249,16 @@ export class PaykitMessagingService {
     const wasmModule = await loadPaykitWasm();
     const session = await this.requireSessionOrRestore(ownerPubky);
     const key = this.linkKey(ownerPubky, counterpartyPubky);
+
+    // A recorded key change holds the pair, live handle or not, until the
+    // user accepts the new key or the marker advertises the pinned key again.
+    const pin = await LocalMessagingService.getPeerKeyPin(ownerPubky, counterpartyPubky);
+    if (pin?.observedKey) {
+      const waiting = this.linkRetry.waiting(key);
+      if (waiting) return waiting;
+      const held = await this.recheckKeyChange(wasmModule, session, ownerPubky, counterpartyPubky, pin.pinnedKey);
+      if (held) return held;
+    }
 
     if (this.links.has(key)) return { status: 'ready' };
 
@@ -1159,6 +1308,152 @@ export class PaykitMessagingService {
     return state;
   }
 
+  /**
+   * Records that the counterparty's marker advertises `observedKey` instead
+   * of the pinned key, and reports `key-changed` on the pair's retry
+   * schedule. Nothing is started with the new key. When this attempt
+   * already recorded a failure (`deferred`), only the state it reports is
+   * replaced, so one attempt never counts twice.
+   */
+  private static async holdForKeyChange(
+    ownerPubky: string,
+    counterpartyPubky: string,
+    pinnedKey: string,
+    observedKey: string,
+    deferred?: MessagingProbeState,
+  ): Promise<Extract<MessagingLinkState, { status: 'key-changed' }>> {
+    await LocalMessagingService.setPeerKeyObserved(ownerPubky, counterpartyPubky, observedKey, Date.now());
+    Logger.warn('The counterparty publishes a different messaging key than the one pinned on this device', {
+      reason: 'counterparty_key_changed',
+    });
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    const held = { status: 'key-changed', pinnedKey, observedKey } as const;
+    if (deferred && this.linkRetry.holds(key, deferred)) {
+      this.linkRetry.replace(key, held);
+      return held;
+    }
+    return this.deferLink(key, held);
+  }
+
+  /**
+   * Reads the marker of a pair held for a key change. Advertising the pinned
+   * key again clears the hold (`null`: the pair continues as usual).
+   * Otherwise the newest different key is recorded and the pair stays held,
+   * while its state on the pinned key keeps moving: a pending handshake
+   * bound to the pinned key is advanced (it may complete), and an
+   * established link is restored so it keeps receiving. Nothing is ever
+   * started or answered on another key. A marker that cannot be read, or is
+   * gone, keeps the hold as it was.
+   */
+  private static async recheckKeyChange(
+    wasmModule: PaykitWasmModule,
+    session: ActiveSession,
+    ownerPubky: string,
+    counterpartyPubky: string,
+    pinnedKey: string,
+  ): Promise<Extract<MessagingLinkState, { status: 'key-changed' }> | null> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    const marker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky).catch((error: unknown) => {
+      if (isMarkerReadFailure(error)) return undefined;
+      throw error;
+    });
+    if (marker?.noisePublicKey === pinnedKey) {
+      await LocalMessagingService.setPeerKeyObserved(ownerPubky, counterpartyPubky, null, Date.now());
+      this.linkRetry.succeed(key);
+      Logger.info('The counterparty publishes the pinned messaging key again', { reason: 'counterparty_key_restored' });
+      return null;
+    }
+    const recorded = (await LocalMessagingService.getPeerKeyPin(ownerPubky, counterpartyPubky))?.observedKey;
+    const observedKey = marker?.noisePublicKey ?? recorded ?? pinnedKey;
+    const advanced = this.links.has(key)
+      ? undefined
+      : await this.movePinnedStateOn(wasmModule, session, ownerPubky, counterpartyPubky);
+    return await this.holdForKeyChange(ownerPubky, counterpartyPubky, pinnedKey, observedKey, advanced);
+  }
+
+  /**
+   * For a pair held for a key change with no live link: advances a pending
+   * handshake bound to the pinned key one step, or restores an established
+   * link for receiving. Resolves the state a handshake step reported, if
+   * one ran.
+   */
+  private static async movePinnedStateOn(
+    wasmModule: PaykitWasmModule,
+    session: ActiveSession,
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): Promise<MessagingProbeState | undefined> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    let handshake = this.handshakes.get(key);
+    if (!handshake) {
+      const stored = await LocalMessagingService.getLink(ownerPubky, counterpartyPubky);
+      if (stored?.status === 'established') {
+        await this.restoreEstablishedForReceive(wasmModule, session, ownerPubky, counterpartyPubky);
+        return undefined;
+      }
+      if (stored?.status !== 'handshaking') return undefined;
+      const receiver = await LocalMessagingService.getReceiver(ownerPubky);
+      if (!receiver?.marker_published) return undefined;
+      try {
+        const handle = this.configureHandshakeWriteRetries(
+          (await wasmModule.restoreEncryptedLinkHandshake(
+            session.handle,
+            receiver.noise_secret,
+            counterpartyPubky,
+            stored.local_receiver_path,
+            stored.remote_receiver_path,
+            this.getClient(wasmModule),
+            stored.snapshot,
+          )) as LinkHandshakeHandle,
+        );
+        handshake = { handle, role: stored.role, boundKey: stored.remote_noise_public_key };
+      } catch (error) {
+        Logger.warn('Could not restore the pending handshake of a pair held for a key change', { error });
+        return undefined;
+      }
+      this.handshakes.set(key, handshake);
+    }
+    return await this.advanceHandshake(wasmModule, ownerPubky, counterpartyPubky, handshake);
+  }
+
+  /**
+   * Restores the established link of a pair held for a key change, so
+   * messages the counterparty sent on the pinned key are still received.
+   * Best effort: a pair with no established row, one whose last send is not
+   * known to be saved, or a restore that fails, stays without a live handle.
+   */
+  private static async restoreEstablishedForReceive(
+    wasmModule: PaykitWasmModule,
+    session: ActiveSession,
+    ownerPubky: string,
+    counterpartyPubky: string,
+  ): Promise<void> {
+    const stored = await LocalMessagingService.getLink(ownerPubky, counterpartyPubky);
+    if (stored?.status !== 'established' || stored.send_pending) return;
+    const receiver = await LocalMessagingService.getReceiver(ownerPubky);
+    if (!receiver?.marker_published) return;
+    try {
+      const link = this.configureLinkWriteRetries(
+        (await wasmModule.restoreEncryptedLink(
+          session.handle,
+          receiver.noise_secret,
+          counterpartyPubky,
+          stored.local_receiver_path,
+          stored.remote_receiver_path,
+          this.getClient(wasmModule),
+          stored.snapshot,
+        )) as EncryptedLinkHandle,
+      );
+      if (link.remoteNoisePublicKey() !== stored.remote_noise_public_key) {
+        closeQuietly(() => void link.close());
+        return;
+      }
+      this.links.set(this.linkKey(ownerPubky, counterpartyPubky), link);
+    } catch (error) {
+      Logger.warn('Could not restore the established link of a pair held for a key change', { error });
+    }
+  }
+
   private static async stepLink(
     wasmModule: PaykitWasmModule,
     session: ActiveSession,
@@ -1197,12 +1492,34 @@ export class PaykitMessagingService {
             stored.snapshot,
           )) as EncryptedLinkHandle,
         );
+        if (link.remoteNoisePublicKey() !== stored.remote_noise_public_key) {
+          closeQuietly(() => void link.close());
+          Logger.warn('A restored link reports another counterparty key than the one pinned for it', {
+            reason: 'link_key_mismatch',
+          });
+          return this.deferLink(key, { status: 'recovery-needed', reason: 'link-key-mismatch' });
+        }
         this.links.set(key, link);
-        return { status: 'ready' };
       } catch (error) {
         Logger.warn('Failed to restore an established link snapshot; keeping it for the next attempt', { error });
         return this.deferLink(key, { status: 'recovery-needed', reason: 'link-restore-failed' });
       }
+      // The link itself keeps working on its own keys; the marker is read
+      // once per restore so a changed key is shown before anything is sent.
+      // A marker that cannot be read, or is gone, says nothing about a key.
+      const marker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky).catch((error: unknown) => {
+        if (isMarkerReadFailure(error)) return null;
+        throw error;
+      });
+      if (marker && marker.noisePublicKey !== stored.remote_noise_public_key) {
+        return await this.holdForKeyChange(
+          ownerPubky,
+          counterpartyPubky,
+          stored.remote_noise_public_key,
+          marker.noisePublicKey,
+        );
+      }
+      return { status: 'ready' };
     }
 
     if (stored?.status === 'handshaking') {
@@ -1230,28 +1547,38 @@ export class PaykitMessagingService {
         Logger.warn('Failed to restore a mid-handshake snapshot; keeping it for the next attempt', { error });
         return this.deferLink(key, { status: 'recovery-needed', reason: 'handshake-restore-failed' });
       }
-      const handshake: ActiveHandshake = { handle, role: stored.role };
+      const handshake: ActiveHandshake = { handle, role: stored.role, boundKey: stored.remote_noise_public_key };
       this.handshakes.set(key, handshake);
       const state = await this.advanceHandshake(wasmModule, ownerPubky, counterpartyPubky, handshake);
       // Completed, failed its step, or switched to a crossed inbound handshake.
       if (this.handshakes.get(key) !== handshake) return state;
-      // Another device of the counterparty can publish over the same marker
-      // path, so a different key does not prove this handshake dead: it was
-      // advanced first, and only a still-pending one is reported.
+      // Advancing a handshake bound to the pinned key is safe, so it was
+      // advanced first; only a still-pending one is held for a new key.
       const currentMarker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky).catch(() => null);
       if (currentMarker && currentMarker.noisePublicKey !== stored.remote_noise_public_key) {
-        Logger.warn('The counterparty publishes a different messaging key than this pending handshake is bound to');
         this.handshakes.delete(key);
         closeQuietly(() => handshake.handle.free());
-        return this.deferLink(key, { status: 'recovery-needed', reason: 'counterparty-key-changed' });
+        return await this.holdForKeyChange(
+          ownerPubky,
+          counterpartyPubky,
+          stored.remote_noise_public_key,
+          currentMarker.noisePublicKey,
+        );
       }
       return state;
     }
 
-    // No local state at all: discover the counterparty, prefer answering an
+    // No readable link state: discover the counterparty, prefer answering an
     // inbound handshake if one is queued, otherwise initiate our own.
     const marker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
     if (!marker) return allowInitiate ? { status: 'not-enrolled' } : { status: 'none' };
+
+    // A row whose snapshot no longer opens still pins its key: a new
+    // handshake starts on its own only with that key.
+    const pin = await LocalMessagingService.getPeerKeyPin(ownerPubky, counterpartyPubky);
+    if (pin && pin.pinnedKey !== marker.noisePublicKey) {
+      return await this.holdForKeyChange(ownerPubky, counterpartyPubky, pin.pinnedKey, marker.noisePublicKey);
+    }
 
     return await this.discoverAndStart(
       wasmModule,
@@ -1295,7 +1622,7 @@ export class PaykitMessagingService {
         this.getClient(wasmModule),
       ),
     );
-    const handshake: ActiveHandshake = { handle, role: 'initiator' };
+    const handshake: ActiveHandshake = { handle, role: 'initiator', boundKey: marker.noisePublicKey };
     this.handshakes.set(this.linkKey(ownerPubky, counterpartyPubky), handshake);
     await LocalMessagingService.upsertLink({
       owner_id: ownerPubky,
@@ -1340,6 +1667,14 @@ export class PaykitMessagingService {
     if (result.status === 'complete' && result.link) {
       result.link = this.configureLinkWriteRetries(result.link);
       this.handshakes.delete(key);
+      if (result.link.remoteNoisePublicKey() !== handshake.boundKey) {
+        const unbound = result.link;
+        closeQuietly(() => void unbound.close());
+        Logger.warn('A completed handshake reports another counterparty key than the one pinned for it', {
+          reason: 'link_key_mismatch',
+        });
+        return this.deferLink(key, { status: 'recovery-needed', reason: 'link-key-mismatch' });
+      }
       // Saved before it is used: a link registered ahead of its saved
       // state could send, and a later restore would then reuse its counter.
       try {
@@ -1365,7 +1700,8 @@ export class PaykitMessagingService {
         if (isMarkerReadFailure(error)) return null;
         throw error;
       });
-      if (marker) {
+      // A crossed handshake is answered only on the key this one is bound to.
+      if (marker?.noisePublicKey === handshake.boundKey) {
         const inbound = await this.probeInboundHandshake(wasmModule, session, receiver, counterpartyPubky, marker);
         if (inbound) {
           closeQuietly(() => handshake.handle.free());
@@ -1426,7 +1762,7 @@ export class PaykitMessagingService {
       closeQuietly(() => handle.free());
       return null;
     }
-    return { handshake: { handle, role: 'responder' } };
+    return { handshake: { handle, role: 'responder', boundKey: marker.noisePublicKey } };
   }
 
   /** Persists whichever stage the adopted inbound handshake reached. */
@@ -1441,6 +1777,13 @@ export class PaykitMessagingService {
     const now = Date.now();
     if (inbound.link) {
       const adopted = inbound.link;
+      if (adopted.remoteNoisePublicKey() !== marker.noisePublicKey) {
+        closeQuietly(() => void adopted.close());
+        Logger.warn('An answered handshake reports another counterparty key than the one it was answered with', {
+          reason: 'link_key_mismatch',
+        });
+        return this.deferLink(key, { status: 'recovery-needed', reason: 'link-key-mismatch' });
+      }
       try {
         await LocalMessagingService.upsertLink({
           owner_id: ownerPubky,
@@ -1520,37 +1863,99 @@ export class PaykitMessagingService {
     session: SessionHandle,
     pubky: string,
   ): Promise<MessagingEnabledInfo> {
-    return await this.withReceiverLock(pubky, async () => {
-      // Read only once the lock is held: another tab may have created,
-      // replaced or published the receiver while this one waited.
-      const receiver =
-        (await LocalMessagingService.getReceiver(pubky)) ?? (await this.createReceiver(wasmModule, pubky));
-      // Republishing is idempotent and heals a marker removed elsewhere. A
-      // messaging-only receiver advertises exactly the Encrypted Link
-      // capability (`privatePayments`) and none of the payment capabilities.
-      await retryHomeserverWrite(
-        HttpMethod.PUT,
-        () =>
-          wasmModule.publishReceiverMarker(
-            session,
-            receiver.receiver_path,
-            receiver.noise_public_key,
-            true,
-            false,
-            false,
-            false,
-          ),
-        { maxTotalDelayMs: LOCKED_WRITE_RETRY_BUDGET_MS },
+    return await this.withReceiverLock(pubky, () => this.provisionReceiverLocked(wasmModule, session, pubky));
+  }
+
+  /** {@link provisionReceiver} for a caller already holding the account's receiver lock. */
+  private static async provisionReceiverLocked(
+    wasmModule: PaykitWasmModule,
+    session: SessionHandle,
+    pubky: string,
+  ): Promise<MessagingEnabledInfo> {
+    // Read only once the lock is held: another tab may have created,
+    // replaced or published the receiver while this one waited.
+    const receiver = (await LocalMessagingService.getReceiver(pubky)) ?? (await this.createReceiver(wasmModule, pubky));
+    // Republishing is idempotent and heals a marker removed or replaced
+    // elsewhere. A messaging-only receiver advertises exactly the Encrypted
+    // Link capability (`privatePayments`) and none of the payment capabilities.
+    await retryHomeserverWrite(
+      HttpMethod.PUT,
+      () =>
+        wasmModule.publishReceiverMarker(
+          session,
+          receiver.receiver_path,
+          receiver.noise_public_key,
+          true,
+          false,
+          false,
+          false,
+        ),
+      { maxTotalDelayMs: LOCKED_WRITE_RETRY_BUDGET_MS },
+    );
+    if (!(await LocalMessagingService.markReceiverPublished(pubky, receiver.noise_public_key, Date.now()))) {
+      throw Err.database(
+        DatabaseErrorCode.WRITE_FAILED,
+        'The messaging receiver changed while its marker was being published.',
+        { service: ErrorService.Local, operation: 'provisionReceiver' },
       );
-      if (!(await LocalMessagingService.markReceiverPublished(pubky, receiver.noise_public_key, Date.now()))) {
-        throw Err.database(
-          DatabaseErrorCode.WRITE_FAILED,
-          'The messaging receiver changed while its marker was being published.',
-          { service: ErrorService.Local, operation: 'provisionReceiver' },
-        );
+    }
+    this.ownMarkerChecked.add(pubky);
+    return { pubky, receiverPath: receiver.receiver_path, noisePublicKey: receiver.noise_public_key };
+  }
+
+  /**
+   * Compares the marker this account publishes with the receiver key this
+   * device holds, holding the receiver lock so no tab of this device
+   * publishes in between. A marker that advertises another key (`replaced`)
+   * or no marker at all (`missing`) is republished with this device's key;
+   * `match` changes nothing. A marker that cannot be read rejects with the
+   * marker read failure and nothing is published.
+   */
+  private static async reconcileOwnMarker(
+    wasmModule: PaykitWasmModule,
+    session: SessionHandle,
+    pubky: string,
+  ): Promise<'match' | OwnMarkerRepublished> {
+    return await this.withReceiverLock(pubky, async () => {
+      const receiver = await LocalMessagingService.getReceiver(pubky);
+      if (!receiver?.marker_published) {
+        await this.provisionReceiverLocked(wasmModule, session, pubky);
+        return 'match';
       }
-      return { pubky, receiverPath: receiver.receiver_path, noisePublicKey: receiver.noise_public_key };
+      const published = await this.getCounterpartyMarkerWith(wasmModule, pubky);
+      if (published?.noisePublicKey === receiver.noise_public_key) {
+        this.ownMarkerChecked.add(pubky);
+        return 'match';
+      }
+      await this.provisionReceiverLocked(wasmModule, session, pubky);
+      return published ? 'replaced' : 'missing';
     });
+  }
+
+  /**
+   * What the own-marker check last republished for `pubky` and the user has
+   * not been told yet; `null` when nothing was. Reading it clears it, so the
+   * notice is shown once.
+   */
+  static takeOwnMarkerRepublished(pubky: string): OwnMarkerRepublished | null {
+    const notice = this.ownMarkerNotices.get(pubky) ?? null;
+    this.ownMarkerNotices.delete(pubky);
+    return notice;
+  }
+
+  /**
+   * The keys the Verify step compares out of band: the receiver key this
+   * device publishes, and the key pinned for the counterparty with any
+   * different key their marker advertised since. Local reads only.
+   */
+  static async getMessagingKeys(ownerPubky: string, counterpartyPubky: string): Promise<MessagingKeys> {
+    const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(ownerPubky));
+    const pin = await LocalMessagingService.getPeerKeyPin(ownerPubky, counterpartyPubky);
+    return {
+      ownKey: receiver?.noise_public_key ?? null,
+      pinnedKey: pin?.pinnedKey ?? null,
+      observedKey: pin?.observedKey ?? null,
+    };
   }
 
   /**
@@ -1799,6 +2204,13 @@ export class PaykitMessagingService {
     Logger.warn('Another tab moved this link on; continuing from its saved state', {
       reason: 'link_moved_by_another_tab',
     });
+    this.dropPairState(key);
+  }
+
+  /** Closes and forgets this tab's live handle and handshake for one pair. */
+  private static dropPairState(key: string): void {
+    const link = this.links.get(key);
+    const handshake = this.handshakes.get(key);
     this.links.delete(key);
     this.handshakes.delete(key);
     this.unsavedSends.delete(key);

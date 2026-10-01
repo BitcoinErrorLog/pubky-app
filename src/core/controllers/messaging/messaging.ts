@@ -25,7 +25,11 @@ import { HttpMethod, HttpStatusCode } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
 import { buildDmConversationId, parseDmConversationId } from '@/libs/messaging/dm-contracts';
 import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
-import { MESSAGING_SYNC_PASS_TIMEOUT_MS, withPassDeadline } from '@/libs/messaging/pass-deadline';
+import {
+  MESSAGING_SYNC_PASS_TIMEOUT_MS,
+  MESSAGING_SYNC_RESUME_TIMEOUT_MS,
+  withPassDeadline,
+} from '@/libs/messaging/pass-deadline';
 import type { Pubky } from '@/models/models.types';
 import { buildUserCompositeId } from '@/models/stream/user/userStream.helper';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
@@ -81,7 +85,9 @@ export class MessagingController {
    * {@link MessagingApplication.withoutReceiverProvisioning}. It stops at
    * the next step once `shouldContinue` answers false, once `ownerPubky` is
    * no longer the signed-in account, or once the receiver key differs from
-   * the one it started with (another tab replaced it).
+   * the one it started with (another tab replaced it). A session resume that
+   * does not settle within {@link MESSAGING_SYNC_RESUME_TIMEOUT_MS} ends the
+   * pass and its hold; when it settles later it still touches no key.
    */
   static async syncInboxInBackground(ownerPubky: string, shouldContinue: () => boolean): Promise<'synced' | 'skipped'> {
     const isCurrent = () => shouldContinue() && useAuthStore.getState().currentUserPubky === ownerPubky;
@@ -89,7 +95,15 @@ export class MessagingController {
     const receiverKey = await MessagingApplication.publishedReceiverKey(ownerPubky);
     if (receiverKey === null || !isCurrent()) return 'skipped';
     return await MessagingApplication.withoutReceiverProvisioning(ownerPubky, async () => {
-      const resumed = await MessagingApplication.resumeSession(ownerPubky);
+      const resumed = await withPassDeadline(MessagingApplication.resumeSession(ownerPubky), {
+        timeoutMs: MESSAGING_SYNC_RESUME_TIMEOUT_MS,
+        operation: 'backgroundMessagingResume',
+        onExpire: () => {
+          Logger.warn('The messaging session resume of a background sync did not settle; the pass stopped', {
+            reason: 'background_resume_timeout',
+          });
+        },
+      });
       if (!resumed || !isCurrent()) return 'skipped';
       if ((await MessagingApplication.publishedReceiverKey(ownerPubky)) !== receiverKey) {
         Logger.warn('The messaging key changed during a background sync; the pass stopped', {
@@ -324,6 +338,30 @@ export class MessagingController {
     return { ...result, rateLimited: FirstContactApplication.takeRateLimitedCount(ownerPubky) };
   }
 
+  // --- key changes ----------------------------------------------------------
+
+  /**
+   * Accepts a counterparty's changed messaging key — exactly the key the
+   * conversation showed (`acceptedKey`) — on a fresh read of the mute list.
+   * Returns the conversation's new state.
+   */
+  static async acceptCounterpartyKey(counterpartyPubky: unknown, acceptedKey: unknown): Promise<MessagingThreadState> {
+    const ownerPubky = this.getCurrentUserPubky();
+    const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
+    const key = CommerceRecordNormalizer.pubky(acceptedKey);
+    const confirmed = await this.confirmPolicy(ownerPubky, counterparty);
+    if (!confirmed.policy) return confirmed.state;
+    return await MessagingApplication.acceptCounterpartyKey(ownerPubky, counterparty, key, confirmed.policy);
+  }
+
+  /** This device's messaging key and the one pinned for the counterparty, for the Verify step. */
+  static async getMessagingKeys(counterpartyPubky: unknown) {
+    return await MessagingApplication.getMessagingKeys(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.pubky(counterpartyPubky),
+    );
+  }
+
   // --- mutes, requests, report -------------------------------------------
 
   /** The signed-in account's mute list, read from private storage. */
@@ -504,8 +542,15 @@ export class MessagingController {
     return count;
   }
 
-  /** The running sync pass per account: the inbox and the background sync share it instead of overlapping. */
-  private static syncInFlight = new Map<string, Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }>>();
+  /**
+   * The running sync pass per account, and whether it is a background pass
+   * (one stopped by its caller's `shouldContinue`). A background pass joins
+   * any running pass; a foreground call joins only a foreground one.
+   */
+  private static syncInFlight = new Map<
+    string,
+    { pass: Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }>; background: boolean }
+  >();
 
   /**
    * One bounded inbox sync pass. The responder can only answer handshakes
@@ -538,14 +583,19 @@ export class MessagingController {
    * for the account that left. One pair step already running finishes. A
    * pass still running after {@link MESSAGING_SYNC_PASS_TIMEOUT_MS} is told
    * to stop the same way and rejects, so later calls start a new pass.
+   *
+   * A call without `shouldContinue` (the inbox on screen) never joins a
+   * background pass, so it is never stopped or timed out by the background
+   * caller's limits: it starts its own pass, which later calls join.
    */
   static async syncInbox(options?: {
     ownerPubky?: string;
     shouldContinue?: () => boolean;
   }): Promise<{ mutes: MessagingMutesState['kind']; rateLimited: number }> {
     const ownerPubky = options?.ownerPubky ?? this.getCurrentUserPubky();
+    const background = options?.shouldContinue !== undefined;
     const running = this.syncInFlight.get(ownerPubky);
-    if (running) return await running;
+    if (running && (background || !running.background)) return await running.pass;
     let expired = false;
     const isCurrent = () =>
       !expired && useAuthStore.getState().currentUserPubky === ownerPubky && (options?.shouldContinue?.() ?? true);
@@ -556,9 +606,9 @@ export class MessagingController {
         expired = true;
       },
     }).finally(() => {
-      if (this.syncInFlight.get(ownerPubky) === pass) this.syncInFlight.delete(ownerPubky);
+      if (this.syncInFlight.get(ownerPubky)?.pass === pass) this.syncInFlight.delete(ownerPubky);
     });
-    this.syncInFlight.set(ownerPubky, pass);
+    this.syncInFlight.set(ownerPubky, { pass, background });
     return await pass;
   }
 
