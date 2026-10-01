@@ -29,9 +29,17 @@ import type {
  *                             final round needs the initiator online again.
  *                             The composer stays open with the same honest
  *                             queue-until-ready behavior.
- * - `recovery-needed`       — the persisted handshake cannot proceed (the
- *                             counterparty's published key changed, or the
- *                             snapshot failed to restore). History, the link
+ * - `key-changed`           — the counterparty now publishes a different
+ *                             messaging key than the one pinned on this
+ *                             device at the first link. Nothing is sent and
+ *                             no handshake starts with the new key until the
+ *                             user accepts it (`acceptKeyChange`), after
+ *                             comparing it out of band if they choose.
+ *                             Composed messages stay queued on this device.
+ * - `recovery-needed`       — the persisted link cannot proceed (a snapshot
+ *                             failed to restore, a send may have left after
+ *                             the saved snapshot, or the link reported a key
+ *                             other than the pinned one). History, the link
  *                             state, and every remote slot are kept; nothing
  *                             is restarted. Composed messages stay queued on
  *                             this device.
@@ -57,6 +65,7 @@ export type EncryptedConversationStatus =
   | 'not-enrolled'
   | 'handshaking-initiator'
   | 'handshaking-responder'
+  | 'key-changed'
   | 'recovery-needed'
   | 'unreachable'
   | 'ready'
@@ -81,6 +90,9 @@ export type ConversationThreadItem =
  * happened (validation or transport error; the draft is kept).
  */
 export type EncryptedSendOutcome = 'delivered' | 'queued' | 'failed';
+
+/** The key pinned for the counterparty and the different key they publish now. */
+export type EncryptedConversationKeyChange = { pinnedKey: string; observedKey: string };
 
 export interface UseEncryptedConversationReturn {
   status: EncryptedConversationStatus;
@@ -115,4 +127,10 @@ export interface UseEncryptedConversationReturn {
   firstContactNotice?: string | null;
   /** Why the conversation is `paused`: an approval is needed, or the mute list could not be read. */
   pausedReason?: 'needs_approval' | 'needs_reauth' | 'error' | null;
+  /** The keys involved while `status === 'key-changed'`; `null` otherwise. */
+  keyChange: EncryptedConversationKeyChange | null;
+  /** Accepts the counterparty's new key shown in `keyChange`. */
+  acceptKeyChange: () => Promise<void>;
+  /** True while an acceptance is in flight. */
+  isAcceptingKey: boolean;
 }

@@ -324,6 +324,30 @@ export class MessagingController {
     return { ...result, rateLimited: FirstContactApplication.takeRateLimitedCount(ownerPubky) };
   }
 
+  // --- key changes ----------------------------------------------------------
+
+  /**
+   * Accepts a counterparty's changed messaging key — exactly the key the
+   * conversation showed (`acceptedKey`) — on a fresh read of the mute list.
+   * Returns the conversation's new state.
+   */
+  static async acceptCounterpartyKey(counterpartyPubky: unknown, acceptedKey: unknown): Promise<MessagingThreadState> {
+    const ownerPubky = this.getCurrentUserPubky();
+    const counterparty = CommerceRecordNormalizer.pubky(counterpartyPubky);
+    const key = CommerceRecordNormalizer.pubky(acceptedKey);
+    const confirmed = await this.confirmPolicy(ownerPubky, counterparty);
+    if (!confirmed.policy) return confirmed.state;
+    return await MessagingApplication.acceptCounterpartyKey(ownerPubky, counterparty, key, confirmed.policy);
+  }
+
+  /** This device's messaging key and the one pinned for the counterparty, for the Verify step. */
+  static async getMessagingKeys(counterpartyPubky: unknown) {
+    return await MessagingApplication.getMessagingKeys(
+      this.getCurrentUserPubky(),
+      CommerceRecordNormalizer.pubky(counterpartyPubky),
+    );
+  }
+
   // --- mutes, requests, report -------------------------------------------
 
   /** The signed-in account's mute list, read from private storage. */

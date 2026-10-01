@@ -12,6 +12,7 @@ import { isMarkerReadError } from '@/libs/messaging/marker-read';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
+import { ownKeyRepublishedCopy } from '../useEncryptedConversation/useEncryptedConversation.utils';
 
 export type EncryptedInboxStatus = 'loading' | 'needs-enable' | 'ready' | 'error';
 
@@ -83,6 +84,9 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
         const messagingStatus = await MessagingController.getMessagingStatus();
         if (cancelled) return;
         setReceiverProvisioned(messagingStatus.receiverProvisioned);
+        if (messagingStatus.ownKeyRepublished) {
+          toast({ variant: 'warning', description: ownKeyRepublishedCopy(messagingStatus.ownKeyRepublished) });
+        }
         if (!messagingStatus.sessionActive) {
           await loadConversations();
           if (!cancelled) setStatus('needs-enable');

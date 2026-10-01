@@ -24,7 +24,13 @@ export function createFakePaykitPair() {
 
   const encode = (value: object) => new TextEncoder().encode(JSON.stringify(value));
   const decode = (bytes: Uint8Array) =>
-    JSON.parse(new TextDecoder().decode(bytes)) as { owner: string; peer: string; role: string; cursor?: number };
+    JSON.parse(new TextDecoder().decode(bytes)) as {
+      owner: string;
+      peer: string;
+      role: string;
+      remoteKey: string;
+      cursor?: number;
+    };
 
   class FakeSessionHandle {
     constructor(private readonly owner: string) {}
@@ -37,12 +43,18 @@ export function createFakePaykitPair() {
     free() {}
   }
 
+  // Like the binding, a link reports the counterparty key it was created
+  // with, and its snapshot carries that key.
   class FakeLink {
     constructor(
       private readonly owner: string,
       private readonly peer: string,
+      private readonly remoteKey: string,
       private cursor = 0,
     ) {}
+    remoteNoisePublicKey() {
+      return this.remoteKey;
+    }
     async sendPrivateApplicationMessageJson(rawJson: string) {
       if (new TextEncoder().encode(rawJson).byteLength > 1000) throw new Error('exceeds max Noise message size');
       const key = `${this.owner}>${this.peer}`;
@@ -57,7 +69,13 @@ export function createFakePaykitPair() {
       return box.slice(from).map((rawJson) => ({ rawJson }));
     }
     snapshot() {
-      return encode({ owner: this.owner, peer: this.peer, role: 'link', cursor: this.cursor });
+      return encode({
+        owner: this.owner,
+        peer: this.peer,
+        role: 'link',
+        remoteKey: this.remoteKey,
+        cursor: this.cursor,
+      });
     }
     async close() {}
     free() {}
@@ -69,23 +87,30 @@ export function createFakePaykitPair() {
       private readonly owner: string,
       private readonly peer: string,
       private readonly role: 'initiator' | 'responder',
+      private readonly remoteKey: string,
     ) {}
     async advance() {
       if (this.role === 'initiator') {
         return initiations.get(`${this.owner}>${this.peer}`)
-          ? { status: 'complete', link: new FakeLink(this.owner, this.peer) }
+          ? { status: 'complete', link: new FakeLink(this.owner, this.peer, this.remoteKey) }
           : { status: 'pending' };
       }
       const key = `${this.peer}>${this.owner}`;
       if (initiations.get(key) === false) {
         initiations.set(key, true);
         this.step += 1;
-        return { status: 'complete', link: new FakeLink(this.owner, this.peer) };
+        return { status: 'complete', link: new FakeLink(this.owner, this.peer, this.remoteKey) };
       }
       return { status: 'pending' };
     }
     snapshot() {
-      return encode({ owner: this.owner, peer: this.peer, role: this.role, step: this.step });
+      return encode({
+        owner: this.owner,
+        peer: this.peer,
+        role: this.role,
+        remoteKey: this.remoteKey,
+        step: this.step,
+      });
     }
     setMaxRecoveryAttempts() {}
     free() {}
@@ -122,23 +147,28 @@ export function createFakePaykitPair() {
     getReceiverMarker: async (_client: unknown, ownerPubky: string) => markers.get(ownerPubky),
     listPaykitReceiverPaths: async (_client: unknown, ownerPubky: string) =>
       markers.has(ownerPubky) ? [markers.get(ownerPubky)?.receiverPath] : [],
-    initiateEncryptedLink: (session: unknown, _secret: unknown, peer: string) => {
+    initiateEncryptedLink: (session: unknown, _secret: unknown, peer: string, peerKey: string) => {
       const owner = sessionOwner(session);
       if (!initiations.has(`${owner}>${peer}`)) initiations.set(`${owner}>${peer}`, false);
       log.push(`initiate ${owner.slice(0, 4)}>${peer.slice(0, 4)}`);
-      return new FakeHandshake(owner, peer, 'initiator');
+      return new FakeHandshake(owner, peer, 'initiator', peerKey);
     },
-    acceptEncryptedLink: (session: unknown, _secret: unknown, peer: string) =>
-      new FakeHandshake(sessionOwner(session), peer, 'responder'),
+    acceptEncryptedLink: (session: unknown, _secret: unknown, peer: string, peerKey: string) =>
+      new FakeHandshake(sessionOwner(session), peer, 'responder', peerKey),
     restoreEncryptedLink: async (session: unknown, _secret: unknown, peer: string, ...rest: unknown[]) => {
       const snapshot = decode(rest[rest.length - 1] as Uint8Array);
       if (snapshot.owner !== sessionOwner(session) || snapshot.peer !== peer) throw new Error('snapshot mismatch');
-      return new FakeLink(snapshot.owner, snapshot.peer, snapshot.cursor ?? 0);
+      return new FakeLink(snapshot.owner, snapshot.peer, snapshot.remoteKey, snapshot.cursor ?? 0);
     },
     restoreEncryptedLinkHandshake: async (session: unknown, _secret: unknown, peer: string, ...rest: unknown[]) => {
       const snapshot = decode(rest[rest.length - 1] as Uint8Array);
       if (snapshot.owner !== sessionOwner(session) || snapshot.peer !== peer) throw new Error('snapshot mismatch');
-      return new FakeHandshake(snapshot.owner, snapshot.peer, snapshot.role as 'initiator' | 'responder');
+      return new FakeHandshake(
+        snapshot.owner,
+        snapshot.peer,
+        snapshot.role as 'initiator' | 'responder',
+        snapshot.remoteKey,
+      );
     },
     maxNoiseMessageLen: () => 1000,
     noiseTagLen: () => 16,

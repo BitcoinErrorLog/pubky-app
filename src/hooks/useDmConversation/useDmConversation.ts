@@ -14,9 +14,15 @@ import { toast } from '@/molecules/Toaster/use-toast';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
 import type {
   ConversationThreadItem,
+  EncryptedConversationKeyChange,
   EncryptedSendOutcome,
   UseEncryptedConversationReturn,
 } from '../useEncryptedConversation/useEncryptedConversation.types';
+import {
+  encryptedConversationStatusOf,
+  keyChangeOf,
+  ownKeyRepublishedCopy,
+} from '../useEncryptedConversation/useEncryptedConversation.utils';
 
 /**
  * Drives one general direct-message conversation while its surface is OPEN.
@@ -47,6 +53,8 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
   const [sendError, setSendError] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [pausedReason, setPausedReason] = useState<UseEncryptedConversationReturn['pausedReason']>(null);
+  const [keyChange, setKeyChange] = useState<EncryptedConversationKeyChange | null>(null);
+  const [isAcceptingKey, setIsAcceptingKey] = useState(false);
   // The "your message is queued" toast fires once per surface, not per send.
   const queuedToastShownRef = useRef(false);
   const rateCapToastShownRef = useRef(false);
@@ -56,6 +64,12 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
   // budget is a stable constant.
   const bodyBudgetBytes = useMemo(() => dmBodyBudget(), []);
   const draftBytes = useMemo(() => bodyByteSize(draft.trim()), [draft]);
+
+  const applyThreadState = useCallback((state: MessagingThreadState) => {
+    setPausedReason(state.status === 'paused' ? state.reason : null);
+    setKeyChange(keyChangeOf(state));
+    setStatus(encryptedConversationStatusOf(state));
+  }, []);
 
   const loadThread = useCallback(async () => {
     try {
@@ -90,14 +104,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
 
     const applyLinkState = (state: MessagingThreadState) => {
       if (cancelled) return;
-      setPausedReason(state.status === 'paused' ? state.reason : null);
-      if (state.status === 'paused') setStatus('paused');
-      else if (state.status === 'muted') setStatus('muted');
-      else if (state.status === 'ready') setStatus('ready');
-      else if (state.status === 'not-enrolled') setStatus('not-enrolled');
-      else if (state.status === 'recovery-needed') setStatus('recovery-needed');
-      else if (state.status === 'unreachable') setStatus('unreachable');
-      else setStatus(state.role === 'initiator' ? 'handshaking-initiator' : 'handshaking-responder');
+      applyThreadState(state);
     };
 
     const poll = async () => {
@@ -142,6 +149,9 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
         const messagingStatus = await MessagingController.getMessagingStatus();
         if (cancelled) return;
         setReceiverProvisioned(messagingStatus.receiverProvisioned);
+        if (messagingStatus.ownKeyRepublished) {
+          toast({ variant: 'warning', description: ownKeyRepublishedCopy(messagingStatus.ownKeyRepublished) });
+        }
         if (!messagingStatus.sessionActive) {
           setStatus('needs-enable');
           return;
@@ -173,7 +183,7 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
       document.removeEventListener('visibilitychange', onVisibilityChange);
       if (timer !== null) window.clearInterval(timer);
     };
-  }, [active, enabledPubky, refreshNonce, counterpartyPubky, loadThread]);
+  }, [active, enabledPubky, refreshNonce, counterpartyPubky, loadThread, applyThreadState]);
 
   const send = useCallback(async (): Promise<EncryptedSendOutcome> => {
     const body = draft.trim();
@@ -215,6 +225,22 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
     [loadThread],
   );
 
+  const acceptKeyChange = useCallback(async () => {
+    if (!keyChange || isAcceptingKey) return;
+    setIsAcceptingKey(true);
+    try {
+      const state = await MessagingController.acceptCounterpartyKey(counterpartyPubky, keyChange.observedKey);
+      applyThreadState(state);
+      await loadThread();
+      if (state.status !== 'key-changed') toast({ description: MESSAGING_COPY.keyAccepted });
+    } catch (error) {
+      Logger.error('Failed to accept a changed messaging key', { error });
+      toast({ variant: 'warning', description: MESSAGING_COPY.keyAcceptFailed });
+    } finally {
+      setIsAcceptingKey(false);
+    }
+  }, [keyChange, isAcceptingKey, counterpartyPubky, applyThreadState, loadThread]);
+
   const refresh = useCallback(() => setRefreshNonce((nonce) => nonce + 1), []);
 
   return {
@@ -232,5 +258,8 @@ export function useDmConversation(counterpartyPubky: string, active: boolean): U
     cancelQueued,
     refresh,
     pausedReason,
+    keyChange,
+    acceptKeyChange,
+    isAcceptingKey,
   };
 }

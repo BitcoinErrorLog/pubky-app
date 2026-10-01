@@ -80,8 +80,24 @@ export interface CommerceMessagingLinkModelSchema {
   status: CommerceMessagingLinkStatus;
   local_receiver_path: string;
   remote_receiver_path: string;
-  /** Counterparty receiver Noise public key (z-base-32), from their marker. */
+  /**
+   * Counterparty receiver Noise public key (z-base-32), from their marker
+   * when this link was first created. It is also the key PINNED for this
+   * counterparty (trust on first use): every later handshake, restore and
+   * completed link is checked against it, and a marker advertising any other
+   * key never starts a handshake until the user accepts it.
+   */
   remote_noise_public_key: string;
+  /**
+   * The different key the counterparty's marker advertised when it was last
+   * read, while it differs from {@link remote_noise_public_key}; absent or
+   * `null` while the marker matches the pin. Set, nothing is sent to this
+   * counterparty until the user accepts the new key. Public key material,
+   * stored in the clear like the pin. Not indexed.
+   */
+  observed_noise_public_key?: string | null;
+  /** When {@link observed_noise_public_key} was first recorded. Not indexed. */
+  key_changed_at?: number | null;
   /**
    * Serialized link/handshake state. SECRET — see file header. Stored
    * WRAPPED (`iv || ciphertext || tag`) whenever `wrap_version` is 1; the

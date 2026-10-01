@@ -53,6 +53,8 @@ export class CommerceMessagingLinkModel
   local_receiver_path: string;
   remote_receiver_path: string;
   remote_noise_public_key: string;
+  observed_noise_public_key?: string | null;
+  key_changed_at?: number | null;
   snapshot: Uint8Array;
   wrap_version?: number;
   send_pending?: boolean;
@@ -69,6 +71,8 @@ export class CommerceMessagingLinkModel
     this.local_receiver_path = link.local_receiver_path;
     this.remote_receiver_path = link.remote_receiver_path;
     this.remote_noise_public_key = link.remote_noise_public_key;
+    this.observed_noise_public_key = link.observed_noise_public_key;
+    this.key_changed_at = link.key_changed_at;
     this.snapshot = link.snapshot;
     this.wrap_version = link.wrap_version;
     this.send_pending = link.send_pending;

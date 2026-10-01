@@ -39,6 +39,13 @@ const UNPROCESSED_TABLE = 'commerce_messaging_unprocessed';
 export const MESSAGES_TABLE = 'commerce_messaging_messages';
 export const OUTBOX_TABLE = 'commerce_messaging_outbox';
 
+/** The key pinned for one counterparty, and a different key their marker advertised since, if any. */
+export type PeerKeyPin = {
+  pinnedKey: string;
+  observedKey: string | null;
+  changedAt: number | null;
+};
+
 /**
  * Account-scoped Dexie persistence for encrypted marketplace messaging.
  *
@@ -231,6 +238,52 @@ export class LocalMessagingService {
         });
       }
       await CommerceMessagingLinkModel.upsert({ ...row, send_pending: true, write_id: crypto.randomUUID() });
+    });
+  }
+
+  /**
+   * The counterparty key pinned on this pair's link row, read without
+   * unwrapping the snapshot, so a row whose snapshot no longer opens still
+   * pins its key. `null` when the account has never linked with them.
+   */
+  static async getPeerKeyPin(ownerId: string, counterpartyPubky: string): Promise<PeerKeyPin | null> {
+    const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+    if (!row) return null;
+    return {
+      pinnedKey: row.remote_noise_public_key,
+      observedKey: row.observed_noise_public_key ?? null,
+      changedAt: row.key_changed_at ?? null,
+    };
+  }
+
+  /**
+   * Records the different key the counterparty's marker now advertises, or
+   * clears the record (`observedKey` `null`) once the marker matches the pin
+   * again. Touches only these fields: the pin and the snapshot stay as they
+   * are. Keeps the first `key_changed_at` while the same change persists.
+   */
+  static async setPeerKeyObserved(
+    ownerId: string,
+    counterpartyPubky: string,
+    observedKey: string | null,
+    now: number,
+  ): Promise<void> {
+    await withCurrentWrappingKey(async () => {
+      const row = await CommerceMessagingLinkModel.findById(this.linkId(ownerId, counterpartyPubky));
+      if (!row) {
+        throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'No messaging link row exists for this counterparty.', {
+          service: ErrorService.Local,
+          operation: 'setPeerKeyObserved',
+        });
+      }
+      const current = row.observed_noise_public_key ?? null;
+      if (current === observedKey) return;
+      await CommerceMessagingLinkModel.upsert({
+        ...row,
+        observed_noise_public_key: observedKey,
+        key_changed_at: observedKey === null ? null : (row.key_changed_at ?? now),
+        write_id: crypto.randomUUID(),
+      });
     });
   }
 

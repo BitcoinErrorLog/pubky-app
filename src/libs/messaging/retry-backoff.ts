@@ -51,6 +51,15 @@ export class RetryBackoff<T> {
     return delay;
   }
 
+  /**
+   * Replaces the value a recorded failure of `key` reports, keeping its
+   * schedule and failure count. A key with no recorded failure is untouched.
+   */
+  replace(key: string, value: T): void {
+    const entry = this.entries.get(key);
+    if (entry) this.entries.set(key, { ...entry, value });
+  }
+
   succeed(key: string): void {
     this.entries.delete(key);
   }

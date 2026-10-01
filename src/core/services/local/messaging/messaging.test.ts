@@ -695,4 +695,86 @@ describe('LocalMessagingService', () => {
       await expect(LocalMessagingService.countUnreadConversations(OWNER)).resolves.toBe(1);
     });
   });
+
+  describe('counterparty key pin', () => {
+    const P_KEY = 'p'.repeat(52);
+    const Q_KEY = 'q'.repeat(52);
+
+    async function seedLink(snapshot = new Uint8Array([1, 2, 3])) {
+      await LocalMessagingService.upsertLink({
+        owner_id: OWNER,
+        counterparty_pubky: COUNTERPARTY,
+        role: 'initiator',
+        status: 'established',
+        local_receiver_path: 'marketplace/wallet',
+        remote_receiver_path: 'marketplace/wallet',
+        remote_noise_public_key: P_KEY,
+        snapshot,
+        created_at: 1,
+        updated_at: 1,
+      });
+    }
+
+    it('pins the key of the first link and has no pin before it', async () => {
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toBeNull();
+      await seedLink();
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toEqual({
+        pinnedKey: P_KEY,
+        observedKey: null,
+        changedAt: null,
+      });
+    });
+
+    it('records a changed key without touching the pin or the snapshot, and clears it', async () => {
+      await seedLink();
+      const before = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
+      const revisionBefore = await LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY);
+
+      await LocalMessagingService.setPeerKeyObserved(OWNER, COUNTERPARTY, Q_KEY, 500);
+      await LocalMessagingService.setPeerKeyObserved(OWNER, COUNTERPARTY, 'r'.repeat(52), 900);
+
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toEqual({
+        pinnedKey: P_KEY,
+        observedKey: 'r'.repeat(52),
+        changedAt: 500,
+      });
+      const after = await LocalMessagingService.getLink(OWNER, COUNTERPARTY);
+      expect([...after!.snapshot]).toEqual([...before!.snapshot]);
+      expect(after!.remote_noise_public_key).toBe(P_KEY);
+      // Other tabs see the row moved and drop any handle they hold.
+      await expect(LocalMessagingService.getLinkRevision(OWNER, COUNTERPARTY)).resolves.not.toBe(revisionBefore);
+
+      await LocalMessagingService.setPeerKeyObserved(OWNER, COUNTERPARTY, null, 1_000);
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toEqual({
+        pinnedKey: P_KEY,
+        observedKey: null,
+        changedAt: null,
+      });
+    });
+
+    it('keeps the pin of a row whose snapshot no longer opens', async () => {
+      await seedLink();
+      await resetMessagingKeyringForTests();
+
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toBeNull();
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        pinnedKey: P_KEY,
+      });
+    });
+
+    it('a snapshot save keeps a recorded key change', async () => {
+      await seedLink();
+      await LocalMessagingService.setPeerKeyObserved(OWNER, COUNTERPARTY, Q_KEY, 500);
+      await LocalMessagingService.updateLinkSnapshot(OWNER, COUNTERPARTY, new Uint8Array([9]), 'established', 600);
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        observedKey: Q_KEY,
+      });
+    });
+
+    it('refuses to record a key change for a counterparty with no link', async () => {
+      await expect(LocalMessagingService.setPeerKeyObserved(OWNER, COUNTERPARTY, Q_KEY, 1)).rejects.toThrow(
+        /No messaging link row/,
+      );
+    });
+  });
 });

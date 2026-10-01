@@ -34,6 +34,7 @@ vi.mock('@/controllers/messaging/messaging', () => ({
     sendOrQueueDmMessage: vi.fn(),
     cancelQueuedMessage: vi.fn(),
     restartDmConversationRetries: vi.fn(),
+    acceptCounterpartyKey: vi.fn(),
   },
 }));
 
@@ -80,6 +81,7 @@ describe('useDmConversation queued-message behavior', () => {
     vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
       sessionActive: true,
       receiverProvisioned: true,
+      ownKeyRepublished: null,
     });
     vi.mocked(MessagingController.openDmConversation).mockResolvedValue({
       state: { status: 'handshaking', role: 'initiator' },
@@ -133,7 +135,7 @@ describe('useDmConversation queued-message behavior', () => {
 
   it('surfaces a link that needs recovery as its own state, never as handshaking', async () => {
     vi.mocked(MessagingController.openDmConversation).mockResolvedValue({
-      state: { status: 'recovery-needed', reason: 'counterparty-key-changed' },
+      state: { status: 'recovery-needed', reason: 'link-restore-failed' },
       counterpartyPubky: COUNTERPARTY,
     });
 
@@ -264,5 +266,54 @@ describe('useDmConversation queued-message behavior', () => {
         hidden.mockRestore();
       }
     });
+  });
+});
+
+describe('useDmConversation key changes', () => {
+  const held = { status: 'key-changed', pinnedKey: 'p'.repeat(52), observedKey: 'q'.repeat(52) } as const;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(MessagingController.getConversationMessages).mockResolvedValue([]);
+    vi.mocked(MessagingController.getQueuedConversationMessages).mockResolvedValue([]);
+    vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
+      sessionActive: true,
+      receiverProvisioned: true,
+      ownKeyRepublished: null,
+    });
+    vi.mocked(MessagingController.openDmConversation).mockResolvedValue({
+      state: held,
+      counterpartyPubky: COUNTERPARTY,
+    });
+  });
+
+  it('shows the hold and accepts the shown key for this counterparty', async () => {
+    vi.mocked(MessagingController.acceptCounterpartyKey).mockResolvedValue({ status: 'ready' });
+    vi.mocked(MessagingController.getConversationMessages).mockResolvedValue([]);
+    const { result } = renderHook(() => useDmConversation(COUNTERPARTY, true));
+    await waitFor(() => expect(result.current.status).toBe('key-changed'));
+    expect(result.current.keyChange).toEqual({ pinnedKey: held.pinnedKey, observedKey: held.observedKey });
+
+    await act(async () => {
+      await result.current.acceptKeyChange();
+    });
+
+    expect(MessagingController.acceptCounterpartyKey).toHaveBeenCalledWith(COUNTERPARTY, held.observedKey);
+    expect(result.current.status).toBe('ready');
+    expect(result.current.keyChange).toBeNull();
+  });
+
+  it('tells the user when this device republished a missing messaging key', async () => {
+    vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
+      sessionActive: true,
+      receiverProvisioned: true,
+      ownKeyRepublished: 'missing',
+    });
+
+    renderHook(() => useDmConversation(COUNTERPARTY, true));
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith({ variant: 'warning', description: MESSAGING_COPY.ownKeyMissing }),
+    );
   });
 });

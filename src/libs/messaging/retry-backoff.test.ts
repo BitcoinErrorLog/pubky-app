@@ -58,4 +58,19 @@ describe('RetryBackoff', () => {
     expect(backoff.holds('k', first)).toBe(true);
     expect(backoff.holds('k', second)).toBe(false);
   });
+
+  it('replaces the reported value of a recorded failure without counting another failure', () => {
+    const backoff = new RetryBackoff<string>(POLICY, () => 0);
+    backoff.fail('k', 'first', 0);
+    const due = backoff.fail('k', 'second', 0);
+
+    backoff.replace('k', 'replaced');
+    backoff.replace('untouched', 'never stored');
+
+    expect(backoff.waiting('k', 0)).toBe('replaced');
+    expect(backoff.status('k', due - 1)).toBe('waiting');
+    expect(backoff.status('k', due)).toBe('due');
+    expect(backoff.status('untouched', 0)).toBe('none');
+    expect(backoff.fail('k', 'third', 0)).toBe(due * 2);
+  });
 });

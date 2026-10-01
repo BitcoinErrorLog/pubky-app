@@ -41,6 +41,7 @@ describe('useEncryptedInbox retry backoff restarts only while someone can see it
     vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
       sessionActive: true,
       receiverProvisioned: true,
+      ownKeyRepublished: null,
     });
     vi.mocked(MessagingController.syncInbox).mockResolvedValue({ mutes: 'ready', rateLimited: 0 });
     vi.mocked(MessagingController.getConversations).mockResolvedValue({ mutes: 'ready', conversations: [] });
