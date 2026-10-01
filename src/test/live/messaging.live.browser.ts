@@ -2,7 +2,7 @@
 // direct messages over the same Encrypted Link — in a real Chromium page
 // against a live local Pubky testnet. Nothing is mocked below the module
 // seam: real vendored WASM crypto, real pkarr resolution, real homeserver
-// reads/writes, real IndexedDB persistence, real sessionStorage + HTTP-only
+// reads/writes, real IndexedDB persistence, real localStorage + HTTP-only
 // cookie session restore after a simulated reload.
 //
 // Alice runs the app's FULL PaykitMessagingService stack (receiver
@@ -276,7 +276,7 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
     expect(aliceConversations.map(({ kind }) => kind).sort()).toEqual(['dm', 'listing']);
 
     // --- Reload: silent session restore + snapshot restore ------------------
-    // A real reload keeps sessionStorage and the browser's HTTP-only cookie
+    // A real reload keeps localStorage and the browser's HTTP-only cookie
     // but wipes every in-memory wasm handle. clearSession() deliberately
     // wipes the persisted metadata too (it is the sign-out path), so the
     // simulation re-seeds storage after dropping memory — exactly what
@@ -284,10 +284,10 @@ describe('encrypted marketplace messaging — live two-party proof', () => {
     // comes back through restorePersistedSession() (exported metadata + the
     // live cookie revalidated by the homeserver), and the link comes back
     // from its persisted IndexedDB snapshot.
-    const persistedSessionBlob = window.sessionStorage.getItem(MESSAGING_SESSION_STORAGE_KEY);
+    const persistedSessionBlob = window.localStorage.getItem(MESSAGING_SESSION_STORAGE_KEY);
     expect(persistedSessionBlob).not.toBeNull();
     PaykitMessagingService.clearSession();
-    window.sessionStorage.setItem(MESSAGING_SESSION_STORAGE_KEY, persistedSessionBlob!);
+    window.localStorage.setItem(MESSAGING_SESSION_STORAGE_KEY, persistedSessionBlob!);
     expect(PaykitMessagingService.hasActiveSession(alice.pubky)).toBe(false);
 
     const secondReply = buildChatMessage({
