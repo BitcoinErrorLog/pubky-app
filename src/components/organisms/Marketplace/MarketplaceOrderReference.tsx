@@ -4,13 +4,23 @@ import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Link } from '@/atoms/Link/Link';
+import { formatOrderInstant } from '@/libs/commerce/checkout-hold';
 import { copyToClipboard } from '@/libs/utils/utils';
 import type { MarketplaceOrder } from '@/services/marketplace/marketplace';
 import { sellerPaypalActivityUrl, shortOrderReference } from './order-reference';
 
-export function MarketplaceOrderReference({ order, isBuyer }: { order: MarketplaceOrder; isBuyer: boolean }) {
+export function MarketplaceOrderReference({
+  order,
+  isBuyer,
+  showPlacedAt = false,
+}: {
+  order: MarketplaceOrder;
+  isBuyer: boolean;
+  showPlacedAt?: boolean;
+}) {
   const reference = shortOrderReference(order.id);
   const paypalUrl = sellerPaypalActivityUrl(order, isBuyer);
+  const placedAt = showPlacedAt ? formatOrderInstant(order.createdAt) : null;
   const [copied, setCopied] = useState(false);
 
   return (
@@ -32,6 +42,11 @@ export function MarketplaceOrderReference({ order, isBuyer }: { order: Marketpla
       >
         {copied ? 'Copied' : 'Copy'}
       </Button>
+      {placedAt ? (
+        <time dateTime={order.createdAt} className="text-sm text-muted-foreground" data-testid="order-placed-at">
+          Placed {placedAt}
+        </time>
+      ) : null}
       {paypalUrl ? (
         <Link
           href={paypalUrl}

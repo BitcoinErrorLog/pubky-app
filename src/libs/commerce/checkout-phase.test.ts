@@ -125,7 +125,11 @@ describe('checkout-phase', () => {
     expect(formatRemainingHMmSs('2026-09-28T12:00:00.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('1:00:00');
     expect(formatRemainingHMmSs('2026-09-29T10:53:06.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('23:53:06');
     expect(formatRemainingHMmSs('2026-09-28T10:00:00.000Z', Date.parse('2026-09-28T11:00:00.000Z'))).toBe('0:00:00');
-    expect(sellerReservationCopy('2099-01-01T00:10:00.000Z')).toMatch(/^Held for a buyer · restocks /);
+    expect(sellerReservationCopy('2026-10-02T09:10:00.000Z')).toBe(
+      'Held for a buyer · restocks Oct 2, 2026, 9:10 AM UTC',
+    );
+    expect(sellerReservationCopy(null)).toBe('Held for a buyer.');
+    expect(sellerReservationCopy('not a date')).toBe('Held for a buyer.');
   });
 
   it('reads order ids from the checkout command passthrough', () => {

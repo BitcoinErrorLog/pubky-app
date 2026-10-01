@@ -1,5 +1,5 @@
 import { MARKETPLACE_ROUTES } from '@/app/routes';
-import { UNBOUND_BACK_CANCEL_REASON } from '@/libs/commerce/checkout-hold';
+import { formatOrderInstant, UNBOUND_BACK_CANCEL_REASON } from '@/libs/commerce/checkout-hold';
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 
 export const CHECKOUT_IN_PROGRESS_LABEL = 'Checkout in progress';
@@ -180,11 +180,8 @@ export function reservedWhileYouPayCopy(holdExpiresAt: string | null | undefined
 }
 
 export function sellerReservationCopy(holdExpiresAt: string | null | undefined): string {
-  if (!holdExpiresAt) return 'Held for a buyer.';
-  const restock = new Date(holdExpiresAt);
-  if (Number.isNaN(restock.getTime())) return 'Held for a buyer.';
-  const time = restock.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  return `Held for a buyer · restocks ${time}`;
+  const restock = formatOrderInstant(holdExpiresAt);
+  return restock ? `Held for a buyer · restocks ${restock}` : 'Held for a buyer.';
 }
 
 export function extractCheckoutOrderIds(result: unknown): string[] {
