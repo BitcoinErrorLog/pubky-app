@@ -217,6 +217,32 @@ describe('runtime-config resolver', () => {
       expect(getPassportSignInEnabled()).toBe(false);
     });
 
+    it('a deployed container takes only an https:// Passport override', () => {
+      simulateDeployedEnv();
+      setAllRuntimeEnv();
+      for (const value of ['http://passport.example.com', 'http://localhost:3000', 'ftp://passport.example.com']) {
+        resetRuntimeConfigForTests();
+        process.env[PUBKY_RUNTIME_ENV_NAMES.passportUrl] = value;
+        expect(() => readServerConfig()).toThrow(/Runtime config is incomplete or invalid/);
+      }
+      resetRuntimeConfigForTests();
+      process.env[PUBKY_RUNTIME_ENV_NAMES.passportUrl] = 'https://passport.example.com';
+      expect(readServerConfig().passportUrl).toBe('https://passport.example.com');
+    });
+
+    it('local development also takes a plain-HTTP localhost Passport, and nothing else over HTTP', () => {
+      process.env[PUBKY_RUNTIME_ENV_NAMES.passportUrl] = 'http://localhost:3000';
+      expect(getPassportOrigin()).toBe('http://localhost:3000');
+
+      resetRuntimeConfigForTests();
+      process.env[PUBKY_RUNTIME_ENV_NAMES.passportUrl] = 'http://127.0.0.1:3000';
+      expect(getPassportOrigin()).toBe('http://127.0.0.1:3000');
+
+      resetRuntimeConfigForTests();
+      process.env[PUBKY_RUNTIME_ENV_NAMES.passportUrl] = 'http://passport.example.com';
+      expect(() => readServerConfig()).toThrow();
+    });
+
     it('strict deployed parse succeeds with the Passport values unset', () => {
       simulateDeployedEnv();
       setAllRuntimeEnv();
