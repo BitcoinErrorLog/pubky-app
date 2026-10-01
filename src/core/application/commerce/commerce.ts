@@ -3426,6 +3426,10 @@ export class CommerceApplication {
     }
     // Without Web Locks nothing registers; the listing stays `unregistered`.
     if (!registering) return { registered: false, verified };
+    // The homeserver is not serving the acked record yet, so the registration
+    // precheck would read that same lag as a deleted listing and drop the row.
+    // It stays `unregistered` and heals through ensureListingRegistered.
+    if (!verified) return { registered: false, verified };
     return {
       registered: await this.runListingRegistration(record, attempt, 'publish', publishJob.id),
       verified,

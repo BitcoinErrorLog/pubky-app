@@ -677,17 +677,29 @@ describe('CommerceApplication', () => {
 
     it('reports an acked publish as unverified, never as failed, while the homeserver has not served it back', async () => {
       const record = createCommerceListingFixture();
+      const listingId = `${record.ownerPubky}:${record.listingId}`;
       publishableSession();
-      vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async () => {
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async () => {
         throw missing();
       });
 
+      // The registration precheck would read the same lag as a deleted record,
+      // so the listing is left pending instead of being registered or dropped.
       await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
-        registered: true,
+        registered: false,
         verified: false,
       });
-      await expect(LocalCommerceService.getListing(`${record.ownerPubky}:${record.listingId}`)).resolves.toMatchObject({
+      expect(MarketplaceGatewayService.execute).not.toHaveBeenCalled();
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
         sync_status: 'synced',
+        registration_status: 'unregistered',
+      });
+
+      fetchJson.mockResolvedValue({ ...record });
+      await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
+      expect(MarketplaceGatewayService.execute).toHaveBeenCalledOnce();
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+        registration_status: 'registered',
       });
     });
 
@@ -1485,6 +1497,7 @@ describe('CommerceApplication', () => {
 
         await expect(CommerceApplication.commitUpsertListing(record, secondReserve)).resolves.toEqual({
           registered: true,
+          verified: true,
         });
         expect(execute).toHaveBeenCalledTimes(2);
         expect(execute.mock.calls[1][1].commandId).not.toBe(execute.mock.calls[0][1].commandId);
