@@ -10,6 +10,7 @@ import {
   MARKETPLACE_CLAIMABLE_GRANTS,
   MARKETPLACE_DISCLOSURE_INVENTORY,
   MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
+  MARKETPLACE_DISCLOSURE_RING_SIGN_IN,
   MARKETPLACE_DISCLOSURE_SIGN_IN,
   MARKETPLACE_PREVIOUS_SESSION_GRANT,
   MARKETPLACE_PRIVATE_DATA_SCOPE,
@@ -76,11 +77,20 @@ describe('marketplace session grant', () => {
         .join('&')}`;
     expect(marketplaceApprovalDisclosure(ringUrl(MARKETPLACE_SESSION_GRANT))).toBe(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
     expect(marketplaceApprovalDisclosure(ringUrl(ringCapture.caps))).toBe(MARKETPLACE_DISCLOSURE_SIGN_IN);
-    expect(marketplaceApprovalDisclosure(ringUrl(RING_COOKIE_CAPABILITIES))).toBe(MARKETPLACE_DISCLOSURE_SIGN_IN);
+    expect(marketplaceApprovalDisclosure(ringUrl(RING_COOKIE_CAPABILITIES))).toBe(MARKETPLACE_DISCLOSURE_RING_SIGN_IN);
     expect(marketplaceApprovalDisclosure(ringUrl(RING_COOKIE_CAPABILITIES.split(',').reverse().join(',')))).toBe(
-      MARKETPLACE_DISCLOSURE_SIGN_IN,
+      MARKETPLACE_DISCLOSURE_RING_SIGN_IN,
     );
     expect(marketplaceApprovalDisclosure(ringUrl(ringCookie.pubky_app_signin))).toBeNull();
+  });
+
+  it("says a Ring cookie approval also keeps Pubky App's social and Locks access working", () => {
+    expect(MARKETPLACE_DISCLOSURE_RING_SIGN_IN).toMatch(/^Approving signs you in to Pubky Shop, /);
+    expect(MARKETPLACE_DISCLOSURE_RING_SIGN_IN).toContain(
+      'the marketplace the same access, including your private Shop data',
+    );
+    expect(MARKETPLACE_DISCLOSURE_RING_SIGN_IN).toMatch(/keeps Pubky App's social and Locks access working\.$/);
+    expect(MARKETPLACE_DISCLOSURE_SIGN_IN).not.toMatch(/Pubky App/);
   });
 
   it('never names a capability path, a client host, or a signer', () => {
@@ -88,6 +98,7 @@ describe('marketplace session grant', () => {
       MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
       MARKETPLACE_DISCLOSURE_INVENTORY,
       MARKETPLACE_DISCLOSURE_SIGN_IN,
+      MARKETPLACE_DISCLOSURE_RING_SIGN_IN,
     ]) {
       expect(sentence).not.toMatch(/\/|:rw|pubky\.app|marketplace-service|Bitkit|Ring/);
       expect(sentence.match(/\./g)).toHaveLength(1);
