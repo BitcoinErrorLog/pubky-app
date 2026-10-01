@@ -1,7 +1,9 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import { Account } from './Account';
+import { act, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { asOpaque } from '@/test-utils/type-assertions';
+import { Account, SIGN_OUT_COPY } from './Account';
 
 // Mock next/navigation
 const mockPush = vi.fn();
@@ -26,6 +28,31 @@ describe('Account', () => {
     expect(screen.getByText('Edit your profile')).toBeInTheDocument();
     expect(screen.getByText('Backup your account')).toBeInTheDocument();
     expect(screen.getByText('Delete your account')).toBeInTheDocument();
+  });
+});
+
+describe('Account sign-out copy', () => {
+  afterEach(() => {
+    act(() => {
+      useAuthStore.setState({ session: null });
+    });
+  });
+
+  it('says a Pubky Ring sign-out also signs pubky.app out in this browser', () => {
+    useAuthStore.setState({ session: asOpaque({ info: {} }) });
+    render(<Account />);
+    expect(screen.getByRole('heading', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.getByText(SIGN_OUT_COPY.cookie)).toBeInTheDocument();
+    expect(SIGN_OUT_COPY.cookie).toContain('Shop and of pubky.app in this browser');
+    expect(screen.queryByText(SIGN_OUT_COPY.grant)).not.toBeInTheDocument();
+  });
+
+  it('says a Bitkit grant sign-out leaves pubky.app signed in', () => {
+    useAuthStore.setState({ session: asOpaque({ info: {}, grant: {} }) });
+    render(<Account />);
+    expect(screen.getByText(SIGN_OUT_COPY.grant)).toBeInTheDocument();
+    expect(SIGN_OUT_COPY.grant).toContain('pubky.app is not signed out');
+    expect(screen.queryByText(SIGN_OUT_COPY.cookie)).not.toBeInTheDocument();
   });
 });
 
