@@ -36,7 +36,8 @@ export const ADDRESS_ATTRIBUTION = {
 
 export const ADDRESS_SUGGEST_MIN_CHARS = 4;
 const ADDRESS_SUGGEST_MAX_CHARS = 120;
-const REQUEST_TIMEOUT_MS = 4_000;
+/** Longer than the service's 6-second upstream budget, so a slow OpenStreetMap answer still arrives. */
+const REQUEST_TIMEOUT_MS = 8_000;
 const CLIENT_CACHE_ENTRIES = 50;
 const MAX_BACKOFF_MS = 60_000;
 const DEFAULT_BACKOFF_MS = 5_000;
