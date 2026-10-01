@@ -6,6 +6,7 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplacePaymentSettings } from '@/templates/Marketplace/MarketplacePaymentSettings';
 import { LOCKS_CONNECT_REAPPROVE_NOTICE } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
+import { setSocialHost } from '@/test-utils/social-host';
 
 const view = vi.hoisted(() => ({
   locksConnect: {
@@ -68,6 +69,11 @@ vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', async (
     openConnect: vi.fn(),
     closeConnect: vi.fn(),
   }),
+}));
+
+// The sign-out card's flow is covered by unit tests; the capture needs only its idle state.
+vi.mock('@/hooks/useSignOut/useSignOut', () => ({
+  useSignOut: () => ({ handleSignOut: vi.fn(), isLoading: false }),
 }));
 
 vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
@@ -140,6 +146,19 @@ describe('Marketplace payment settings — visual regression', () => {
     await expect.element(screen.getByText('Display preferences')).toBeInTheDocument();
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-display-preferences-desktop');
     useMarketplaceDisplayStore.setState({ showFxEstimate: true, measurementSystem: null });
+  });
+
+  // Social link-out moves sign-out off /settings/account (the social host's page) onto Shop settings.
+  it('renders the Shop sign-out card under social link-out at desktop viewport', async () => {
+    setLocksConnect();
+    setSocialHost('https://pubky.app');
+    try {
+      const screen = await renderForVRT(<MarketplacePaymentSettings />, { viewport: { width: 1440, height: 1800 } });
+      await expect.element(screen.getByTestId('marketplace-sign-out-card')).toBeVisible();
+      await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('payment-settings-social-linkout-desktop');
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   it('renders the Bitkit setup dialog', async () => {

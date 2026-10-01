@@ -5,6 +5,7 @@ import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { Messages } from '@/templates/Messages/Messages';
 import { MessagesConversation } from '@/templates/Messages/MessagesConversation';
+import { setSocialHost } from '@/test-utils/social-host';
 
 const OWNER = 'o'.repeat(52);
 const DM_COUNTERPARTY = 'z'.repeat(52);
@@ -272,6 +273,22 @@ describe('Messages area — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dm-conversation-muted-desktop');
+  });
+
+  it('links the counterparty to their shop with a Profile on Pubky link under social link-out at desktop viewport', async () => {
+    dmView.status = 'muted';
+    setSocialHost('https://pubky.app');
+    try {
+      const screen = await renderForVRT(<MessagesConversation counterpartyPubky={DM_COUNTERPARTY} />, {
+        viewport: VRT_VIEWPORT_DESKTOP,
+      });
+      await expect
+        .element(screen.getByRole('link', { name: 'Profile on Pubky' }))
+        .toHaveAttribute('href', `https://pubky.app/profile/${DM_COUNTERPARTY}`);
+      await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dm-conversation-social-linkout-desktop');
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   it('renders the signed-out state at desktop viewport', async () => {

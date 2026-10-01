@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { MarketplaceShop } from '@/templates/Marketplace/MarketplaceShop';
+import { setSocialHost } from '@/test-utils/social-host';
 
 // No rate in this capture: the indicative-rate hook resolves to null (no
 // rate -> no estimate), keeping the scenario network-free and byte-identical
@@ -189,6 +190,53 @@ describe('Marketplace shop — visual regression', () => {
       disableHover: true,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-populated-desktop');
+  });
+
+  it('renders the Profile on Pubky action under social link-out at desktop viewport', async () => {
+    const { seller, shop, listings } = await fixtures;
+    view.currentUserPubky = 'u'.repeat(52);
+    view.shop = shop;
+    view.listings = listings;
+    view.catalogEntries = [];
+    setSocialHost('https://pubky.app');
+    try {
+      const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+        viewport: VRT_VIEWPORT_DESKTOP,
+        disableHover: true,
+      });
+      await expect
+        .element(screen.getByRole('link', { name: 'Profile on Pubky' }))
+        .toHaveAttribute('href', `https://pubky.app/profile/${seller}`);
+      await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-social-linkout-desktop');
+    } finally {
+      setSocialHost(undefined);
+    }
+  });
+
+  it('renders the no-shop fallback under social link-out at desktop viewport', async () => {
+    const { seller, listings } = await fixtures;
+    view.currentUserPubky = 'u'.repeat(52);
+    view.shop = null;
+    view.listings = listings;
+    view.catalogEntries = [];
+    setSocialHost('https://pubky.app');
+    try {
+      const screen = await renderForVRT(<MarketplaceShop sellerPubky={seller} />, {
+        viewport: VRT_VIEWPORT_DESKTOP,
+        disableHover: true,
+      });
+      await vi.waitFor(() => {
+        if (!screen.container.textContent?.includes('hasn’t set up a shop profile yet')) {
+          throw new Error('The no-shop fallback has not rendered yet.');
+        }
+      });
+      await expect
+        .element(screen.getByRole('link', { name: 'Profile on Pubky' }))
+        .toHaveAttribute('href', `https://pubky.app/profile/${seller}`);
+      await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('shop-no-record-social-linkout-desktop');
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   it('renders a populated shop at mobile viewport', async () => {
