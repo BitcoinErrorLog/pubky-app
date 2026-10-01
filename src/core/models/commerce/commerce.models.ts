@@ -197,6 +197,7 @@ export class CommerceListingModel
   updated_at: number;
   write_id: CommerceListingModelSchema['write_id'];
   auction_registration: CommerceListingModelSchema['auction_registration'];
+  read_back_pending: CommerceListingModelSchema['read_back_pending'];
 
   constructor(listing: CommerceListingModelSchema) {
     super(listing);
@@ -214,6 +215,7 @@ export class CommerceListingModel
     this.updated_at = listing.updated_at;
     this.write_id = listing.write_id;
     this.auction_registration = listing.auction_registration;
+    this.read_back_pending = listing.read_back_pending;
   }
 
   static async findBySeller(sellerId: string): Promise<CommerceListingModelSchema[]> {

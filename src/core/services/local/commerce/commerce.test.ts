@@ -332,6 +332,57 @@ describe('LocalCommerceService', () => {
       });
       await expect(CommerceSyncJobModel.findById(job.id)).resolves.toMatchObject({ status: 'pending' });
     });
+
+    describe('a publish acked but never read back', () => {
+      const stagePublishReadBackPending = async () => {
+        const job = createCommerceSyncJobFixture({ id: '018f47d2-6a27-7c23-a49d-6b21bb770129' });
+        const staged = await LocalCommerceService.stageListingSync(listing, job, 'unregistered');
+        return await LocalCommerceService.markPublishedListingSynced(listing, staged, true);
+      };
+
+      it('refuses a deletion or a not_found, keeping the row pending and marked', async () => {
+        const observed = await stagePublishReadBackPending();
+        await expect(LocalCommerceService.getListingRegistrationState(listingId)).resolves.toMatchObject({
+          readBackPending: true,
+        });
+
+        await expect(
+          LocalCommerceService.settleListingRegistration(listingId, observed, { recordDeleted: true }),
+        ).resolves.toBe(false);
+        await expect(
+          LocalCommerceService.settleListingRegistration(listingId, observed, { status: 'not_found' }),
+        ).resolves.toBe(false);
+        await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+          sync_status: 'synced',
+          registration_status: 'unregistered',
+          read_back_pending: true,
+        });
+      });
+
+      it('clears the marker once registered', async () => {
+        const observed = await stagePublishReadBackPending();
+
+        await expect(
+          LocalCommerceService.settleListingRegistration(listingId, observed, { status: 'registered' }),
+        ).resolves.toBe(true);
+        const registered = await LocalCommerceService.getListing(listingId);
+        expect(registered).toMatchObject({ registration_status: 'registered' });
+        expect(registered?.read_back_pending).toBeUndefined();
+      });
+
+      it('clears the marker when a successful homeserver read rewrites the row', async () => {
+        await stagePublishReadBackPending();
+
+        await LocalCommerceService.upsertListing(listing, 'synced');
+        const observed = await LocalCommerceService.getListingRowGeneration(listingId);
+        await expect(LocalCommerceService.getListingRegistrationState(listingId)).resolves.toMatchObject({
+          readBackPending: false,
+        });
+        await expect(
+          LocalCommerceService.settleListingRegistration(listingId, observed, { status: 'not_found' }),
+        ).resolves.toBe(true);
+      });
+    });
   });
 
   describe('the persisted auction registration command', () => {
@@ -363,6 +414,7 @@ describe('LocalCommerceService', () => {
       await expect(LocalCommerceService.getListingRegistrationState(listingId)).resolves.toEqual({
         generation: stored,
         auctionRegistration: command,
+        readBackPending: false,
       });
     });
 

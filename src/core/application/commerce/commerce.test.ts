@@ -693,11 +693,47 @@ describe('CommerceApplication', () => {
       await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
         sync_status: 'synced',
         registration_status: 'unregistered',
+        read_back_pending: true,
       });
+
+      // The owner surface's first heal still reads a 404 through its retries: lag, not a deletion.
+      const readsBeforeHeal = fetchJson.mock.calls.length;
+      await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+      expect(fetchJson.mock.calls.length - readsBeforeHeal).toBe(4);
+      expect(MarketplaceGatewayService.execute).not.toHaveBeenCalled();
+      const afterFirstHeal = await LocalCommerceService.getListing(listingId);
+      expect(afterFirstHeal).toMatchObject({ registration_status: 'unregistered', read_back_pending: true });
+      expect(isListingRegistrationPending(afterFirstHeal!)).toBe(true);
 
       fetchJson.mockResolvedValue({ ...record });
       await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
       expect(MarketplaceGatewayService.execute).toHaveBeenCalledOnce();
+      const registered = await LocalCommerceService.getListing(listingId);
+      expect(registered).toMatchObject({ registration_status: 'registered' });
+      expect(registered?.read_back_pending).toBeUndefined();
+    });
+
+    it('keeps an unconfirmed publish pending when the service cannot read the record yet either', async () => {
+      const record = createCommerceListingFixture();
+      const listingId = `${record.ownerPubky}:${record.listingId}`;
+      publishableSession();
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async () => {
+        throw missing();
+      });
+      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+        registered: false,
+        verified: false,
+      });
+
+      fetchJson.mockResolvedValue({ ...record });
+      vi.mocked(MarketplaceGatewayService.execute).mockResolvedValueOnce(LISTING_RECORD_NOT_FOUND_RESPONSE);
+      await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+        registration_status: 'unregistered',
+        read_back_pending: true,
+      });
+
+      await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);
       await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
         registration_status: 'registered',
       });

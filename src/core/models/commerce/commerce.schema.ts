@@ -59,6 +59,13 @@ export interface CommerceListingModelSchema {
    * listing's registration lock holder.
    */
   auction_registration?: CommerceAuctionRegistrationCommand;
+  /**
+   * The homeserver acked this row's publish but never served it back. Until
+   * a registration succeeds or the row is rewritten, a homeserver or service
+   * 404 is read lag, never a deletion, so the row stays pending instead of
+   * settling `not_found`. Client-only.
+   */
+  read_back_pending?: true;
 }
 
 export interface CommerceAuctionRegistrationCommand {

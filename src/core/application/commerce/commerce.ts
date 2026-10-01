@@ -3403,7 +3403,7 @@ export class CommerceApplication {
       await this.assertRowHoldsPublish(attempt);
     });
     this.assertListingRegistrationFence(attempt);
-    const synced = await LocalCommerceService.markPublishedListingSynced(record, attempt.observed);
+    const synced = await LocalCommerceService.markPublishedListingSynced(record, attempt.observed, !verified);
     if (synced === null) throw this.listingChangedConflict();
     attempt.observed = synced;
 
@@ -3426,9 +3426,9 @@ export class CommerceApplication {
     }
     // Without Web Locks nothing registers; the listing stays `unregistered`.
     if (!registering) return { registered: false, verified };
-    // The homeserver is not serving the acked record yet, so the registration
-    // precheck would read that same lag as a deleted listing and drop the row.
-    // It stays `unregistered` and heals through ensureListingRegistered.
+    // The homeserver is not serving the acked record yet. The row carries
+    // `read_back_pending`, so no 404 settles it `not_found`; it stays
+    // `unregistered` and heals through ensureListingRegistered.
     if (!verified) return { registered: false, verified };
     return {
       registered: await this.runListingRegistration(record, attempt, 'publish', publishJob.id),
@@ -3561,7 +3561,8 @@ export class CommerceApplication {
 
   /**
    * One registration attempt. Outside the lock: the stock rule and the
-   * homeserver precheck (a single read). Under the lock: the fence, the row
+   * homeserver precheck (a single read, or the read-back retry schedule for a
+   * row whose acked write was never read back). Under the lock: the fence, the row
    * generation check, the service reads that shape the command, one timed
    * command request, and the compare-and-write settle. Nothing waits or
    * retries under the lock; a failed attempt stays pending for the next one.
@@ -3587,7 +3588,7 @@ export class CommerceApplication {
       assertPublishableListingStock(record, 'registerListing');
       if (isDurableCommerceMode(getCommerceAdapterMode())) {
         this.assertListingRegistrationFence(attempt);
-        const published = await this.hasPublishedListingRecord(record);
+        const published = await this.precheckPublishedListingRecord(record, attempt);
         this.assertListingRegistrationFence(attempt);
         if (!published) {
           await this.withListingRegistrationLock(attempt, owner, async () => {
@@ -3657,6 +3658,33 @@ export class CommerceApplication {
       attempt.observed,
       outcome === 'record_deleted' ? { recordDeleted: true } : { status: 'not_found' },
     );
+  }
+
+  /**
+   * The registration precheck. A row marked `read_back_pending` was acked but
+   * never served back, so its 404 is retried on the read-back schedule; one
+   * that outlasts it still answers false, and the settle keeps that row
+   * pending rather than `not_found`.
+   */
+  private static async precheckPublishedListingRecord(
+    record: CommerceListingRecord,
+    attempt: ListingRegistrationAttempt,
+  ): Promise<boolean> {
+    const { readBackPending } = await LocalCommerceService.getListingRegistrationState(attempt.compositeListingId);
+    for (let retry = 0; ; retry += 1) {
+      if (await this.hasPublishedListingRecord(record)) return true;
+      if (!readBackPending) return false;
+      if (retry >= LISTING_READ_BACK_RETRY_DELAYS_MS.length) {
+        Logger.warn('Listing record is still not served back after an acked write; registration stays pending', {
+          listing: attempt.compositeListingId,
+        });
+        return false;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, LISTING_READ_BACK_RETRY_DELAYS_MS[retry]);
+      });
+      this.assertListingRegistrationFence(attempt);
+    }
   }
 
   /**
