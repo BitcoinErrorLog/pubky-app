@@ -1105,6 +1105,77 @@ describe('PaykitMessagingService', () => {
         expect(healthyRead).toBeLessThan(firstRecoveryRead);
       });
 
+      describe('restarted queued-message flushes', () => {
+        async function establishWithFailedFlush(counterparty: string) {
+          world.markers.set(counterparty, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+          await PaykitMessagingService.ensureLink(OWNER, counterparty);
+          world.advanceScript.push('complete');
+          await expect(PaykitMessagingService.ensureLink(OWNER, counterparty)).resolves.toEqual({ status: 'ready' });
+          await LocalMessagingService.enqueueOutboxMessage({
+            id: crypto.randomUUID(),
+            owner_pubky: OWNER,
+            counterparty_pubky: counterparty,
+            kind: 'dm',
+            conversation_id: null,
+            listing_ref: null,
+            body: `queued for ${counterparty.slice(0, 2)}`,
+            queued_at: Date.now(),
+            attempts: 0,
+            last_attempt_at: null,
+            last_error: null,
+          });
+          world.sendFailures = 1;
+          await expect(MessagingApplication.flushOutbox(OWNER, counterparty, ADMIT_ALL_POLICY)).resolves.toEqual({
+            delivered: 0,
+            remaining: 1,
+          });
+        }
+        const callIndexes = (name: string) => world.calls.flatMap((call, index) => (call === name ? [index] : []));
+
+        it('inbox sync runs at most 3 restarted flushes per pass, after every ready link has received', async () => {
+          const pairs = Array.from({ length: 5 }, (_, index) => `d${index}`.padEnd(52, 'x'));
+          for (const counterparty of pairs) await establishWithFailedFlush(counterparty);
+          MessagingApplication.restartRetries(OWNER);
+          world.calls = [];
+
+          await MessagingApplication.syncCounterparties(OWNER, pairs, { policy: ADMIT_ALL_POLICY });
+
+          const sends = callIndexes('link.send');
+          const receives = callIndexes('link.receive');
+          expect(sends).toHaveLength(3);
+          expect(receives).toHaveLength(5);
+          expect(Math.max(...receives)).toBeLessThan(Math.min(...sends));
+
+          world.calls = [];
+          advanceClock(POLL_MS);
+          await MessagingApplication.syncCounterparties(OWNER, pairs, { policy: ADMIT_ALL_POLICY });
+
+          expect(callIndexes('link.send')).toHaveLength(2);
+          for (const counterparty of pairs) {
+            await expect(LocalMessagingService.getQueuedMessages(OWNER, counterparty)).resolves.toEqual([]);
+          }
+        });
+
+        it('restarted flushes and restarted link retries share the same 3 recovery slots per pass', async () => {
+          const flushing = Array.from({ length: 4 }, (_, index) => `f${index}`.padEnd(52, 'x'));
+          const recovering = Array.from({ length: 2 }, (_, index) => `r${index}`.padEnd(52, 'x'));
+          for (const counterparty of flushing) await establishWithFailedFlush(counterparty);
+          for (const counterparty of recovering) await backOffFiveTimes(counterparty);
+          MessagingApplication.restartRetries(OWNER);
+          world.calls = [];
+
+          await MessagingApplication.syncCounterparties(OWNER, [...flushing, ...recovering], {
+            policy: ADMIT_ALL_POLICY,
+          });
+
+          const linkRetried = recovering.filter((pubky) => markerReads(pubky).length > 0);
+          expect(callIndexes('link.send').length + linkRetried.length).toBe(3);
+          expect(callIndexes('link.send')).toHaveLength(2);
+          expect(linkRetried).toHaveLength(1);
+          expect(callIndexes('link.receive')).toHaveLength(4);
+        });
+      });
+
       it('a restart with nothing backing off changes nothing and makes no request', async () => {
         world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
         await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);

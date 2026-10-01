@@ -549,10 +549,12 @@ export class MessagingApplication {
    * enter it; the UI discloses this instead of pretending otherwise.
    *
    * Pairs whose last link attempt failed are kept out of that budget: one
-   * still waiting on its backoff is skipped with no network, and at most
-   * {@link MESSAGING_SYNC_MAX_RECOVERY_PROBES} due retries run per pass,
-   * after every healthy pair, so a retry never delays or displaces healthy
-   * delivery.
+   * still waiting on its backoff is skipped with no network. A ready link
+   * whose last queued-message flush failed still receives in the healthy
+   * pass, but its due flush is a retry too. At most
+   * {@link MESSAGING_SYNC_MAX_RECOVERY_PROBES} due retries of either kind run
+   * per pass, after every healthy pair, so a retry never delays or displaces
+   * healthy delivery.
    *
    * Existing counterparties are probed most recent first, and
    * {@link MESSAGING_SYNC_RESERVED_NEW_PROBES} of the healthy budget are kept
@@ -589,15 +591,33 @@ export class MessagingApplication {
     const freshProbes = healthyFresh.slice(0, MESSAGING_SYNC_MAX_COUNTERPARTIES - existingProbes.length);
     // Sequential on purpose: each probe is a couple of homeserver reads, and
     // parallel fan-out against one homeserver session buys nothing but load.
-    for (const counterparty of [
-      ...existingProbes,
-      ...freshProbes,
-      ...retries.slice(0, MESSAGING_SYNC_MAX_RECOVERY_PROBES),
-    ]) {
+    const flushRetries: string[] = [];
+    for (const counterparty of [...existingProbes, ...freshProbes]) {
       const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
-      if (state.status === 'ready') {
+      if (state.status !== 'ready') continue;
+      if (this.outboxRetry.status(`${ownerPubky}:${counterparty}`) === 'due') {
+        flushRetries.push(counterparty);
+      } else {
         // The probe may have JUST completed the handshake — deliver anything
         // queued toward this counterparty before draining inbound messages.
+        await this.flushOutbox(ownerPubky, counterparty, policy);
+      }
+      await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
+    }
+    // Due link retries and due flush retries of ready links share one
+    // recovery budget, taken in turn so neither kind starves the other.
+    const recovery: { kind: 'link' | 'flush'; counterparty: string }[] = [];
+    for (let index = 0; index < Math.max(retries.length, flushRetries.length); index += 1) {
+      if (index < flushRetries.length) recovery.push({ kind: 'flush', counterparty: flushRetries[index] });
+      if (index < retries.length) recovery.push({ kind: 'link', counterparty: retries[index] });
+    }
+    for (const { kind, counterparty } of recovery.slice(0, MESSAGING_SYNC_MAX_RECOVERY_PROBES)) {
+      if (kind === 'flush') {
+        await this.flushOutbox(ownerPubky, counterparty, policy);
+        continue;
+      }
+      const state = await PaykitMessagingService.probeCounterparty(ownerPubky, counterparty);
+      if (state.status === 'ready') {
         await this.flushOutbox(ownerPubky, counterparty, policy);
         await PaykitMessagingService.receiveMessages(ownerPubky, counterparty, policy.gate);
       }
