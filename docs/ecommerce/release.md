@@ -93,12 +93,27 @@ At most one or two Shop releases a day. An extra cut runs only for a production 
 
    A proof is reusable only while no file has changed since it ran. A merge commit is a new source state.
 
-5. **Check deployment config parity.** Compare public values (never secrets) between the production and staging
-   Vercel projects before every deploy, for both Production and Preview: `vercel env ls production --scope synonymdev`
-   from each linked checkout. `PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL` must be
-   `https://nexusd-production-7108.up.railway.app`; `https://nexusd-production-95a0.up.railway.app` is retired. The
-   session-bridge variables `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN` and `NEXT_PUBLIC_VIBE_ID` stay unset in both
-   projects. Env changes take effect only on the next deployment.
+5. **Check deployment config parity** before every deploy, for both Vercel projects. `vercel env ls` shows variable
+   names and targets only (every value reads `Encrypted`), so names and values are checked separately:
+   - **Names, per target.** From a checkout linked to each project, run `vercel env ls production --scope synonymdev`
+     and `vercel env ls preview --scope synonymdev`. `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN` and
+     `NEXT_PUBLIC_VIBE_ID` must not be listed for either target. A Preview build of a project that still has them
+     ships with the session bridge on.
+   - **Values, from what a deployment serves.** Public runtime values are inlined into each deployment's HTML, so
+     read them there instead of pulling env (`vercel env pull` writes every secret to disk):
+
+     ```bash
+     curl -fsS https://shop.pubky.app/marketplace \
+       | grep -oE '"(marketplaceNexusUrl|marketplaceUrl|locksUrl|paykitSetupUrl|homeserverUrl|commerceAdapterMode)":"[^"]*"'
+     ```
+
+     Repeat for `https://pubky-marketplace-staging.vercel.app/marketplace` and for any Preview deployment
+     (`vercel ls <project> --environment preview --scope synonymdev` lists them). `marketplaceNexusUrl` must be
+     `https://nexusd-production-7108.up.railway.app`; `https://nexusd-production-95a0.up.railway.app` is retired.
+     A Preview target with no deployment has no served values; check it in the Vercel dashboard
+     (Settings → Environment Variables) when one is about to be built.
+
+   Env changes take effect only on the next deployment.
 
 6. **Deploy** (next section), **prove** (the section after), then **tag and publish notes**.
 
@@ -212,9 +227,21 @@ defects outside the release and never gate it.
 - Screenshots `01`–`08` and `11`.
 - Evidence carries 8-character pubky prefixes only. Auth URLs, session exports and bearers are never printed.
 
+The fixture changes the seller seat's PayPal rail only for the run. Setup records the rail's current value in
+`paypal-fixture-state.json` (mode 600) before changing it, and teardown restores exactly that value and reads it back.
+When the prior value is the test address itself, only a marker is stored, so the address never reaches disk. Without
+a state file, `teardown` and `verify` change and check nothing.
+
 If the run fails or is interrupted, `paypal-fixture-state.json` stays in the evidence folder. Retry the cleanup with
-`node scripts/release/production-paypal-fixture.mjs teardown` (same environment) until it prints
-`PAYPAL_FIXTURE teardown OK`. Do not add checks that pay or create orders.
+`node scripts/release/production-paypal-fixture.mjs teardown` (same environment, including `PAYPAL_TEST_EMAIL`) until
+it prints `PAYPAL_FIXTURE teardown OK`; the state file is then deleted. Do not add checks that pay or create orders.
+
+**Never leave a test listing behind.** Any run that creates a listing on production or staging (both feed the same
+marketplace Nexus) keeps the seat key it published with until cleanup is done, deletes the listing before it ends,
+including on failure or interrupt, and verifies it is gone: Nexus listing detail 404, service projection 404 or zero
+stock, no homeserver record. A throwaway seat's secret is kept in a mode-600 file outside the repository until that
+verification passes, never only in process memory. A listing that could not be deleted is reported by id in the
+release notes and removed before the next release.
 
 ### Staging
 

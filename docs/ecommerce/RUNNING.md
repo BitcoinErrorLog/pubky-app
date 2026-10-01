@@ -72,7 +72,7 @@ Because a dedicated marketplace-indexing Nexus is deployed separately from the m
 
 ## Shared pubky.app sign-in (vibe session consumer)
 
-**Off in both Shop builds.** The production and staging Vercel projects build with `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN` and `NEXT_PUBLIC_VIBE_ID` unset, so the Shop uses only its own sign-in, makes no `/session-bridge` request, and ignores a `#s=` hand-off link. Keep them unset. The cookie bridge shares one homeserver cookie between sites, and cookie sessions are deprecated by the homeserver, so it is not the path to single sign-on with pubky.app.
+**Off in both live Shop builds.** The production and staging deployments are built with `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN` and `NEXT_PUBLIC_VIBE_ID` unset, so the Shop uses only its own sign-in, makes no `/session-bridge` request, and ignores a `#s=` hand-off link. Keep them unset. The cookie bridge shares one homeserver cookie between sites, and cookie sessions are deprecated by the homeserver, so it is not the path to single sign-on with pubky.app.
 
 The consumer code remains (ADR 0029): the two variables are **build-time** values, baked into the artifact at `npm run build` — not `PUBKY_RUNTIME_*` values — and consumer mode turns on only when the bridge origin is set (an exact origin such as `https://pubky.app`; `http://localhost:<port>` is accepted only outside production builds). A bridged restore never auto-triggers a re-approval, and the staging homeserver guard still runs on every restore when `PUBKY_RUNTIME_ENV=staging`.
 
@@ -294,7 +294,7 @@ This live suite uses no mocks and fails loudly when a dependency is missing. It 
 
 **Catalog empty.** Seed it at `/marketplace/sandbox`. If that page 404s, the app is not in sandbox mode.
 
-**`/marketplace/sandbox` 404s.** The env var is not reaching the app. It is read at request time by the server, so restart `npm run dev` after setting it.
+**`/marketplace/sandbox` 404s.** The env var is not reaching the app. Locally the server reads it when it renders each page, from the environment `npm run dev` started with, so restart `npm run dev` after setting it.
 
 **Everything transactional errors after a restart.** The sandbox service lost its memory. Re-seed.
 

@@ -23,8 +23,9 @@ The env var name is mapped to `commerceAdapterMode` in `src/libs/runtime-config/
 `commerceAdapterModeValue` enum allows `unavailable`, `sandbox`, `transaction-service`, and `locks-paykit`.
 `unavailable` is browse-only with no transactional commands, and it is the schema default.
 
-This is a runtime config value, not a Next.js build-time inline. The server reads non-inlined `PUBKY_RUNTIME_*` env and
-serializes the resolved object into the HTML (`src/libs/runtime-config/runtime-config.ts`). The browser reads
+This is a runtime config value, not a Next.js `NEXT_PUBLIC_*` inline, but on Vercel it is fixed per deployment: pages
+are prerendered at build time (`src/libs/runtime-config/render-mode.ts`), and the server serializes the build's
+resolved `PUBKY_RUNTIME_*` config into the HTML (`src/libs/runtime-config/runtime-config.ts`). The browser reads
 `window.__PUBKY_CONFIG__`, and `getCommerceAdapterMode()` returns the injected value. The injection happens in
 `src/components/molecules/ContainerRoot/ContainerRoot.tsx`, before the app bundle executes.
 
@@ -117,7 +118,7 @@ Check the resolved runtime config and the rendered UI:
 
 ```bash
 curl -fsS https://pubky-marketplace-production.vercel.app/marketplace | grep -o 'commerceAdapterMode[^,]*'
-curl -fsS https://pubky-marketplace-production.vercel.app/marketplace/listings/<sellerPubky>/<listingId> | grep -o 'commerceAdapterMode[^,]*'
+curl -fsS https://pubky-marketplace-production.vercel.app/marketplace/listing/<sellerPubky>/<listingId> | grep -o 'commerceAdapterMode[^,]*'
 ```
 
 Expected user-visible behavior:
@@ -174,13 +175,19 @@ branch, push it to the BitcoinErrorLog fork, then
 service and Nexus repositories pin their images by digest in `.railway/railway.ts`; follow their READMEs for the
 normal deploy path.
 
-Read-only checks. `railway variables` prints secret values, so never paste its output:
+Read-only checks. **Never run `railway variables` bare, or with `--kv` or `--json` to a terminal:** every form prints
+production secrets (database URLs, encryption and HMAC keys) in clear text. To see which variables are set, print the
+key names only:
 
 ```bash
 railway status --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production
-railway variables --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service marketplace-service
-railway variables --project af82731f-a6d0-4c0e-84cd-56ce6fcc8818 --environment production --service nexusd
+railway variables --json --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service marketplace-service \
+  | node -e 'console.log(Object.keys(JSON.parse(require("fs").readFileSync(0, "utf8"))).sort().join("\n"))'
+railway variables --json --project af82731f-a6d0-4c0e-84cd-56ce6fcc8818 --environment production --service nexusd \
+  | node -e 'console.log(Object.keys(JSON.parse(require("fs").readFileSync(0, "utf8"))).sort().join("\n"))'
 ```
+
+Read a value only when a task needs it, in the Railway dashboard, and never copy it into a ticket, log or chat.
 
 ## Drill Log
 
