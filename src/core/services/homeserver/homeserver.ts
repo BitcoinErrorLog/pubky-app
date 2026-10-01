@@ -674,9 +674,11 @@ export class HomeserverService {
       const authorizationUrl = flow.authorizationUrl;
       let live = flow;
       let freed = false;
+      const waiting = new AbortController();
       const free = () => {
         if (freed) return;
         freed = true;
+        waiting.abort();
         try {
           live.free();
         } catch {
@@ -693,7 +695,7 @@ export class HomeserverService {
               // approving in Pubky Ring), and it never polls that flow again. Reconnect to the same relay
               // channel when the page is visible again: an approval made meanwhile is still there.
               if (freed || !isTransientPollError(error) || ++resumes > AUTH_POLL_MAX_RESUMES) throw error;
-              await waitUntilVisible();
+              await waitUntilVisible(waiting.signal);
               if (freed) throw error;
               live = pubkySdk.resumeCookieAuthFlow(authorizationUrl);
             }

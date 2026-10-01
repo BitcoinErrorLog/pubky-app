@@ -918,6 +918,74 @@ describe('HomeserverService', () => {
         }
       });
 
+      it('settles a cancelled approval at once when the relay poll dropped while the page is hidden', async () => {
+        vi.useFakeTimers();
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+          const transportError = new Error('Request failed: HTTP transport error: error sending request');
+          transportError.name = 'RequestError';
+          mockState.startAuthFlow.mockReturnValue({
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce: vi.fn().mockRejectedValue(transportError),
+            free: vi.fn(),
+          });
+
+          const result = await HomeserverService.generateAuthUrl();
+          let settled = false;
+          const outcome = result.awaitApproval.then(
+            () => 'resolved',
+            (error: Error) => {
+              settled = true;
+              return error.name;
+            },
+          );
+          await vi.advanceTimersByTimeAsync(0);
+
+          // The page stays in the background: cancelling must not wait for it to become visible.
+          result.cancelAuthFlow();
+          await vi.advanceTimersByTimeAsync(0);
+
+          expect(settled).toBe(true);
+          await expect(outcome).resolves.toBe('AuthFlowCanceled');
+          expect(mockState.resumeAuthFlow).not.toHaveBeenCalled();
+        } finally {
+          visibility.mockRestore();
+          vi.useRealTimers();
+        }
+      });
+
+      it('settles a cancelled token flow at once when the relay poll dropped while the page is hidden', async () => {
+        vi.useFakeTimers();
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+          const transportError = new Error('Request failed: HTTP transport error: error sending request');
+          transportError.name = 'RequestError';
+          mockState.startAuthFlow.mockReturnValue({
+            authorizationUrl: 'https://auth.example.com/authorize',
+            awaitToken: vi.fn().mockRejectedValue(transportError),
+            free: vi.fn(),
+          });
+
+          const flow = HomeserverService.generateAuthTokenFlow();
+          let settled = false;
+          const outcome = flow.awaitToken().catch((error: unknown) => {
+            settled = true;
+            return error;
+          });
+          await vi.advanceTimersByTimeAsync(0);
+
+          flow.cancelAuthFlow();
+          await vi.advanceTimersByTimeAsync(0);
+
+          expect(settled).toBe(true);
+          await expect(outcome).resolves.toBe(transportError);
+          expect(mockState.resumeAuthFlow).not.toHaveBeenCalled();
+        } finally {
+          visibility.mockRestore();
+          vi.useRealTimers();
+        }
+      });
+
       it('should call startAuthFlow with default capabilities', async () => {
         await HomeserverService.generateAuthUrl();
 
