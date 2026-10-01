@@ -3,6 +3,7 @@ import type { ElementType } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { APP_ROUTES, ONBOARDING_ROUTES } from '@/app/routes';
 import { LANDING_NEXT_SECTION_ID } from '@/templates/Public/Landing/Landing.constants';
+import { setSocialHost } from '@/test-utils/social-host';
 import { HomeActions, HomeBrandFooter, HomeFooter, HomePageHeading, HomeSectionTitle } from './Home';
 
 // Mock Next.js router
@@ -189,6 +190,19 @@ describe('HomeActions', () => {
     fireEvent.click(exploreButton);
 
     expect(mockPush).toHaveBeenCalledWith(APP_ROUTES.HOME);
+  });
+
+  it('explores the marketplace with social link-out on', () => {
+    setSocialHost('https://pubky.app');
+    try {
+      render(<HomeActions />);
+
+      fireEvent.click(screen.getByTestId('explore-button'));
+
+      expect(mockPush).toHaveBeenCalledWith(APP_ROUTES.MARKETPLACE);
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 });
 

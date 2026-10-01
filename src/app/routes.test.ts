@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setSocialHost } from '@/test-utils/social-host';
 import {
   APP_ROUTES,
   AUTH_ROUTES,
@@ -10,6 +11,7 @@ import {
   getMarketplacePaymentSettingsRoute,
   getMarketplaceShopRoute,
   getProfileRoute,
+  getShopHomeRoute,
   getUserProfileUrl,
   isCollectionsOverviewRoute,
   isCoreExploreRoute,
@@ -554,5 +556,32 @@ describe('isLogoLandingRoute', () => {
     expect(isLogoLandingRoute('/hot')).toBe(false);
     expect(isLogoLandingRoute('/bookmarks')).toBe(false);
     expect(isLogoLandingRoute(null)).toBe(false);
+  });
+});
+
+describe('getShopHomeRoute', () => {
+  afterEach(() => {
+    setSocialHost(undefined);
+  });
+
+  it('is /home, and the route guard sends signed-in users there, while social link-out is off', () => {
+    expect(getShopHomeRoute()).toBe(APP_ROUTES.HOME);
+    expect(AUTHENTICATED_ROUTES.redirectTo).toBe(APP_ROUTES.HOME);
+  });
+
+  it('is the marketplace, and the route guard sends signed-in users there, while social link-out is on', () => {
+    setSocialHost('https://pubky.app');
+    expect(getShopHomeRoute()).toBe(APP_ROUTES.MARKETPLACE);
+    expect(AUTHENTICATED_ROUTES.redirectTo).toBe(APP_ROUTES.MARKETPLACE);
+  });
+
+  it('stays inside the signed-in allowed routes in both states', () => {
+    expect(AUTHENTICATED_ROUTES.allowedRoutes.some((route) => matchesAllowedRoute(getShopHomeRoute(), route))).toBe(
+      true,
+    );
+    setSocialHost('https://pubky.app');
+    expect(AUTHENTICATED_ROUTES.allowedRoutes.some((route) => matchesAllowedRoute(getShopHomeRoute(), route))).toBe(
+      true,
+    );
   });
 });

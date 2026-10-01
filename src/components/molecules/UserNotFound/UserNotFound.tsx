@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Tag, UserX } from 'lucide-react';
-import { APP_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getShopHomeRoute } from '@/app/routes';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { IllustratedEmptyState } from '../IllustratedEmptyState/IllustratedEmptyState';
@@ -24,7 +24,7 @@ export function UserNotFound() {
       subtitle={"The user you're looking for doesn't exist or may have been removed."}
     >
       <Container overrideDefaults className="flex flex-col items-center justify-center gap-6 sm:flex-row">
-        <Button type="button" variant={ButtonVariant.SECONDARY} onClick={() => router.push(APP_ROUTES.HOME)}>
+        <Button type="button" variant={ButtonVariant.SECONDARY} onClick={() => router.push(getShopHomeRoute())}>
           <ArrowLeft className="size-4 shrink-0" />
           {'Back to Feed'}
         </Button>

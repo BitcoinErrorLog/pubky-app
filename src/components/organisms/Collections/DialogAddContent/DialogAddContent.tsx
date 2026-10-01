@@ -3,7 +3,7 @@
 import { type ComponentPropsWithoutRef, type ComponentRef, forwardRef, type SyntheticEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Library, MessageCircle, Plus, Repeat, SquarePlus } from 'lucide-react';
-import { APP_ROUTES } from '@/app/routes';
+import { getShopHomeRoute } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Card, CardFooter, CardHeader, CardTitle } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
@@ -309,7 +309,7 @@ export function DialogAddContent({
 
   const handleOpenFeed = () => {
     setOpen(false);
-    router.push(APP_ROUTES.HOME);
+    router.push(getShopHomeRoute());
   };
 
   const handlePostCreated = async (createdPostId: string) => {

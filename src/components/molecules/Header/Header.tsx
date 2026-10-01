@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Flame, Home, Library, MessageCircle, Settings, Store, UserRoundPlus } from 'lucide-react';
-import { APP_ROUTES, isCoreExploreRoute, isNavItemActive, SETTINGS_ROUTES } from '@/app/routes';
+import { APP_ROUTES, isCoreExploreRoute, isNavItemActive, MARKETPLACE_ROUTES, SETTINGS_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -12,12 +12,13 @@ import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { getGithubLink, getTelegramLink, getTwitterGetpubkyLink } from '@/config/externalLinks';
+import { getSocialHostUrl, isSocialLinkOutEnabled } from '@/config/social';
 import { useCollectionsNavDiscovery } from '@/hooks/useCollectionsNavDiscovery/useCollectionsNavDiscovery';
 import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMarketplaceCartCount';
 import { useMarketplaceNavAttention } from '@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention';
 import { useMessagesUnread } from '@/hooks/useMessagesUnread/useMessagesUnread';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
-import { Github2, Telegram, XTwitter } from '@/icons';
+import { Github2, PubkyIcon, Telegram, XTwitter } from '@/icons';
 import { marketplaceNavAccessibleName } from '@/libs/commerce/marketplace-attention';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
 import { cn } from '@/libs/utils/utils';
@@ -98,6 +99,8 @@ type NavigationItemConfig = {
   dataCy?: string;
   activePrefix?: string;
   isFeedRoute?: boolean;
+  /** Off-site link (the social host): plain `<a>`, never active, never auth-gated. */
+  external?: boolean;
 };
 type HeaderNavigationButtonsProps = {
   counter?: number;
@@ -110,7 +113,36 @@ type HeaderNavigationButtonsProps = {
 // explicitly configured; production defaults to 'unavailable' (ADR 0019).
 const isMarketplaceNavEnabled = () => getCommerceAdapterMode() !== 'unavailable';
 
-const getNavigationItems = (): NavigationItemConfig[] => [
+const marketplaceNavItem: NavigationItemConfig = {
+  href: APP_ROUTES.MARKETPLACE,
+  icon: Store,
+  label: 'Marketplace',
+  dataCy: 'header-marketplace-btn',
+  activePrefix: APP_ROUTES.MARKETPLACE,
+};
+
+const messagesNavItem: NavigationItemConfig = {
+  href: APP_ROUTES.MESSAGES,
+  icon: MessageCircle,
+  label: 'Messages',
+  dataCy: 'header-messages-btn',
+  activePrefix: APP_ROUTES.MESSAGES,
+};
+
+/** Social link-out nav: the Shop's own surfaces plus one link to the social host. */
+const getLinkOutNavigationItems = (socialHostUrl: string): NavigationItemConfig[] => [
+  ...(isMarketplaceNavEnabled() ? [marketplaceNavItem] : []),
+  messagesNavItem,
+  {
+    href: socialHostUrl,
+    icon: PubkyIcon,
+    label: 'Pubky',
+    dataCy: 'header-pubky-btn',
+    external: true,
+  },
+];
+
+const getSocialNavigationItems = (): NavigationItemConfig[] => [
   {
     href: APP_ROUTES.HOME,
     icon: Home,
@@ -124,17 +156,7 @@ const getNavigationItems = (): NavigationItemConfig[] => [
     label: 'Hot',
     dataCy: 'header-hot-btn',
   },
-  ...(isMarketplaceNavEnabled()
-    ? [
-        {
-          href: APP_ROUTES.MARKETPLACE,
-          icon: Store,
-          label: 'Marketplace',
-          dataCy: 'header-marketplace-btn',
-          activePrefix: APP_ROUTES.MARKETPLACE,
-        },
-      ]
-    : []),
+  ...(isMarketplaceNavEnabled() ? [marketplaceNavItem] : []),
   {
     href: APP_ROUTES.COLLECTIONS,
     icon: Library,
@@ -142,13 +164,7 @@ const getNavigationItems = (): NavigationItemConfig[] => [
     dataCy: 'header-collections-btn',
     activePrefix: APP_ROUTES.COLLECTIONS,
   },
-  {
-    href: APP_ROUTES.MESSAGES,
-    icon: MessageCircle,
-    label: 'Messages',
-    dataCy: 'header-messages-btn',
-    activePrefix: APP_ROUTES.MESSAGES,
-  },
+  messagesNavItem,
   {
     href: SETTINGS_ROUTES.ACCOUNT,
     icon: Settings,
@@ -157,6 +173,11 @@ const getNavigationItems = (): NavigationItemConfig[] => [
     activePrefix: APP_ROUTES.SETTINGS,
   },
 ];
+const getNavigationItems = (): NavigationItemConfig[] => {
+  const socialHostUrl = getSocialHostUrl('/');
+  return socialHostUrl ? getLinkOutNavigationItems(socialHostUrl) : getSocialNavigationItems();
+};
+
 type NavigationButtonProps = {
   /** Present → navigates client-side via Link. Omit (and pass onClick) for auth-gated items. */
   href?: string;
@@ -168,6 +189,7 @@ type NavigationButtonProps = {
   isActive: boolean;
   dataCy?: string;
   isFeedRoute?: boolean;
+  external?: boolean;
   showNew?: boolean;
   newLabel?: string;
   /** Honest device-local count (e.g. unread conversations); 0 hides the badge. */
@@ -183,6 +205,7 @@ const NavigationButton = ({
   isActive,
   dataCy,
   isFeedRoute,
+  external = false,
   showNew = false,
   newLabel,
   badgeCount = 0,
@@ -237,6 +260,13 @@ const NavigationButton = ({
     </>
   );
   const needsRelativeWrap = showNew || badgeCount > 0;
+  if (href && external) {
+    return (
+      <a href={href} data-cy={dataCy} className={needsRelativeWrap ? 'relative inline-flex' : undefined}>
+        {content}
+      </a>
+    );
+  }
   return href ? (
     <Link
       href={href}
@@ -270,6 +300,7 @@ export function HeaderNavigationButtons({
   const marketplaceCartCount = useMarketplaceCartCount();
   const marketplaceAttention = useMarketplaceNavAttention();
   const counterString = counter > 21 ? '21+' : counter.toString();
+  const profileHref = isSocialLinkOutEnabled() ? MARKETPLACE_ROUTES.NOTIFICATIONS : APP_ROUTES.PROFILE;
   return (
     <Container className={cn('hidden w-auto flex-row items-center justify-start gap-3 lg:flex', className)}>
       {getNavigationItems().map((item) => {
@@ -283,9 +314,10 @@ export function HeaderNavigationButtons({
             onClick={isCollectionsItem ? markCollectionsNavSeen : undefined}
             icon={item.icon}
             label={item.label}
-            isActive={isNavItemActive(pathname, item)}
+            isActive={!item.external && isNavItemActive(pathname, item)}
             dataCy={item.dataCy}
             isFeedRoute={item.isFeedRoute}
+            external={item.external}
             badgeCount={
               isMessagesItem ? unreadMessages : isMarketplaceItem ? marketplaceCartCount + marketplaceAttention : 0
             }
@@ -299,7 +331,7 @@ export function HeaderNavigationButtons({
         );
       })}
 
-      <Link data-cy="header-nav-profile-btn" className="relative" href={APP_ROUTES.PROFILE}>
+      <Link data-cy="header-nav-profile-btn" className="relative" href={profileHref}>
         <AvatarWithFallback
           avatarUrl={avatarImage}
           name={avatarName}
@@ -331,7 +363,7 @@ type HeaderExploreNavigationButtonsProps = {
 
 export function HeaderExploreNavigationButtons({
   className,
-  showSearch = true,
+  showSearch = !isSocialLinkOutEnabled(),
 }: HeaderExploreNavigationButtonsProps = {}) {
   const pathname = usePathname();
   const router = useRouter();
@@ -342,8 +374,8 @@ export function HeaderExploreNavigationButtons({
     <Container className={cn('hidden min-w-0 flex-1 flex-row items-center justify-end gap-3 lg:flex', className)}>
       {showSearch && <SearchInput />}
       {getNavigationItems().map((item) => {
-        // Core explore routes navigate freely; Settings requires an account.
-        const requiresAuth = !isCoreExploreRoute(item.href);
+        // Core explore routes and the social host navigate freely; Settings and Messages require an account.
+        const requiresAuth = !item.external && !isCoreExploreRoute(item.href);
         return (
           <NavigationButton
             key={item.href}
@@ -351,8 +383,9 @@ export function HeaderExploreNavigationButtons({
             onClick={requiresAuth ? () => requireAuth(() => router.push(item.href)) : undefined}
             icon={item.icon}
             label={item.label}
-            isActive={isNavItemActive(pathname, item)}
+            isActive={!item.external && isNavItemActive(pathname, item)}
             dataCy={item.dataCy}
+            external={item.external}
           />
         );
       })}

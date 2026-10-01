@@ -26,7 +26,7 @@ import {
   Waypoints,
 } from 'lucide-react';
 import { PubkyAppFeedLayout, PubkyAppFeedReach, PubkyAppFeedSort, PubkyAppPostKind } from 'pubky-app-specs';
-import { APP_ROUTES } from '@/app/routes';
+import { APP_ROUTES, getShopHomeRoute } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
@@ -315,7 +315,7 @@ export const CustomFeedDialog = ({ mode, children }: CustomFeedDialogProps) => {
       toast({
         title: `Feed deleted: ${customFeed.name}`,
       });
-      router.push(APP_ROUTES.HOME);
+      router.push(getShopHomeRoute());
     } catch {
       toast({
         variant: 'error',

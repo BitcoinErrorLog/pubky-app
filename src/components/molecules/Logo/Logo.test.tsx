@@ -1,8 +1,9 @@
 import { usePathname } from 'next/navigation';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOGO_LANDING_ROUTES } from '@/app/routes';
 import { FORCE_FEED_SCROLL_TOP_KEY } from '@/config/feed';
+import { setSocialHost } from '@/test-utils/social-host';
 import { Logo } from './Logo';
 
 // Mock Next.js Image component
@@ -103,6 +104,50 @@ describe('Logo', () => {
 
     expect(window.scrollTo).not.toHaveBeenCalled();
     expect(setItemSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('Logo - social link-out', () => {
+  beforeEach(() => {
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      value: createSessionStorageMock(),
+    });
+  });
+
+  afterEach(() => {
+    setSocialHost(undefined);
+  });
+
+  it('links to /home while off', () => {
+    vi.mocked(usePathname).mockReturnValue('/marketplace/orders');
+    render(<Logo />);
+    expect(screen.getByTestId('logo-image').closest('a')).toHaveAttribute('href', '/home');
+  });
+
+  it('links to the marketplace while on', () => {
+    setSocialHost('https://pubky.app');
+    vi.mocked(usePathname).mockReturnValue('/marketplace/orders');
+    render(<Logo />);
+    expect(screen.getByTestId('logo-image').closest('a')).toHaveAttribute('href', '/marketplace');
+  });
+
+  it('scrolls to top instead of navigating when already on the marketplace while on', () => {
+    setSocialHost('https://pubky.app');
+    vi.mocked(usePathname).mockReturnValue('/marketplace');
+    Object.defineProperty(window, 'scrollTo', { value: vi.fn(), writable: true });
+
+    render(<Logo />);
+    fireEvent.click(screen.getByTestId('logo-image').closest('a')!);
+
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+  });
+
+  it('keeps landing routes on the landing page while on', () => {
+    setSocialHost('https://pubky.app');
+    vi.mocked(usePathname).mockReturnValue('/sign-in');
+    render(<Logo />);
+    expect(screen.getByTestId('logo-image').closest('a')).toHaveAttribute('href', '/');
   });
 });
 

@@ -1,3 +1,4 @@
+import { isSocialLinkOutEnabled } from '@/config/social';
 import { isPubkyIdentifier } from '@/libs/utils/utils';
 
 export const ROOT_ROUTES = '/';
@@ -201,9 +202,21 @@ export const NEEDS_PROFILE_CREATION_ROUTES = {
   redirectTo: ONBOARDING_ROUTES.PROFILE,
 };
 
+/**
+ * Where the Shop sends a user when it navigates "home" on its own (route guard,
+ * logo, post-onboarding, not-found fallbacks). With social link-out on, `/home`
+ * belongs to the social host, where a Shop session does not carry over, so the
+ * Shop stays on its catalog instead.
+ */
+export function getShopHomeRoute(): APP_ROUTES.HOME | APP_ROUTES.MARKETPLACE {
+  return isSocialLinkOutEnabled() ? APP_ROUTES.MARKETPLACE : APP_ROUTES.HOME;
+}
+
 export const AUTHENTICATED_ROUTES = {
   allowedRoutes: ALLOWED_ROUTES,
-  redirectTo: APP_ROUTES.HOME,
+  get redirectTo() {
+    return getShopHomeRoute();
+  },
 };
 
 // Backwards compatibility

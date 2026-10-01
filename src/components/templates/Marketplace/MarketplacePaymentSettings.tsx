@@ -13,6 +13,7 @@ import { Link } from '@/atoms/Link/Link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
 import { Switch } from '@/atoms/Switch/Switch';
 import { Typography } from '@/atoms/Typography/Typography';
+import { isSocialLinkOutEnabled } from '@/config/social';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceLocksConnect } from '@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect';
 import {
@@ -23,6 +24,7 @@ import {
 import { availablePaymentMethods, type SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceGetPaidSettings } from '@/organisms/Marketplace/MarketplaceGetPaidSettings';
+import { MarketplaceSignOutCard } from '@/organisms/Marketplace/MarketplaceSignOutCard';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMarketplaceDisplayStore } from '@/stores/marketplace-display/marketplace-display.store';
 
@@ -208,6 +210,8 @@ export function MarketplacePaymentSettings() {
             </div>
           </CardContent>
         </Card>
+
+        {isSocialLinkOutEnabled() && <MarketplaceSignOutCard />}
       </Container>
     </ContentLayout>
   );

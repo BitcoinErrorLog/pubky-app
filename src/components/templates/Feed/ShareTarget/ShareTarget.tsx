@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { APP_ROUTES } from '@/app/routes';
+import { getShopHomeRoute } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { Typography } from '@/atoms/Typography/Typography';
@@ -43,11 +43,11 @@ export function ShareTarget() {
   }, [searchParams]);
 
   const handleSuccess = useCallback(() => {
-    router.push(APP_ROUTES.HOME);
+    router.push(getShopHomeRoute());
   }, [router]);
 
   const handleCancel = useCallback(() => {
-    router.push(APP_ROUTES.HOME);
+    router.push(getShopHomeRoute());
   }, [router]);
 
   if (isLoading) {

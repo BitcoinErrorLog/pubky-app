@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_ACTIVE_SEARCH_TAGS } from '@/stores/search/search.constants';
+import { setSocialHost } from '@/test-utils/social-host';
 import { useTagSearch } from './useTagSearch';
 import { buildSearchUrl } from './useTagSearch.utils';
 
@@ -125,6 +126,23 @@ describe('useTagSearch', () => {
 
       expect(mockRemoveActiveTag).toHaveBeenCalledWith('react');
       expect(mockPush).toHaveBeenCalledWith('/home');
+    });
+
+    it('navigates to the marketplace when removing last tag with social link-out on', () => {
+      setSocialHost('https://pubky.app');
+      try {
+        mockActiveTags = ['react'];
+        const { result } = renderHook(() => useTagSearch());
+
+        act(() => {
+          result.current.removeTagFromSearch('react');
+        });
+
+        expect(mockPush).toHaveBeenCalledWith('/marketplace');
+        expect(mockPush).not.toHaveBeenCalledWith('/home');
+      } finally {
+        setSocialHost(undefined);
+      }
     });
 
     it('normalizes tag before removing', () => {

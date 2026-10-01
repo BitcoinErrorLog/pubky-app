@@ -8,6 +8,7 @@ import { MarketplaceListingCard } from '@/organisms/Marketplace/MarketplaceListi
 import { MarketplaceReputationHeader } from '@/organisms/Marketplace/MarketplaceReputationHeader';
 import { MarketplaceReviewsSection } from '@/organisms/Marketplace/MarketplaceReviewsSection';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { setSocialHost } from '@/test-utils/social-host';
 
 // The Phase 2 public review surfaces in every honest state: stars on catalog
 // cards (only when the index reported reviews), the rating header (rated /
@@ -232,6 +233,26 @@ describe('Marketplace public reviews — visual regression', () => {
     await waitForText('Unverified');
     await waitForText('switched to double-boxing');
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('reviews-section-spectrum-desktop');
+  });
+
+  it('links reviewers to their shop with a Profile on Pubky link under social link-out at desktop viewport', async () => {
+    controllerState.reviews = REVIEW_SPECTRUM;
+    setSocialHost('https://pubky.app');
+    try {
+      const screen = await renderForVRT(
+        <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 py-10">
+          <MarketplaceReviewsSection sellerPubky={SELLER} />
+        </main>,
+        { viewport: VRT_VIEWPORT_DESKTOP },
+      );
+      await waitForText('Verified purchase');
+      await expect
+        .element(screen.getByRole('link', { name: `${BUYER_A.slice(0, 8)}…` }))
+        .toHaveAttribute('href', `/marketplace/shop/${BUYER_A}`);
+      await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('reviews-section-social-linkout-desktop');
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   it('renders the review list at mobile viewport', async () => {

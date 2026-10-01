@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { BadgeCheck, MessageSquareReply, Star } from 'lucide-react';
-import { getProfileRoute, PROFILE_ROUTES } from '@/app/routes';
+import { getMarketplaceShopRoute, getProfileRoute, PROFILE_ROUTES } from '@/app/routes';
 import { Badge } from '@/atoms/Badge/Badge';
 import { Button } from '@/atoms/Button/Button';
 import { Heading } from '@/atoms/Heading/Heading';
@@ -10,11 +10,13 @@ import { Link } from '@/atoms/Link/Link';
 import { Textarea } from '@/atoms/Textarea/Textarea';
 import { Typography } from '@/atoms/Typography/Typography';
 import { isTrustedMarketplaceAttestor } from '@/config/commerce';
+import { isSocialLinkOutEnabled } from '@/config/social';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { useMarketplaceReviews } from '@/hooks/useMarketplaceReviews/useMarketplaceReviews';
 import { cn } from '@/libs/utils/utils';
 import type { CommerceIndexedReview, CommerceReviewResponseModelSchema } from '@/models/commerce/commerce.schema';
 import { MarketplaceStarRating } from '@/molecules/MarketplaceStarRating/MarketplaceStarRating';
+import { ProfileOnPubkyLink } from '@/molecules/ProfileOnPubkyLink/ProfileOnPubkyLink';
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
@@ -124,12 +126,17 @@ function MarketplaceReviewItem({
       <div className="flex flex-wrap items-center gap-2">
         <MarketplaceStarRating rating={review.ratingOverall} size="sm" />
         <Link
-          href={getProfileRoute(PROFILE_ROUTES.PROFILE, review.reviewerId)}
+          href={
+            isSocialLinkOutEnabled()
+              ? getMarketplaceShopRoute(review.reviewerId)
+              : getProfileRoute(PROFILE_ROUTES.PROFILE, review.reviewerId)
+          }
           overrideDefaults
           className="text-xs font-medium text-foreground hover:underline"
         >
           {review.reviewerId.slice(0, 8)}…
         </Link>
+        <ProfileOnPubkyLink pubky={review.reviewerId} />
         <Typography as="span" overrideDefaults className="text-xs text-muted-foreground">
           {formatReviewDate(review.createdAt)}
         </Typography>

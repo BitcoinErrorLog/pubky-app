@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { APP_ROUTES, isLogoLandingRoute, ROOT_ROUTES } from '@/app/routes';
+import { getShopHomeRoute, isLogoLandingRoute, ROOT_ROUTES } from '@/app/routes';
 import { Link } from '@/atoms/Link/Link';
 import { handleFeedNavClick } from '@/libs/utils/feedScrollTop';
 import { cn } from '@/libs/utils/utils';
@@ -42,8 +42,9 @@ export function Logo({
 }: LogoProps & React.HTMLAttributes<HTMLAnchorElement>) {
   const pathname = usePathname();
   const isLandingRoute = isLogoLandingRoute(pathname);
-  const isHome = pathname === APP_ROUTES.HOME;
-  const href = isLandingRoute ? ROOT_ROUTES : APP_ROUTES.HOME;
+  const homeRoute = getShopHomeRoute();
+  const isHome = pathname === homeRoute;
+  const href = isLandingRoute ? ROOT_ROUTES : homeRoute;
 
   return !noLink ? (
     <Link

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { usePathname } from 'next/navigation';
 import { BookOpen, Eye, UserRoundPlus } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { APP_ROUTES, AUTH_ROUTES, ONBOARDING_ROUTES } from '@/app/routes';
+import { AUTH_ROUTES, getShopHomeRoute, ONBOARDING_ROUTES } from '@/app/routes';
 import { Button } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { LANDING_HERO_SECTION_ID, LANDING_NEXT_SECTION_ID } from '@/templates/Public/Landing/Landing.constants';
@@ -60,7 +60,7 @@ export const HeaderHome = ({ ...props }: React.HTMLAttributes<HTMLDivElement>) =
   };
 
   const handleExplore = () => {
-    router.push(APP_ROUTES.HOME);
+    router.push(getShopHomeRoute());
   };
 
   if (isLogoutPage) {

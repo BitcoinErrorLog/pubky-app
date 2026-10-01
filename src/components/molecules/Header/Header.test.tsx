@@ -7,6 +7,7 @@ import { useMarketplaceCartCount } from '@/hooks/useMarketplaceCartCount/useMark
 import { useMarketplaceNavAttention } from '@/hooks/useMarketplaceNavAttention/useMarketplaceNavAttention';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
+import { setSocialHost } from '@/test-utils/social-host';
 import { HeaderButtonSignIn } from '../HeaderButtonSignIn/HeaderButtonSignIn';
 import { HeaderHome } from '../HeaderHome/HeaderHome';
 import { HeaderSignIn } from '../HeaderSignIn/HeaderSignIn';
@@ -662,6 +663,64 @@ describe('Header Components', () => {
       const collectionsButton = document.querySelector('.lucide-library')?.closest('button');
       expect(collectionsButton).toHaveClass('bg-secondary');
       expect(collectionsButton).not.toHaveClass('bg-white/5');
+    });
+  });
+
+  describe('social link-out', () => {
+    afterEach(() => {
+      setSocialHost(undefined);
+    });
+
+    it('keeps the social nav and no social-host link while off', () => {
+      render(<HeaderSignIn />);
+
+      const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+      expect(hrefs).toEqual(['/home', '/hot', '/collections', '/messages', '/settings/account', '/profile']);
+      expect(document.querySelector('[data-cy="header-pubky-btn"]')).toBeNull();
+      expect(screen.getByTestId('search-input')).toBeInTheDocument();
+    });
+
+    it('shows Marketplace, Messages and one Pubky link when on', () => {
+      setSocialHost('https://pubky.app');
+      const adapterMode = vi.spyOn(commerceConfig, 'getCommerceAdapterMode').mockReturnValue('sandbox');
+      try {
+        render(<HeaderSignIn />);
+
+        const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+        expect(hrefs).toEqual(['/marketplace', '/messages', 'https://pubky.app/', '/marketplace/notifications']);
+        expect(document.querySelector('.lucide-house')).toBeNull();
+        expect(document.querySelector('.lucide-flame')).toBeNull();
+        expect(document.querySelector('.lucide-library')).toBeNull();
+        expect(document.querySelector('.lucide-settings')).toBeNull();
+        expect(screen.queryByTestId('search-input')).not.toBeInTheDocument();
+      } finally {
+        adapterMode.mockRestore();
+      }
+    });
+
+    it('renders the Pubky link as a plain same-tab anchor that is never active', () => {
+      setSocialHost('https://staging.pubky.app');
+      vi.mocked(usePathname).mockReturnValue('/');
+      render(<HeaderNavigationButtons avatarName="TU" />);
+
+      const pubkyLink = document.querySelector('[data-cy="header-pubky-btn"]');
+      expect(pubkyLink?.tagName).toBe('A');
+      expect(pubkyLink).toHaveAttribute('href', 'https://staging.pubky.app/');
+      expect(pubkyLink).not.toHaveAttribute('target');
+      expect(screen.getByRole('button', { name: 'Pubky' })).toHaveClass('bg-white/5');
+    });
+
+    it('lets guests follow the Pubky link without the Join dialog and hides social search', () => {
+      setSocialHost('https://pubky.app');
+      render(<HeaderExploreNavigationButtons />);
+
+      const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+      expect(hrefs).toEqual(['https://pubky.app/']);
+      expect(document.querySelector('[data-cy="header-messages-btn"]')?.tagName).toBe('BUTTON');
+      expect(screen.queryByTestId('search-input')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Pubky' }));
+      expect(mockPush).not.toHaveBeenCalled();
     });
   });
 

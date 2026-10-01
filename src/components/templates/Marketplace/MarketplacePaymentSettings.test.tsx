@@ -7,6 +7,7 @@ import type { SellerPaymentConfigOwnView } from '@/libs/commerce/payment-methods
 import { toast } from '@/molecules/Toaster/use-toast';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
+import { setSocialHost } from '@/test-utils/social-host';
 import { MarketplacePaymentSettings } from './MarketplacePaymentSettings';
 
 const view = vi.hoisted(() => ({
@@ -56,6 +57,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
 
 vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
+  useToast: () => ({ toast: vi.fn() }),
 }));
 
 vi.mock('@/hooks/useMarketplaceLocksConnect/useMarketplaceLocksConnect', async (importOriginal) => ({
@@ -897,5 +899,23 @@ describe('MarketplacePaymentSettings', () => {
       expect(navigation.push).toHaveBeenCalledWith('/marketplace/sell');
     });
     expect(sessionStorage.getItem('pubky.marketplace.listingComposerReturnTo')).toBeNull();
+  });
+
+  it('leaves sign-out to account settings while social link-out is off', async () => {
+    await renderSettings();
+
+    expect(screen.queryByTestId('marketplace-sign-out-card')).not.toBeInTheDocument();
+  });
+
+  it('offers Shop sign-out while social link-out is on', async () => {
+    setSocialHost('https://pubky.app');
+    try {
+      await renderSettings();
+
+      const card = screen.getByTestId('marketplace-sign-out-card');
+      expect(within(card).getByRole('button', { name: 'Sign out' })).toBeEnabled();
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 });

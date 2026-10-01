@@ -4,6 +4,7 @@ import { PubkyAppFeedLayout, PubkyAppFeedReach, PubkyAppFeedSort, PubkyAppPostKi
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedModelSchema } from '@/models/feed/feed.schema';
 import { TAGGED_AS_FILTER_KEY } from '@/molecules/Filters/FilterReach/FilterReach';
+import { setSocialHost } from '@/test-utils/social-host';
 import { CustomFeedDialog } from './CustomFeedDialog';
 
 vi.mock('@/atoms/Dialog/Dialog', () => {
@@ -1424,6 +1425,29 @@ describe('CustomFeedDialog', () => {
       });
       expect(mockPush).toHaveBeenCalledWith('/home');
     });
+  });
+
+  it('navigates to the marketplace after successful delete with social link-out on', async () => {
+    setSocialHost('https://pubky.app');
+    try {
+      mockUseCustomFeed.mockReturnValue(createMockFeed());
+      mockCommitDelete.mockResolvedValue(undefined);
+
+      render(
+        <CustomFeedDialog mode="edit">
+          <button>Edit Feed</button>
+        </CustomFeedDialog>,
+      );
+
+      fireEvent.click(screen.getByTestId('delete-feed-button'));
+
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith('/marketplace');
+      });
+      expect(mockPush).not.toHaveBeenCalledWith('/home');
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   it('shows error toast when delete fails', async () => {

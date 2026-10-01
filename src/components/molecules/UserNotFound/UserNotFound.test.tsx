@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_ROUTES } from '@/app/routes';
+import { setSocialHost } from '@/test-utils/social-host';
 import { UserNotFound } from './UserNotFound';
 
 const mockPush = vi.fn();
@@ -43,6 +44,19 @@ describe('UserNotFound', () => {
 
     await user.click(screen.getByRole('button', { name: 'Explore Tags' }));
     expect(mockPush).toHaveBeenCalledWith(APP_ROUTES.HOT);
+  });
+
+  it('goes back to the marketplace with social link-out on', async () => {
+    setSocialHost('https://pubky.app');
+    try {
+      const user = userEvent.setup();
+      render(<UserNotFound />);
+
+      await user.click(screen.getByRole('button', { name: 'Back to Feed' }));
+      expect(mockPush).toHaveBeenCalledWith(APP_ROUTES.MARKETPLACE);
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   describe('Snapshots', () => {
