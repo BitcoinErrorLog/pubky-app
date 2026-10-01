@@ -2,12 +2,12 @@
 
 How to get the marketplace working on your machine so you can click through it as a user. Every command here was run and verified; nothing in this file is aspirational.
 
-Read [`status.md`](status.md) first if you want to know which parts are real and which are simulated before you start.
+Read [`status.md`](status.md) first if you want to know which parts are real and which are simulated before you start. New to the Shop: start with [`onboarding.md`](onboarding.md). Shipping a release: [`release.md`](release.md).
 
 ## TL;DR
 
 ```bash
-npm ci
+HUSKY=0 npm ci   # HUSKY=0 keeps husky's prepare script from replacing your global git hooks
 
 # terminal 1 — sandbox transaction service
 npm run marketplace:dev
@@ -66,28 +66,34 @@ In every mode **except sandbox**, the catalog refreshes itself from the Nexus ma
 
 **Sandbox mode never queries Nexus.** The sandbox catalog is a self-contained demo seeded with fictional sellers, and mixing indexed network listings into it would blend real and simulated content — so with `commerceAdapterMode=sandbox` the browsing flow above works exactly as described with no Nexus involved.
 
-The marketplace endpoints are implemented on the `feat/marketplace-indexing` branch of [`BitcoinErrorLog/pubky-nexus`](https://github.com/BitcoinErrorLog/pubky-nexus) and are deployed as a **dedicated marketplace-indexing Nexus on Railway** (`https://nexusd-production-7108.up.railway.app`, runbook in that branch's `docs/railway-deploy.md`), which the staging client reaches through the override below. The **official** staging Nexus the app points at by default still has no marketplace endpoints — against it the listing stream 404s and the catalog stays cache-only.
+The marketplace endpoints are implemented on the `main` branch of [`BitcoinErrorLog/pubky-nexus`](https://github.com/BitcoinErrorLog/pubky-nexus) and are deployed as a **dedicated marketplace-indexing Nexus on Railway** (`https://nexusd-production-7108.up.railway.app`, runbook in that repository's `docs/railway-deploy.md`), which both the production and the staging Shop reach through the override below. The **official** staging Nexus the app points at by default still has no marketplace endpoints — against it the listing stream 404s and the catalog stays cache-only.
 
 Because a dedicated marketplace-indexing Nexus is deployed separately from the main social Nexus, the app supports an **optional marketplace-only override**: set `PUBKY_RUNTIME_MARKETPLACE_NEXUS_URL` to route ONLY the commerce/marketplace index reads at that deployment — listing stream and details, listing/shop tags, shop reviews/reputation, and the drops stream — while every social surface (posts, users, tags, files, streams, search) keeps using `PUBKY_RUNTIME_NEXUS_URL`. When the override is unset, marketplace reads fall back to the main `nexusUrl` — the variable is genuinely optional, including under the strict deployed-mode config parse. (Pointing the whole app at a marketplace-indexing Nexus with `PUBKY_RUNTIME_NEXUS_URL` still works for a single-Nexus setup.)
 
 ## Shared pubky.app sign-in (vibe session consumer)
 
-Shop is a vibe fork, so it can sign a visitor in silently from their existing pubky.app session through the `/session-bridge` hand-off (ADR 0029). The switch is two **build-time** variables, baked into the artifact at `npm run build` — they are not `PUBKY_RUNTIME_*` values and cannot be changed per deploy without rebuilding. Production values for the Shop artifact: `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN=https://pubky.app` (the exact origin hosting the bridge; `http://localhost:<port>` is accepted only outside production builds) and `NEXT_PUBLIC_VIBE_ID=marketplace`. Consumer mode is active **only** when the bridge origin is set; leave both unset for a standalone build with its own sign-in. A bridged restore never auto-triggers a re-approval — the restored session keeps its (narrower) grant until a scope-gated feature asks for more, and the staging homeserver guard still runs on every restore when `PUBKY_RUNTIME_ENV=staging`.
+**Off in both live Shop builds.** The production and staging deployments are built with `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN` and `NEXT_PUBLIC_VIBE_ID` unset, so the Shop uses only its own sign-in, makes no `/session-bridge` request, and ignores a `#s=` hand-off link. Keep them unset. The cookie bridge shares one homeserver cookie between sites, and cookie sessions are deprecated by the homeserver, so it is not the path to single sign-on with pubky.app.
+
+The consumer code remains (ADR 0029): the two variables are **build-time** values, baked into the artifact at `npm run build` — not `PUBKY_RUNTIME_*` values — and consumer mode turns on only when the bridge origin is set (an exact origin such as `https://pubky.app`; `http://localhost:<port>` is accepted only outside production builds). A bridged restore never auto-triggers a re-approval, and the staging homeserver guard still runs on every restore when `PUBKY_RUNTIME_ENV=staging`.
 
 ## Running the tests
 
 ```bash
+bash scripts/prepush.sh                             # the pre-push gate: changed-file prettier/eslint, typecheck, related tests
 npm run typecheck
 npm run lint
-npm run test -- src/core src/components src/hooks   # unit
-npm run test:marketplace                            # sandbox service (115 tests)
+npm run test                                        # the whole unit suite
+npm run test:marketplace                            # sandbox service
 npm run test:marketplace:service                    # durable Rust service transport, needs it running (see below)
 npm run test:marketplace:locks                      # LIVE real-payment purchase, needs the composed stack (see below)
 npm run test:marketplace:drops                      # LIVE FCFS drop race on the deployed staging stack (see below)
-npm run test:vrt                                    # visual regression, needs browsers
+npm run test:e2e:launch-critical                    # launch-critical browser journey (CI runs it as launch-e2e)
+bash scripts/vrt-linux.sh [spec...]                 # Linux visual regression in Docker (npm run test:vrt is the same)
 ```
 
-VRT needs Playwright browsers (`npx playwright install`). Baselines are per-platform (`*-linux.png`, `*-darwin.png`) and are generated by the `vrt-update-baselines` GitHub workflow rather than by hand, so a local run on a different platform will not match committed baselines unless your platform is covered. No `TZ` env var is needed (or honored as a mechanism): the VRT harness freezes the system clock and pins the default formatting time zone to UTC in every browser — including WebKit, which ignores `TZ` — so timestamped surfaces render identically locally and in CI. See the "Time determinism" block in `src/test-utils/vrt.setup.ts` for the rules.
+Run `bash scripts/prepush.sh` before every push; its last line is `PREPUSH OK <sha> <seconds> fast`. Releases use `PREPUSH_FULL=1 bash scripts/prepush.sh`, which adds Linux VRT for every spec that renders a changed file.
+
+VRT runs in the pinned Playwright container (`mcr.microsoft.com/playwright:v1.60.0-noble`), so it needs Docker but no local browsers. Only Linux baselines (`*-linux.png`) are committed and gate merges. Regenerate them for the specs you changed with `VRT_LINUX_UPDATE=1 bash scripts/vrt-linux.sh <spec...>` followed by `bash scripts/vrt-revert-outside.sh <spec...>`, or with the **VRT Update Baselines** workflow; the rules are in [`release.md`](release.md#visual-regression-baselines). No `TZ` env var is needed (or honored as a mechanism): the VRT harness freezes the system clock and pins the default formatting time zone to UTC in every browser — including WebKit, which ignores `TZ` — so timestamped surfaces render identically locally and in CI. See the "Time determinism" block in `src/test-utils/vrt.setup.ts` for the rules.
 
 ## Running the marketplace E2E journeys
 
@@ -288,7 +294,7 @@ This live suite uses no mocks and fails loudly when a dependency is missing. It 
 
 **Catalog empty.** Seed it at `/marketplace/sandbox`. If that page 404s, the app is not in sandbox mode.
 
-**`/marketplace/sandbox` 404s.** The env var is not reaching the app. It is read at request time by the server, so restart `npm run dev` after setting it.
+**`/marketplace/sandbox` 404s.** The env var is not reaching the app. Locally the server reads it when it renders each page, from the environment `npm run dev` started with, so restart `npm run dev` after setting it.
 
 **Everything transactional errors after a restart.** The sandbox service lost its memory. Re-seed.
 

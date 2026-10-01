@@ -3,7 +3,7 @@
 Configuration is split into two surfaces with different lifetimes:
 
 - **Build-time (`src/libs/env/env.ts`)**: build-intrinsic public values and server-only variables, validated with Zod at module load.
-- **Runtime (`src/libs/runtime-config/`)**: everything environment-specific or deployer-facing, read from `PUBKY_RUNTIME_*` env vars at request time so a single Docker image works everywhere.
+- **Runtime (`src/libs/runtime-config/`)**: everything environment-specific or deployer-facing, read from `PUBKY_RUNTIME_*` env vars on the server and inlined into the HTML. Outside Vercel every route renders per request, so a single Docker image works everywhere; on Vercel, pages are prerendered at build time with the build's env, so a change takes effect only on the next deployment (see [How it works](#how-it-works)).
 
 ## Build-time environment (`Env`)
 
@@ -24,10 +24,10 @@ The schema is intentionally small:
 
 A pubky-app **fork** deployed as a vibe (`<slug>.vibes.pubky.app` or same-site `shop.pubky.app`) can sign in silently from the visitor's existing `pubky.app` session. These two values are baked into that fork's artifact (they are not runtime-configurable):
 
-| Variable                                 | Required | Meaning                                                                                                                                                                                                                                                          |
-| ---------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN` | No       | Exact `https://` origin of the pubky-app that hosts `/session-bridge` (typically `https://pubky.app`). `http://localhost:<port>` is allowed only when `NODE_ENV !== 'production'`. Invalid values fail env parse. Consumer mode is **on** only when this is set. |
-| `NEXT_PUBLIC_VIBE_ID`                    | No       | Vibe slug (e.g. `my-vibe`). Informational; not used as an origin check.                                                                                                                                                                                          |
+| Variable                                 | Required | Meaning                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN` | No       | Exact `https://` origin of the pubky-app that hosts `/session-bridge` (typically `https://pubky.app`). `http://localhost:<port>` is allowed only when `NODE_ENV !== 'production'`. Invalid values fail env parse. Consumer mode is **on** only when this is set. The Shop's production and staging builds leave it unset. |
+| `NEXT_PUBLIC_VIBE_ID`                    | No       | Vibe slug (e.g. `my-vibe`). Informational; not used as an origin check.                                                                                                                                                                                                                                                   |
 
 Canonical `pubky.app` leaves both unset. The first client pass always strips `#s=` from the URL, even when consumer mode is off. See [ADR 0029](adr/0029-vibe-session-consumer.md).
 
@@ -79,7 +79,7 @@ const debugMode = Env.NEXT_PUBLIC_DEBUG_MODE; // boolean
 
 ## Runtime configuration (`PUBKY_RUNTIME_*`)
 
-All **environment-specific and deployer-facing public values** are configured at **runtime**, not build time, so a single Docker image can be promoted across staging / prod / testnet — and deployed by third parties against their own infrastructure — without rebuilding. See [ADR 0017](adr/0017-runtime-config-injection.md) and [ADR 0018](adr/0018-runtime-sentry-and-decoupled-source-maps.md).
+All **environment-specific and deployer-facing public values** are configured through the server's environment rather than inlined into the client bundle, so a single Docker image can be promoted across staging / prod / testnet — and deployed by third parties against their own infrastructure — without rebuilding. See [ADR 0017](adr/0017-runtime-config-injection.md) and [ADR 0018](adr/0018-runtime-sentry-and-decoupled-source-maps.md).
 
 The contract has three tiers:
 
@@ -90,11 +90,12 @@ The contract has three tiers:
 
 ### Why a separate mechanism
 
-Next.js inlines every literal `process.env.NEXT_PUBLIC_*` reference at **build time** (even in server code). A value baked into the image cannot change per environment. To make these values runtime-configurable we read **non-`NEXT_PUBLIC_` env names** (`PUBKY_RUNTIME_*`) on the server at request time and inject them into the HTML.
+Next.js inlines every literal `process.env.NEXT_PUBLIC_*` reference at **build time** (even in server code). A value baked into the image cannot change per environment. To make these values runtime-configurable we read **non-`NEXT_PUBLIC_` env names** (`PUBKY_RUNTIME_*`) on the server when the HTML is rendered and inject them into it. Rendering happens per request outside Vercel and at build time on Vercel (below).
 
 ### How it works
 
-- The server reads `PUBKY_RUNTIME_*` at boot (fail-fast in `src/instrumentation.ts`) and at request time, validates them, and memoizes the result (`src/libs/runtime-config/runtime-config.ts`).
+- The server reads `PUBKY_RUNTIME_*` at boot (fail-fast in `src/instrumentation.ts`) and when it renders HTML, validates them, and memoizes the result (`src/libs/runtime-config/runtime-config.ts`).
+- When HTML is rendered depends on the platform (`renderPerRequestOutsideVercel` in `src/libs/runtime-config/render-mode.ts`, called from the root layout). **On Vercel** (`VERCEL=1`) pages are prerendered at build time, so the config inlined into them is the build's env: an env change on Vercel takes effect only with a new deployment, and promoting an older deployment brings back that deployment's config. **Everywhere else** (Docker images, the CI artifact `launch-e2e` starts, local builds and `npm run dev`) every route renders per request with the running server's env.
 - The validated config is serialized into a **raw inline `<script>`** (`window.__PUBKY_CONFIG__`) rendered first in `<body>` by `ContainerRoot`, so it executes during HTML parsing — before any app bundle (including `instrumentation-client.ts`) evaluates. It must stay a raw `<script>` element: App Router's `next/script` defers inline `beforeInteractive` content until after the main bundle's module scope runs.
 - App code reads values through lazy getters from `@/libs/runtime-config/runtime-config`, usually re-exported through concrete config modules such as `@/config/nexus`, `@/config/network`, `@/config/sync`, `@/config/moderation`, `@/config/metadata`, and `@/config/externalLinks`.
 - Schema, tiers, and defaults live in `src/libs/runtime-config/runtime-config.schema.ts`.
