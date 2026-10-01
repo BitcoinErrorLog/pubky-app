@@ -6,6 +6,8 @@ import {
   getLocksUrl,
   getMarketplaceNexusUrl,
   getMarketplaceUrl,
+  getPassportOrigin,
+  getPassportSignInEnabled,
   getPaykitSetupUrl,
   getRuntimeConfig,
   getSentryDsn,
@@ -191,6 +193,36 @@ describe('runtime-config resolver', () => {
       process.env[PUBKY_RUNTIME_ENV_NAMES.marketplaceNexusUrl] = 'https://marketplace-nexus.runtime.example.com';
       expect(getMarketplaceNexusUrl()).toBe('https://marketplace-nexus.runtime.example.com');
       expect(getRuntimeConfig().nexusUrl).toBe('https://nexus.runtime.example.com');
+    });
+
+    it('points Pubky Passport at the deployment that signs users up on this environment', () => {
+      process.env[PUBKY_RUNTIME_ENV_NAMES.deployEnv] = 'production';
+      expect(getPassportOrigin()).toBe('https://passport.pubky.app');
+
+      resetRuntimeConfigForTests();
+      process.env[PUBKY_RUNTIME_ENV_NAMES.deployEnv] = 'staging';
+      expect(getPassportOrigin()).toBe('https://passport.staging.pubky.app');
+    });
+
+    it('reduces a Passport override to its exact origin', () => {
+      process.env[PUBKY_RUNTIME_ENV_NAMES.passportUrl] = 'https://passport.example.com/authorize?x=1';
+      expect(getPassportOrigin()).toBe('https://passport.example.com');
+    });
+
+    it('offers Passport by default and lets a deploy switch it off at runtime', () => {
+      expect(getPassportSignInEnabled()).toBe(true);
+
+      resetRuntimeConfigForTests();
+      process.env[PUBKY_RUNTIME_ENV_NAMES.passportSignIn] = 'false';
+      expect(getPassportSignInEnabled()).toBe(false);
+    });
+
+    it('strict deployed parse succeeds with the Passport values unset', () => {
+      simulateDeployedEnv();
+      setAllRuntimeEnv();
+      const config = readServerConfig();
+      expect(config.passportSignIn).toBe(true);
+      expect(config.passportUrl).toBeUndefined();
     });
 
     it('strict deployed parse succeeds with the marketplace Nexus override genuinely unset', () => {

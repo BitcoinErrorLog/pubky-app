@@ -223,6 +223,21 @@ export const getCommercePollIntervalMs = (): number => getRuntimeConfig().commer
 export const getSingleApprovalSignIn = (): boolean => getRuntimeConfig().singleApprovalSignIn;
 export const getMarketplaceGrantFlowEnabled = (): boolean => getRuntimeConfig().marketplaceGrantFlowEnabled;
 export const getMarketplaceGrantPollMilliseconds = (): number => getRuntimeConfig().marketplaceGrantPollMilliseconds;
+export const getPassportSignInEnabled = (): boolean => getRuntimeConfig().passportSignIn;
+
+/** The Passport deployment whose Google sign-up lands on each deploy's homeserver. */
+const PASSPORT_ORIGIN_BY_DEPLOY_ENV: Record<DeployEnv, string> = {
+  production: 'https://passport.pubky.app',
+  staging: 'https://passport.staging.pubky.app',
+};
+
+/**
+ * Exact Pubky Passport origin: `PUBKY_RUNTIME_PASSPORT_URL` when set, else the
+ * Passport for this deploy's environment. Outcome messages are accepted from
+ * this origin only, so the value is reduced to scheme, host and port.
+ */
+export const getPassportOrigin = (): string =>
+  new URL(getRuntimeConfig().passportUrl ?? PASSPORT_ORIGIN_BY_DEPLOY_ENV[getRuntimeConfig().deployEnv]).origin;
 export const getPreludeSdkKey = (): string | undefined => getRuntimeConfig().preludeSdkKey;
 export const getPreludeSdkTimeoutMs = (): number => getRuntimeConfig().preludeSdkTimeoutMs;
 export const getPlausibleDomain = (): string | undefined => getRuntimeConfig().plausibleDomain;
