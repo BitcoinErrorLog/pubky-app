@@ -8,7 +8,7 @@ import { MarketplaceReviewsSection } from './MarketplaceReviewsSection';
 const SELLER = 's'.repeat(52);
 const REVIEWER = 'a'.repeat(52);
 
-const REVIEW = {
+const REVIEW: CommerceIndexedReview = {
   reviewId: '8Z8CWH8NVYQY39ZEBFGKQWWEKG',
   reviewerId: REVIEWER,
   subjectId: SELLER,
@@ -24,7 +24,7 @@ const REVIEW = {
   updatedAt: '2026-08-10T12:00:00.000Z',
   revision: 1,
   response: null,
-} as unknown as CommerceIndexedReview;
+};
 
 vi.mock('@/hooks/useMarketplaceReviews/useMarketplaceReviews', () => ({
   useMarketplaceReviews: () => ({
