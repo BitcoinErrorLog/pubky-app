@@ -7,14 +7,13 @@
 //   PROOF_RECOVERY_PASSPHRASE                            passphrase for the backup files
 //   PROOF_SELLER_PREFIX, PROOF_BUYER_PREFIX              optional: the run stops unless the seat's pubky starts with it
 // Seat files and secrets never live in this repository.
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const repoRequire = createRequire(resolve(REPO_ROOT, 'package.json'));
-const { Keypair } = repoRequire('@synonymdev/pubky');
 
 export const prefix = (z32) => `${String(z32 ?? '').slice(0, 8)}…`;
 
@@ -27,19 +26,53 @@ export function shopCapabilities() {
   return match[1];
 }
 
+const lexists = (path) => {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Resolves symlinks in the longest existing prefix of `path`, following dangling links to where mkdir would
+// create them; the missing tail is appended unchanged.
+export function realpathAllowingMissing(path, depth = 0) {
+  if (depth > 40) throw new Error(`too many symlinks resolving ${path}`);
+  let existing = resolve(path);
+  const tail = [];
+  while (!lexists(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    tail.unshift(basename(existing));
+    existing = parent;
+  }
+  try {
+    return resolve(realpathSync(existing), ...tail);
+  } catch {
+    const target = resolve(dirname(existing), readlinkSync(existing));
+    return resolve(realpathAllowingMissing(target, depth + 1), ...tail);
+  }
+}
+
+// True only when `path`, after resolving symlinks, lies outside `root`. A child named `..x` is inside.
+export function isOutside(path, root) {
+  const rel = relative(realpathAllowingMissing(root), realpathAllowingMissing(path));
+  return rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+
 // Evidence holds screenshots and network logs, so it stays outside the checkout.
 export function evidenceDir() {
   const value = process.env.PROOF_EVIDENCE;
   if (!value) throw new Error('set PROOF_EVIDENCE to a release evidence folder outside this repository');
-  const dir = resolve(value);
-  const inside = relative(REPO_ROOT, dir);
-  if (!inside || (!inside.startsWith('..') && !isAbsolute(inside))) {
-    throw new Error(`PROOF_EVIDENCE must be outside the repository (${REPO_ROOT})`);
+  if (!isOutside(value, REPO_ROOT)) {
+    throw new Error(`PROOF_EVIDENCE must be outside the repository (${REPO_ROOT}), symlinks resolved`);
   }
-  return dir;
+  return realpathAllowingMissing(value);
 }
 
 function loadSeat(role, hexVar, fileVar, prefixVar) {
+  const { Keypair } = repoRequire('@synonymdev/pubky');
   let keypair;
   if (process.env[hexVar]) {
     keypair = Keypair.fromSecret(new Uint8Array(Buffer.from(process.env[hexVar], 'hex')));
