@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_ROUTES, AUTH_ROUTES, ONBOARDING_ROUTES } from '@/app/routes';
 import { LANDING_HERO_SECTION_ID, LANDING_NEXT_SECTION_ID } from '@/templates/Public/Landing/Landing.constants';
+import { setSocialHost } from '@/test-utils/social-host';
 import { HeaderHome } from './HeaderHome';
 
 const mockPush = vi.fn();
@@ -115,6 +116,20 @@ describe('HeaderHome', () => {
 
     fireEvent.click(screen.getByTestId('header-explore-btn'));
     expect(mockPush).toHaveBeenCalledWith(APP_ROUTES.HOME);
+  });
+
+  it('explores the marketplace from the logout header with social link-out on', () => {
+    setSocialHost('https://pubky.app');
+    try {
+      vi.mocked(usePathname).mockReturnValue(AUTH_ROUTES.LOGOUT);
+
+      render(<HeaderHome />);
+
+      fireEvent.click(screen.getByTestId('header-explore-btn'));
+      expect(mockPush).toHaveBeenCalledWith(APP_ROUTES.MARKETPLACE);
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   it('does not render the landing join button when the landing hero is absent', () => {

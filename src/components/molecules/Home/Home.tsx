@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { APP_ROUTES, ONBOARDING_ROUTES } from '@/app/routes';
+import { getShopHomeRoute, ONBOARDING_ROUTES } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
 import { FooterLinks } from '@/atoms/FooterLinks/FooterLinks';
 import { Heading } from '@/atoms/Heading/Heading';
@@ -28,7 +28,7 @@ export const HomeActions = () => {
   };
 
   const handleExplore = () => {
-    router.push(APP_ROUTES.HOME);
+    router.push(getShopHomeRoute());
   };
 
   return (

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ElementType } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { setSocialHost } from '@/test-utils/social-host';
 import { ShareTarget } from './ShareTarget';
 
 // Mock next/navigation
@@ -182,6 +183,26 @@ describe('ShareTarget', () => {
     fireEvent.click(screen.getByTestId('post-submit'));
 
     expect(mockPush).toHaveBeenCalledWith('/home');
+  });
+
+  it('navigates to the marketplace on cancel and on successful post with social link-out on', async () => {
+    setSocialHost('https://pubky.app');
+    try {
+      render(<ShareTarget />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('post-input')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Cancel'));
+      fireEvent.click(screen.getByTestId('post-submit'));
+
+      expect(mockPush).toHaveBeenCalledTimes(2);
+      expect(mockPush).toHaveBeenNthCalledWith(1, '/marketplace');
+      expect(mockPush).toHaveBeenNthCalledWith(2, '/marketplace');
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   it('composes content from URL search params', async () => {

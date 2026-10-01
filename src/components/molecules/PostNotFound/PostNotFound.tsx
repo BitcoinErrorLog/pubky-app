@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, FileQuestion, Tag, UserRound } from 'lucide-react';
-import { APP_ROUTES, getUserProfileUrl } from '@/app/routes';
+import { APP_ROUTES, getShopHomeRoute, getUserProfileUrl } from '@/app/routes';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
 import { getValidAuthorPubkyFromPostCompositeId } from '@/libs/utils/utils';
@@ -36,7 +36,7 @@ export function PostNotFound({ postId }: PostNotFoundProps) {
       }
     >
       <Container overrideDefaults className="flex flex-col flex-wrap items-center justify-center gap-3 sm:flex-row">
-        <Button type="button" variant={ButtonVariant.SECONDARY} onClick={() => router.push(APP_ROUTES.HOME)}>
+        <Button type="button" variant={ButtonVariant.SECONDARY} onClick={() => router.push(getShopHomeRoute())}>
           <ArrowLeft className="size-4 shrink-0" />
           {'Back to Feed'}
         </Button>

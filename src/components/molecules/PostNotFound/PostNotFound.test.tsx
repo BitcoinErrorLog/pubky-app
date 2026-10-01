@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_ROUTES, getProfileRoute, PROFILE_ROUTES } from '@/app/routes';
 import { POST_ID_STAGING_FIXTURE, PUBKY_52_STAGING_FIXTURE, PUBKY_INVALID_TOO_LONG } from '@/test-utils/pubky';
+import { setSocialHost } from '@/test-utils/social-host';
 import { PostNotFound } from './PostNotFound';
 
 const mockPush = vi.fn();
@@ -53,6 +54,19 @@ describe('PostNotFound', () => {
 
     await user.click(screen.getByRole('button', { name: 'Explore Tags' }));
     expect(mockPush).toHaveBeenCalledWith(APP_ROUTES.HOT);
+  });
+
+  it('goes back to the marketplace with social link-out on', async () => {
+    setSocialHost('https://pubky.app');
+    try {
+      const user = userEvent.setup();
+      render(<PostNotFound postId={VALID_COMPOSITE} />);
+
+      await user.click(screen.getByRole('button', { name: 'Back to Feed' }));
+      expect(mockPush).toHaveBeenCalledWith(APP_ROUTES.MARKETPLACE);
+    } finally {
+      setSocialHost(undefined);
+    }
   });
 
   describe('Snapshots', () => {

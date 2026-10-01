@@ -11,6 +11,7 @@ import { ErrorService } from '@/libs/error/error.types';
 import { UserValidator } from '@/pipes/user/user.validator';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
+import { setSocialHost } from '@/test-utils/social-host';
 import { CreateProfileForm } from './CreateProfileForm';
 
 vi.mock('@/atoms/Dialog/Dialog', () => {
@@ -927,6 +928,31 @@ describe('CreateProfileForm', () => {
       expect(UserValidator.check).toHaveBeenCalled();
       expect(ProfileController.commitCreate).toHaveBeenCalled();
       expect(AuthController.bootstrapWithDelay).toHaveBeenCalled();
+    });
+
+    it('lands on the marketplace after onboarding with social link-out on', async () => {
+      setSocialHost('https://pubky.app');
+      try {
+        vi.mocked(useOnboardingStore).mockReturnValue({ setShowWelcomeDialog: vi.fn() });
+        vi.mocked(useAuthStore).mockReturnValue({ selectCurrentUserPubky: vi.fn(() => 'test-pubky-123') });
+        vi.mocked(UserValidator.check).mockReturnValue({
+          data: { name: 'Test User', bio: 'Test bio', links: [] },
+          error: [],
+        });
+        vi.mocked(ProfileController.commitCreate).mockResolvedValue(undefined);
+        vi.mocked(AuthController.bootstrapWithDelay).mockResolvedValue(undefined);
+
+        render(<CreateProfileForm />);
+        fireEvent.change(screen.getAllByTestId('molecules-input')[0], { target: { value: 'Test User' } });
+        fireEvent.click(screen.getByTestId('continue-button'));
+
+        await waitFor(() => {
+          expect(mockPush).toHaveBeenCalledWith('/marketplace');
+        });
+        expect(mockPush).not.toHaveBeenCalledWith(HOME_ROUTES.HOME);
+      } finally {
+        setSocialHost(undefined);
+      }
     });
 
     it('should not call setShowWelcomeDialog when profile creation fails', async () => {
