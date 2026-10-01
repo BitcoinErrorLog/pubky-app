@@ -2,10 +2,10 @@
 /* eslint-disable simple-import-sort/imports */
 import { createMarketplaceVrtAuthStore } from '@/test/mocks/marketplace-vrt';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
+import { renderForVRT } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
 import { setSocialHost } from '@/test-utils/social-host';
-import { HeaderContainer, HeaderExploreNavigationButtons } from '@/molecules/Header/Header';
+import { HeaderExploreNavigationButtons } from '@/molecules/Header/Header';
 import { HeaderSignIn } from '@/molecules/HeaderSignIn/HeaderSignIn';
 import { MobileFooter } from '@/molecules/MobileFooter/MobileFooter';
 import { useNotificationStore } from '@/stores/notification/notification.store';
@@ -58,10 +58,24 @@ vi.mock('@/hooks/useMessagesUnread/useMessagesUnread', () => ({
   useMessagesUnread: () => 1,
 }));
 
+const NAV_FRAME_TESTID = 'social-linkout-nav-frame';
+
+/**
+ * Captures only the nav, not the whole viewport: the marketplace project's 2%
+ * mismatch allowance would otherwise absorb a swapped pill or avatar.
+ */
+function HeaderFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div data-testid={NAV_FRAME_TESTID} className="inline-flex p-3">
+      {children}
+    </div>
+  );
+}
+
 /** MobileFooter is `position: fixed`; a transformed frame becomes its containing block. */
 function FooterFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative h-28 w-full" style={{ transform: 'translateZ(0)' }}>
+    <div data-testid={NAV_FRAME_TESTID} className="relative h-20 w-full" style={{ transform: 'translateZ(0)' }}>
       {children}
     </div>
   );
@@ -82,9 +96,9 @@ describe('Social link-out nav — visual regression', () => {
     useNotificationStore.getState().setMarketplaceUnread(3);
 
     const screen = await renderForVRT(
-      <HeaderContainer>
+      <HeaderFrame>
         <HeaderSignIn />
-      </HeaderContainer>,
+      </HeaderFrame>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect.element(screen.getByRole('link', { name: 'Pubky' })).toHaveAttribute('href', 'https://pubky.app/');
@@ -92,20 +106,20 @@ describe('Social link-out nav — visual regression', () => {
       'href',
       '/marketplace/notifications',
     );
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('social-linkout-header-signed-in-desktop');
+    await expect(screen.getByTestId(NAV_FRAME_TESTID)).toMatchScreenshot('social-linkout-header-signed-in-desktop');
   });
 
   it('renders the guest header with Marketplace, Messages and Pubky at desktop viewport', async () => {
     viewer.pubky = null;
 
     const screen = await renderForVRT(
-      <HeaderContainer>
+      <HeaderFrame>
         <HeaderExploreNavigationButtons />
-      </HeaderContainer>,
+      </HeaderFrame>,
       { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true },
     );
     await expect.element(screen.getByRole('link', { name: 'Pubky' })).toHaveAttribute('href', 'https://pubky.app/');
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('social-linkout-header-guest-desktop');
+    await expect(screen.getByTestId(NAV_FRAME_TESTID)).toMatchScreenshot('social-linkout-header-guest-desktop');
   });
 
   it('renders the signed-in mobile footer with Marketplace and Pubky at mobile viewport', async () => {
@@ -117,7 +131,7 @@ describe('Social link-out nav — visual regression', () => {
     );
     await expect.element(screen.getByRole('link', { name: 'Pubky' })).toHaveAttribute('href', 'https://pubky.app/');
     await expect.element(screen.getByRole('button', { name: 'Account menu' })).toBeInTheDocument();
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('social-linkout-footer-signed-in-mobile');
+    await expect(screen.getByTestId(NAV_FRAME_TESTID)).toMatchScreenshot('social-linkout-footer-signed-in-mobile');
   });
 
   it('renders the guest mobile footer with Marketplace, Pubky and Join at mobile viewport', async () => {
@@ -130,6 +144,6 @@ describe('Social link-out nav — visual regression', () => {
       { viewport: VRT_VIEWPORT_MOBILE, disableHover: true },
     );
     await expect.element(screen.getByRole('button', { name: 'Join Pubky' })).toBeInTheDocument();
-    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('social-linkout-footer-guest-mobile');
+    await expect(screen.getByTestId(NAV_FRAME_TESTID)).toMatchScreenshot('social-linkout-footer-guest-mobile');
   });
 });
