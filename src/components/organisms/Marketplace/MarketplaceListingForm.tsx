@@ -1065,7 +1065,10 @@ function MobileSectionStepper({
   const nextSection = LISTING_FORM_SECTIONS[safeIndex + 1];
 
   return (
-    <div className="sticky top-2 z-10 flex flex-col gap-3 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur lg:hidden">
+    <div
+      className="sticky top-(--header-offset-mobile) z-10 flex flex-col gap-3 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur lg:hidden"
+      data-testid="listing-mobile-stepper"
+    >
       <div className="flex items-center justify-between gap-3">
         <div>
           <Typography
@@ -1146,6 +1149,7 @@ function ListingFormSection({
   complete: boolean;
   children: ReactNode;
 }) {
+  // Below lg, a jump also clears the sticky mobile step bar (about 104px).
   return (
     <section
       id={id}
@@ -1153,7 +1157,7 @@ function ListingFormSection({
       aria-labelledby={`${id}-title`}
       data-section-complete={complete}
       data-surface={id}
-      className="lg:scroll-mt-(--header-offset-main)"
+      className="scroll-mt-[calc(var(--header-offset-mobile)+8.5rem)] lg:scroll-mt-(--header-offset-main)"
     >
       <Card className="border">
         <CardContent className="grid gap-5 px-6">

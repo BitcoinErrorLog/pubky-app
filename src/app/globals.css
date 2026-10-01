@@ -198,6 +198,16 @@ body {
   --header-offset-main: 144px;
 
   /**
+   * Mobile content header offset
+   * - Vertical offset for sticky elements below the full-chrome MobileHeader (< lg)
+   * - Value: p-6 (24px top + 24px bottom) around the 48px button row = 96px
+   * - Used by: listing editor mobile step bar
+   * - --header-height-mobile (80px) is stale and still drives tab-bar layout,
+   *   so it is not reused here.
+   */
+  --header-offset-mobile: 96px;
+
+  /**
    * Main content header offset
    * - Vertical offset for auth pages, smaller header than normal
    *

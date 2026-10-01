@@ -4,6 +4,7 @@ import { createMarketplaceVrtAuthStore, createMarketplaceVrtCommerceController }
 import { describe, expect, it, vi } from 'vitest';
 import { expectVrtSurface, renderForVRT, VRT_ROOT_TESTID } from '@/test-utils/vrt';
 import { VRT_VIEWPORT_DESKTOP, VRT_VIEWPORT_MOBILE } from '@/test-utils/vrt.viewports';
+import { MobileHeader } from '@/molecules/MobileHeader/MobileHeader';
 import { MarketplaceEditListing } from '@/templates/Marketplace/MarketplaceEditListing';
 
 // Existing photos resolve to a deterministic data-URI so the edit studio
@@ -204,6 +205,65 @@ describe('Marketplace edit listing — visual regression', () => {
       }
     }
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('edit-listing-rails-scrolled-desktop');
+  });
+
+  it('keeps the mobile step bar and step jumps below the mobile header at mobile viewport', async () => {
+    const { seller, record } = await fixtures;
+    view.record = record;
+    view.currentUserPubky = seller;
+
+    // ContentLayout is mocked in this file; the edit page's real mobile chrome
+    // is this header with both side buttons off.
+    const screen = await renderForVRT(
+      <>
+        <MobileHeader showLeftButton={false} showRightButton={false} />
+        <MarketplaceEditListing sellerPubky={seller} listingId="boots_01" />
+      </>,
+      { viewport: VRT_VIEWPORT_MOBILE },
+    );
+    await waitForHydration(screen, record.title);
+    const root = screen.getByTestId(VRT_ROOT_TESTID).element() as HTMLElement;
+    const header = root.firstElementChild as HTMLElement;
+    const stepper = screen.getByTestId('listing-mobile-stepper').element() as HTMLElement;
+    const rootTop = () => root.getBoundingClientRect().top;
+    const headerBottom = header.getBoundingClientRect().bottom - rootTop();
+    expect(headerBottom).toBe(96);
+    expect(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-offset-mobile'))).toBe(
+      headerBottom,
+    );
+
+    root.scrollTop = 1_200;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    // Firefox reports sub-pixel scroll and layout positions.
+    expect(root.scrollTop).toBeCloseTo(1_200, 0);
+    expect(header.getBoundingClientRect().bottom - rootTop()).toBeCloseTo(headerBottom, 0);
+    expect(stepper.getBoundingClientRect().top - rootTop()).toBeGreaterThanOrEqual(headerBottom - 0.5);
+
+    await screen.getByRole('button', { name: 'Next' }).click();
+    const section = document.getElementById('listing-section-item') as HTMLElement;
+    // The jump scrolls smoothly: measure and capture only once it has settled,
+    // on a whole pixel, so Firefox's capture box is stable.
+    const nextFrames = () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+    await vi.waitFor(async () => {
+      const before = root.scrollTop;
+      await nextFrames();
+      expect(root.scrollTop).toBe(before);
+      expect(Math.abs(before - 1_200)).toBeGreaterThan(1);
+    });
+    root.scrollTop = Math.round(root.scrollTop);
+    window.scrollTo(0, 0);
+    await nextFrames();
+    const stepperBottom = stepper.getBoundingClientRect().bottom - rootTop();
+    const sectionTop = section.getBoundingClientRect().top - rootTop();
+    expect(stepperBottom).toBeGreaterThan(headerBottom);
+    expect(sectionTop).toBeGreaterThanOrEqual(stepperBottom - 0.5);
+    expect(sectionTop - stepperBottom).toBeLessThan(48);
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('edit-listing-mobile-stepper-scrolled-mobile');
   });
 
   it('renders a digital-only listing in the edit studio at desktop viewport', async () => {
