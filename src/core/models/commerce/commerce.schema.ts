@@ -27,7 +27,7 @@ export function isListingReadBackPending(
   now = Date.now(),
 ): boolean {
   const since = listing.read_back_pending_since;
-  return since !== undefined && now - since < LISTING_READ_BACK_PENDING_WINDOW_MS;
+  return since !== undefined && since <= now && now - since < LISTING_READ_BACK_PENDING_WINDOW_MS;
 }
 
 export function isListingRegistrationPending(
