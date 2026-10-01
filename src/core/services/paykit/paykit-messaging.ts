@@ -376,10 +376,17 @@ export class PaykitMessagingService {
    * also ensures the receiver key + marker are provisioned, so messaging
    * surfaces go straight to ready after sign-in. Never throws for "no
    * session"; concurrent callers share one in-flight resume.
+   *
+   * `provision: false` resumes the session only: whenever it settles, it
+   * never creates, replaces or publishes a receiver key. A caller that
+   * joins a resume already in flight gets that resume's outcome.
    */
-  static async restorePersistedSession(expectedPubky: string): Promise<boolean> {
+  static async restorePersistedSession(
+    expectedPubky: string,
+    { provision = true }: { provision?: boolean } = {},
+  ): Promise<boolean> {
     if (this.hasActiveSession(expectedPubky)) {
-      await this.ensureReceiverProvisioned(expectedPubky);
+      if (provision) await this.ensureReceiverProvisioned(expectedPubky);
       return true;
     }
     if (this.restoreInFlight?.pubky === expectedPubky) return await this.restoreInFlight.done;
@@ -387,7 +394,7 @@ export class PaykitMessagingService {
     // next spaced attempt the answer stays "no session" (the enable flow and
     // sign-out both reset the schedule).
     if (this.sessionRetry.status(expectedPubky) === 'waiting') return false;
-    const done = this.resumeSessionSilently(expectedPubky);
+    const done = this.resumeSessionSilently(expectedPubky, provision);
     this.restoreInFlight = { pubky: expectedPubky, done };
     try {
       const resumed = await done;
@@ -399,11 +406,11 @@ export class PaykitMessagingService {
     }
   }
 
-  /** Paths 2 and 3 of the resume order, plus receiver provisioning on success. */
-  private static async resumeSessionSilently(expectedPubky: string): Promise<boolean> {
+  /** Paths 2 and 3 of the resume order, plus receiver provisioning on success when `provision` is set. */
+  private static async resumeSessionSilently(expectedPubky: string, provision: boolean): Promise<boolean> {
     const resumed =
       (await this.restoreSessionFromStorage(expectedPubky)) || (await this.resumeSessionFromCookie(expectedPubky));
-    if (resumed) await this.ensureReceiverProvisioned(expectedPubky);
+    if (resumed && provision) await this.ensureReceiverProvisioned(expectedPubky);
     return resumed;
   }
 

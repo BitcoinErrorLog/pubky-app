@@ -133,11 +133,12 @@ export class MessagingApplication {
   }
 
   /**
-   * Resumes the account's messaging session without the signer. Inside
-   * {@link withoutReceiverProvisioning} it touches no receiver key.
+   * Resumes the account's messaging session without the signer. It never
+   * touches the receiver key, even when it settles after a caller stopped
+   * waiting for it.
    */
   static async resumeSession(ownerPubky: string): Promise<boolean> {
-    return await PaykitMessagingService.restorePersistedSession(ownerPubky);
+    return await PaykitMessagingService.restorePersistedSession(ownerPubky, { provision: false });
   }
 
   /** This device's messaging key and the one pinned for the counterparty, for the Verify step. */
