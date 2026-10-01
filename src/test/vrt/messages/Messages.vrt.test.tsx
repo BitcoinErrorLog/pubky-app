@@ -31,6 +31,7 @@ const dmView = vi.hoisted(() => ({
   draftBytes: 0,
   isSending: false,
   sendError: null as string | null,
+  keyChange: null as { pinnedKey: string; observedKey: string } | null,
 }));
 
 function dmConversationFixture(unread: boolean) {
@@ -187,6 +188,9 @@ vi.mock('@/hooks/useDmConversation/useDmConversation', () => ({
     send: vi.fn(async () => 'queued'),
     cancelQueued: vi.fn(async () => {}),
     refresh: vi.fn(),
+    keyChange: dmView.keyChange,
+    acceptKeyChange: vi.fn(async () => {}),
+    isAcceptingKey: false,
   }),
 }));
 
@@ -246,6 +250,7 @@ describe('Messages area — visual regression', () => {
     dmView.draftBytes = 0;
     dmView.isSending = false;
     dmView.sendError = null;
+    dmView.keyChange = null;
   });
 
   it('renders the mixed conversation list (unread DM + listing) at desktop viewport', async () => {
@@ -400,6 +405,28 @@ describe('Messages area — visual regression', () => {
       viewport: VRT_VIEWPORT_DESKTOP,
     });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dm-conversation-queued-desktop');
+  });
+
+  it('renders the changed-key notice with a held queued message at desktop viewport', async () => {
+    dmView.status = 'key-changed';
+    dmView.keyChange = { pinnedKey: 'p'.repeat(52), observedKey: 'q'.repeat(52) };
+    dmView.thread = [dmQueuedFixture('00000000-0000-4000-8000-000000000913', 'Are we still on for Saturday?', 10)];
+
+    const screen = await renderForVRT(<MessagesConversation counterpartyPubky={DM_COUNTERPARTY} />, {
+      viewport: VRT_VIEWPORT_DESKTOP,
+    });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dm-conversation-key-changed-desktop');
+  });
+
+  it('renders the changed-key notice with both keys shown for verification at mobile viewport', async () => {
+    dmView.status = 'key-changed';
+    dmView.keyChange = { pinnedKey: 'p'.repeat(52), observedKey: 'q'.repeat(52) };
+
+    const screen = await renderForVRT(<MessagesConversation counterpartyPubky={DM_COUNTERPARTY} />, {
+      viewport: VRT_VIEWPORT_MOBILE,
+    });
+    await screen.getByRole('button', { name: 'Verify key' }).click();
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('dm-conversation-key-changed-verify-mobile');
   });
 
   it('renders the conversation list with a Queued preview when the newest item awaits delivery', async () => {

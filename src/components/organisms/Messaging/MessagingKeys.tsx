@@ -15,7 +15,7 @@ function KeyLine({ label, value }: { label: string; value: string | null }) {
       <Typography as="p" overrideDefaults className="text-xs font-medium text-muted-foreground">
         {label}
       </Typography>
-      <Typography as="p" overrideDefaults className="font-mono text-sm break-all">
+      <Typography as="p" overrideDefaults className="font-mono text-sm break-words">
         {value ? formatMessagingKey(value) : MESSAGING_COPY.messagingKeysNone}
       </Typography>
     </div>
