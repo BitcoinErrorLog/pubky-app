@@ -5,6 +5,7 @@ import { Button } from '@/atoms/Button/Button';
 import { Card, CardContent } from '@/atoms/Card/Card';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useSignOut } from '@/hooks/useSignOut/useSignOut';
+import { useSignOutCopy } from '@/hooks/useSignOutCopy/useSignOutCopy';
 
 /**
  * Shop sign-out for social link-out builds, where `/settings/account` (the
@@ -13,6 +14,7 @@ import { useSignOut } from '@/hooks/useSignOut/useSignOut';
  */
 export function MarketplaceSignOutCard() {
   const { handleSignOut, isLoading } = useSignOut();
+  const { title, description } = useSignOutCopy();
 
   return (
     <Card className="border" data-testid="marketplace-sign-out-card">
@@ -21,10 +23,10 @@ export function MarketplaceSignOutCard() {
           <LogOut className="mt-1 size-5 text-brand" />
           <div>
             <Typography as="h2" className="font-semibold">
-              Sign out from Pubky
+              {title}
             </Typography>
             <Typography as="p" className="text-sm text-muted-foreground">
-              Sign out to protect your account from unauthorized access.
+              {description}
             </Typography>
           </div>
         </div>

@@ -1,9 +1,10 @@
 import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SIGN_OUT_COPY } from '@/hooks/useSignOutCopy/useSignOutCopy';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { asOpaque } from '@/test-utils/type-assertions';
-import { Account, SIGN_OUT_COPY } from './Account';
+import { Account } from './Account';
 
 // Mock next/navigation
 const mockPush = vi.fn();
