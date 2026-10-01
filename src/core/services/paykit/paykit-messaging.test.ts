@@ -1009,6 +1009,114 @@ describe('PaykitMessagingService', () => {
 
       expect(state).toEqual({ status: 'handshaking', role: 'initiator' });
     });
+
+    describe('a surface someone is looking at restarts the backoff', () => {
+      /** Five spaced failed attempts (minimum jitter): the next one waits 40 s. */
+      async function backOffFiveTimes(counterparty: string) {
+        world.markerReadFailures.set(counterparty, { message: RAW_MARKER_TRANSPORT_ERROR, remaining: Infinity });
+        for (let failure = 1; failure <= 5; failure += 1) {
+          if (failure > 1) advanceClock((MESSAGING_RETRY_POLICY.baseMs * 2 ** (failure - 2)) / 2);
+          await expect(PaykitMessagingService.ensureLink(OWNER, counterparty)).resolves.toEqual({
+            status: 'unreachable',
+            reason: 'unreachable',
+          });
+        }
+      }
+
+      beforeEach(() => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+      });
+
+      it('without a restart (hidden page) the pair keeps waiting out its backoff', async () => {
+        await backOffFiveTimes(COUNTERPARTY);
+        const reads = markerReads(COUNTERPARTY).length;
+
+        for (let elapsed = POLL_MS; elapsed < 40_000; elapsed += POLL_MS) {
+          advanceClock(POLL_MS);
+          await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        }
+
+        expect(markerReads(COUNTERPARTY)).toHaveLength(reads);
+        expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('waiting');
+      });
+
+      it('a restart retries the pair on the next poll and delivers once the marker reads again', async () => {
+        await backOffFiveTimes(COUNTERPARTY);
+        world.markerReadFailures.delete(COUNTERPARTY);
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+        advanceClock(POLL_MS);
+        expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('waiting');
+
+        MessagingApplication.restartRetries(OWNER, COUNTERPARTY);
+
+        expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('due');
+        await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).resolves.toEqual({
+          status: 'handshaking',
+          role: 'initiator',
+        });
+        expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('none');
+      });
+
+      it('a restarted pair that fails again waits the first delay, not the escalated one', async () => {
+        await backOffFiveTimes(COUNTERPARTY);
+        MessagingApplication.restartRetries(OWNER, COUNTERPARTY);
+        const reads = markerReads(COUNTERPARTY).length;
+
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        expect(markerReads(COUNTERPARTY).length).toBeGreaterThan(reads);
+        const afterRetry = markerReads(COUNTERPARTY).length;
+
+        advanceClock(POLL_MS);
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        expect(markerReads(COUNTERPARTY)).toHaveLength(afterRetry);
+        advanceClock(MESSAGING_RETRY_POLICY.baseMs / 2 - POLL_MS);
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        expect(markerReads(COUNTERPARTY).length).toBeGreaterThan(afterRetry);
+      });
+
+      it('a conversation restart touches only its pair; an inbox restart covers every pair of the account', async () => {
+        await backOffFiveTimes(COUNTERPARTY);
+        await backOffFiveTimes(OTHER);
+
+        MessagingApplication.restartRetries(OWNER, COUNTERPARTY);
+        expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('due');
+        expect(PaykitMessagingService.linkRetryStatus(OWNER, OTHER)).toBe('waiting');
+
+        MessagingApplication.restartRetries(OWNER);
+        expect(PaykitMessagingService.linkRetryStatus(OWNER, OTHER)).toBe('due');
+      });
+
+      it('inbox sync keeps restarted pairs in the recovery budget of 3 per pass, behind healthy links', async () => {
+        const recovering = Array.from({ length: 5 }, (_, index) => `r${index}`.padEnd(52, 'x'));
+        for (const counterparty of recovering) await backOffFiveTimes(counterparty);
+        world.markers.set(OTHER, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+        world.inboundFrom.add(OTHER);
+        world.responderCompletes.add(OTHER);
+        MessagingApplication.restartRetries(OWNER);
+        world.calls = [];
+
+        await MessagingApplication.syncCounterparties(OWNER, [...recovering, OTHER], { policy: ADMIT_ALL_POLICY });
+
+        const retried = recovering.filter((pubky) => markerReads(pubky).length > 0);
+        expect(retried).toHaveLength(3);
+        expect(await LocalMessagingService.getLink(OWNER, OTHER)).toMatchObject({ status: 'established' });
+        const firstRecoveryRead = world.calls.findIndex((call) => call.startsWith('getReceiverMarker:r'));
+        const healthyRead = world.calls.findIndex((call) => call === `getReceiverMarker:${OTHER.slice(0, 4)}`);
+        expect(healthyRead).toBeLessThan(firstRecoveryRead);
+      });
+
+      it('a restart with nothing backing off changes nothing and makes no request', async () => {
+        world.markers.set(COUNTERPARTY, { receiverPath: 'marketplace/wallet', noisePublicKey: P_KEY });
+        await PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY);
+        const calls = [...world.calls];
+
+        MessagingApplication.restartRetries(OWNER, COUNTERPARTY);
+        MessagingApplication.restartRetries(OWNER);
+
+        expect(world.calls).toEqual(calls);
+        expect(PaykitMessagingService.linkRetryStatus(OWNER, COUNTERPARTY)).toBe('none');
+      });
+    });
   });
 
   describe('send/receive mapping and persistence ordering', () => {
@@ -1537,6 +1645,32 @@ describe('PaykitMessagingService', () => {
         });
         const queued = await LocalMessagingService.getQueuedMessages(OWNER, COUNTERPARTY);
         expect(queued.map((row) => row.id)).toEqual([queuedId]);
+      });
+
+      it('a failed queued send waits its backoff until the conversation restarts it', async () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        await queueChat('queued');
+        const sends = () => world.calls.filter((call) => call === 'link.send').length;
+        const before = sends();
+        world.sendFailures = 1;
+        await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY)).resolves.toEqual({
+          delivered: 0,
+          remaining: 1,
+        });
+
+        advanceClock(POLL_MS);
+        await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY)).resolves.toEqual({
+          delivered: 0,
+          remaining: 1,
+        });
+        expect(sends() - before).toBe(1);
+
+        MessagingApplication.restartRetries(OWNER, COUNTERPARTY);
+        await expect(MessagingApplication.flushOutbox(OWNER, COUNTERPARTY, ADMIT_ALL_POLICY)).resolves.toEqual({
+          delivered: 1,
+          remaining: 0,
+        });
+        expect(sends() - before).toBe(2);
       });
 
       it('a queued send whose snapshot is not saved stays queued, and its retry uses the next counter', async () => {

@@ -33,6 +33,22 @@ describe('RetryBackoff', () => {
     expect(backoff.fail('a', 'held', 0)).toBe(500);
   });
 
+  it('restarts matching failed keys: due now, still recovering, and back to the first delay', () => {
+    const backoff = new RetryBackoff<string>(POLICY, () => 0);
+    for (let i = 0; i < 5; i += 1) backoff.fail('pair:a', 'held', 0);
+    backoff.fail('pair:b', 'held', 0);
+    backoff.fail('other:a', 'held', 0);
+
+    backoff.restart((key) => key.startsWith('pair:'), 100);
+
+    expect(backoff.status('pair:a', 100)).toBe('due');
+    expect(backoff.status('pair:b', 100)).toBe('due');
+    expect(backoff.holds('pair:a', 'held')).toBe(true);
+    expect(backoff.status('other:a', 100)).toBe('waiting');
+    expect(backoff.status('pair:c', 100)).toBe('none');
+    expect(backoff.fail('pair:a', 'held', 100)).toBe(500);
+  });
+
   it('identifies the value recorded by the latest failure', () => {
     const backoff = new RetryBackoff<{ n: number }>(POLICY);
     const first = { n: 1 };

@@ -90,6 +90,9 @@ export function useEncryptedConversation(
 
   useEffect(() => {
     if (!active) return;
+    // Opening or retrying the conversation retries its failed attempts now;
+    // a hidden page keeps backing off.
+    if (!document.hidden) MessagingController.restartConversationRetries(sellerPubky, buyerPubky);
 
     let cancelled = false;
     let timer: number | null = null;
@@ -174,7 +177,9 @@ export function useEncryptedConversation(
     };
 
     const onVisibilityChange = () => {
-      if (!document.hidden) void poll();
+      if (document.hidden) return;
+      MessagingController.restartConversationRetries(sellerPubky, buyerPubky);
+      void poll();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 

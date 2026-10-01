@@ -124,6 +124,18 @@ export class MessagingApplication {
     this.outboxRetry.clear();
   }
 
+  /**
+   * Restarts the retry schedule of the account's failed link attempts and
+   * queued-message flushes — with `counterpartyPubky` only, when given — so
+   * the next poll retries them at once. For a surface someone is looking
+   * at; memory only, no request.
+   */
+  static restartRetries(ownerPubky: string, counterpartyPubky?: string): void {
+    PaykitMessagingService.restartLinkRetries(ownerPubky, counterpartyPubky);
+    const exact = counterpartyPubky === undefined ? null : `${ownerPubky}:${counterpartyPubky}`;
+    this.outboxRetry.restart((key) => (exact === null ? key.startsWith(`${ownerPubky}:`) : key === exact));
+  }
+
   /** True when the counterparty has published a messaging receiver marker. */
   static async isCounterpartyEnrolled(counterpartyPubky: string): Promise<boolean> {
     return (await PaykitMessagingService.getCounterpartyMarker(counterpartyPubky)) !== null;

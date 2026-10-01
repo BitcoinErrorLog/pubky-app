@@ -64,6 +64,9 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
     let cancelled = false;
     let timer: number | null = null;
     let syncing = false;
+    // Opening or retrying the inbox retries every conversation's failed
+    // attempts now; a hidden page keeps backing off.
+    if (!document.hidden) MessagingController.restartInboxRetries();
 
     const loadConversations = async () => {
       const next = await MessagingController.getConversations();
@@ -103,7 +106,9 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
     };
 
     const onVisibilityChange = () => {
-      if (!document.hidden) void sync();
+      if (document.hidden) return;
+      MessagingController.restartInboxRetries();
+      void sync();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 

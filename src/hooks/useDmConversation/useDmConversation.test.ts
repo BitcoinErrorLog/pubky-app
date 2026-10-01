@@ -33,6 +33,7 @@ vi.mock('@/controllers/messaging/messaging', () => ({
     pollDmConversation: vi.fn(),
     sendOrQueueDmMessage: vi.fn(),
     cancelQueuedMessage: vi.fn(),
+    restartDmConversationRetries: vi.fn(),
   },
 }));
 
@@ -211,5 +212,57 @@ describe('useDmConversation queued-message behavior', () => {
 
     expect(MessagingController.cancelQueuedMessage).toHaveBeenCalledWith(row.id);
     expect(result.current.thread).toHaveLength(0);
+  });
+
+  describe('retry backoff restarts only while someone can see the conversation', () => {
+    const restart = () => vi.mocked(MessagingController.restartDmConversationRetries);
+
+    beforeEach(() => {
+      vi.mocked(MessagingController.pollDmConversation).mockResolvedValue({
+        state: { status: 'handshaking', role: 'initiator' },
+        received: [],
+        flushed: 0,
+        rateLimited: 0,
+      });
+    });
+
+    it('restarts on open, when the page becomes visible again (before that poll), and on Try again', async () => {
+      const { result } = renderHook(() => useDmConversation(COUNTERPARTY, true));
+      await waitFor(() => expect(result.current.status).toBe('handshaking-initiator'));
+      expect(restart()).toHaveBeenCalledTimes(1);
+      expect(restart()).toHaveBeenCalledWith(COUNTERPARTY);
+
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await waitFor(() => expect(MessagingController.pollDmConversation).toHaveBeenCalledTimes(1));
+      expect(restart()).toHaveBeenCalledTimes(2);
+      expect(restart().mock.invocationCallOrder[1]).toBeLessThan(
+        vi.mocked(MessagingController.pollDmConversation).mock.invocationCallOrder[0],
+      );
+
+      act(() => result.current.refresh());
+      await waitFor(() => expect(MessagingController.openDmConversation).toHaveBeenCalledTimes(2));
+      expect(restart()).toHaveBeenCalledTimes(3);
+    });
+
+    it('a hidden page keeps backing off: no restart on open, on a hidden visibility event, or on Try again', async () => {
+      const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+      try {
+        const { result } = renderHook(() => useDmConversation(COUNTERPARTY, true));
+        await waitFor(() => expect(MessagingController.openDmConversation).toHaveBeenCalledTimes(1));
+
+        act(() => {
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+        act(() => result.current.refresh());
+        await waitFor(() => expect(MessagingController.openDmConversation).toHaveBeenCalledTimes(2));
+
+        expect(restart()).not.toHaveBeenCalled();
+        expect(MessagingController.pollDmConversation).not.toHaveBeenCalled();
+      } finally {
+        hidden.mockRestore();
+      }
+    });
   });
 });

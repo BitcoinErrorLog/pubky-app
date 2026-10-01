@@ -205,3 +205,56 @@ describe('MessagingController listing conversation ownership', () => {
     );
   });
 });
+
+describe('MessagingController retry restarts', () => {
+  const BUYER = 'b'.repeat(52);
+  let restartSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockAuth(OWNER);
+    restartSpy = vi.spyOn(MessagingApplication, 'restartRetries').mockReturnValue();
+  });
+
+  it('a listing conversation restarts the pair with the other party, from either side', () => {
+    MessagingController.restartConversationRetries(OWNER, BUYER);
+    MessagingController.restartConversationRetries(SELLER, OWNER);
+
+    expect(restartSpy.mock.calls).toEqual([
+      [OWNER, BUYER],
+      [OWNER, SELLER],
+    ]);
+  });
+
+  it('a listing conversation that is not the account’s, or is malformed, restarts nothing and never throws', () => {
+    MessagingController.restartConversationRetries(SELLER, BUYER);
+    MessagingController.restartConversationRetries(OWNER, 'not-a-pubky');
+    MessagingController.restartConversationRetries(OWNER, OWNER);
+
+    expect(restartSpy).not.toHaveBeenCalled();
+  });
+
+  it('a DM restarts its pair; the account itself or a malformed pubky restarts nothing', () => {
+    MessagingController.restartDmConversationRetries(BUYER);
+    MessagingController.restartDmConversationRetries(OWNER);
+    MessagingController.restartDmConversationRetries('not-a-pubky');
+
+    expect(restartSpy.mock.calls).toEqual([[OWNER, BUYER]]);
+  });
+
+  it('the inbox restarts every pair of the signed-in account', () => {
+    MessagingController.restartInboxRetries();
+
+    expect(restartSpy.mock.calls).toEqual([[OWNER]]);
+  });
+
+  it('nothing restarts while signed out', () => {
+    mockAuth(null);
+
+    MessagingController.restartInboxRetries();
+    MessagingController.restartDmConversationRetries(BUYER);
+    MessagingController.restartConversationRetries(OWNER, BUYER);
+
+    expect(restartSpy).not.toHaveBeenCalled();
+  });
+});
