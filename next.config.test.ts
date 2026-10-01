@@ -158,6 +158,26 @@ describe('Next redirects', () => {
       expect(resolveRedirect(configured, '/')).toBe(`${SHOP_ORIGIN}/marketplace`);
     });
 
+    it("fails the build when the host is the Shop's configured canonical URL", async () => {
+      vi.stubEnv('PUBKY_RUNTIME_DEFAULT_URL', 'https://shop.pubky.app');
+      vi.stubEnv('NEXT_PUBLIC_SOCIAL_HOST', 'https://shop.pubky.app');
+      await expect(redirects()).rejects.toThrow(/redirect to itself/);
+    });
+
+    it('fails the build when the host is this Vercel deployment', async () => {
+      vi.stubEnv('PUBKY_RUNTIME_DEFAULT_URL', 'https://shop.pubky.app');
+      vi.stubEnv('VERCEL_URL', 'pubky-marketplace-staging.vercel.app');
+      vi.stubEnv('NEXT_PUBLIC_SOCIAL_HOST', 'https://pubky-marketplace-staging.vercel.app');
+      await expect(redirects()).rejects.toThrow(/redirect to itself/);
+    });
+
+    it('builds with the social host when the Shop runs elsewhere', async () => {
+      vi.stubEnv('PUBKY_RUNTIME_DEFAULT_URL', 'https://shop.pubky.app');
+      vi.stubEnv('VERCEL_PROJECT_PRODUCTION_URL', 'shop.pubky.app');
+      vi.stubEnv('NEXT_PUBLIC_SOCIAL_HOST', 'https://pubky.app');
+      expect(resolveRedirect(await redirects(), '/home')).toBe('https://pubky.app/home');
+    });
+
     it('fails the build on an invalid host', async () => {
       vi.stubEnv('NEXT_PUBLIC_SOCIAL_HOST', 'https://pubky.app/');
       await expect(redirects()).rejects.toThrow(/NEXT_PUBLIC_SOCIAL_HOST/);

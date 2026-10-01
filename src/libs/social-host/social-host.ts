@@ -7,6 +7,11 @@
  * `https://staging.pubky.app` on staging). Unset means link-out is off and the
  * Shop keeps serving its own copy of those routes.
  *
+ * The redirects are unconditional and carry no session. Each site keeps its
+ * own sign-in until single sign-on exists, so a user signed in to the Shop
+ * (Ring, Bitkit or any other session) arrives on the social host signed out
+ * unless they already signed in there. That is the accepted beta behaviour.
+ *
  * This module has no `@/` imports so `next.config.ts` can load it to build
  * `redirects()`; components read the same list through `@/config/social`.
  */
@@ -61,13 +66,59 @@ export function isValidSocialHost(value: string, nodeEnv: string | undefined): b
   return nodeEnv !== 'production' && url.protocol === 'http:' && url.hostname === 'localhost';
 }
 
-/** Unset or empty → `undefined` (link-out off). An invalid value throws so a bad build fails loudly. */
-export function parseSocialHost(value: string | undefined, nodeEnv: string | undefined): string | undefined {
+/** The runtime-config variable holding the Shop's canonical URL (`defaultUrl`). */
+export const SHOP_DEFAULT_URL_ENV_VAR = 'PUBKY_RUNTIME_DEFAULT_URL';
+
+/** Vercel system variables naming the hosts a build is served from (no scheme). */
+const VERCEL_HOST_ENV_VARS = ['VERCEL_PROJECT_PRODUCTION_URL', 'VERCEL_BRANCH_URL', 'VERCEL_URL'] as const;
+
+function toOrigin(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Origins this Shop build is served from: the explicitly configured canonical
+ * URL, plus the deployment, branch and production hosts on Vercel. The
+ * runtime-config default (upstream's `https://pubky.app`) is deliberately not
+ * used, because an unset value says nothing about where the Shop runs.
+ */
+export function resolveShopOrigins(env: Readonly<Record<string, string | undefined>>): string[] {
+  const candidates = [
+    env[SHOP_DEFAULT_URL_ENV_VAR],
+    ...VERCEL_HOST_ENV_VARS.map((name) => (env[name] ? `https://${env[name]}` : undefined)),
+  ];
+  const origins = candidates
+    .filter((value): value is string => Boolean(value))
+    .map(toOrigin)
+    .filter((origin): origin is string => origin !== null);
+  return [...new Set(origins)];
+}
+
+/**
+ * Unset or empty → `undefined` (link-out off). An invalid value throws so a bad
+ * build fails loudly. So does a value naming one of `shopOrigins`: every social
+ * route would 307 back to itself.
+ */
+export function parseSocialHost(
+  value: string | undefined,
+  nodeEnv: string | undefined,
+  shopOrigins: readonly string[],
+): string | undefined {
   if (value === undefined || value === '') return undefined;
   if (!isValidSocialHost(value, nodeEnv)) {
     throw new Error(
       `${SOCIAL_HOST_ENV_VAR} must be an exact https:// origin (e.g. https://pubky.app), ` +
         `or http://localhost:<port> outside production builds. Received: ${JSON.stringify(value)}`,
+    );
+  }
+  if (shopOrigins.includes(value)) {
+    throw new Error(
+      `${SOCIAL_HOST_ENV_VAR} must name the social app, not this Shop (${JSON.stringify(value)}); ` +
+        'every social route would redirect to itself.',
     );
   }
   return value;

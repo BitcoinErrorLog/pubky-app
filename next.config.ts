@@ -3,7 +3,7 @@ import withSerwistInit from '@serwist/next';
 import { withSentryConfig } from '@sentry/nextjs';
 import packageJson from './package.json';
 import { buildDenyFramingRouteHeaders } from './src/libs/security/headers';
-import { buildSocialLinkOutRedirects, parseSocialHost } from './src/libs/social-host/social-host';
+import { buildSocialLinkOutRedirects, parseSocialHost, resolveShopOrigins } from './src/libs/social-host/social-host';
 
 export const redirects = async () => [
   {
@@ -13,7 +13,11 @@ export const redirects = async () => [
   },
   // Social link-out (off unless NEXT_PUBLIC_SOCIAL_HOST is set). Listed before the
   // legacy posts redirect so a legacy URL reaches the social host in one hop.
-  ...buildSocialLinkOutRedirects(parseSocialHost(process.env.NEXT_PUBLIC_SOCIAL_HOST, process.env.NODE_ENV)),
+  // Unconditional and session-free: a Shop-signed-in user lands on the social
+  // host signed out unless they signed in there too (one sign-in per site).
+  ...buildSocialLinkOutRedirects(
+    parseSocialHost(process.env.NEXT_PUBLIC_SOCIAL_HOST, process.env.NODE_ENV, resolveShopOrigins(process.env)),
+  ),
   // /profile/[pubky] is the canonical other-user posts view (see app/profile/[pubky]/page.tsx).
   // The legacy /profile/[pubky]/posts route is kept as a 308 permanent redirect so existing
   // bookmarks, shares, and search indexes consolidate onto the canonical URL without invoking
