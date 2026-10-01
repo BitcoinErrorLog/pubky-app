@@ -1,11 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, RING_COOKIE_CAPABILITIES } from '@/config/app';
 import type { UseStepUpReauthReturn } from '@/hooks/useStepUpReauth/useStepUpReauth.types';
 import {
   MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
-  MARKETPLACE_DISCLOSURE_SIGN_IN,
+  MARKETPLACE_DISCLOSURE_RING_SIGN_IN,
 } from '@/services/marketplace/marketplace-session-grant';
 import ringCapture from '@/test/fixtures/auth/ring-signin-url.sdk-0.8.0.json';
 import { MarketplaceReauthDialog } from './MarketplaceReauthDialog';
@@ -39,7 +39,7 @@ vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
 }));
 
 const RING_STEP_UP_URL = `${ringCapture.scheme}//${ringCapture.host}?${ringCapture.params
-  .map((name) => `${name}=${encodeURIComponent(name === 'caps' ? ringCapture.caps : 'x')}`)
+  .map((name) => `${name}=${encodeURIComponent(name === 'caps' ? RING_COOKIE_CAPABILITIES : 'x')}`)
   .join('&')}`;
 
 const RECONNECT_URL =
@@ -84,8 +84,8 @@ describe('MarketplaceReauthDialog', () => {
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign in again' }));
 
-    expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_SIGN_IN);
-    expect(screen.queryByText(ringCapture.caps)).not.toBeInTheDocument();
+    expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_RING_SIGN_IN);
+    expect(screen.queryByText(RING_COOKIE_CAPABILITIES)).not.toBeInTheDocument();
   });
 
   it.each([

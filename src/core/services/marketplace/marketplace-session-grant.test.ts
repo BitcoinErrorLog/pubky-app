@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, RING_COOKIE_CAPABILITIES } from '@/config/app';
 import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
+import ringCookie from '@/test/fixtures/auth/ring-cookie-signin.pubky-common-0.11.json';
 import ringCapture from '@/test/fixtures/auth/ring-signin-url.sdk-0.8.0.json';
 import {
   capabilitiesCoverScope,
@@ -9,6 +10,7 @@ import {
   MARKETPLACE_CLAIMABLE_GRANTS,
   MARKETPLACE_DISCLOSURE_INVENTORY,
   MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
+  MARKETPLACE_DISCLOSURE_RING_SIGN_IN,
   MARKETPLACE_DISCLOSURE_SIGN_IN,
   MARKETPLACE_PREVIOUS_SESSION_GRANT,
   MARKETPLACE_PRIVATE_DATA_SCOPE,
@@ -75,6 +77,20 @@ describe('marketplace session grant', () => {
         .join('&')}`;
     expect(marketplaceApprovalDisclosure(ringUrl(MARKETPLACE_SESSION_GRANT))).toBe(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
     expect(marketplaceApprovalDisclosure(ringUrl(ringCapture.caps))).toBe(MARKETPLACE_DISCLOSURE_SIGN_IN);
+    expect(marketplaceApprovalDisclosure(ringUrl(RING_COOKIE_CAPABILITIES))).toBe(MARKETPLACE_DISCLOSURE_RING_SIGN_IN);
+    expect(marketplaceApprovalDisclosure(ringUrl(RING_COOKIE_CAPABILITIES.split(',').reverse().join(',')))).toBe(
+      MARKETPLACE_DISCLOSURE_RING_SIGN_IN,
+    );
+    expect(marketplaceApprovalDisclosure(ringUrl(ringCookie.pubky_app_signin))).toBeNull();
+  });
+
+  it("says a Ring cookie approval also keeps Pubky App's social and Locks access working", () => {
+    expect(MARKETPLACE_DISCLOSURE_RING_SIGN_IN).toMatch(/^Approving signs you in to Pubky Shop, /);
+    expect(MARKETPLACE_DISCLOSURE_RING_SIGN_IN).toContain(
+      'the marketplace the same access, including your private Shop data',
+    );
+    expect(MARKETPLACE_DISCLOSURE_RING_SIGN_IN).toMatch(/keeps Pubky App's social and Locks access working\.$/);
+    expect(MARKETPLACE_DISCLOSURE_SIGN_IN).not.toMatch(/Pubky App/);
   });
 
   it('never names a capability path, a client host, or a signer', () => {
@@ -82,6 +98,7 @@ describe('marketplace session grant', () => {
       MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
       MARKETPLACE_DISCLOSURE_INVENTORY,
       MARKETPLACE_DISCLOSURE_SIGN_IN,
+      MARKETPLACE_DISCLOSURE_RING_SIGN_IN,
     ]) {
       expect(sentence).not.toMatch(/\/|:rw|pubky\.app|marketplace-service|Bitkit|Ring/);
       expect(sentence.match(/\./g)).toHaveLength(1);
@@ -136,6 +153,24 @@ describe('sessionReplacementRejection', () => {
       sessionReplacementRejection(signIn, [CAPABILITIES], { pubky: PUBKY, capabilities: parity }, PUBKY),
     ).toBeNull();
     expect(sessionReplacementRejection(parity, [CAPABILITIES], null, PUBKY)).toBe('unexpected_capabilities');
+  });
+
+  it('lets the Ring cookie sign-in redeem replace a parity session, and refuses a pubky.app-only set', () => {
+    const ringRedeem = ringCookie.service_normalized;
+    expect(
+      sessionReplacementRejection(
+        ringRedeem,
+        [RING_COOKIE_CAPABILITIES],
+        { pubky: PUBKY, capabilities: parity },
+        PUBKY,
+      ),
+    ).toBeNull();
+    expect(sessionReplacementRejection(signIn, [RING_COOKIE_CAPABILITIES], null, PUBKY)).toBe(
+      'unexpected_capabilities',
+    );
+    expect(sessionReplacementRejection(ringCookie.pubky_app_signin, [RING_COOKIE_CAPABILITIES], null, PUBKY)).toBe(
+      'unexpected_capabilities',
+    );
   });
 
   it('applies the no-downgrade rule even when no grant is pinned', () => {

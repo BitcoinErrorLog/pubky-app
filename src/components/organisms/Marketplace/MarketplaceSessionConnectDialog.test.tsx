@@ -1,11 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CAPABILITIES } from '@/config/app';
+import { RING_COOKIE_CAPABILITIES } from '@/config/app';
 import type { MarketplaceSessionConnectStatus } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect.types';
 import {
   MARKETPLACE_DISCLOSURE_INVENTORY,
   MARKETPLACE_DISCLOSURE_PRIVATE_DATA,
-  MARKETPLACE_DISCLOSURE_SIGN_IN,
+  MARKETPLACE_DISCLOSURE_RING_SIGN_IN,
   MARKETPLACE_SESSION_GRANT,
 } from '@/services/marketplace/marketplace-session-grant';
 import parityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
@@ -155,14 +155,14 @@ describe('MarketplaceSessionConnectDialog', () => {
     expectOneDisclosure(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
   });
 
-  it('the bridged full Shop sign-in QR discloses that the marketplace gets the same access', () => {
+  it('the bridged full Shop sign-in QR discloses the marketplace access and that Pubky App keeps working', () => {
     view.status = 'awaiting';
-    view.authorizationUrl = `pubkyauth://signin?caps=${encodeURIComponent(CAPABILITIES)}&relay=r&secret=s`;
+    view.authorizationUrl = `pubkyauth://signin?caps=${encodeURIComponent(RING_COOKIE_CAPABILITIES)}&relay=r&secret=s`;
     view.requestsFullGrant = true;
 
     render(<MarketplaceSessionConnectDialog />);
 
-    expectOneDisclosure(MARKETPLACE_DISCLOSURE_SIGN_IN);
+    expectOneDisclosure(MARKETPLACE_DISCLOSURE_RING_SIGN_IN);
   });
 
   it.each([

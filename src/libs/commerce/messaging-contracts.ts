@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CAPABILITIES } from '@/config/app';
+import { RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -19,11 +19,11 @@ import { commerceEntityIdSchema } from './transaction-contracts';
  * path" until the user signed in again — reproduced empirically 2026-08-21
  * (see scripts/probe-media-write.mjs). The session that wins the cookie must
  * be able to do everything the app needs, so this stays exactly equal to the
- * app's sign-in grant (`src/config/app.ts` CAPABILITIES) — including the
- * private watchlist scope — by deriving from it, not duplicating it. Shown
- * verbatim in the approval UI.
+ * Ring cookie sign-in request (`src/config/app.ts` RING_COOKIE_CAPABILITIES)
+ * — including the private watchlist scope and pubky.app's scopes — by
+ * deriving from it, not duplicating it. Shown verbatim in the approval UI.
  */
-export const PAYKIT_MESSAGING_CAPABILITY = CAPABILITIES;
+export const PAYKIT_MESSAGING_CAPABILITY = RING_COOKIE_CAPABILITIES;
 
 /**
  * The Paykit receiver path this app publishes its messaging receiver marker

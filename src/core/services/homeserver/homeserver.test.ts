@@ -1,6 +1,6 @@
 import type { Keypair, PublicKey, Session } from '@synonymdev/pubky';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { AppError } from '@/libs/error/error';
 import {
   AuthErrorCode,
@@ -847,7 +847,8 @@ describe('HomeserverService', () => {
         await HomeserverService.generateAuthUrl();
 
         expect(mockState.startAuthFlow).toHaveBeenCalledWith(
-          '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw', // Default capabilities: one grant covers app + messaging + private sync
+          // The Shop's scopes plus pubky.app's, so the shared cookie keeps both sites working.
+          '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw,/priv/social/:rw,/priv/app.locks/content/:r',
           'signin-kind', // AuthFlowKind.signin()
           expect.stringContaining('/inbox'), // HTTP relay (Pubky 0.7+ inbox endpoint)
         );
@@ -1010,9 +1011,53 @@ describe('HomeserverService', () => {
       });
     });
 
+    describe('currentSessionHasFullGrant', () => {
+      const PUBKY_APP_SIGN_IN = '/pub/pubky.app/:rw,/priv/social/:rw,/priv/app.locks/content/:r';
+      const cookieSession = (capabilities: string) =>
+        asOpaque<Session>({ info: { capabilities: capabilities.split(',') } });
+      const grantSession = (capabilities: string) =>
+        asOpaque<Session>({ info: { capabilities: capabilities.split(',') }, grant: { id: 'grant-1' } });
+
+      it.each([
+        ['a Ring cookie session holding the Ring set', cookieSession(RING_COOKIE_CAPABILITIES), true],
+        [
+          'a Ring cookie session holding the Ring set in another order',
+          cookieSession(RING_COOKIE_CAPABILITIES.split(',').reverse().join(',')),
+          true,
+        ],
+        ['a cookie session that pubky.app narrowed to its own set', cookieSession(PUBKY_APP_SIGN_IN), false],
+        ['a cookie session holding only the Shop grant', cookieSession(CAPABILITIES), false],
+        ['a root cookie session', cookieSession('/:rw'), false],
+        ['a grant session holding the Shop grant', grantSession(CAPABILITIES), true],
+        ['a grant session holding the Ring set', grantSession(RING_COOKIE_CAPABILITIES), false],
+      ])('%s → %s', (_label, session, full) => {
+        mockState.currentSession = session;
+
+        expect(HomeserverService.currentSessionHasFullGrant()).toBe(full);
+      });
+
+      it('is false with no session', () => {
+        mockState.currentSession = null;
+
+        expect(HomeserverService.currentSessionHasFullGrant()).toBe(false);
+      });
+
+      it("reports the Shop's private and Paykit trees unwritable once pubky.app narrowed the cookie", () => {
+        mockState.currentSession = cookieSession(PUBKY_APP_SIGN_IN);
+        expect(HomeserverService.canCurrentSessionWrite('/priv/pubky.app/')).toBe(false);
+        expect(HomeserverService.canCurrentSessionWrite('/pub/paykit/')).toBe(false);
+        expect(HomeserverService.canCurrentSessionWrite('/pub/pubky.app/')).toBe(true);
+
+        mockState.currentSession = cookieSession(RING_COOKIE_CAPABILITIES);
+        expect(HomeserverService.canCurrentSessionWrite('/priv/pubky.app/')).toBe(true);
+        expect(HomeserverService.canCurrentSessionWrite('/pub/paykit/')).toBe(true);
+        expect(HomeserverService.canCurrentSessionWrite('/priv/social/')).toBe(true);
+      });
+    });
+
     describe('signInWithFullGrantAuthToken', () => {
       const z32 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-      const fullCaps = CAPABILITIES.split(',');
+      const fullCaps = RING_COOKIE_CAPABILITIES.split(',');
       const bytes = new Uint8Array([9, 8, 7]);
 
       beforeEach(() => {
@@ -1074,6 +1119,22 @@ describe('HomeserverService', () => {
 
         await expect(HomeserverService.signInWithFullGrantAuthToken(bytes)).rejects.toMatchObject({
           category: ErrorCategory.Validation,
+          code: ValidationErrorCode.INVALID_INPUT,
+        });
+        expect(mockState.clientFetch).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['the Shop grant alone', CAPABILITIES],
+        ["pubky.app's own sign-in set", '/pub/pubky.app/:rw,/priv/social/:rw,/priv/app.locks/content/:r'],
+        ['the Ring set plus root', `${RING_COOKIE_CAPABILITIES},/:rw`],
+      ])('refuses %s before POSTing /session', async (_label, capabilities) => {
+        mockState.authTokenFromBytes.mockReturnValue({
+          capabilities: capabilities.split(','),
+          publicKey: { z32: () => z32 },
+        });
+
+        await expect(HomeserverService.signInWithFullGrantAuthToken(bytes)).rejects.toMatchObject({
           code: ValidationErrorCode.INVALID_INPUT,
         });
         expect(mockState.clientFetch).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-import { CAPABILITIES, isSingleApprovalSignInEnabled } from '@/config/app';
+import { CAPABILITIES, isSingleApprovalSignInEnabled, RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 
 /**
@@ -112,6 +112,9 @@ export const MARKETPLACE_DISCLOSURE_PRIVATE_DATA =
 export const MARKETPLACE_DISCLOSURE_INVENTORY = 'Approving lets the marketplace handle your purchases and stock edits.';
 export const MARKETPLACE_DISCLOSURE_SIGN_IN =
   'Approving signs you in to Pubky Shop and gives the marketplace the same access, including your private Shop data.';
+/** The Ring cookie set also carries pubky.app's scopes, so its approval keeps that site working too. */
+export const MARKETPLACE_DISCLOSURE_RING_SIGN_IN =
+  "Approving signs you in to Pubky Shop, gives the marketplace the same access, including your private Shop data, and keeps Pubky App's social and Locks access working.";
 
 /**
  * The one sentence Shop shows beside a QR whose approval produces a
@@ -123,6 +126,7 @@ export function marketplaceApprovalDisclosure(authorizationUrl: string): string 
   if (caps === null) return null;
   if (matchesCapabilitySet(caps, [MARKETPLACE_SESSION_GRANT])) return MARKETPLACE_DISCLOSURE_PRIVATE_DATA;
   if (matchesCapabilitySet(caps, [MARKETPLACE_PREVIOUS_SESSION_GRANT])) return MARKETPLACE_DISCLOSURE_INVENTORY;
+  if (matchesCapabilitySet(caps, [RING_COOKIE_CAPABILITIES])) return MARKETPLACE_DISCLOSURE_RING_SIGN_IN;
   if (matchesCapabilitySet(caps, [CAPABILITIES])) return MARKETPLACE_DISCLOSURE_SIGN_IN;
   return null;
 }

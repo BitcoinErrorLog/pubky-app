@@ -4,6 +4,7 @@ import { CAPABILITIES } from '@/config/app';
 import type { AppError } from '@/libs/error/error';
 import { Logger } from '@/libs/logger/logger';
 import captured from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
+import ringCookie from '@/test/fixtures/auth/ring-cookie-signin.pubky-common-0.11.json';
 import {
   MARKETPLACE_SESSION_STORAGE_KEY,
   MarketplaceSessionService,
@@ -213,6 +214,18 @@ describe('MarketplaceSessionService', () => {
     expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, pubky: PUBKY });
   });
 
+  it.each([
+    ['the Ring cookie sign-in set', ringCookie.service_normalized],
+    ['the Shop grant a Ring sign-in redeemed before it carried pubky.app scopes', CAPABILITIES],
+  ])('restores a persisted sign-in redeem carrying %s', async (_label, capabilities) => {
+    vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, capabilities));
+    await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
+    dropMemoryOnly();
+
+    expect(MarketplaceSessionService.restorePersistedSession(PUBKY)).toMatchObject({ pubky: PUBKY });
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({ token: TOKEN, capabilities });
+  });
+
   it('never adopts a persisted session that belongs to another account, and leaves it for its owner', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay()));
     await MarketplaceSessionService.establishWithAuthToken(new Uint8Array([1]), PUBKY);
@@ -383,7 +396,7 @@ describe('MarketplaceSessionService', () => {
     vi.spyOn(await import('@/libs/utils/utils'), 'sleep').mockResolvedValue(undefined);
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
-      .mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, CAPABILITIES));
+      .mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN, ringCookie.service_normalized));
 
     const info = await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(bytes, PUBKY, Date.now());
 
@@ -601,7 +614,8 @@ describe('MarketplaceSessionService', () => {
 describe('MarketplaceSessionService replacement guard (staging grant shapes)', () => {
   const parity = captured.parity_request.homeserver_verified;
   const previous = captured.previous_request.homeserver_verified;
-  const signIn = captured.shop_signin_request.homeserver_verified;
+  const shopGrant = captured.shop_signin_request.homeserver_verified;
+  const signIn = ringCookie.service_normalized;
 
   beforeEach(() => {
     config.mode = 'transaction-service';
@@ -635,7 +649,8 @@ describe('MarketplaceSessionService replacement guard (staging grant shapes)', (
     ['private-data only', '/priv/pubky.app/:rw'],
     ['extra paykit scope', `${parity},/pub/paykit/:rw`],
     ['root', '/:rw'],
-    ['Shop sign-in grant', signIn],
+    ['Shop sign-in grant', shopGrant],
+    ['Ring cookie sign-in set', signIn],
   ])('the Ring connect QR refuses a %s session and keeps the current one', async (_label, capabilities) => {
     const persisted = await holdWideSession();
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, capabilities));
@@ -657,6 +672,8 @@ describe('MarketplaceSessionService replacement guard (staging grant shapes)', (
     ['empty', ''],
     ['parity grant', parity],
     ['sign-in grant minus paykit', '/pub/pubky.app/:rw,/priv/pubky.app/:rw'],
+    ['Shop grant without pubky.app scopes', shopGrant],
+    ["pubky.app's own sign-in set", ringCookie.pubky_app_signin],
   ])('the sign-in redeem refuses a %s session and keeps the current one', async (_label, capabilities) => {
     const persisted = await holdWideSession();
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, capabilities));
@@ -668,7 +685,7 @@ describe('MarketplaceSessionService replacement guard (staging grant shapes)', (
     expectWideSessionKept(persisted);
   });
 
-  it('the sign-in redeem installs the Shop sign-in grant over a parity session', async () => {
+  it('the sign-in redeem installs the Ring cookie sign-in set over a parity session', async () => {
     await holdWideSession();
     vi.mocked(fetch).mockResolvedValueOnce(sessionResponse(inOneDay(), TOKEN_B, signIn));
     await MarketplaceSessionService.redeemAuthTokenAfterHomeserver(new Uint8Array([7]), PUBKY, Date.now());

@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MARKETPLACE_DISCLOSURE_SIGN_IN } from '@/services/marketplace/marketplace-session-grant';
+import { RING_COOKIE_CAPABILITIES } from '@/config/app';
+import { MARKETPLACE_DISCLOSURE_RING_SIGN_IN } from '@/services/marketplace/marketplace-session-grant';
 import grantCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
 import ringCapture from '@/test/fixtures/auth/ring-signin-url.sdk-0.8.0.json';
 import { SignInContent } from './SignIn';
@@ -13,7 +14,7 @@ function urlFrom(shape: Shape): string {
     .join('&')}`;
 }
 
-const RING_SIGN_IN_URL = urlFrom(ringCapture);
+const RING_SIGN_IN_URL = urlFrom({ ...ringCapture, caps: RING_COOKIE_CAPABILITIES });
 const BITKIT_SIGN_IN_URL = urlFrom(grantCapture.shop_signin_request);
 
 const view = vi.hoisted(() => ({
@@ -61,7 +62,7 @@ describe('Ring sign-in marketplace disclosure', () => {
 
     const disclosures = screen.getAllByTestId('session-approval-disclosure');
     expect(disclosures).toHaveLength(2);
-    for (const disclosure of disclosures) expect(disclosure).toHaveTextContent(MARKETPLACE_DISCLOSURE_SIGN_IN);
+    for (const disclosure of disclosures) expect(disclosure).toHaveTextContent(MARKETPLACE_DISCLOSURE_RING_SIGN_IN);
     expect(screen.getByLabelText('Copy authentication link').parentElement).toContainElement(disclosures[0]);
     expect(screen.getByTestId('button').parentElement).toContainElement(disclosures[1]);
   });
@@ -72,7 +73,7 @@ describe('Ring sign-in marketplace disclosure', () => {
 
     expect(
       within(screen.getByTestId('sign-in-ring-option')).getByTestId('session-approval-disclosure'),
-    ).toHaveTextContent(MARKETPLACE_DISCLOSURE_SIGN_IN);
+    ).toHaveTextContent(MARKETPLACE_DISCLOSURE_RING_SIGN_IN);
     expect(within(screen.getByTestId('sign-in-bitkit-option')).queryByTestId('session-approval-disclosure')).toBeNull();
     const mobileRing = screen.getByTestId('button');
     expect(mobileRing.nextElementSibling).toHaveAttribute('data-testid', 'session-approval-disclosure');
@@ -97,7 +98,7 @@ describe('Ring sign-in marketplace disclosure', () => {
   it('never prints the capability string', () => {
     view.grantSignIn = true;
     render(<SignInContent />);
-    expect(document.body.textContent).not.toContain(ringCapture.caps);
+    expect(document.body.textContent).not.toContain(RING_COOKIE_CAPABILITIES);
     expect(document.body.textContent).not.toMatch(/\/priv\/|\/pub\/|:rw/);
   });
 });

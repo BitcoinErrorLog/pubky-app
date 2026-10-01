@@ -13,6 +13,7 @@ import { MarketplaceSessionService } from '@/services/marketplace/marketplace-se
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { CommerceMarketplaceSession } from '@/stores/commerce/commerce.types';
 import parityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
+import ringCookie from '@/test/fixtures/auth/ring-cookie-signin.pubky-common-0.11.json';
 import { asOpaque } from '@/test-utils/type-assertions';
 import { useMarketplaceSessionConnect } from './useMarketplaceSessionConnect';
 
@@ -629,7 +630,7 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
       process.env.PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE = 'transaction-service';
       const restore = await enableGrantFlow();
       try {
-        const signIn = parityCapture.shop_signin_request.homeserver_verified;
+        const signIn = ringCookie.service_normalized;
         vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
           new Response(
             JSON.stringify({ token: WIDE_TOKEN, pubky: SESSION.pubky, capabilities: signIn, expires_at: FUTURE }),

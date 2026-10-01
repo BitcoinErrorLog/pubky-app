@@ -194,8 +194,8 @@ export const MESSAGING_SESSION_STORAGE_KEY = 'pubky.messaging.session.v1';
  * Key facts the rest of the app relies on:
  *
  * - The homeserver session normally comes from the app's OWN sign-in: the
- *   sign-in grant (`/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw`)
- *   already covers the Paykit tree, and the credential is the HTTP-only
+ *   Ring cookie sign-in set (`RING_COOKIE_CAPABILITIES`, which includes
+ *   `/pub/paykit/:rw`) already covers the Paykit tree, and the credential is the HTTP-only
  *   homeserver cookie the BROWSER holds from that sign-in. The binding's
  *   `resumeSessionFromCookie` rebuilds a session handle from that cookie
  *   with ZERO additional signer approvals ({@link restorePersistedSession}

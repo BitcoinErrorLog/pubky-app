@@ -1,6 +1,6 @@
 import type { AuthToken, Session } from '@synonymdev/pubky';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CAPABILITIES } from '@/config/app';
+import { RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { asOpaque } from '@/test-utils/type-assertions';
 
@@ -120,7 +120,7 @@ describe('single-approval ceremony at the transport seams', () => {
     AuthController.resetSignInCeremonyGuard();
 
     mockState.authTokenFromBytes.mockReturnValue({
-      capabilities: CAPABILITIES.split(','),
+      capabilities: RING_COOKIE_CAPABILITIES.split(','),
       publicKey: { z32: () => PUBKY },
     });
     mockState.sessionRestore.mockResolvedValue(mockSession);
@@ -130,7 +130,7 @@ describe('single-approval ceremony at the transport seams', () => {
         asOpaque<AuthToken>({
           toBytes: () => TOKEN_BYTES,
           publicKey: { z32: () => PUBKY },
-          capabilities: CAPABILITIES.split(','),
+          capabilities: RING_COOKIE_CAPABILITIES.split(','),
         }),
       free: vi.fn(),
     });
@@ -148,7 +148,7 @@ describe('single-approval ceremony at the transport seams', () => {
         JSON.stringify({
           token: BEARER,
           pubky: PUBKY,
-          capabilities: CAPABILITIES,
+          capabilities: RING_COOKIE_CAPABILITIES,
           expires_at: new Date(Date.now() + 86_400_000).toISOString(),
         }),
         { status: 201, headers: { 'content-type': 'application/json' } },
@@ -162,10 +162,10 @@ describe('single-approval ceremony at the transport seams', () => {
     // Order is asserted at the transport boundary: homeserver first.
     expect(order).toEqual(['homeserver', 'marketplace']);
 
-    // ONE auth flow for the whole ceremony, with the full grant — no
+    // ONE auth flow for the whole ceremony, with the Ring cookie set — no
     // empty-capability second flow on the direct sign-in path.
     expect(mockState.startAuthFlow).toHaveBeenCalledTimes(1);
-    expect(mockState.startAuthFlow).toHaveBeenCalledWith(CAPABILITIES, 'signin-kind', expect.any(String));
+    expect(mockState.startAuthFlow).toHaveBeenCalledWith(RING_COOKIE_CAPABILITIES, 'signin-kind', expect.any(String));
     // The /session body hydrates through Session.restore, never Pubky.restoreSession.
     expect(mockState.sessionRestore).toHaveBeenCalledWith(expect.any(String), expect.anything());
     expect(mockState.restoreSession).not.toHaveBeenCalled();
@@ -194,6 +194,62 @@ describe('single-approval ceremony at the transport seams', () => {
     await expect(awaitApproval).resolves.toBe(mockSession);
   });
 
+  it('step-up after a pubky.app sign-in narrowed the cookie asks Ring for both sites and redeems once', async () => {
+    mockState.currentUserPubky = PUBKY;
+    mockState.clientFetch.mockResolvedValue(new Response(SESSION_INFO_BODY, { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          token: BEARER,
+          pubky: PUBKY,
+          capabilities: RING_COOKIE_CAPABILITIES,
+          expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        }),
+        { status: 201, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const { AuthController } = await import('./auth');
+    const { awaitApproval } = await AuthController.getStepUpAuthUrl();
+    await expect(awaitApproval).resolves.toBe(mockSession);
+
+    expect(mockState.startAuthFlow).toHaveBeenCalledTimes(1);
+    expect(mockState.startAuthFlow).toHaveBeenCalledWith(
+      '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw,/priv/social/:rw,/priv/app.locks/content/:r',
+      'signin-kind',
+      expect.any(String),
+    );
+    expect(mockState.clientFetch).toHaveBeenCalledWith(
+      `https://_pubky.${PUBKY}/session`,
+      expect.objectContaining({ method: 'POST', body: TOKEN_BYTES }),
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const { MarketplaceSessionService } = await import('@/services/marketplace/marketplace-session');
+    expect(MarketplaceSessionService.getActiveSession()).toMatchObject({
+      pubky: PUBKY,
+      capabilities: RING_COOKIE_CAPABILITIES,
+    });
+    MarketplaceSessionService.clearSession();
+    window.localStorage.clear();
+  });
+
+  it("refuses a Ring approval that carries only pubky.app's set before either POST", async () => {
+    mockState.currentUserPubky = PUBKY;
+    mockState.authTokenFromBytes.mockReturnValue({
+      capabilities: ['/pub/pubky.app/:rw', '/priv/social/:rw', '/priv/app.locks/content/:r'],
+      publicKey: { z32: () => PUBKY },
+    });
+
+    const { AuthController } = await import('./auth');
+    const { awaitApproval } = await AuthController.getStepUpAuthUrl();
+
+    await expect(awaitApproval).rejects.toMatchObject({
+      message: 'This approval does not include the full Shop permission list. Scan again from Shop.',
+    });
+    expect(mockState.clientFetch).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('step-up approved by a different identity mints no marketplace bearer and signs the session out', async () => {
     // The device is signed in as A; the signer approves the step-up as B
     // (PUBKY). The identity gate must run BEFORE the marketplace POST.
@@ -210,7 +266,7 @@ describe('single-approval ceremony at the transport seams', () => {
         JSON.stringify({
           token: BEARER,
           pubky: PUBKY,
-          capabilities: CAPABILITIES,
+          capabilities: RING_COOKIE_CAPABILITIES,
           expires_at: new Date(Date.now() + 86_400_000).toISOString(),
         }),
         { status: 201, headers: { 'content-type': 'application/json' } },
@@ -256,7 +312,7 @@ describe('single-approval ceremony at the transport seams', () => {
         JSON.stringify({
           token: BEARER,
           pubky: PUBKY,
-          capabilities: CAPABILITIES,
+          capabilities: RING_COOKIE_CAPABILITIES,
           expires_at: new Date(Date.now() + 86_400_000).toISOString(),
         }),
         { status: 201, headers: { 'content-type': 'application/json' } },
@@ -272,7 +328,7 @@ describe('single-approval ceremony at the transport seams', () => {
       JSON.stringify({
         token: BEARER,
         pubky: signedInPubky,
-        capabilities: CAPABILITIES,
+        capabilities: RING_COOKIE_CAPABILITIES,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
       }),
     );
@@ -314,7 +370,7 @@ describe('single-approval ceremony at the transport seams', () => {
       JSON.stringify({
         token: BEARER,
         pubky: strangerPubky,
-        capabilities: CAPABILITIES,
+        capabilities: RING_COOKIE_CAPABILITIES,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
       }),
     );

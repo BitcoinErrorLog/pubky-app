@@ -1,4 +1,4 @@
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { INVENTORY_GRANT } from '@/services/marketplace/marketplace-inventory-grant';
 import {
@@ -137,12 +137,13 @@ export function isPublicHttpsWebhookUrl(value: string): boolean {
   return true;
 }
 
-const PURCHASE_GRANTS: readonly string[] = [MARKETPLACE_SESSION_GRANT, CAPABILITIES];
+const PURCHASE_GRANTS: readonly string[] = [MARKETPLACE_SESSION_GRANT, RING_COOKIE_CAPABILITIES, CAPABILITIES];
 
 /**
  * Purchase: empty caps (bridged or legacy identity session), the marketplace
- * session grant (Bitkit or Ring grant flow, Ring QR), or the Shop sign-in
- * grant a Ring sign-in redeems. Exact Studio inventory grant → Inventory.
+ * session grant (Bitkit or Ring grant flow, Ring QR), or the sign-in set a
+ * Ring sign-in redeems (the Ring cookie set, or the Shop grant it requested
+ * before it included pubky.app's scopes). Exact Studio inventory grant → Inventory.
  * Root `/:rw` and every other grant string → CLI (not Studio).
  */
 export function classifySessionKind(capabilities: string): InventorySessionKind {

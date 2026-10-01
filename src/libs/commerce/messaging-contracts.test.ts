@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAPABILITIES } from '@/config/app';
+import { RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { asInvalid } from '@/test-utils/type-assertions';
 import {
   bodyByteSize,
@@ -37,8 +37,8 @@ function build(body: string) {
 }
 
 describe('marketplace chat message contract', () => {
-  it('keeps the messaging capability byte-identical to the app sign-in grant', () => {
-    expect(PAYKIT_MESSAGING_CAPABILITY).toBe(CAPABILITIES);
+  it('keeps the messaging capability byte-identical to the Ring cookie sign-in request', () => {
+    expect(PAYKIT_MESSAGING_CAPABILITY).toBe(RING_COOKIE_CAPABILITIES);
   });
 
   it('builds a valid envelope and reports its true serialized size', () => {
