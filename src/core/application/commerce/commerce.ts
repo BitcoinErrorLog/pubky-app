@@ -3426,10 +3426,14 @@ export class CommerceApplication {
     }
     // Without Web Locks nothing registers; the listing stays `unregistered`.
     if (!registering) return { registered: false, verified };
-    // The homeserver is not serving the acked record yet. The row carries
-    // `read_back_pending`, so no 404 settles it `not_found`; it stays
-    // `unregistered` and heals through ensureListingRegistered.
-    if (!verified) return { registered: false, verified };
+    // The homeserver acked the write but is not serving it yet, so the publish
+    // job is done. The row carries `read_back_pending_since`: within the
+    // window no 404 settles it, and it stays `unregistered` for
+    // ensureListingRegistered to heal.
+    if (!verified) {
+      await LocalCommerceService.completeSyncJob(publishJob.id);
+      return { registered: false, verified };
+    }
     return {
       registered: await this.runListingRegistration(record, attempt, 'publish', publishJob.id),
       verified,
@@ -3661,8 +3665,8 @@ export class CommerceApplication {
   }
 
   /**
-   * The registration precheck. A row marked `read_back_pending` was acked but
-   * never served back, so its 404 is retried on the read-back schedule; one
+   * The registration precheck. A row still within its read-back window was
+   * acked but never served back, so its 404 is retried on the read-back schedule; one
    * that outlasts it still answers false, and the settle keeps that row
    * pending rather than `not_found`.
    */

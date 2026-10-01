@@ -22,7 +22,7 @@ import {
   CommerceShopModel,
   CommerceSyncJobModel,
 } from '@/models/commerce/commerce.models';
-import { isListingRegistrationPending } from '@/models/commerce/commerce.schema';
+import { isListingRegistrationPending, LISTING_READ_BACK_PENDING_WINDOW_MS } from '@/models/commerce/commerce.schema';
 import { CommerceRecordNormalizer } from '@/pipes/commerce/commerce.normalizer';
 import { CommerceHomeserverService } from '@/services/homeserver/commerce/commerce';
 import { HomeserverService } from '@/services/homeserver/homeserver';
@@ -693,7 +693,7 @@ describe('CommerceApplication', () => {
       await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
         sync_status: 'synced',
         registration_status: 'unregistered',
-        read_back_pending: true,
+        read_back_pending_since: expect.any(Number),
       });
 
       // The owner surface's first heal still reads a 404 through its retries: lag, not a deletion.
@@ -702,7 +702,10 @@ describe('CommerceApplication', () => {
       expect(fetchJson.mock.calls.length - readsBeforeHeal).toBe(4);
       expect(MarketplaceGatewayService.execute).not.toHaveBeenCalled();
       const afterFirstHeal = await LocalCommerceService.getListing(listingId);
-      expect(afterFirstHeal).toMatchObject({ registration_status: 'unregistered', read_back_pending: true });
+      expect(afterFirstHeal).toMatchObject({
+        registration_status: 'unregistered',
+        read_back_pending_since: expect.any(Number),
+      });
       expect(isListingRegistrationPending(afterFirstHeal!)).toBe(true);
 
       fetchJson.mockResolvedValue({ ...record });
@@ -710,7 +713,35 @@ describe('CommerceApplication', () => {
       expect(MarketplaceGatewayService.execute).toHaveBeenCalledOnce();
       const registered = await LocalCommerceService.getListing(listingId);
       expect(registered).toMatchObject({ registration_status: 'registered' });
-      expect(registered?.read_back_pending).toBeUndefined();
+      expect(registered?.read_back_pending_since).toBeUndefined();
+    });
+
+    it('settles a remote deletion as authoritative once the read-back window has passed', async () => {
+      const record = createCommerceListingFixture();
+      const listingId = `${record.ownerPubky}:${record.listingId}`;
+      publishableSession();
+      const fetchJson = vi.spyOn(CommerceHomeserverService, 'fetchJson').mockImplementation(async () => {
+        throw missing();
+      });
+      await expect(CommerceApplication.commitUpsertListing(record)).resolves.toEqual({
+        registered: false,
+        verified: false,
+      });
+      const pendingSince = (await LocalCommerceService.getListing(listingId))?.read_back_pending_since;
+      expect(pendingSince).toEqual(expect.any(Number));
+
+      // Another device deletes the record, so every read keeps answering 404; within the window that is lag.
+      await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
+        registration_status: 'unregistered',
+      });
+
+      vi.spyOn(Date, 'now').mockReturnValue(pendingSince! + LISTING_READ_BACK_PENDING_WINDOW_MS);
+      const readsBeforeExpiredHeal = fetchJson.mock.calls.length;
+      await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
+      expect(fetchJson.mock.calls.length - readsBeforeExpiredHeal).toBe(1);
+      expect(MarketplaceGatewayService.execute).not.toHaveBeenCalled();
+      await expect(LocalCommerceService.getListing(listingId)).resolves.toBeNull();
     });
 
     it('keeps an unconfirmed publish pending when the service cannot read the record yet either', async () => {
@@ -730,7 +761,7 @@ describe('CommerceApplication', () => {
       await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(false);
       await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
         registration_status: 'unregistered',
-        read_back_pending: true,
+        read_back_pending_since: expect.any(Number),
       });
 
       await expect(CommerceApplication.ensureListingRegistered(record)).resolves.toBe(true);

@@ -54,6 +54,7 @@ import type {
   CommerceWatchSnapshotModelSchema,
   CommerceWatchTombstoneModelSchema,
 } from '@/models/commerce/commerce.schema';
+import { isListingReadBackPending } from '@/models/commerce/commerce.schema';
 import type { CommerceDeliveryAddressInput, CommerceShippingPresetInput } from '@/pipes/commerce/commerce.normalizer';
 
 /** A listing row's write id as read, or null when no row existed. */
@@ -564,7 +565,7 @@ export class LocalCommerceService {
       if (!sameListingRowGeneration(expected, current)) return null;
       const synced: CommerceListingModelSchema = {
         ...this.toListingModel(record, 'synced', current),
-        ...(readBackPending ? { read_back_pending: true as const } : {}),
+        ...(readBackPending ? { read_back_pending_since: Date.now() } : {}),
       };
       await CommerceListingModel.table.put(synced);
       return { writeId: synced.write_id };
@@ -587,7 +588,7 @@ export class LocalCommerceService {
     return {
       generation: listing ? { writeId: listing.write_id } : null,
       auctionRegistration: listing?.auction_registration ?? null,
-      readBackPending: listing?.read_back_pending === true,
+      readBackPending: listing ? isListingReadBackPending(listing) : false,
     };
   }
 
@@ -628,8 +629,8 @@ export class LocalCommerceService {
    * creates one. `record_deleted` removes a row only when it is a synced
    * cache with no sync job for the listing; a row with pending publication
    * state is kept and marked `not_found`. A row whose acked write was never
-   * read back (`read_back_pending`) refuses both, so read lag stays pending;
-   * `registered` clears that marker.
+   * read back refuses both while {@link isListingReadBackPending}, so read lag
+   * stays pending; `registered` clears that marker.
    */
   static async settleListingRegistration(
     compositeListingId: string,
@@ -646,7 +647,7 @@ export class LocalCommerceService {
         async () => {
           const listing = await CommerceListingModel.table.get(compositeListingId);
           if (!sameListingRowGeneration(observed, listing)) return false;
-          if (listing.read_back_pending && ('recordDeleted' in outcome || outcome.status === 'not_found')) {
+          if (isListingReadBackPending(listing) && ('recordDeleted' in outcome || outcome.status === 'not_found')) {
             return false;
           }
           if ('recordDeleted' in outcome) {
@@ -673,7 +674,7 @@ export class LocalCommerceService {
             registration_status: outcome.status,
             write_id: crypto.randomUUID(),
           };
-          if (outcome.status === 'registered') delete settled.read_back_pending;
+          if (outcome.status === 'registered') delete settled.read_back_pending_since;
           await CommerceListingModel.table.put(settled);
           return true;
         },

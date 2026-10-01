@@ -355,7 +355,7 @@ describe('LocalCommerceService', () => {
         await expect(LocalCommerceService.getListing(listingId)).resolves.toMatchObject({
           sync_status: 'synced',
           registration_status: 'unregistered',
-          read_back_pending: true,
+          read_back_pending_since: expect.any(Number),
         });
       });
 
@@ -367,7 +367,7 @@ describe('LocalCommerceService', () => {
         ).resolves.toBe(true);
         const registered = await LocalCommerceService.getListing(listingId);
         expect(registered).toMatchObject({ registration_status: 'registered' });
-        expect(registered?.read_back_pending).toBeUndefined();
+        expect(registered?.read_back_pending_since).toBeUndefined();
       });
 
       it('clears the marker when a successful homeserver read rewrites the row', async () => {

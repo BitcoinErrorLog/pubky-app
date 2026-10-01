@@ -14,6 +14,22 @@ export type CommerceCacheStatus = 'local' | 'pending' | 'synced' | 'failed';
  */
 export type CommerceListingRegistrationStatus = 'registered' | 'unregistered' | 'unavailable' | 'not_found';
 
+/**
+ * How long after an acked-but-unconfirmed publish a 404 still reads as lag.
+ * Observed read-after-write lag is about a second (production 2026-09-30:
+ * 404 at 410ms, served about a second later); ten minutes is far beyond it,
+ * and after it a 404 is an authoritative deletion again.
+ */
+export const LISTING_READ_BACK_PENDING_WINDOW_MS = 10 * 60_000;
+
+export function isListingReadBackPending(
+  listing: Pick<CommerceListingModelSchema, 'read_back_pending_since'>,
+  now = Date.now(),
+): boolean {
+  const since = listing.read_back_pending_since;
+  return since !== undefined && now - since < LISTING_READ_BACK_PENDING_WINDOW_MS;
+}
+
 export function isListingRegistrationPending(
   listing: Pick<CommerceListingModelSchema, 'registration_status'>,
 ): boolean {
@@ -60,12 +76,13 @@ export interface CommerceListingModelSchema {
    */
   auction_registration?: CommerceAuctionRegistrationCommand;
   /**
-   * The homeserver acked this row's publish but never served it back. Until
-   * a registration succeeds or the row is rewritten, a homeserver or service
-   * 404 is read lag, never a deletion, so the row stays pending instead of
-   * settling `not_found`. Client-only.
+   * When the homeserver acked this row's publish without serving it back
+   * (epoch ms). Until a registration succeeds, the row is rewritten, or
+   * {@link LISTING_READ_BACK_PENDING_WINDOW_MS} passes, a homeserver or
+   * service 404 is read lag, never a deletion, so the row stays pending
+   * instead of settling `not_found`. Client-only.
    */
-  read_back_pending?: true;
+  read_back_pending_since?: number;
 }
 
 export interface CommerceAuctionRegistrationCommand {
