@@ -192,11 +192,21 @@ export function useEditMarketplaceListing(sellerPubky: string, listingId: string
             : hydratedReservePriceRef.current === undefined
               ? undefined
               : null;
-        await CommerceController.commitUpsertListing(updated, reservePrice);
+        const { verified } = await CommerceController.commitUpsertListing(updated, reservePrice);
         setRecord(updated);
         savedListingId = `${currentUserPubky}:${updated.listingId}`;
         if (!options?.silent) {
-          toast({ title: 'Listing updated', description: `Revision ${updated.revision} is now published.` });
+          if (verified) {
+            toast({ title: 'Listing updated', description: `Revision ${updated.revision} is now published.` });
+          } else {
+            // Acked write, read-back lagging — never "Could not save", which
+            // sends the seller into a re-save that bumps the revision again.
+            toast({
+              title: 'Changes saved — confirmation pending',
+              description:
+                'Your homeserver accepted the update but has not served it back yet. Check the listing in a moment before saving again.',
+            });
+          }
         }
       } catch {
         toast({ variant: 'error', description: 'Could not save these changes.' });

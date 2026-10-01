@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { COMMERCE_LISTING_MAX_QUANTITY } from '@/config/commerce';
 import { CommerceController } from '@/controllers/commerce/commerce';
 import { commerceListingRecordSchema } from '@/libs/commerce/marketplace-records';
+import { toast } from '@/molecules/Toaster/use-toast';
 import { useEditMarketplaceListing } from './useEditMarketplaceListing';
 
 const OWNER = 'y'.repeat(52);
@@ -79,7 +80,7 @@ vi.mock('@/controllers/commerce/commerce', () => ({
     getOrFetchListing: vi.fn(),
     getMarketplaceSellerListingProjection: vi.fn(),
     commitCreateMedia: vi.fn(),
-    commitUpsertListing: vi.fn(),
+    commitUpsertListing: vi.fn(async () => ({ registered: true, verified: true })),
     getMarketplaceMediaOwnerHomeserver: vi.fn(async () => null),
     getSellerPaymentConfig: vi.fn(async () => ({
       bitcoinAvailable: true,
@@ -154,6 +155,22 @@ describe('useEditMarketplaceListing', () => {
       sale: { format: 'fixed_price', unitPrice: { amountMinor: 15_000 }, acceptsOffers: true },
       media: [{ id: 'image_01' }],
     });
+  });
+
+  it('reports an acked edit whose read-back lags as saved and pending, never as failed', async () => {
+    vi.mocked(CommerceController.commitUpsertListing).mockResolvedValueOnce({ registered: false, verified: false });
+    const { result } = renderHook(() => useEditMarketplaceListing(OWNER, LISTING_ID));
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    let savedId: string | null = null;
+    await act(async () => {
+      savedId = await result.current.submit();
+    });
+
+    expect(savedId).toBe(`${OWNER}:${LISTING_ID}`);
+    expect(toast).toHaveBeenCalledOnce();
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Changes saved — confirmation pending' }));
+    expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({ variant: 'error' }));
   });
 
   it('refuses to publish when the seller has no payment method', async () => {

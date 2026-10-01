@@ -54,6 +54,7 @@ import type {
   CommerceWatchSnapshotModelSchema,
   CommerceWatchTombstoneModelSchema,
 } from '@/models/commerce/commerce.schema';
+import { isListingReadBackPending } from '@/models/commerce/commerce.schema';
 import type { CommerceDeliveryAddressInput, CommerceShippingPresetInput } from '@/pipes/commerce/commerce.normalizer';
 
 /** A listing row's write id as read, or null when no row existed. */
@@ -551,16 +552,21 @@ export class LocalCommerceService {
    * publish's generation (`expected`, from staging or the publish's own
    * later writes), in one transaction. Returns the new generation, or null
    * when anything else wrote the row since (a delete, another tab's publish
-   * of the same revision) and nothing was written.
+   * of the same revision) and nothing was written. `readBackPending` marks a
+   * write the homeserver acked but has not served back yet.
    */
   static async markPublishedListingSynced(
     record: CommerceListingRecord,
     expected: CommerceListingRowGeneration,
+    readBackPending = false,
   ): Promise<CommerceListingRowGeneration> {
     return await db.transaction('rw', CommerceListingModel.table, async () => {
       const current = await CommerceListingModel.table.get(`${record.ownerPubky}:${record.listingId}`);
       if (!sameListingRowGeneration(expected, current)) return null;
-      const synced = this.toListingModel(record, 'synced', current);
+      const synced: CommerceListingModelSchema = {
+        ...this.toListingModel(record, 'synced', current),
+        ...(readBackPending ? { read_back_pending_since: Date.now() } : {}),
+      };
       await CommerceListingModel.table.put(synced);
       return { writeId: synced.write_id };
     });
@@ -572,15 +578,17 @@ export class LocalCommerceService {
     return listing ? { writeId: listing.write_id } : null;
   }
 
-  /** The row's generation and its persisted auction command, read together. */
+  /** The row's generation, its persisted auction command, and its read-back marker, read together. */
   static async getListingRegistrationState(compositeListingId: string): Promise<{
     generation: CommerceListingRowGeneration;
     auctionRegistration: CommerceAuctionRegistrationCommand | null;
+    readBackPending: boolean;
   }> {
     const listing = await CommerceListingModel.table.get(compositeListingId);
     return {
       generation: listing ? { writeId: listing.write_id } : null,
       auctionRegistration: listing?.auction_registration ?? null,
+      readBackPending: listing ? isListingReadBackPending(listing) : false,
     };
   }
 
@@ -620,7 +628,9 @@ export class LocalCommerceService {
    * false. An outcome read against no row is always refused, so it never
    * creates one. `record_deleted` removes a row only when it is a synced
    * cache with no sync job for the listing; a row with pending publication
-   * state is kept and marked `not_found`.
+   * state is kept and marked `not_found`. A row whose acked write was never
+   * read back refuses both while {@link isListingReadBackPending}, so read lag
+   * stays pending; `registered` clears that marker.
    */
   static async settleListingRegistration(
     compositeListingId: string,
@@ -637,6 +647,9 @@ export class LocalCommerceService {
         async () => {
           const listing = await CommerceListingModel.table.get(compositeListingId);
           if (!sameListingRowGeneration(observed, listing)) return false;
+          if (isListingReadBackPending(listing) && ('recordDeleted' in outcome || outcome.status === 'not_found')) {
+            return false;
+          }
           if ('recordDeleted' in outcome) {
             const syncJobs = await CommerceSyncJobModel.table
               .where('entity_id')
@@ -656,11 +669,13 @@ export class LocalCommerceService {
             });
             return true;
           }
-          await CommerceListingModel.table.put({
+          const settled: CommerceListingModelSchema = {
             ...(outcome.status === 'not_found' ? withoutAuctionRegistration(listing) : listing),
             registration_status: outcome.status,
             write_id: crypto.randomUUID(),
-          });
+          };
+          if (outcome.status === 'registered') delete settled.read_back_pending_since;
+          await CommerceListingModel.table.put(settled);
           return true;
         },
       );
