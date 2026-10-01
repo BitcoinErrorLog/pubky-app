@@ -21,7 +21,13 @@ const safeSessionExport = (session: Session | null): string | null => {
 
 // Actions/Mutators - State modification functions
 export const createAuthActions = (set: ZustandSet<AuthStore>): AuthActions => ({
-  init: ({ session, currentUserPubky, hasProfile, grantSessionRecordId = null }: AuthInitParams) => {
+  init: ({
+    session,
+    currentUserPubky,
+    hasProfile,
+    grantSessionRecordId = null,
+    grantSigner = null,
+  }: AuthInitParams) => {
     clearVibeSessionAutoRestoreSuppressed();
     set(
       (state) => ({
@@ -29,6 +35,8 @@ export const createAuthActions = (set: ZustandSet<AuthStore>): AuthActions => ({
         session,
         sessionExport: safeSessionExport(session),
         grantSessionRecordId: session && session.grant !== undefined ? grantSessionRecordId : null,
+        grantSigner:
+          session && session.grant !== undefined ? (grantSigner === 'passport' ? 'passport' : 'bitkit') : null,
         currentUserPubky,
         hasProfile,
         sessionRestoreDeferred: false,

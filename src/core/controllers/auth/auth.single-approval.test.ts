@@ -675,6 +675,76 @@ describe('AuthController Ring and Bitkit QRs side by side', () => {
     expect(logoutSpy).not.toHaveBeenCalled();
   });
 
+  it('starting Pubky Passport keeps the Bitkit QR and the Ring ceremony live', async () => {
+    const ringCancel = vi.fn();
+    mockDirectSignInFlow({ awaitToken: () => new Promise<AuthToken>(() => {}), cancelAuthFlow: ringCancel });
+    const ring = await AuthController.getAuthUrl();
+    ring.awaitApproval.catch(() => {});
+    const bitkitCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getGrantAuthUrl();
+
+    const passportCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getPassportGrantAuthUrl();
+
+    expect(bitkitCancel).not.toHaveBeenCalled();
+    expect(ringCancel).not.toHaveBeenCalled();
+    expect(passportCancel).not.toHaveBeenCalled();
+  });
+
+  it('a new Passport attempt replaces the previous Passport flow only', async () => {
+    const bitkitCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getGrantAuthUrl();
+    const firstPassportCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getPassportGrantAuthUrl();
+
+    mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getPassportGrantAuthUrl();
+
+    expect(firstPassportCancel).toHaveBeenCalled();
+    expect(bitkitCancel).not.toHaveBeenCalled();
+  });
+
+  it('a completed sign-in cancels the Bitkit and Passport flows', async () => {
+    const bitkitCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getGrantAuthUrl();
+    const passportCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getPassportGrantAuthUrl();
+
+    AuthController.cancelAllAuthFlows();
+
+    expect(bitkitCancel).toHaveBeenCalled();
+    expect(passportCancel).toHaveBeenCalled();
+  });
+
+  it('a Passport approval that settles after another sign-in won is signed out, not returned', async () => {
+    let approve!: (session: Session) => void;
+    mockGrantFlow(
+      new Promise<Session>((resolve) => {
+        approve = resolve;
+      }),
+    );
+    const logoutSpy = vi.spyOn(AuthApplication, 'logout').mockResolvedValue(undefined);
+    const { awaitApproval } = await AuthController.getPassportGrantAuthUrl();
+
+    AuthController.cancelAllAuthFlows();
+    approve(grantSession);
+
+    await expect(awaitApproval).rejects.toMatchObject({ name: 'AuthFlowCanceled' });
+    expect(logoutSpy).toHaveBeenCalledWith({ session: grantSession });
+  });
+
+  it('releasing the Passport handle cancels only the Passport flow', async () => {
+    const bitkitCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    await AuthController.getGrantAuthUrl();
+    const passportCancel = mockGrantFlow(new Promise<Session>(() => {}));
+    const passport = await AuthController.getPassportGrantAuthUrl();
+
+    AuthController.releaseAuthFlow(passport.cancelAuthFlow);
+
+    expect(passportCancel).toHaveBeenCalled();
+    expect(bitkitCancel).not.toHaveBeenCalled();
+  });
+
   it('releasing the Bitkit handle cancels only the Bitkit flow', async () => {
     const ringCancel = vi.fn();
     mockDirectSignInFlow({ awaitToken: () => new Promise<AuthToken>(() => {}), cancelAuthFlow: ringCancel });

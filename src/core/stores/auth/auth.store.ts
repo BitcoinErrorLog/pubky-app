@@ -25,6 +25,7 @@ export function createAuthStore() {
             currentUserPubky: state.currentUserPubky,
             sessionExport: state.sessionExport,
             grantSessionRecordId: state.grantSessionRecordId,
+            grantSigner: state.grantSigner,
             hasProfile: state.hasProfile,
             hasHydrated: false, // Will be set by rehydration handler
           }),
