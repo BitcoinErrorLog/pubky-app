@@ -164,6 +164,12 @@ describe('Next redirects', () => {
       await expect(redirects()).rejects.toThrow(/redirect to itself/);
     });
 
+    it("fails the build when the host is the Shop's canonical URL with a www. prefix", async () => {
+      vi.stubEnv('PUBKY_RUNTIME_DEFAULT_URL', 'https://shop.pubky.app');
+      vi.stubEnv('NEXT_PUBLIC_SOCIAL_HOST', 'https://www.shop.pubky.app');
+      await expect(redirects()).rejects.toThrow(/redirect to itself/);
+    });
+
     it('fails the build when the host is this Vercel deployment', async () => {
       vi.stubEnv('PUBKY_RUNTIME_DEFAULT_URL', 'https://shop.pubky.app');
       vi.stubEnv('VERCEL_URL', 'pubky-marketplace-staging.vercel.app');

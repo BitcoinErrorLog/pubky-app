@@ -59,6 +59,22 @@ describe('parseSocialHost', () => {
       ]),
     ).toThrow(/redirect to itself/);
   });
+
+  it("rejects the Shop's own origin with or without a leading www. on either side", () => {
+    expect(() => parseSocialHost('https://www.shop.pubky.app', 'production', ['https://shop.pubky.app'])).toThrow(
+      /not this Shop/,
+    );
+    expect(() => parseSocialHost('https://shop.pubky.app', 'production', ['https://www.shop.pubky.app'])).toThrow(
+      /not this Shop/,
+    );
+  });
+
+  it('still accepts pubky.app and www.pubky.app when the Shop is at shop.pubky.app', () => {
+    for (const shopOrigins of [['https://shop.pubky.app'], ['https://www.shop.pubky.app']]) {
+      expect(parseSocialHost('https://pubky.app', 'production', shopOrigins)).toBe('https://pubky.app');
+      expect(parseSocialHost('https://www.pubky.app', 'production', shopOrigins)).toBe('https://www.pubky.app');
+    }
+  });
 });
 
 describe('buildSocialLinkOutRedirects', () => {

@@ -48,7 +48,7 @@ When unset (the default) nothing changes. When set:
 
 The redirects are unconditional and carry no session. Until single sign-on exists, each site keeps its own sign-in: a user signed in to the Shop (Ring, Bitkit or any other session) arrives on the social host signed out unless they already signed in there, and signs in there separately. This is the accepted beta behaviour, and no Shop copy promises otherwise; keep the "Pubky" and "Profile on Pubky" link labels free of any claim that the user will be signed in.
 
-The build also fails when the value is one of the Shop's own origins, because every social route would redirect to itself. Those origins are `PUBKY_RUNTIME_DEFAULT_URL` (only when set explicitly) and, on Vercel, `VERCEL_PROJECT_PRODUCTION_URL`, `VERCEL_BRANCH_URL` and `VERCEL_URL`.
+The build also fails when the value is one of the Shop's own origins (a leading `www.` on either side is ignored), because every social route would redirect to itself. Those origins are `PUBKY_RUNTIME_DEFAULT_URL` (only when set explicitly) and, on Vercel, `VERCEL_PROJECT_PRODUCTION_URL`, `VERCEL_BRANCH_URL` and `VERCEL_URL`.
 
 ### Adding or Modifying Variables
 

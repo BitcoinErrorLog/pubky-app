@@ -98,10 +98,18 @@ export function resolveShopOrigins(env: Readonly<Record<string, string | undefin
   return [...new Set(origins)];
 }
 
+/** `origin` with a leading `www.` dropped from the host, so `www.` and bare hosts compare equal. */
+function withoutWww(origin: string): string {
+  const url = new URL(origin);
+  url.hostname = url.hostname.replace(/^www\./, '');
+  return url.origin;
+}
+
 /**
  * Unset or empty → `undefined` (link-out off). An invalid value throws so a bad
- * build fails loudly. So does a value naming one of `shopOrigins`: every social
- * route would 307 back to itself.
+ * build fails loudly. So does a value naming one of `shopOrigins`, with or
+ * without a leading `www.` on either side: every social route would 307 back
+ * to itself.
  */
 export function parseSocialHost(
   value: string | undefined,
@@ -115,7 +123,8 @@ export function parseSocialHost(
         `or http://localhost:<port> outside production builds. Received: ${JSON.stringify(value)}`,
     );
   }
-  if (shopOrigins.includes(value)) {
+  const host = withoutWww(value);
+  if (shopOrigins.some((origin) => withoutWww(origin) === host)) {
     throw new Error(
       `${SOCIAL_HOST_ENV_VAR} must name the social app, not this Shop (${JSON.stringify(value)}); ` +
         'every social route would redirect to itself.',
