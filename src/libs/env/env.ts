@@ -64,7 +64,8 @@ export const envSchema = z
     NEXT_PUBLIC_VIBE_SESSION_BRIDGE_ORIGIN: z.preprocess(emptyToUndefined, z.string().optional()),
     NEXT_PUBLIC_VIBE_ID: z.preprocess(emptyToUndefined, z.string().optional()),
 
-    // Social link-out origin (baked per artifact). Unset = link-out off.
+    // Social link-out origin (baked per artifact). Unset = link-out off. The
+    // self-origin check runs in next.config.ts (see @/libs/social-host/social-host).
     NEXT_PUBLIC_SOCIAL_HOST: z.preprocess(emptyToUndefined, z.string().optional()),
 
     // Test environment variable (optional)
