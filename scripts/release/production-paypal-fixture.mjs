@@ -3,24 +3,26 @@
 //
 // The seller seat gets a temporary PayPal rail and one "TEST, do not buy <run>" listing;
 // the buyer seat checks it out up to the payment-method step (Pay is never clicked);
-// teardown deletes the listing, clears the PayPal rail, revokes every marketplace session either
-// seat gained during the run, and verifies all of it.
+// teardown deletes the listing, restores the seller's PayPal rail to exactly its value before setup,
+// revokes every marketplace session either seat gained during the run, and verifies all of it.
+// Without a state file (nothing was set up) teardown and verify change and check nothing.
 //
 //   node production-paypal-fixture.mjs proof      setup → buyer checkout → teardown → verify (always tears down)
 //   node production-paypal-fixture.mjs proof -- <cmd...>   same, but runs <cmd> (release-proof.mjs) instead of the
 //                                                 built-in checkout, with PROOF_PAYPAL_LISTING_URL set; its exit status is a check
 //   node production-paypal-fixture.mjs setup      publish the fixture; prints PROOF_PAYPAL_LISTING_URL=<path>
 //   node production-paypal-fixture.mjs checkout   buyer checkout on the fixture from the state file
-//   node production-paypal-fixture.mjs teardown   delete listing, clear PayPal, revoke run sessions, then verify
+//   node production-paypal-fixture.mjs teardown   delete listing, restore PayPal, revoke run sessions, then verify
 //   node production-paypal-fixture.mjs verify     verification only
 //
 // Env: PROOF_EVIDENCE (required; state and results are written there), seats (see seats.mjs),
-// PAYPAL_TEST_EMAIL (required for setup and proof; never logged or written to disk), EXPECTED_DPL (optional,
+// PAYPAL_TEST_EMAIL (required for setup and proof, and for a teardown that restores it; never logged or
+// written to disk), EXPECTED_DPL (optional,
 // checked before checkout), PROOF_ORIGIN, PROOF_SERVICE, PROOF_NEXUS, PROOF_RELAY, PROOF_FIXTURE_PHOTO.
 // Exit 0 only when every check passed; teardown and verify exit 1 while anything is left behind.
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { evidenceDir, loadBuyerSeat, loadSellerSeat, prefix, repoRequire, shopCapabilities } from './seats.mjs';
@@ -62,7 +64,10 @@ const buyer = loadBuyerSeat();
 const sellerPubky = seller.publicKey.z32();
 
 const readState = () => (existsSync(STATE_PATH) ? JSON.parse(readFileSync(STATE_PATH, 'utf8')) : null);
-const writeState = (state) => writeFileSync(STATE_PATH, `${JSON.stringify(state, null, 2)}\n`);
+const writeState = (state) => {
+  writeFileSync(STATE_PATH, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(STATE_PATH, 0o600);
+};
 const listingPath = (id) => `/marketplace/listing/${sellerPubky}/${id}`;
 
 const checks = [];
@@ -158,15 +163,31 @@ async function signOut(page) {
   return raw === null || !JSON.parse(raw)?.state?.currentUserPubky;
 }
 
-async function savePaypal(page, value) {
+// The field renders only after the seller's own payment config loaded without error, so its value is the
+// stored rail ('' when none is set).
+async function openPaypalField(page) {
   await page.goto(`${ORIGIN}/marketplace/settings`, { waitUntil: 'domcontentloaded' });
   await waitForAppReady(page);
   await approveMarketplaceSession(page, seller);
-  await page.locator('#get-paid-paypal').waitFor({ state: 'visible', timeout: 120_000 });
-  await page.locator('#get-paid-paypal').fill(value);
+  const field = page.locator('#get-paid-paypal');
+  await field.waitFor({ state: 'visible', timeout: 120_000 });
+  return field;
+}
+
+const readPaypal = async (page) => (await openPaypalField(page)).inputValue();
+
+async function savePaypal(page, value) {
+  await (await openPaypalField(page)).fill(value);
   await page.getByRole('button', { name: 'Save payment settings' }).first().click();
   await page.waitForTimeout(4000);
 }
+
+// The prior rail is restored exactly at teardown. When it equals PAYPAL_TEST_EMAIL only a marker is stored,
+// so that address never reaches disk; any other prior value lives in the mode-600 state file until teardown.
+const encodePriorPaypal = (value) =>
+  value === '' ? { kind: 'empty' } : value === email ? { kind: 'test-email' } : { kind: 'value', value };
+const decodePriorPaypal = (prior) =>
+  prior.kind === 'empty' ? '' : prior.kind === 'test-email' ? email || null : prior.value;
 
 async function pickCategoryLeaf(page) {
   const trigger = page.locator('#marketplace-category-level-0');
@@ -315,14 +336,18 @@ async function revokeRunSessions(seat, runStart) {
 async function setup() {
   const runStart = Date.now();
   const title = `${TITLE_BASE} ${randomBytes(3).toString('hex')}`;
-  writeState({ runStart, listingTitle: title, listingId: null, phase: 'paypal' });
+  let base = { runStart, listingTitle: title, listingId: null };
+  writeState({ ...base, phase: 'paypal-read' });
   const { browser, page } = await openBrowser();
   try {
     log(`setup seller ${prefix(sellerPubky)} title "${title}"`);
     await ringSignIn(page, seller);
+    base = { ...base, priorPaypal: encodePriorPaypal(await readPaypal(page)) };
+    writeState({ ...base, phase: 'paypal' });
+    log(`setup: prior PayPal rail recorded (${base.priorPaypal.kind})`);
     await savePaypal(page, email);
     await fillShippingListing(page, title);
-    writeState({ runStart, listingTitle: title, listingId: null, phase: 'publishing' });
+    writeState({ ...base, phase: 'publishing' });
     await page.getByRole('button', { name: 'Publish listing' }).click();
     await approveMarketplaceSession(page, seller);
     let listingId = null;
@@ -336,7 +361,7 @@ async function setup() {
       }
     }
     if (!listingId) throw new Error('published listing not found (state file keeps the title for teardown)');
-    writeState({ runStart, listingTitle: title, listingId, phase: 'published' });
+    writeState({ ...base, listingId, phase: 'published' });
     log(`setup ok listing ${listingId.slice(0, 8)}`);
     console.log(`PROOF_PAYPAL_LISTING_URL=${listingPath(listingId)}`);
     return listingPath(listingId);
@@ -417,12 +442,15 @@ async function checkout() {
 
 async function teardown() {
   const state = readState();
-  if (!state) log('teardown: no state file; clearing the PayPal rail and verifying only');
+  if (!state) {
+    log('teardown: no state file; nothing was set up, so nothing is changed');
+    return;
+  }
   const { browser, page } = await openBrowser();
   try {
     await ringSignIn(page, seller);
-    let ids = state?.listingId ? [state.listingId] : [];
-    if (state?.listingTitle && ids.length === 0) ids = (await nexusListingsByTitle(state.listingTitle)).ids;
+    let ids = state.listingId ? [state.listingId] : [];
+    if (state.listingTitle && ids.length === 0) ids = (await nexusListingsByTitle(state.listingTitle)).ids;
     for (const id of ids) {
       await page.goto(`${ORIGIN}${listingPath(id)}`, { waitUntil: 'domcontentloaded' });
       await waitForAppReady(page);
@@ -435,13 +463,27 @@ async function teardown() {
         log(`teardown: deleted listing ${id.slice(0, 8)}`);
       } else log(`teardown: no Delete control on ${id.slice(0, 8)} (already gone or not owned)`);
     }
-    await savePaypal(page, '');
+    if (!state.priorPaypal) {
+      log('teardown: the PayPal rail was never changed');
+    } else {
+      const prior = decodePriorPaypal(state.priorPaypal);
+      if (prior === null) {
+        check('teardown: seller PayPal rail restored to its prior value', false, 'set PAYPAL_TEST_EMAIL to restore it');
+      } else {
+        await savePaypal(page, prior);
+        check(
+          'teardown: seller PayPal rail restored to its prior value',
+          (await readPaypal(page)) === prior,
+          `prior=${state.priorPaypal.kind}`,
+        );
+      }
+    }
     await signOut(page).catch(() => false);
-    if (state) writeState({ ...state, listingIds: ids, phase: 'torn-down' });
+    writeState({ ...state, listingIds: ids, phase: 'torn-down' });
   } finally {
     await browser.close();
   }
-  if (state?.runStart) {
+  if (state.runStart) {
     for (const [name, seat] of [
       ['seller', seller],
       ['buyer', buyer],
@@ -462,9 +504,13 @@ async function teardown() {
 
 async function verify() {
   const state = readState();
+  if (!state) {
+    log('verify: no state file; nothing to verify');
+    return;
+  }
   await new Promise((resolve) => setTimeout(resolve, 10_000));
-  const ids = state?.listingIds ?? (state?.listingId ? [state.listingId] : []);
-  if (state?.listingTitle) {
+  const ids = state.listingIds ?? (state.listingId ? [state.listingId] : []);
+  if (state.listingTitle) {
     const stream = await nexusListingsByTitle(state.listingTitle);
     check(
       'verify: no fixture listing in the seller stream',
@@ -502,6 +548,10 @@ async function verify() {
   for (const id of ids) {
     const detail = await fetch(`${NEXUS}/v0/listing/${encodeURIComponent(sellerPubky)}/${encodeURIComponent(id)}`);
     check(`verify: nexus detail gone ${id.slice(0, 8)}`, detail.status === 404, `status=${detail.status}`);
+    const onHomeserver = await new Pubky().publicStorage
+      .exists(`pubky://${sellerPubky}/pub/pubky.app/marketplace/v1/listings/${id}`)
+      .catch(() => null);
+    check(`verify: homeserver record gone ${id.slice(0, 8)}`, onHomeserver === false, `exists=${onHomeserver}`);
     const projection = await fetch(`${SERVICE}/v1/listings/${encodeURIComponent(`listing:${sellerPubky}_${id}`)}`, {
       headers: { authorization: `Bearer ${bearer.token}` },
     });
@@ -511,15 +561,18 @@ async function verify() {
       `status=${projection.status}`,
     );
   }
-  const config = await fetch(`${SERVICE}/v0/sellers/${encodeURIComponent(sellerPubky)}/payment-config`);
-  const body = await config.json().catch(() => ({}));
-  check(
-    'verify: seller PayPal rail cleared',
-    config.status === 200 && !body.paypal_merchant_email && body.paypal_available !== true,
-    `status=${config.status}`,
-  );
+  if (state.priorPaypal) {
+    const config = await fetch(`${SERVICE}/v0/sellers/${encodeURIComponent(sellerPubky)}/payment-config`);
+    const body = await config.json().catch(() => ({}));
+    const expected = state.priorPaypal.kind !== 'empty';
+    check(
+      'verify: public PayPal availability matches the prior rail',
+      config.status === 200 && (body.paypal_available === true) === expected,
+      `status=${config.status} expected=${expected}`,
+    );
+  }
   if (bearer) check('verify: verifier bearer revoked', (await revokeSession(bearer.token, bearer.sessionId)) < 300);
-  if (state?.runStart) {
+  if (state.runStart) {
     for (const [name, seat] of [
       ['seller', seller],
       ['buyer', buyer],
