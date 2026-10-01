@@ -8,8 +8,12 @@ This is `BitcoinErrorLog/pubky-app`, a fork of the official
 [`pubky/pubky-app`](https://github.com/pubky/pubky-app) that adds a full
 peer-to-peer **marketplace** on top of the social app. The work is
 deliberately isolated on BitcoinErrorLog forks (no upstream PRs) while the
-protocol shape settles; deploy line: branch `marketplace/pr25-ux`, live at
-[shop.pubky.app](https://shop.pubky.app) (staging — no real funds).
+protocol shape settles. Release line: branch `release/shop-v0.6.8` (the
+repository default), live at [shop.pubky.app](https://shop.pubky.app). Payments
+there are real and go straight to the seller.
+
+New to the Shop: [`docs/ecommerce/onboarding.md`](docs/ecommerce/onboarding.md).
+Releasing: [`docs/ecommerce/release.md`](docs/ecommerce/release.md).
 
 **What this fork adds over the official app:**
 
@@ -51,7 +55,7 @@ live wallet-leg proof.
 
 Start with [`docs/ecommerce/status.md`](docs/ecommerce/status.md) (what is
 real vs simulated, per mode, with a reproducible proof ledger) and ADRs
-0019–0026 in [`docs/adr/`](docs/adr/).
+0019–0029 in [`docs/adr/`](docs/adr/).
 
 ## Prerequisites
 
@@ -62,11 +66,16 @@ real vs simulated, per mode, with a reproducible proof ledger) and ADRs
 First, install the dependencies and run the development server:
 
 ```bash
-npm install
+HUSKY=0 npm ci
 npm run dev
 ```
 
+`HUSKY=0` keeps husky's `prepare` script from setting a repository-local
+`core.hooksPath`, which would replace your global git hooks.
+
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The marketplace is off unless you opt in; [`docs/ecommerce/RUNNING.md`](docs/ecommerce/RUNNING.md)
+runs it against the local sandbox service.
 
 ## Environment Variables
 

@@ -1,48 +1,51 @@
 # Shop Production Kill Switch And Rollback Runbook
 
 Operational scope: Shop production client on Vercel project `pubky-marketplace-production`, with staging client on
-`pubky-marketplace-staging`. Run Vercel commands from `/Users/johncarvalho/work/mp-prod-deploy` for production and
-`/Users/johncarvalho/work/mp-ux` for staging. Use
-`/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel`.
+`pubky-marketplace-staging`, both in Vercel team `synonymdev` (`team_y2cqjCWZ9vTnCPWQkUAgfijD`). Releases are in
+[`release.md`](release.md).
 
-Do not paste secret values from Vercel or Railway output into tickets, docs, logs, or chat. Vercel team scope is
-`synonymdev` (`team_y2cqjCWZ9vTnCPWQkUAgfijD`).
+Run Vercel commands from a checkout linked to the target project. `.vercel/` is gitignored, so a fresh checkout is
+unlinked, and `vercel --prod` from an unlinked checkout creates a new project instead of touching the Shop:
+
+```bash
+rm -rf .vercel
+vercel link --yes --project pubky-marketplace-production --scope synonymdev   # or pubky-marketplace-staging
+cat .vercel/project.json                                                     # confirm the project name
+```
+
+Do not paste secret values from Vercel or Railway output into tickets, docs, logs, or chat.
 
 ## What The Kill Switch Does
 
 Set `PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE=unavailable` on the production Vercel project.
 
-The exact env var name is declared in `src/libs/runtime-config/runtime-config.schema.ts:562`. Its allowed values are
-declared in `src/libs/runtime-config/runtime-config.schema.ts:59`: `unavailable`, `sandbox`, `transaction-service`, and
-`locks-paykit`. `unavailable` is documented as browse-only with no transactional commands at
-`src/libs/runtime-config/runtime-config.schema.ts:47` and is the default at
-`src/libs/runtime-config/runtime-config.schema.ts:234`.
+The env var name is mapped to `commerceAdapterMode` in `src/libs/runtime-config/runtime-config.schema.ts`, whose
+`commerceAdapterModeValue` enum allows `unavailable`, `sandbox`, `transaction-service`, and `locks-paykit`.
+`unavailable` is browse-only with no transactional commands, and it is the schema default.
 
-This is a runtime config value, not a Next.js build-time inline. The server reads non-inlined `PUBKY_RUNTIME_*` env at
-request time and serializes the resolved object into HTML (`src/libs/runtime-config/runtime-config.ts:13-17`,
-`src/libs/runtime-config/runtime-config.ts:147-150`). The browser then reads `window.__PUBKY_CONFIG__` and
-`getCommerceAdapterMode()` returns the injected value (`src/libs/runtime-config/runtime-config.ts:96-117`,
-`src/libs/runtime-config/runtime-config.ts:208`). The injection happens before the app bundle executes in
-`src/components/molecules/ContainerRoot/ContainerRoot.tsx:27-37`.
+This is a runtime config value, not a Next.js build-time inline. The server reads non-inlined `PUBKY_RUNTIME_*` env and
+serializes the resolved object into the HTML (`src/libs/runtime-config/runtime-config.ts`). The browser reads
+`window.__PUBKY_CONFIG__`, and `getCommerceAdapterMode()` returns the injected value. The injection happens in
+`src/components/molecules/ContainerRoot/ContainerRoot.tsx`, before the app bundle executes.
 
 Vercel env changes still require a new deployment to affect the running site. Treat the env flip and redeploy as one
 operation.
 
 ## Flip Production To Unavailable
 
+From a checkout linked to `pubky-marketplace-production`:
+
 ```bash
-cd /Users/johncarvalho/work/mp-prod-deploy
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel env ls production --scope synonymdev
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel env update PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE production --value unavailable --yes --scope synonymdev
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel deploy --prod --yes --scope synonymdev
+vercel env ls production --scope synonymdev
+vercel env update PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE production --value unavailable --yes --scope synonymdev
+vercel deploy --prod --yes --scope synonymdev
 ```
 
 If the variable is missing instead of present:
 
 ```bash
-cd /Users/johncarvalho/work/mp-prod-deploy
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel env add PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE production --value unavailable --yes --scope synonymdev
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel deploy --prod --yes --scope synonymdev
+vercel env add PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE production --value unavailable --yes --scope synonymdev
+vercel deploy --prod --yes --scope synonymdev
 ```
 
 ## Restore Production Transactions
@@ -50,9 +53,8 @@ cd /Users/johncarvalho/work/mp-prod-deploy
 The current production transaction mode is `locks-paykit`.
 
 ```bash
-cd /Users/johncarvalho/work/mp-prod-deploy
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel env update PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE production --value locks-paykit --yes --scope synonymdev
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel deploy --prod --yes --scope synonymdev
+vercel env update PUBKY_RUNTIME_COMMERCE_ADAPTER_MODE production --value locks-paykit --yes --scope synonymdev
+vercel deploy --prod --yes --scope synonymdev
 ```
 
 ## Move The Shop Domain Between Vercel Projects
@@ -84,29 +86,30 @@ not to reverse it. Meanwhile the project's own `*.vercel.app` alias keeps servin
 ## Vercel Rollback Or Promote
 
 Use `promote` when the target known-good deployment id or URL is known. Use `rollback` when reverting away from a known
-bad deployment id or URL. The commands below use the inspected deployment ids from the 2026-09-06 deploy record.
+bad deployment id or URL. Each release records the deployment that was on the alias before it
+([`release.md`](release.md#deploy)); that id is the target. `vercel ls pubky-marketplace-production --scope synonymdev`
+lists recent deployments, and `vercel inspect <url-or-id> --scope synonymdev` shows one.
+
+Pre-launch, roll back only when data is being lost or money is moving wrongly, and always to the **previous**
+known-good deployment, never the current one. After a `rollback`, the domain stays pinned: the next `vercel --prod`
+aliases only the generic `*.vercel.app` name until you `promote` a deployment.
 
 Runtime config is serialized into each deployment at build time, so `promote` re-points the alias to that deployment's
 env snapshot in about 5 seconds with no build (measured in the 2026-09-06 drill). That makes `promote` the instant
-**restore** path. It is only an instant **kill** path if an `unavailable` deployment already exists to promote; otherwise
-the env flip plus redeploy above takes about 3 minutes. The kill deployment from the drill is
-`pubky-marketplace-production-doas1qo0r-synonymdev.vercel.app` (`unavailable`, HEAD `f036a76d`); it goes stale as soon
-as the client changes, so after each production deploy either re-create an `unavailable` deployment or accept the
-3-minute kill latency.
+**restore** path. It is only an instant **kill** path if an `unavailable` deployment built from the current client
+already exists to promote; otherwise the env flip plus redeploy above takes about 3 minutes. An `unavailable`
+deployment goes stale as soon as the client changes, so after each production deploy either re-create one or accept
+the 3-minute kill latency.
+
+From a checkout linked to `pubky-marketplace-production`:
 
 ```bash
-cd /Users/johncarvalho/work/mp-prod-deploy
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel promote EAqqVuQq1BkstYJwwciMS3C981tv --yes --scope synonymdev
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel rollback EAqqVuQq1BkstYJwwciMS3C981tv --yes --scope synonymdev
+vercel promote <dpl_id-or-url> --yes --scope synonymdev
+vercel rollback <dpl_id-or-url> --yes --scope synonymdev
+vercel alias ls --scope synonymdev | grep shop.pubky.app   # confirm where the domain points
 ```
 
-For staging:
-
-```bash
-cd /Users/johncarvalho/work/mp-ux
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel promote 3tPXUhr9Zb5voJqjYRuuGfyz6fZP --yes --scope synonymdev
-/Users/johncarvalho/.nvm/versions/node/v22.14.0/bin/vercel rollback 3tPXUhr9Zb5voJqjYRuuGfyz6fZP --yes --scope synonymdev
-```
+For staging, run the same commands from a checkout linked to `pubky-marketplace-staging`.
 
 ## Verify The Kill Switch
 
@@ -120,31 +123,39 @@ curl -fsS https://pubky-marketplace-production.vercel.app/marketplace/listings/<
 Expected user-visible behavior:
 
 - Marketplace catalog shows: `Marketplace transactions are unavailable in this deployment. Public browsing remains
-read-only.` (`src/components/templates/Marketplace/Marketplace.tsx:247-250`).
+read-only.` (`src/components/templates/Marketplace/Marketplace.tsx`).
 - Listing purchase controls are disabled and the page shows: `Transactions are disabled in this deployment.`
-  (`src/components/templates/Marketplace/MarketplaceListing.tsx:417-460`).
-- The marketplace nav entry is hidden when the adapter is `unavailable`
-  (`src/components/molecules/Header/Header.tsx:103-104`,
-  `src/components/molecules/MobileFooter/MobileFooter.tsx:77-78`).
+  (`src/components/templates/Marketplace/MarketplaceListing.tsx`).
+- The marketplace nav entry is hidden when the adapter is `unavailable` (`isMarketplaceNavEnabled` in
+  `src/components/molecules/Header/Header.tsx`, and `src/components/molecules/MobileFooter/MobileFooter.tsx`).
 
 ## Railway Service Restart And Rollback
 
-Production Railway project id: `75faa4fe-466c-4277-977f-1d8e4e31df8c`
-(`pubky-marketplace-production`).
+The backend services run in the product owner's Railway account; these commands need access to it. Every project's
+only environment is named `production`.
+
+| Railway project                | Project id                             | Services the Shop uses                                                                                                                                                                                      |
+| ------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pubky-marketplace-production` | `75faa4fe-466c-4277-977f-1d8e4e31df8c` | `marketplace-service`, `paykit-server`, their Postgres instances                                                                                                                                            |
+| `pubky-marketplace-nexus`      | `af82731f-a6d0-4c0e-84cd-56ce6fcc8818` | `nexusd` (`nexusd-production-7108`), `neo4j`, `Redis`                                                                                                                                                       |
+| `pubky-marketplace-staging`    | `c991d768-4a3c-42ea-b5ed-eaa22d4916ed` | Staging service and Paykit, regtest `bitcoind` and `fulcrum`, `fiat-verifier`, and the account's only `locks-server`. Both Shop builds point `locksUrl` at `https://locks-server-production.up.railway.app` |
+
+The `nexusd` service inside `pubky-marketplace-production` is the retired `nexusd-production-95a0`, stopped with its
+volumes kept. Do not restart or redeploy it; the live marketplace Nexus is in `pubky-marketplace-nexus`.
 
 The Railway CLI has `restart`, `redeploy`, `deployment list`, and `down`; it does not have a `rollback` subcommand. For a
 fast process restart without rebuilding:
 
 ```bash
 railway restart --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service marketplace-service --yes
-railway restart --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service nexusd --yes
+railway restart --project af82731f-a6d0-4c0e-84cd-56ce6fcc8818 --environment production --service nexusd --yes
 ```
 
 To redeploy the latest successful deployment:
 
 ```bash
 railway redeploy --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service marketplace-service --yes
-railway redeploy --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service nexusd --yes
+railway redeploy --project af82731f-a6d0-4c0e-84cd-56ce6fcc8818 --environment production --service nexusd --yes
 ```
 
 To roll back to an earlier build, list deployments, then use the Railway dashboard (service → Deployments → the
@@ -154,19 +165,21 @@ fall back to the previous deployment, so never use it as a rollback.
 
 ```bash
 railway deployment list --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service marketplace-service --limit 10
-railway deployment list --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service nexusd --limit 10
+railway deployment list --project af82731f-a6d0-4c0e-84cd-56ce6fcc8818 --environment production --service nexusd --limit 10
 ```
 
 CLI-only alternative when the dashboard is unavailable: check out the known-good commit on the service's deploy
 branch, push it to the BitcoinErrorLog fork, then
-`railway redeploy --from-source --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service <service> --yes`.
+`railway redeploy --from-source --project <project-id> --environment production --service <service> --yes`. The
+service and Nexus repositories pin their images by digest in `.railway/railway.ts`; follow their READMEs for the
+normal deploy path.
 
-Read-only checks that do not expose values if the output is not pasted:
+Read-only checks. `railway variables` prints secret values, so never paste its output:
 
 ```bash
 railway status --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production
 railway variables --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service marketplace-service
-railway variables --project 75faa4fe-466c-4277-977f-1d8e4e31df8c --environment production --service nexusd
+railway variables --project af82731f-a6d0-4c0e-84cd-56ce6fcc8818 --environment production --service nexusd
 ```
 
 ## Drill Log
