@@ -147,6 +147,8 @@ export function createFakePaykitPair() {
   return {
     module: asOpaque<typeof import('paykit-wasm')>(binding),
     log,
+    /** The receiver marker an account currently publishes, as the fake homeserver holds it. */
+    marker: (pubky: string) => markers.get(pubky),
     /** Every message one account ever sent another, as raw JSON. */
     sent: (from: string, to: string) => [...(mailboxes.get(`${from}>${to}`) ?? [])],
     /** Delivers raw JSON from `from` to `to` as if `from`'s runtime had sent it over their link. */

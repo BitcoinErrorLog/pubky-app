@@ -6,6 +6,7 @@ import { UserStreamApplication } from '@/application/stream/users/users';
 import { getCommerceAdapterMode } from '@/config/commerce';
 import { httpStatusCodeToError } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
+import { MESSAGING_SYNC_PASS_TIMEOUT_MS } from '@/libs/messaging/pass-deadline';
 import type { Pubky } from '@/models/models.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
@@ -219,6 +220,24 @@ describe('MessagingController inbox naming set', () => {
     syncCounterpartiesSpy.mockResolvedValue();
     await MessagingController.syncInbox();
     expect(syncCounterpartiesSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets a new pass start once a pass ran past its deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      mockFollowGraph({ following: [FOLLOWED], followers: [] });
+      syncCounterpartiesSpy.mockImplementationOnce(() => new Promise<void>(() => undefined));
+
+      const stuck = MessagingController.syncInbox();
+      const timedOut = expect(stuck).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+      await vi.advanceTimersByTimeAsync(MESSAGING_SYNC_PASS_TIMEOUT_MS);
+      await timedOut;
+
+      await MessagingController.syncInbox();
+      expect(syncCounterpartiesSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refreshes the device-local unread fact into the store after the pass', async () => {

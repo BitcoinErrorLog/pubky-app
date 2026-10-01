@@ -379,15 +379,18 @@ export class FirstContactApplication {
    * request's path is trusted (the buyer's own `/pub`), and every JSON field
    * must repeat it. Returns the buyers with at least one valid request, so
    * the sync probes them first. A buyer whose directory cannot be read is
-   * skipped until the next pass.
+   * skipped until the next pass. Once `shouldContinue` answers false nothing
+   * more is remembered or stored.
    */
   static async discoverRequests(
     sellerPubky: string,
     followerPubkys: readonly string[],
     muted: ReadonlySet<string>,
+    shouldContinue: () => boolean = () => true,
   ): Promise<string[]> {
     const requesters: string[] = [];
     for (const buyerPubky of followerPubkys.slice(0, FIRST_CONTACT_MAX_REQUEST_SOURCES)) {
+      if (!shouldContinue()) return requesters;
       if (buyerPubky === sellerPubky || muted.has(buyerPubky)) continue;
       let urls: string[];
       const directoryUrl = conversationRequestDirectoryUrl(buyerPubky, sellerPubky);
@@ -406,14 +409,19 @@ export class FirstContactApplication {
       for (const url of urls) {
         const listingId = listingIdFromRequestUrl(url, directoryUrl);
         if (!listingId) continue;
-        if (await this.addRequestThread(sellerPubky, buyerPubky, listingId)) found = true;
+        if (await this.addRequestThread(sellerPubky, buyerPubky, listingId, shouldContinue)) found = true;
       }
       if (found) requesters.push(buyerPubky);
     }
     return requesters;
   }
 
-  private static async addRequestThread(sellerPubky: string, buyerPubky: string, listingId: string): Promise<boolean> {
+  private static async addRequestThread(
+    sellerPubky: string,
+    buyerPubky: string,
+    listingId: string,
+    shouldContinue: () => boolean,
+  ): Promise<boolean> {
     const seenKey = `${sellerPubky}:${buyerPubky}:${listingId}`;
     if (!this.seenRequests.has(seenKey)) {
       let raw: unknown;
@@ -426,10 +434,13 @@ export class FirstContactApplication {
         return false;
       }
       if (!parseBoundConversationRequest(raw, { documentOwner: buyerPubky, sellerPubky, listingId })) return false;
+      if (!shouldContinue()) return false;
       this.seenRequests.add(seenKey);
     }
     const conversationId = buildMarketplaceConversationAggregateId(sellerPubky, buyerPubky, listingId);
     if (await LocalMessagingService.getConversation(sellerPubky, conversationId)) return true;
+    const origin = await this.originFor(sellerPubky, buyerPubky);
+    if (!shouldContinue()) return false;
     await LocalMessagingService.touchConversation({
       owner_id: sellerPubky,
       conversation_id: conversationId,
@@ -438,7 +449,7 @@ export class FirstContactApplication {
       counterparty_pubky: buyerPubky,
       last_message_at: null,
       updated_at: Date.now(),
-      origin: await this.originFor(sellerPubky, buyerPubky),
+      origin,
     });
     return true;
   }
@@ -542,6 +553,26 @@ export class FirstContactApplication {
       Logger.warn('Could not publish the conversation request', { reason: 'request_write_failed' });
       return 'failed';
     }
+  }
+
+  /**
+   * Account switch without a sign-out: forgets the walk positions, contact
+   * sets, seen requests, mute records and counters of every account but
+   * `keepPubky`.
+   */
+  static clearOtherAccounts(keepPubky: string): void {
+    const ownedBy = (key: string) => key === keepPubky || key.startsWith(`${keepPubky}:`);
+    for (const map of [
+      this.muteRecords,
+      this.muteQueue,
+      this.knownContacts,
+      this.orderCounterparties,
+      this.rateLimitedCounts,
+    ]) {
+      for (const key of [...map.keys()]) if (!ownedBy(key)) map.delete(key);
+    }
+    for (const key of [...this.followGraphPagers.keys()]) if (!ownedBy(key)) this.followGraphPagers.delete(key);
+    for (const key of [...this.seenRequests]) if (!ownedBy(key)) this.seenRequests.delete(key);
   }
 
   /** Sign-out teardown: forgets every cached list, contact set and counter. */

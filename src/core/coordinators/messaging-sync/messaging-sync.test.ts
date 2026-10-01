@@ -3,6 +3,7 @@ import { AUTH_ROUTES } from '@/app/routes';
 import { MessagingController } from '@/controllers/messaging/messaging';
 import { MessagingSyncCoordinator } from '@/coordinators/messaging-sync/messaging-sync';
 import { MESSAGING_BACKGROUND_SYNC_INTERVAL_MS } from '@/coordinators/messaging-sync/messaging-sync.types';
+import { MESSAGING_SYNC_PASS_TIMEOUT_MS } from '@/libs/messaging/pass-deadline';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { mockSession } from '@/test-utils/pubky';
 import { installWebLocks, removeWebLocks } from '@/test-utils/web-locks';
@@ -18,8 +19,6 @@ async function settle() {
 }
 
 describe('MessagingSyncCoordinator', () => {
-  let setUpHere: ReturnType<typeof vi.spyOn>;
-  let status: ReturnType<typeof vi.spyOn>;
   let sync: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -27,11 +26,7 @@ describe('MessagingSyncCoordinator', () => {
     installWebLocks();
     MessagingSyncCoordinator.resetInstance();
     useAuthStore.getState().reset();
-    setUpHere = vi.spyOn(MessagingController, 'isMessagingSetUpOnThisDevice').mockResolvedValue(true);
-    status = vi
-      .spyOn(MessagingController, 'getMessagingStatus')
-      .mockResolvedValue({ sessionActive: true, receiverProvisioned: true });
-    sync = vi.spyOn(MessagingController, 'syncInbox').mockResolvedValue({ mutes: 'ready', rateLimited: 0 });
+    sync = vi.spyOn(MessagingController, 'syncInboxInBackground').mockResolvedValue('synced');
   });
 
   afterEach(() => {
@@ -67,10 +62,16 @@ describe('MessagingSyncCoordinator', () => {
     expect(sync).toHaveBeenCalledTimes(1);
   });
 
+  it('passes the account signed in when the pass started, never a later one', async () => {
+    signIn();
+    await MessagingSyncCoordinator.getInstance().start();
+    await settle();
+    expect(sync).toHaveBeenCalledWith(OWNER, expect.any(Function));
+  });
+
   it('does nothing while signed out', async () => {
     await MessagingSyncCoordinator.getInstance().start();
     await vi.advanceTimersByTimeAsync(MESSAGING_BACKGROUND_SYNC_INTERVAL_MS * 2);
-    expect(setUpHere).not.toHaveBeenCalled();
     expect(sync).not.toHaveBeenCalled();
   });
 
@@ -83,21 +84,37 @@ describe('MessagingSyncCoordinator', () => {
     expect(sync).toHaveBeenCalledTimes(1);
   });
 
-  it('never resumes a session or syncs where this device has no messaging key', async () => {
+  it('never takes the interactive status path, which can create a key', async () => {
     signIn();
-    setUpHere.mockResolvedValue(false);
+    const status = vi.spyOn(MessagingController, 'getMessagingStatus');
     await MessagingSyncCoordinator.getInstance().start();
     await settle();
     expect(status).not.toHaveBeenCalled();
-    expect(sync).not.toHaveBeenCalled();
   });
 
-  it('skips the pass when the session cannot resume without the signer', async () => {
+  it('tells a pass that runs too long to stop and gives the lock to the next pass', async () => {
     signIn();
-    status.mockResolvedValue({ sessionActive: false, receiverProvisioned: true });
+    const continues: Array<() => boolean> = [];
+    sync.mockImplementationOnce(async (_owner: string, shouldContinue: () => boolean) => {
+      continues.push(shouldContinue);
+      return await new Promise<'synced'>(() => undefined);
+    });
     await MessagingSyncCoordinator.getInstance().start();
     await settle();
-    expect(sync).not.toHaveBeenCalled();
+    expect(continues[0]()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(MESSAGING_SYNC_PASS_TIMEOUT_MS);
+    expect(continues[0]()).toBe(false);
+    await expect(
+      navigator.locks.request(
+        `pubky-messaging-background-sync|${OWNER}`,
+        { ifAvailable: true },
+        async (lock) => lock !== null,
+      ),
+    ).resolves.toBe(true);
+
+    await vi.advanceTimersByTimeAsync(MESSAGING_BACKGROUND_SYNC_INTERVAL_MS);
+    expect(sync.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('leaves the pass to the tab already running one', async () => {
@@ -112,7 +129,7 @@ describe('MessagingSyncCoordinator', () => {
     );
     await MessagingSyncCoordinator.getInstance().start();
     await settle();
-    expect(setUpHere).not.toHaveBeenCalled();
+    expect(sync).not.toHaveBeenCalled();
 
     releaseOtherTab();
     await otherTab;

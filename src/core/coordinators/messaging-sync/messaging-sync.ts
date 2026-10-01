@@ -9,6 +9,7 @@ import {
   type MessagingSyncCoordinatorState,
 } from '@/coordinators/messaging-sync/messaging-sync.types';
 import { Logger } from '@/libs/logger/logger';
+import { MESSAGING_SYNC_PASS_TIMEOUT_MS, withPassDeadline } from '@/libs/messaging/pass-deadline';
 import { useAuthStore } from '@/stores/auth/auth.store';
 
 /**
@@ -19,11 +20,14 @@ import { useAuthStore } from '@/stores/auth/auth.store';
  * queued. Nothing can run while every tab of an account is closed.
  *
  * It keeps running in a hidden tab (the browser spaces its timers), and
- * only one tab of the origin runs a pass at a time. It runs only where this
- * device already holds the account's messaging key, so it never creates a
- * key or publishes a marker that would take new conversations away from
- * the device the person actually messages from, and only on a session that
- * resumes without asking the signer.
+ * only one tab of the origin runs a pass at a time. Each pass belongs to the
+ * account signed in when it started and stops when that changes. It acts
+ * only where this browser already holds that account's messaging key and
+ * never creates, replaces or publishes one, so it cannot take new
+ * conversations away from the device the person actually messages from
+ * ({@link MessagingController.syncInboxInBackground}). A pass that runs
+ * past {@link MESSAGING_SYNC_PASS_TIMEOUT_MS} is told to stop and gives up
+ * the cross-tab lock.
  */
 export class MessagingSyncCoordinator extends Coordinator<
   MessagingSyncCoordinatorConfig,
@@ -71,10 +75,17 @@ export class MessagingSyncCoordinator extends Coordinator<
     if (!ownerPubky) return;
     try {
       await runInOneTab(`pubky-messaging-background-sync|${ownerPubky}`, async () => {
-        if (!(await MessagingController.isMessagingSetUpOnThisDevice())) return;
-        const status = await MessagingController.getMessagingStatus();
-        if (!status.sessionActive) return;
-        await MessagingController.syncInbox();
+        let expired = false;
+        await withPassDeadline(
+          MessagingController.syncInboxInBackground(ownerPubky, () => !expired),
+          {
+            timeoutMs: MESSAGING_SYNC_PASS_TIMEOUT_MS,
+            operation: 'backgroundMessagingSync',
+            onExpire: () => {
+              expired = true;
+            },
+          },
+        );
       });
     } catch (error) {
       Logger.warn('Background messaging sync failed; the next pass retries', { error });
