@@ -5,8 +5,10 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { isPassportApprovalRefused } from '@/hooks/useGrantSigner/useGrantSigner';
 import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceSessionConnect } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect';
+import type { MarketplaceSessionConnectStatus } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect.types';
 import { Logger } from '@/libs/logger/logger';
 import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
 import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
@@ -55,9 +57,10 @@ export function MarketplaceSessionConnectDialog({
     if (autoOpen) setOpen(true);
   }, [autoOpen]);
 
-  // A Bitkit (grant) sign-in has no AuthToken to redeem; it connects through
-  // the grant bootstrap, so it is refused only where that flow is off.
-  const refusesGrantSession = useIsGrantSession() && !grantFlowEnabled;
+  // A grant (Bitkit or Pubky Passport) sign-in has no AuthToken to redeem; it
+  // connects through the grant bootstrap, so it is refused where that flow is
+  // off, and a Passport sign-in also while the deploy switched Passport off.
+  const refusesGrantSession = useIsGrantSession() && (!grantFlowEnabled || isPassportApprovalRefused());
   useEffect(() => {
     if (open) {
       if (!refusesGrantSession) start();
@@ -82,6 +85,12 @@ export function MarketplaceSessionConnectDialog({
   const requestsFullGrant = session.requestsFullGrant;
   const requestsGrantReconnect = session.requestsGrantReconnect;
   const requestsGrantBootstrap = session.requestsGrantBootstrap;
+  const requestsPassport = session.requestsPassport;
+  const grantSignerName = requestsPassport ? 'Pubky Passport' : 'Bitkit';
+  const retry = () => {
+    session.start();
+    if (requestsPassport) session.startPassport();
+  };
   const approvalDisclosure = session.authorizationUrl ? marketplaceApprovalDisclosure(session.authorizationUrl) : null;
 
   return (
@@ -96,7 +105,7 @@ export function MarketplaceSessionConnectDialog({
         <DialogHeader>
           <DialogTitle>
             {requestsGrantBootstrap
-              ? 'Approve purchases in Bitkit'
+              ? `Approve purchases in ${grantSignerName}`
               : requestsGrantReconnect
                 ? 'Approve purchases'
                 : 'Approve purchases in Pubky Ring'}
@@ -105,9 +114,11 @@ export function MarketplaceSessionConnectDialog({
 
         <Typography as="p" className="text-sm text-muted-foreground">
           {requestsGrantBootstrap
-            ? 'Approve with Bitkit to connect the marketplace for the identity signed in to Shop. Nothing is charged until you pay.'
+            ? `Approve with ${grantSignerName} to connect the marketplace for the identity signed in to Shop. Nothing is charged until you pay.`
             : requestsGrantReconnect
-              ? 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
+              ? requestsPassport
+                ? 'Approve with Pubky Passport to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
+                : 'Approve with Bitkit or Pubky Ring to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.'
               : requestsFullGrant && !grantFlowEnabled
                 ? 'Sign in to Pubky Shop.'
                 : 'Approve with Pubky Ring to connect the marketplace on this device.'}
@@ -126,11 +137,18 @@ export function MarketplaceSessionConnectDialog({
                     ? 'Approval cancelled.'
                     : session.errorMessage}
             </div>
-            <Button className="w-fit rounded-full" onClick={session.start}>
+            <Button className="w-fit rounded-full" onClick={retry}>
               <RefreshCw className="mr-2 size-4" />
               Try again
             </Button>
           </div>
+        ) : requestsPassport ? (
+          <MarketplacePassportApproval
+            status={session.status}
+            approvalDisclosure={approvalDisclosure}
+            confirmingHomeserver={requestsGrantBootstrap}
+            onStart={session.startPassport}
+          />
         ) : session.status === 'joined' ? (
           // The approval lives on another surface (e.g. a sign-in in
           // progress), which holds the only scannable URL. No QR, Copy, or
@@ -225,5 +243,52 @@ export function MarketplaceSessionConnectDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The purchase approval for a Pubky Passport sign-in: a button that opens
+ * Passport in a popup (it needs a click), then the progress while Passport
+ * and the marketplace finish. No QR, copy link or deeplink: Passport is a
+ * web signer, not a phone app.
+ */
+function MarketplacePassportApproval({
+  status,
+  approvalDisclosure,
+  confirmingHomeserver,
+  onStart,
+}: {
+  status: MarketplaceSessionConnectStatus;
+  approvalDisclosure: string | null;
+  confirmingHomeserver: boolean;
+  onStart: () => void;
+}) {
+  const inProgress = status !== 'idle';
+  return (
+    <div className="grid justify-items-center gap-4" data-testid="marketplace-passport-approval">
+      <Button
+        className="rounded-full"
+        onClick={onStart}
+        disabled={inProgress}
+        aria-busy={inProgress}
+        data-testid="marketplace-passport-approve"
+      >
+        {inProgress ? <Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" /> : null}
+        Continue in Pubky Passport
+      </Button>
+      <MarketplaceApprovalDisclosure sentence={approvalDisclosure} />
+      {inProgress ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+          <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
+          {status === 'awaiting'
+            ? 'Waiting for approval in Pubky Passport…'
+            : status === 'creating'
+              ? confirmingHomeserver
+                ? 'Confirming with your homeserver…'
+                : 'Preparing secure approval…'
+              : 'Connecting marketplace…'}
+        </div>
+      ) : null}
+    </div>
   );
 }

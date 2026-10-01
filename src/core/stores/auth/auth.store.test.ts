@@ -107,6 +107,30 @@ describe('AuthStore', () => {
       expect(persisted.state?.grantSessionRecordId).toBe('rec-1');
     });
 
+    it('persists which signer approved a grant session, defaulting to Bitkit', () => {
+      useAuthStore.getState().init({
+        session: grantSession(vi.fn()),
+        currentUserPubky: 'grant-pubky',
+        hasProfile: null,
+        grantSessionRecordId: 'rec-1',
+        grantSigner: 'passport',
+      });
+      expect(useAuthStore.getState().grantSigner).toBe('passport');
+      const persisted = JSON.parse(localStorage.getItem('auth-store') ?? '{}') as { state?: { grantSigner?: unknown } };
+      expect(persisted.state?.grantSigner).toBe('passport');
+
+      useAuthStore.getState().init({
+        session: grantSession(vi.fn()),
+        currentUserPubky: 'grant-pubky',
+        hasProfile: null,
+        grantSessionRecordId: 'rec-2',
+      });
+      expect(useAuthStore.getState().grantSigner).toBe('bitkit');
+
+      useAuthStore.getState().reset();
+      expect(useAuthStore.getState().grantSigner).toBeNull();
+    });
+
     it('bridge never carries grant session: a grant session leaves no export to hand off', () => {
       useAuthStore.getState().setSession(grantSession(() => 'grant-export'));
 
@@ -125,10 +149,12 @@ describe('AuthStore', () => {
         currentUserPubky: 'cookie-pubky',
         hasProfile: null,
         grantSessionRecordId: 'ignored',
+        grantSigner: 'passport',
       });
 
       expect(useAuthStore.getState().sessionExport).toBe('cookie-export');
       expect(useAuthStore.getState().grantSessionRecordId).toBeNull();
+      expect(useAuthStore.getState().grantSigner).toBeNull();
     });
   });
 

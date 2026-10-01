@@ -121,9 +121,11 @@ const CHECKOUT_REFUSAL_MESSAGES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * Copy for the Bitkit purchase bootstrap. `shop_session_expired` here means
- * the grant sign-in itself ended (its homeserver write was refused), not a
- * marketplace cookie, so it must not use the reconnect copy.
+ * Copy for the grant purchase bootstrap (Bitkit or Pubky Passport sign-in).
+ * `shop_session_expired` here means the grant sign-in itself ended (its
+ * homeserver write was refused), not a marketplace cookie, so it must not use
+ * the reconnect copy. Codes that send the user back to the signer name it
+ * (see {@link marketplaceBootstrapFailureMessage}).
  */
 const BOOTSTRAP_APPROVAL_EXPIRED = 'This approval expired. Start again.';
 const BOOTSTRAP_OTHER_TAB = 'This approval belongs to another tab. Start again here.';
@@ -131,7 +133,6 @@ const BOOTSTRAP_OTHER_TAB = 'This approval belongs to another tab. Start again h
 export const MARKETPLACE_BOOTSTRAP_CODE_MESSAGES: ReadonlyMap<string, string> = new Map([
   ['origin_denied', 'This request did not come from the Shop. Reload and try again.'],
   ['invalid_request', 'Something went wrong. Try again.'],
-  ['grant_unavailable', 'Bitkit approvals are unavailable right now. Try again later.'],
   ['retry_later', 'Too many attempts. Wait a minute and try again.'],
   ['challenge_not_found', BOOTSTRAP_APPROVAL_EXPIRED],
   ['challenge_consumed', 'This approval was already used. Start again.'],
@@ -140,18 +141,35 @@ export const MARKETPLACE_BOOTSTRAP_CODE_MESSAGES: ReadonlyMap<string, string> = 
   ['flow_cancelled', 'Approval cancelled.'],
   ['result_denied', 'This approval could not be completed. Start again.'],
   ['identity_mismatch', "This approval came from a different account. Approve with the account you're signed in with."],
-  ['fresh_approval_required', 'Approve again in Bitkit.'],
   ['flow_binding_missing', BOOTSTRAP_OTHER_TAB],
   ['flow_binding_denied', BOOTSTRAP_OTHER_TAB],
   ['flow_not_found', BOOTSTRAP_APPROVAL_EXPIRED],
   ['claim_in_progress', 'Finishing your approval…'],
   ['shop_session_expired', 'Your Shop session ended. Sign in again.'],
-  ['approval_invalid', 'That approval could not be verified. Approve again in Bitkit.'],
 ]);
 
-export function marketplaceBootstrapFailureMessage(code: MarketplaceFailureCode): string {
+/** The grant signer a bootstrap message names: whichever approved the Shop sign-in. */
+export type BootstrapSignerName = 'Bitkit' | 'Pubky Passport';
+
+function signerBootstrapMessage(code: string, signer: BootstrapSignerName): string | undefined {
+  switch (code) {
+    case 'grant_unavailable':
+      return `${signer} approvals are unavailable right now. Try again later.`;
+    case 'fresh_approval_required':
+      return `Approve again in ${signer}.`;
+    case 'approval_invalid':
+      return `That approval could not be verified. Approve again in ${signer}.`;
+    default:
+      return undefined;
+  }
+}
+
+export function marketplaceBootstrapFailureMessage(
+  code: MarketplaceFailureCode,
+  signer: BootstrapSignerName = 'Bitkit',
+): string {
   return (
-    (code && MARKETPLACE_BOOTSTRAP_CODE_MESSAGES.get(code)) ||
+    (code && (signerBootstrapMessage(code, signer) ?? MARKETPLACE_BOOTSTRAP_CODE_MESSAGES.get(code))) ||
     marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sessionStart)
   );
 }

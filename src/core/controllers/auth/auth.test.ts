@@ -2460,7 +2460,56 @@ describe('AuthController', () => {
       expect(saveSpy).toHaveBeenCalledTimes(1);
       expect(saveSpy).toHaveBeenCalledWith(session);
       expect(authStore.init).toHaveBeenCalledWith(
-        expect.objectContaining({ session, currentUserPubky: TEST_PUBKY, grantSessionRecordId: 'rec-1' }),
+        expect.objectContaining({
+          session,
+          currentUserPubky: TEST_PUBKY,
+          grantSessionRecordId: 'rec-1',
+          grantSigner: 'bitkit',
+        }),
+      );
+    });
+
+    it('a Pubky Passport sign-in is saved as a grant record marked as Passport-approved', async () => {
+      const session = grantSession();
+      const authStore = grantAuthStore();
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthApplication, 'saveGrantSession').mockResolvedValue('rec-passport');
+      const callbacks = {
+        xSource: 'Pubky Shop',
+        xSuccess: 'https://shop.pubky.app/auth/passport/return?outcome=success',
+        xError: 'https://shop.pubky.app/auth/passport/return?outcome=error',
+        xCancel: 'https://shop.pubky.app/auth/passport/return?outcome=cancel',
+      };
+      const generate = vi.spyOn(AuthApplication, 'generateGrantAuthUrl').mockResolvedValue({
+        authorizationUrl: 'pubkyauth://signin_grant?caps=x&relay=r&secret=s&cid=shop.pubky.app&cpk=k',
+        awaitApproval: Promise.resolve(session),
+        cancelAuthFlow: vi.fn(),
+      });
+
+      const { awaitApproval } = await AuthController.getPassportGrantAuthUrl(callbacks);
+      await AuthController.initializeAuthenticatedSession({ session: await awaitApproval });
+
+      expect(generate).toHaveBeenCalledWith(callbacks);
+      expect(authStore.init).toHaveBeenCalledWith(
+        expect.objectContaining({ session, grantSessionRecordId: 'rec-passport', grantSigner: 'passport' }),
+      );
+    });
+
+    it('a restored Passport grant session keeps its Passport mark', async () => {
+      const session = grantSession();
+      const authStore = grantAuthStore({
+        session: null,
+        grantSessionRecordId: 'rec-passport',
+        grantSigner: 'passport',
+        hasProfile: true,
+      });
+      vi.spyOn(useAuthStore, 'getState').mockReturnValue(authStore);
+      vi.spyOn(AuthApplication, 'restorePersistedSession').mockResolvedValue({ status: 'restored', session });
+
+      await expect(AuthController.restorePersistedSession()).resolves.toEqual({ status: 'restored' });
+
+      expect(authStore.init).toHaveBeenCalledWith(
+        expect.objectContaining({ session, grantSessionRecordId: 'rec-passport', grantSigner: 'passport' }),
       );
     });
 

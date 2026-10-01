@@ -1,4 +1,4 @@
-import type { Session } from '@synonymdev/pubky';
+import type { Session, XCallbackParams } from '@synonymdev/pubky';
 import { AuthApplication } from '@/application/auth/auth';
 import type {
   TKeypairParams,
@@ -64,6 +64,7 @@ import {
   readPersistedGrantSessionRecordId,
 } from '@/stores/auth/auth.persisted';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import type { GrantSigner } from '@/stores/auth/auth.types';
 import { useCommerceStore } from '@/stores/commerce/commerce.store';
 import { useHomeStore } from '@/stores/home/home.store';
 import { useHotStore } from '@/stores/hot/hot.store';
@@ -85,11 +86,13 @@ export class AuthController {
   private static activeAuthFlow: { token: symbol; cancel: (() => void) | null } | null = null;
 
   /**
-   * The Bitkit grant QR lives beside the Ring QR on /sign-in, so it has its
-   * own slot: starting one never cancels the other. Both are cancelled when
-   * any sign-in completes, on local-state cleanup, and on cross-tab sign-out.
+   * The Bitkit grant QR and the Pubky Passport button live beside the Ring QR
+   * on /sign-in, so each grant signer has its own slot: starting one never
+   * cancels another. A new flow for the same signer replaces its old one. All
+   * are cancelled when any sign-in completes, on local-state cleanup, and on
+   * cross-tab sign-out.
    */
-  private static activeGrantFlow: { token: symbol; cancel: (() => void) | null } | null = null;
+  private static activeGrantFlows = new Map<GrantSigner, { token: symbol; cancel: (() => void) | null }>();
 
   /**
    * Bumped whenever every auth flow is cancelled. A grant approval that
@@ -135,6 +138,8 @@ export class AuthController {
 
   /** `authFlowGeneration` when each sign-in QR (Ring or Bitkit) started, keyed by its approved session. */
   private static sessionFlowGeneration = new WeakMap<Session, number>();
+  /** The signer whose grant ceremony produced a session, saved with its grant record. */
+  private static grantSignerBySession = new WeakMap<Session, GrantSigner>();
 
   /** Resolver of the `#s=` hand-off prompt the user has not answered yet. */
   private static pendingSessionHandoff: ((accepted: boolean) => void) | null = null;
@@ -201,9 +206,11 @@ export class AuthController {
       this.cancelActiveAuthFlow();
       return;
     }
-    if (this.activeGrantFlow && this.activeGrantFlow.cancel === cancelAuthFlow) {
-      this.cancelActiveGrantFlow();
-      return;
+    for (const [signer, flow] of this.activeGrantFlows) {
+      if (flow.cancel === cancelAuthFlow) {
+        this.cancelActiveGrantFlow(signer);
+        return;
+      }
     }
     cancelAuthFlow();
   }
@@ -237,17 +244,17 @@ export class AuthController {
     cancel?.();
   }
 
-  private static cancelActiveGrantFlow() {
-    const cancel = this.activeGrantFlow?.cancel;
-    this.activeGrantFlow = null;
+  private static cancelActiveGrantFlow(signer: GrantSigner) {
+    const cancel = this.activeGrantFlows.get(signer)?.cancel;
+    this.activeGrantFlows.delete(signer);
     cancel?.();
   }
 
-  /** Ring and Bitkit flows alike: a completed sign-in or a sign-out ends both QRs. */
+  /** Ring, Bitkit and Passport flows alike: a completed sign-in or a sign-out ends all of them. */
   static cancelAllAuthFlows() {
     this.authFlowGeneration += 1;
     this.cancelActiveAuthFlow();
-    this.cancelActiveGrantFlow();
+    for (const signer of [...this.activeGrantFlows.keys()]) this.cancelActiveGrantFlow(signer);
   }
 
   /** A QR approval whose flow started before the latest cancelAllAuthFlows lost to another sign-in or a sign-out. */
@@ -290,6 +297,7 @@ export class AuthController {
     // Captured before cleanup can reset the store: a restored grant session
     // keeps its BrowserSessionStore record (restore never saves).
     const restoredGrantRecordId = authStore.grantSessionRecordId;
+    const restoredGrantSigner = authStore.grantSigner;
     // The Controller owns the restore loading flag for the whole flow: set once
     // before restore begins, cleared once after finalization. With a fresh-vibe
     // bridge restore (sessionExport === null) the isSessionRestorePending
@@ -339,7 +347,7 @@ export class AuthController {
             currentUserPubky: pubky,
             hasProfile,
             ...(AuthApplication.isGrantSession(session) && restoredGrantRecordId
-              ? { grantSessionRecordId: restoredGrantRecordId }
+              ? { grantSessionRecordId: restoredGrantRecordId, grantSigner: restoredGrantSigner }
               : {}),
           });
         });
@@ -592,7 +600,13 @@ export class AuthController {
             grantSaveError = error;
             return false;
           }
-          authStore.init({ session, currentUserPubky: pubky, hasProfile: null, grantSessionRecordId });
+          authStore.init({
+            session,
+            currentUserPubky: pubky,
+            hasProfile: null,
+            grantSessionRecordId,
+            grantSigner: this.grantSignerBySession.get(session) ?? 'bitkit',
+          });
           if (!cleanupAlreadyPending) clearGrantKeyCleanupPending();
           return true;
         }
@@ -937,7 +951,18 @@ export class AuthController {
    * saved to BrowserSessionStore at completion.
    */
   static async getGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
-    return await this.beginGrantCeremony(() => AuthApplication.generateGrantAuthUrl());
+    return await this.beginGrantCeremony(() => AuthApplication.generateGrantAuthUrl(), 'bitkit');
+  }
+
+  /**
+   * Pubky Passport sign-in ("Continue with Google"): the same Shop grant as
+   * Bitkit, approved in the Passport popup. `xCallback` names the Shop's
+   * Passport return page. Completion is the Bitkit grant ceremony; the
+   * session is recorded as Passport-approved so its purchase grant is
+   * requested from Passport too.
+   */
+  static async getPassportGrantAuthUrl(xCallback?: XCallbackParams): Promise<TGenerateAuthUrlResult> {
+    return await this.beginGrantCeremony(() => AuthApplication.generateGrantAuthUrl(xCallback), 'passport');
   }
 
   /**
@@ -947,11 +972,12 @@ export class AuthController {
    * is the Bitkit sign-in ceremony.
    */
   static async getSignupGrantAuthUrl(inviteCode: string): Promise<TGenerateAuthUrlResult> {
-    return await this.beginGrantCeremony(() => AuthApplication.generateGrantSignupAuthUrl(inviteCode));
+    return await this.beginGrantCeremony(() => AuthApplication.generateGrantSignupAuthUrl(inviteCode), 'bitkit');
   }
 
   private static async beginGrantCeremony(
     generate: () => Promise<TGenerateAuthUrlResult>,
+    signer: GrantSigner,
   ): Promise<TGenerateAuthUrlResult> {
     // Before the new flow creates its key: the cleanup removes every key.
     await this.settlePendingGrantKeyCleanup();
@@ -962,21 +988,22 @@ export class AuthController {
       throw createCanceledError();
     }
     const token = Symbol('grant-flow');
-    this.cancelActiveGrantFlow();
-    this.activeGrantFlow = { token, cancel: null };
+    this.cancelActiveGrantFlow(signer);
+    this.activeGrantFlows.set(signer, { token, cancel: null });
     const generationAtStart = this.authFlowGeneration;
     const { authorizationUrl, awaitApproval, cancelAuthFlow } = await generate();
 
-    if (!this.activeGrantFlow || this.activeGrantFlow.token !== token) {
+    const slot = this.activeGrantFlows.get(signer);
+    if (!slot || slot.token !== token) {
       cancelAuthFlow();
       return { authorizationUrl, awaitApproval, cancelAuthFlow };
     }
-    this.activeGrantFlow.cancel = cancelAuthFlow;
+    slot.cancel = cancelAuthFlow;
 
     const wrappedAwaitApproval = awaitApproval
       .finally(() => {
-        if (this.activeGrantFlow?.token === token) {
-          this.activeGrantFlow = null;
+        if (this.activeGrantFlows.get(signer)?.token === token) {
+          this.activeGrantFlows.delete(signer);
         }
         cancelAuthFlow();
       })
@@ -987,6 +1014,7 @@ export class AuthController {
         }
         await AuthApplication.assertFullGrantSession(session);
         this.grantEpochAtStart.set(session, epochAtStart);
+        this.grantSignerBySession.set(session, signer);
         return session;
       });
 
@@ -1005,7 +1033,7 @@ export class AuthController {
     if (AuthApplication.isGrantSession(useAuthStore.getState().session)) {
       throw Err.auth(
         AuthErrorCode.UNAUTHORIZED,
-        'Bitkit sign-in already includes every Shop permission. If this keeps asking, sign out and sign in with Bitkit again.',
+        'This sign-in already includes every Shop permission. If this keeps asking, sign out and sign in again.',
         { service: ErrorService.Local, operation: 'getStepUpAuthUrl' },
       );
     }

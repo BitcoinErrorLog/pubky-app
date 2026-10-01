@@ -20,6 +20,7 @@ import { ContentCard } from '@/molecules/Content/Content';
 import { Logo } from '@/molecules/Logo/Logo';
 import { MarketplaceApprovalDisclosure } from '@/molecules/MarketplaceApprovalDisclosure/MarketplaceApprovalDisclosure';
 import { PageTitle } from '@/molecules/Page/Page';
+import { PassportSignInButton } from '@/molecules/PassportSignInButton/PassportSignInButton';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import {
   BITKIT_IDENTITY_HINT,
@@ -155,8 +156,9 @@ const SignInAuthorizeButton = ({ signer, auth }: { signer: keyof typeof SIGNERS;
 );
 
 /**
- * Ring and Bitkit side by side. Each QR runs its own flow; the first approval
- * wins and the controller cancels the other.
+ * Ring and Bitkit side by side, with "Continue with Google" (Pubky Passport)
+ * below. Each signer runs its own flow; the first approval wins and the
+ * controller cancels the others.
  */
 const SignInBothSigners = ({ ring }: { ring: TSignerAuth }) => {
   const bitkit = useMobileAuth({ type: 'grant' });
@@ -172,6 +174,9 @@ const SignInBothSigners = ({ ring }: { ring: TSignerAuth }) => {
           <SignInQrOption signer="ring" auth={ring} disclosure={ringDisclosure} />
           <SignInQrOption signer="bitkit" auth={bitkit} />
         </Card>
+        <div className="flex w-full justify-center pt-6">
+          <PassportSignInButton />
+        </div>
       </Container>
 
       <Container size="container" className="md:hidden">
@@ -184,6 +189,7 @@ const SignInBothSigners = ({ ring }: { ring: TSignerAuth }) => {
             <Typography as="p" className="text-center text-sm text-muted-foreground">
               {BITKIT_IDENTITY_HINT}
             </Typography>
+            <PassportSignInButton />
           </Container>
         </ContentCard>
       </Container>

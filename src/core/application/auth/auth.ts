@@ -1,4 +1,4 @@
-import type { AuthToken, Session } from '@synonymdev/pubky';
+import type { AuthToken, Session, XCallbackParams } from '@synonymdev/pubky';
 import { userUriBuilder } from 'pubky-app-specs';
 import type {
   TKeypairParams,
@@ -374,9 +374,9 @@ export class AuthApplication {
     return await HomeserverService.generateAuthUrl();
   }
 
-  /** Grant sign-in URL (`pubkyauth://signin_grant`) for signers such as Bitkit. */
-  static async generateGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
-    return await HomeserverService.generateGrantAuthUrl();
+  /** Grant sign-in URL (`pubkyauth://signin_grant`) for signers such as Bitkit and Pubky Passport. */
+  static async generateGrantAuthUrl(xCallback?: XCallbackParams): Promise<TGenerateAuthUrlResult> {
+    return await HomeserverService.generateGrantAuthUrl(xCallback);
   }
 
   /** Grant sign-up URL (`pubkyauth://signup_grant`) for signers such as Bitkit. */
@@ -404,7 +404,7 @@ export class AuthApplication {
     });
     throw Err.validation(
       ValidationErrorCode.INVALID_INPUT,
-      'This approval does not include the full Shop permission list. Scan again from Shop.',
+      'This approval does not include the full Shop permission list. Approve again from Shop.',
       { service: ErrorService.Homeserver, operation: 'assertFullGrantSession' },
     );
   }

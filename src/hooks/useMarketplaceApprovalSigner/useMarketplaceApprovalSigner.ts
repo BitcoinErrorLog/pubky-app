@@ -1,14 +1,19 @@
 'use client';
 
-import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
-import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
+import { useGrantSigner } from '@/hooks/useGrantSigner/useGrantSigner';
+import { getMarketplaceGrantFlowEnabled, getPassportSignInEnabled } from '@/libs/runtime-config/runtime-config';
 
-export type MarketplaceApprovalSigner = 'Bitkit' | 'Pubky Ring';
+export type MarketplaceApprovalSigner = 'Bitkit' | 'Pubky Passport' | 'Pubky Ring';
 
 /**
- * The signer that approves marketplace purchases for this sign-in: Bitkit
- * for a Bitkit (grant) sign-in that can bootstrap, Pubky Ring otherwise.
+ * The signer that approves marketplace purchases for this sign-in: the grant
+ * signer (Bitkit or Pubky Passport) for a grant sign-in that can bootstrap,
+ * Pubky Ring otherwise. With Passport switched off, a Passport sign-in cannot
+ * bootstrap and gets the Ring copy, like Bitkit with the grant flow off.
  */
 export function useMarketplaceApprovalSigner(): MarketplaceApprovalSigner {
-  return useIsGrantSession() && getMarketplaceGrantFlowEnabled() ? 'Bitkit' : 'Pubky Ring';
+  const grantSigner = useGrantSigner();
+  if (!grantSigner || !getMarketplaceGrantFlowEnabled()) return 'Pubky Ring';
+  if (grantSigner === 'passport') return getPassportSignInEnabled() ? 'Pubky Passport' : 'Pubky Ring';
+  return 'Bitkit';
 }

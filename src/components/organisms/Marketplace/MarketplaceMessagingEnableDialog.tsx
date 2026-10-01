@@ -9,7 +9,7 @@ import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceMessagingEnable } from '@/hooks/useMarketplaceMessagingEnable/useMarketplaceMessagingEnable';
 import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { Logger } from '@/libs/logger/logger';
-import { GRANT_SESSION_REFUSAL_COPY, GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
+import { GrantSessionRefusal } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { QrCodeSlot } from '@/molecules/QrCodeSlot/QrCodeSlot';
 import { toast } from '@/molecules/Toaster/use-toast';
 
@@ -67,12 +67,14 @@ export function MarketplaceMessagingEnablePanel({
 
   return (
     <div className="grid gap-4">
-      <Typography as="p" className="text-sm text-muted-foreground">
-        {reconnect ? MESSAGING_COPY.reconnect : MESSAGING_COPY.enable}
-      </Typography>
+      {isGrantSession ? null : (
+        <Typography as="p" className="text-sm text-muted-foreground">
+          {reconnect ? MESSAGING_COPY.reconnect : MESSAGING_COPY.enable}
+        </Typography>
+      )}
 
       {isGrantSession ? (
-        <GrantSessionRefusal message={GRANT_SESSION_REFUSAL_COPY.messaging} />
+        <GrantSessionRefusal reason="messaging" />
       ) : enable.status === 'error' ? (
         <div className="grid gap-3">
           <div role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm">

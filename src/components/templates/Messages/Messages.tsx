@@ -12,9 +12,11 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useEncryptedInbox } from '@/hooks/useEncryptedInbox/useEncryptedInbox';
+import { useGrantSigner } from '@/hooks/useGrantSigner/useGrantSigner';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
 import { marketplaceCounterpartyLabel, MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { GrantSessionMessagingNotice } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { AvatarWithFallback } from '@/organisms/AvatarWithFallback/AvatarWithFallback';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
@@ -36,6 +38,7 @@ import { useAuthStore } from '@/stores/auth/auth.store';
 export function Messages() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const inbox = useEncryptedInbox();
+  const isGrantSignIn = useGrantSigner() !== null;
 
   return (
     <ContentLayout
@@ -63,20 +66,23 @@ export function Messages() {
           />
         ) : (
           <div className="flex flex-col gap-4">
-            {inbox.status === 'needs-enable' && (
-              <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5">
-                <div className="flex items-center gap-2">
-                  <LockKeyhole className="size-5 text-muted-foreground" />
-                  <Heading level={2} size="md">
-                    {inbox.receiverProvisioned ? 'Reconnect encrypted messaging' : 'Enable encrypted messaging'}
-                  </Heading>
+            {inbox.status === 'needs-enable' &&
+              (isGrantSignIn ? (
+                <GrantSessionMessagingNotice />
+              ) : (
+                <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5">
+                  <div className="flex items-center gap-2">
+                    <LockKeyhole className="size-5 text-muted-foreground" />
+                    <Heading level={2} size="md">
+                      {inbox.receiverProvisioned ? 'Reconnect encrypted messaging' : 'Enable encrypted messaging'}
+                    </Heading>
+                  </div>
+                  <Typography as="p" className="text-sm text-muted-foreground">
+                    {inbox.receiverProvisioned ? MESSAGING_COPY.inboxNeedsReconnect : MESSAGING_COPY.inboxNeedsEnable}
+                  </Typography>
+                  <MarketplaceMessagingEnableDialog reconnect={inbox.receiverProvisioned} onEnabled={inbox.refresh} />
                 </div>
-                <Typography as="p" className="text-sm text-muted-foreground">
-                  {inbox.receiverProvisioned ? MESSAGING_COPY.inboxNeedsReconnect : MESSAGING_COPY.inboxNeedsEnable}
-                </Typography>
-                <MarketplaceMessagingEnableDialog reconnect={inbox.receiverProvisioned} onEnabled={inbox.refresh} />
-              </div>
-            )}
+              ))}
 
             {inbox.status === 'error' && (
               <div className="flex flex-col items-start gap-3">

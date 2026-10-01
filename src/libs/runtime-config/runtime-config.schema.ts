@@ -152,6 +152,28 @@ const optionalTrimmedString = z
 
 const optionalUrlFromString = optionalTrimmedString.pipe(urlValue.optional());
 
+const LOCAL_DEV_HOSTNAMES = new Set(['localhost', '127.0.0.1']);
+function isHttpsUrl(value: string): boolean {
+  return new URL(value).protocol === 'https:';
+}
+function isHttpsOrLocalDevUrl(value: string): boolean {
+  const url = new URL(value);
+  return url.protocol === 'https:' || (url.protocol === 'http:' && LOCAL_DEV_HOSTNAMES.has(url.hostname));
+}
+/**
+ * The Pubky Passport origin receives the relay secret in the authorization URL
+ * fragment and is the only origin whose outcome messages the Shop accepts, so a
+ * deployed container (the strict parse) takes HTTPS only. The lenient dev/test
+ * parse also takes a plain-HTTP localhost Passport.
+ */
+const passportUrlValue = urlValue.refine(isHttpsOrLocalDevUrl, {
+  message: 'Expected an https:// Pubky Passport origin (http://localhost only in local development)',
+});
+const optionalPassportUrlFromString = optionalTrimmedString.pipe(
+  urlValue.refine(isHttpsUrl, { message: 'Expected an https:// Pubky Passport origin' }).optional(),
+);
+const optionalDevPassportUrlFromString = optionalTrimmedString.pipe(passportUrlValue.optional());
+
 /** Rates validate eagerly (bad number/range throws here); the default applies in the value schema. */
 const sampleRateFromString = z
   .string()
@@ -237,6 +259,7 @@ export const APP_RUNTIME_DEFAULTS = {
   singleApprovalSignIn: true,
   marketplaceGrantFlowEnabled: false,
   marketplaceGrantPollMilliseconds: 1_000,
+  passportSignIn: true,
   preludeSdkTimeoutMs: 5_000,
   previewImage: '/preview.webp',
   siteName: 'Pubky App',
@@ -344,6 +367,19 @@ export const runtimeConfigValueSchema = networkConfigValueSchema.extend({
     .min(750)
     .max(5_000)
     .default(APP_RUNTIME_DEFAULTS.marketplaceGrantPollMilliseconds),
+  /**
+   * Whether the Shop offers Pubky Passport ("Continue with Google"). Runtime
+   * rollback: `false` hides every Passport entry point without a rebuild — the
+   * sign-in button and the Passport purchase approval. A Passport sign-in that
+   * is already active stays signed in, but its purchase approval is refused
+   * with the grant-session copy, as for a Bitkit sign-in with the grant flow off.
+   */
+  passportSignIn: z.boolean().default(APP_RUNTIME_DEFAULTS.passportSignIn),
+  /**
+   * Pubky Passport origin override. Absent means the Passport deployment that
+   * signs users up on this deploy's homeserver (see `getPassportOrigin`).
+   */
+  passportUrl: passportUrlValue.optional(),
   preludeSdkKey: nonEmptyStringValue.optional(),
   preludeSdkTimeoutMs: positiveIntValue.default(APP_RUNTIME_DEFAULTS.preludeSdkTimeoutMs),
   plausibleDomain: nonEmptyStringValue.optional(),
@@ -426,6 +462,8 @@ export const runtimeEnvInputSchema = z
     singleApprovalSignIn: optionalBooleanFromString,
     marketplaceGrantFlowEnabled: optionalBooleanFromString,
     marketplaceGrantPollMilliseconds: optionalPositiveIntFromString,
+    passportSignIn: optionalBooleanFromString,
+    passportUrl: optionalPassportUrlFromString,
     preludeSdkKey: optionalTrimmedString,
     preludeSdkTimeoutMs: optionalPositiveIntFromString,
     plausibleDomain: optionalTrimmedString,
@@ -515,6 +553,8 @@ export const runtimeEnvInputSchemaWithDefaults = z
     singleApprovalSignIn: optionalBooleanFromString,
     marketplaceGrantFlowEnabled: optionalBooleanFromString,
     marketplaceGrantPollMilliseconds: optionalPositiveIntFromString,
+    passportSignIn: optionalBooleanFromString,
+    passportUrl: optionalDevPassportUrlFromString,
     preludeSdkKey: optionalTrimmedString,
     preludeSdkTimeoutMs: optionalPositiveIntFromString,
     plausibleDomain: optionalTrimmedString,
@@ -596,6 +636,8 @@ export const PUBKY_RUNTIME_ENV_NAMES: Record<keyof RuntimeConfig, string> = {
   singleApprovalSignIn: 'PUBKY_RUNTIME_SINGLE_APPROVAL_SIGN_IN',
   marketplaceGrantFlowEnabled: 'PUBKY_RUNTIME_MARKETPLACE_GRANT_FLOW_ENABLED',
   marketplaceGrantPollMilliseconds: 'PUBKY_RUNTIME_MARKETPLACE_GRANT_POLL_MILLISECONDS',
+  passportSignIn: 'PUBKY_RUNTIME_PASSPORT_SIGN_IN',
+  passportUrl: 'PUBKY_RUNTIME_PASSPORT_URL',
   preludeSdkKey: 'PUBKY_RUNTIME_PRELUDE_SDK_KEY',
   preludeSdkTimeoutMs: 'PUBKY_RUNTIME_PRELUDE_SDK_TIMEOUT_MS',
   plausibleDomain: 'PUBKY_RUNTIME_PLAUSIBLE_DOMAIN',

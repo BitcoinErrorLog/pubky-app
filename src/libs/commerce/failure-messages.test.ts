@@ -347,6 +347,15 @@ describe('Bitkit purchase bootstrap reason codes', () => {
     );
   });
 
+  it.each([
+    ['grant_unavailable', 'Pubky Passport approvals are unavailable right now. Try again later.'],
+    ['fresh_approval_required', 'Approve again in Pubky Passport.'],
+    ['approval_invalid', 'That approval could not be verified. Approve again in Pubky Passport.'],
+    ['flow_cancelled', 'Approval cancelled.'],
+  ])('a Pubky Passport bootstrap names Passport for %s', (code, copy) => {
+    expect(marketplaceBootstrapFailureMessage(code, 'Pubky Passport')).toBe(copy);
+  });
+
   it('an unknown bootstrap code falls back to static copy, never the code', () => {
     expect(marketplaceBootstrapFailureMessage('something_new')).toBe(MARKETPLACE_FAILURE_MESSAGES.sessionStart);
   });

@@ -96,6 +96,11 @@ vi.mock('@/hooks/useGrantSignInAvailable/useGrantSignInAvailable', () => ({
   useGrantSignInAvailable: vi.fn(() => false),
 }));
 
+const passport = vi.hoisted(() => ({ isAvailable: false, isPending: false, start: vi.fn() }));
+vi.mock('@/hooks/usePassportSignIn/usePassportSignIn', () => ({
+  usePassportSignIn: () => passport,
+}));
+
 const resetMobileAuthMock = () => {
   vi.mocked(useMobileAuth).mockReturnValue({
     url: 'mock-auth-url',
@@ -759,5 +764,73 @@ describe('SignInFooter', () => {
     render(<SignInFooter />);
 
     expect(screen.queryByTestId('footer-links')).not.toBeInTheDocument();
+  });
+});
+
+describe('SignInContent - Continue with Google (Pubky Passport)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSignInState.authUrlResolved = false;
+    resetMobileAuthMock();
+    passport.isAvailable = true;
+    passport.isPending = false;
+    vi.mocked(useGrantSignInAvailable).mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    passport.isAvailable = false;
+  });
+
+  it('offers Continue with Google beside the Ring and Bitkit QRs on desktop and mobile', async () => {
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    const buttons = screen.getAllByRole('button', { name: 'Continue with Google' });
+    expect(buttons).toHaveLength(2);
+    expect(screen.getAllByText(/Messages are not available with Passport sign-ins yet\./)).toHaveLength(2);
+    expect(screen.getByTestId('sign-in-ring-option')).toBeInTheDocument();
+    expect(screen.getByTestId('sign-in-bitkit-option')).toBeInTheDocument();
+  });
+
+  it('starts the Passport attempt from the click itself', async () => {
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Continue with Google' })[0]);
+
+    expect(passport.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the button while Passport is open', async () => {
+    passport.isPending = true;
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    for (const button of screen.getAllByTestId('sign-in-passport-button')) {
+      expect(button).toBeDisabled();
+      expect(button).toHaveTextContent('Waiting for Pubky Passport...');
+    }
+  });
+
+  it('is not offered where the grant key cannot be held', async () => {
+    vi.mocked(useGrantSignInAvailable).mockReturnValue(false);
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    expect(screen.queryByRole('button', { name: 'Continue with Google' })).not.toBeInTheDocument();
+  });
+
+  it('is not offered when the deploy turned Passport off', async () => {
+    passport.isAvailable = false;
+    await act(async () => {
+      render(<SignInContent />);
+    });
+
+    expect(screen.queryByTestId('sign-in-passport-option')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sign-in-bitkit-option')).toBeInTheDocument();
   });
 });

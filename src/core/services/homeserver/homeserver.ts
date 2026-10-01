@@ -11,6 +11,7 @@ import {
   resolvePubky,
   Session,
   Signer,
+  type XCallbackParams,
 } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
 import {
@@ -689,7 +690,7 @@ export class HomeserverService {
   /**
    * Whether this browser can hold a grant key that JavaScript cannot read
    * (secure context, IndexedDB, WebCrypto Ed25519). Without it the Shop does
-   * not offer the Bitkit sign-in.
+   * not offer the Bitkit or Pubky Passport sign-in.
    */
   static isGrantSignInAvailable(): boolean {
     try {
@@ -701,12 +702,17 @@ export class HomeserverService {
 
   /**
    * Starts a grant sign-in (`pubkyauth://signin_grant`) for signers that only
-   * accept grant URLs, such as Bitkit. The proof-of-possession key is a
-   * non-extractable WebCrypto key in IndexedDB; the approved session is
-   * grant-backed and never exported to JS-readable storage.
+   * accept grant URLs, such as Bitkit and Pubky Passport. The
+   * proof-of-possession key is a non-extractable WebCrypto key in IndexedDB;
+   * the approved session is grant-backed and never exported to JS-readable
+   * storage.
+   *
+   * @param xCallback Optional return destinations carried in the URL (Pubky
+   * Passport's callback page). They are navigation hints only: the session
+   * still arrives through the encrypted relay.
    */
-  static async generateGrantAuthUrl(): Promise<TGenerateAuthUrlResult> {
-    return await this.startGrantAuthFlow(() => AuthFlowKind.signin(), 'generateGrantAuthUrl');
+  static async generateGrantAuthUrl(xCallback?: XCallbackParams): Promise<TGenerateAuthUrlResult> {
+    return await this.startGrantAuthFlow(() => AuthFlowKind.signin(), 'generateGrantAuthUrl', xCallback);
   }
 
   /**
@@ -725,11 +731,13 @@ export class HomeserverService {
   private static async startGrantAuthFlow(
     kind: () => AuthFlowKind,
     operation: string,
+    xCallback?: XCallbackParams,
   ): Promise<TGenerateAuthUrlResult> {
     try {
       const flow = await GrantAuthFlow.startDelegated(CAPABILITIES, kind(), {
         clientId: SHOP_GRANT_CLIENT_ID,
         relay: getDefaultHttpRelay(),
+        ...(xCallback ? { xCallback } : {}),
       });
       const approval = createCancelableAuthApproval(flow);
       return {
@@ -742,7 +750,7 @@ export class HomeserverService {
     }
   }
 
-  /** Whether a session is backed by a grant (Bitkit sign-in) rather than a homeserver cookie. */
+  /** Whether a session is backed by a grant (Bitkit or Pubky Passport sign-in) rather than a homeserver cookie. */
   static isGrantSession(session: Session | null | undefined): boolean {
     return Boolean(session && session.grant !== undefined);
   }

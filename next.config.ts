@@ -52,7 +52,8 @@ const nextConfig: NextConfig = {
   // Only use standalone output when building for Docker (set NEXT_STANDALONE=true)
   ...(process.env.NEXT_STANDALONE === 'true' && { output: 'standalone' }),
   // Clickjacking defence: Shop embeds pubky.app's /session-bridge, but nothing
-  // legitimate embeds Shop — deny framing on every route.
+  // legitimate embeds Shop — deny framing on every route. COOP keeps the
+  // opener of popups Shop opens (Pubky Passport).
   async headers() {
     return buildDenyFramingRouteHeaders();
   },

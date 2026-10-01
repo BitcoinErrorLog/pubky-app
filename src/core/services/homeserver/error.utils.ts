@@ -31,7 +31,7 @@ const GRANT_KEY_REMOVAL_OPERATION = 'removeGrantKeyMaterial';
 export function grantKeyRemovalFailed(step: 'removeGrantSession' | 'clearGrantSessions', cause: unknown): AppError {
   return Err.database(
     DatabaseErrorCode.DELETE_FAILED,
-    'This device still holds a Bitkit sign-in key that could not be removed.',
+    'This device still holds a Bitkit or Pubky Passport sign-in key that could not be removed.',
     { service: ErrorService.Homeserver, operation: GRANT_KEY_REMOVAL_OPERATION, cause, context: { step } },
   );
 }

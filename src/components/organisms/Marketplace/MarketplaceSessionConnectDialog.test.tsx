@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RING_COOKIE_CAPABILITIES } from '@/config/app';
 import type { MarketplaceSessionConnectStatus } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect.types';
@@ -25,9 +25,12 @@ const view = vi.hoisted(() => ({
   requestsFullGrant: true,
   requestsGrantReconnect: false,
   requestsGrantBootstrap: false,
+  requestsPassport: false,
+  passportRefused: false,
   isGrantSession: false,
   grantEnabled: false,
   start: vi.fn(),
+  startPassport: vi.fn(),
 }));
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/libs/runtime-config/runtime-config')>()),
@@ -35,6 +38,11 @@ vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
   useIsGrantSession: () => view.isGrantSession,
+}));
+
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGrantSigner/useGrantSigner')>()),
+  isPassportApprovalRefused: () => view.passportRefused,
 }));
 
 vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
@@ -45,7 +53,9 @@ vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () 
     requestsFullGrant: view.requestsFullGrant,
     requestsGrantReconnect: view.requestsGrantReconnect,
     requestsGrantBootstrap: view.requestsGrantBootstrap,
+    requestsPassport: view.requestsPassport,
     start: view.start,
+    startPassport: view.startPassport,
     cancel: vi.fn(),
     copyAuthUrl: vi.fn(async () => {}),
     openInRing: vi.fn(),
@@ -77,9 +87,12 @@ describe('MarketplaceSessionConnectDialog', () => {
     view.requestsFullGrant = true;
     view.requestsGrantReconnect = false;
     view.requestsGrantBootstrap = false;
+    view.requestsPassport = false;
+    view.passportRefused = false;
     view.isGrantSession = false;
     view.grantEnabled = false;
     view.start.mockClear();
+    view.startPassport.mockClear();
   });
 
   it('grant session sees refusal not classic qr (grant flow off)', () => {
@@ -244,5 +257,103 @@ describe('MarketplaceSessionConnectDialog', () => {
     expect(screen.getByRole('heading', { name: 'Approve purchases' })).toBeInTheDocument();
     expect(screen.getByText(/reconnect the marketplace session/i)).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Approve purchases in Pubky Ring' })).not.toBeInTheDocument();
+  });
+
+  describe('Pubky Passport sign-in', () => {
+    beforeEach(() => {
+      view.isGrantSession = true;
+      view.grantEnabled = true;
+      view.requestsPassport = true;
+      view.requestsGrantBootstrap = true;
+      view.requestsFullGrant = false;
+      view.status = 'idle';
+    });
+
+    it('asks for a click to open Passport, with Passport copy and no QR, copy link or deeplink', () => {
+      render(<MarketplaceSessionConnectDialog autoOpen />);
+
+      expect(view.start).toHaveBeenCalled();
+      expect(view.startPassport).not.toHaveBeenCalled();
+      expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Passport' })).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Approve with Pubky Passport to connect the marketplace for the identity signed in to Shop. Nothing is charged until you pay.',
+        ),
+      ).toBeInTheDocument();
+      const approve = screen.getByRole('button', { name: 'Continue in Pubky Passport' });
+      expect(approve).toBeEnabled();
+      expect(screen.queryByLabelText('Copy authorization link')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /copy link/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /open in/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/Bitkit/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('grant-session-refusal')).not.toBeInTheDocument();
+
+      fireEvent.click(approve);
+      expect(view.startPassport).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for Passport with the button held and the disclosure for the requested grant', () => {
+      view.status = 'awaiting';
+      view.authorizationUrl = grantUrl(MARKETPLACE_SESSION_GRANT);
+
+      render(<MarketplaceSessionConnectDialog autoOpen />);
+
+      expect(screen.getByRole('button', { name: 'Continue in Pubky Passport' })).toBeDisabled();
+      expect(screen.getByText('Waiting for approval in Pubky Passport…')).toBeInTheDocument();
+      expect(screen.getByTestId('session-approval-disclosure')).toHaveTextContent(MARKETPLACE_DISCLOSURE_PRIVATE_DATA);
+      expect(screen.queryByLabelText('Copy authorization link')).not.toBeInTheDocument();
+    });
+
+    it('confirms with the homeserver while the bootstrap is minted', () => {
+      view.status = 'creating';
+
+      render(<MarketplaceSessionConnectDialog autoOpen />);
+
+      expect(screen.getByText('Confirming with your homeserver…')).toBeInTheDocument();
+    });
+
+    it('Try again re-arms and reopens Passport from the same click', () => {
+      view.status = 'cancelled';
+
+      render(<MarketplaceSessionConnectDialog autoOpen />);
+      view.start.mockClear();
+      fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+
+      expect(view.start).toHaveBeenCalledTimes(1);
+      expect(view.startPassport).toHaveBeenCalledTimes(1);
+      expect(view.start.mock.invocationCallOrder[0]).toBeLessThan(view.startPassport.mock.invocationCallOrder[0]);
+    });
+
+    it('reconnect copy names Passport only', () => {
+      view.requestsGrantBootstrap = false;
+      view.requestsGrantReconnect = true;
+
+      render(<MarketplaceSessionConnectDialog autoOpen />);
+
+      expect(screen.getByRole('heading', { name: 'Approve purchases' })).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'Approve with Pubky Passport to reconnect the marketplace session for the identity already signed in to Shop. Nothing is charged until you pay.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Bitkit or Pubky Ring/)).not.toBeInTheDocument();
+    });
+  });
+
+  it('a Passport sign-in is refused, with no approval started, while Passport is switched off', () => {
+    view.isGrantSession = true;
+    view.grantEnabled = true;
+    view.passportRefused = true;
+    view.requestsPassport = false;
+    view.requestsGrantBootstrap = true;
+    view.requestsFullGrant = false;
+    view.status = 'idle';
+
+    render(<MarketplaceSessionConnectDialog autoOpen />);
+
+    expect(screen.getByTestId('grant-session-refusal')).toBeInTheDocument();
+    expect(view.start).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Continue in Pubky Passport' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Copy authorization link')).not.toBeInTheDocument();
   });
 });

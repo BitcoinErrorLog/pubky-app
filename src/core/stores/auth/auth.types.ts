@@ -1,21 +1,32 @@
 import { Session } from '@synonymdev/pubky';
 import type { Pubky } from '@/models/models.types';
 
+/** The signer that approved a grant-backed session. */
+export type GrantSigner = 'bitkit' | 'passport';
+
 export interface AuthInitParams {
   currentUserPubky: Pubky | null;
   session: Session | null;
   /** null = unknown/undetermined, false = no profile, true = has profile */
   hasProfile: boolean | null;
   /**
-   * `BrowserSessionStore` record of a grant-backed session (Bitkit sign-in).
-   * Grant sessions are never exported; reload restores from this record.
+   * `BrowserSessionStore` record of a grant-backed session (Bitkit or Pubky
+   * Passport sign-in). Grant sessions are never exported; reload restores
+   * from this record.
    */
   grantSessionRecordId?: string | null;
+  /**
+   * Which signer approved a grant-backed session; it approves the purchase
+   * grant too. Absent for a grant session means Bitkit, the only grant signer
+   * before Pubky Passport.
+   */
+  grantSigner?: GrantSigner | null;
 }
 
 export interface AuthState extends AuthInitParams {
   sessionExport: string | null;
   grantSessionRecordId: string | null;
+  grantSigner: GrantSigner | null;
   hasHydrated: boolean;
   isRestoringSession: boolean;
   /** Whether the sign-in dialog is open (for unauthenticated users) */
@@ -58,6 +69,7 @@ export const authInitialState: AuthState = {
   session: null,
   sessionExport: null,
   grantSessionRecordId: null,
+  grantSigner: null,
   hasProfile: null,
   hasHydrated: false,
   isRestoringSession: false,
