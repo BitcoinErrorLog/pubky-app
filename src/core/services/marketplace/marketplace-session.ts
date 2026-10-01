@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CAPABILITIES } from '@/config/app';
+import { CAPABILITIES, RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, getMarketplaceUrl, isDurableCommerceMode } from '@/config/commerce';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { commercePubkySchema } from '@/libs/commerce/transaction-contracts';
@@ -34,6 +34,7 @@ import { marketplaceSessionIdSchema } from './marketplace-session-id';
 const MARKETPLACE_RESTORABLE_GRANTS = [
   MARKETPLACE_SESSION_GRANT,
   MARKETPLACE_PREVIOUS_SESSION_GRANT,
+  RING_COOKIE_CAPABILITIES,
   CAPABILITIES,
 ] as const;
 
@@ -309,7 +310,7 @@ export class MarketplaceSessionService {
     const deadline = tokenResolvedAtMs + MARKETPLACE_TOKEN_RETRY_DEADLINE_MS;
     for (;;) {
       try {
-        return await this.establishWithAuthToken(authTokenBytes, expectedPubky, [CAPABILITIES]);
+        return await this.establishWithAuthToken(authTokenBytes, expectedPubky, [RING_COOKIE_CAPABILITIES]);
       } catch (error) {
         if (this.isAuthTokenAlreadyUsedError(error)) {
           const existing = this.bearerForPubky(expectedPubky);

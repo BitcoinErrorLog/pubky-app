@@ -9,7 +9,7 @@ import type {
   TSingleApprovalCeremonyHooks,
   TSingleApprovalResult,
 } from '@/application/auth/auth.types';
-import { CAPABILITIES, capabilitiesMatchFullGrant } from '@/config/app';
+import { capabilitiesMatchFullGrant, RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
@@ -440,7 +440,7 @@ export class AuthApplication {
   }
 
   static startDirectSignInFlow(): TGenerateAuthTokenFlowResult {
-    return HomeserverService.generateAuthTokenFlow(CAPABILITIES);
+    return HomeserverService.generateAuthTokenFlow(RING_COOKIE_CAPABILITIES);
   }
 
   /**

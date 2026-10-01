@@ -10,7 +10,7 @@ This document **replaces the Wave 0 rejection of Option A** in `docs/ecommerce/s
 
 **Requirement (fixed).** A buyer who completes Pubky Ring sign-in on Shop approves once. That approval must grant:
 
-- the homeserver cookie session with Shop's full grant `CAPABILITIES = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw'` (`src/config/app.ts:20`);
+- the homeserver cookie session with the Ring cookie set `RING_COOKIE_CAPABILITIES = '/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw,/priv/social/:rw,/priv/app.locks/content/:r'` (`src/config/app.ts`): Shop's grant `CAPABILITIES` plus pubky.app's sign-in scopes, because both sites share one cookie and the last approval replaces the other site's;
 - a transaction-service opaque bearer obtained from `POST /v1/auth/sessions` (`src/core/services/marketplace/marketplace-session.ts:170–204`).
 
 There is no second QR later for “marketplace commands.”

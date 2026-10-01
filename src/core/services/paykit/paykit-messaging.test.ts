@@ -431,13 +431,16 @@ describe('PaykitMessagingService', () => {
       expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
     });
 
-    it('asks Ring for the paykit capability plus the app scope and publishes a messaging-only marker', async () => {
+    it('asks Ring for the whole Ring cookie set and publishes a messaging-only marker', async () => {
       const enabled = await enableMessaging(world);
 
-      // Both scopes on purpose: the homeserver holds one session cookie per
-      // user, so the messaging session must also carry the app's write scope
-      // or approving it breaks every pubky.app write (see messaging-contracts).
-      expect(world.calls).toContain('startAuthFlow:/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw');
+      // The whole set on purpose: the homeserver holds one session cookie per
+      // user, so the messaging session must carry every scope the Shop and
+      // pubky.app sign-ins hold or approving it breaks their writes (see
+      // messaging-contracts).
+      expect(world.calls).toContain(
+        'startAuthFlow:/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw,/priv/social/:rw,/priv/app.locks/content/:r',
+      );
       expect(enabled.pubky).toBe(OWNER);
       expect(enabled.receiverPath).toBe('marketplace/wallet');
       expect(world.lastPublishedMarker).toEqual({
@@ -3009,6 +3012,19 @@ describe('PaykitMessagingService', () => {
       await expect(PaykitMessagingService.ensureLink(OWNER, COUNTERPARTY)).rejects.toThrow(
         /No active messaging session/,
       );
+    });
+
+    it('after a pubky.app sign-in drops /pub/paykit from the cookie, the enable approval asks for both sites', async () => {
+      world.cookieResume = 'scope-missing';
+      await expect(PaykitMessagingService.restorePersistedSession(OWNER)).resolves.toBe(false);
+
+      const enabled = await enableMessaging(world);
+
+      expect(world.calls).toContain(
+        'startAuthFlow:/pub/pubky.app/:rw,/pub/paykit/:rw,/priv/pubky.app/:rw,/priv/social/:rw,/priv/app.locks/content/:r',
+      );
+      expect(enabled.pubky).toBe(OWNER);
+      expect(PaykitMessagingService.hasActiveSession(OWNER)).toBe(true);
     });
 
     it('spaces failed silent resumes instead of retrying on every status poll, and sign-out resets them', async () => {

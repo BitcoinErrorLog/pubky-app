@@ -5,6 +5,7 @@ import { MarketplaceSessionService } from '@/services/marketplace/marketplace-se
 import { MarketplaceShopClientService, PubkyShopError } from '@/services/marketplace/marketplace-shop-client';
 import { DexieWebhookStore } from '@/services/marketplace/marketplace-webhook-store';
 import bitkitParityCapture from '@/test/fixtures/auth/marketplace-grant-priv-parity.staging.json';
+import ringCookie from '@/test/fixtures/auth/ring-cookie-signin.pubky-common-0.11.json';
 import {
   classifySessionKind,
   CommerceInventoryAutomationsApplication,
@@ -78,6 +79,14 @@ describe('classifySessionKind', () => {
     expect(classifySessionKind('/priv/pubky.app/:rw,/pub/paykit/:rw,/pub/pubky.app/:rw')).toBe('purchase');
     expect(classifySessionKind(`${captured},/pub/paykit/:rw`)).toBe('cli');
     expect(classifySessionKind('/priv/pubky.app/:rw')).toBe('cli');
+  });
+
+  it('labels the Ring cookie sign-in redeem Purchase in any order, and pubky.app-only sets CLI', () => {
+    const ringRedeem = ringCookie.service_normalized;
+    expect(classifySessionKind(ringRedeem)).toBe('purchase');
+    expect(classifySessionKind(ringRedeem.split(',').reverse().join(','))).toBe('purchase');
+    expect(classifySessionKind(ringCookie.pubky_app_signin)).toBe('cli');
+    expect(classifySessionKind(`${ringRedeem},/:rw`)).toBe('cli');
   });
 });
 

@@ -1,4 +1,4 @@
-import { CAPABILITIES, isSingleApprovalSignInEnabled } from '@/config/app';
+import { CAPABILITIES, isSingleApprovalSignInEnabled, RING_COOKIE_CAPABILITIES } from '@/config/app';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 
 /**
@@ -123,7 +123,7 @@ export function marketplaceApprovalDisclosure(authorizationUrl: string): string 
   if (caps === null) return null;
   if (matchesCapabilitySet(caps, [MARKETPLACE_SESSION_GRANT])) return MARKETPLACE_DISCLOSURE_PRIVATE_DATA;
   if (matchesCapabilitySet(caps, [MARKETPLACE_PREVIOUS_SESSION_GRANT])) return MARKETPLACE_DISCLOSURE_INVENTORY;
-  if (matchesCapabilitySet(caps, [CAPABILITIES])) return MARKETPLACE_DISCLOSURE_SIGN_IN;
+  if (matchesCapabilitySet(caps, [RING_COOKIE_CAPABILITIES, CAPABILITIES])) return MARKETPLACE_DISCLOSURE_SIGN_IN;
   return null;
 }
 

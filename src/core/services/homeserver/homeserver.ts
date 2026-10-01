@@ -13,7 +13,13 @@ import {
   Signer,
 } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
-import { CAPABILITIES, capabilitiesMatchFullGrant, SHOP_GRANT_CLIENT_ID } from '@/config/app';
+import {
+  CAPABILITIES,
+  capabilitiesMatchFullGrant,
+  capabilitiesMatchRingCookieGrant,
+  RING_COOKIE_CAPABILITIES,
+  SHOP_GRANT_CLIENT_ID,
+} from '@/config/app';
 import {
   getDefaultHttpRelay,
   getDeployEnv,
@@ -71,9 +77,8 @@ import {
 } from './homeserver.utils';
 import { retryHomeserverWrite } from './write-retry';
 
-// The single sign-in grant lives in `@/config/app` (as `CAPABILITIES`) so the
-// step-up re-approval dialog can render the exact requested string beside the
-// QR without importing this service module.
+// The sign-in capability sets live in `@/config/app`: `CAPABILITIES` for grant
+// sign-ins, `RING_COOKIE_CAPABILITIES` for Pubky Ring cookie approvals.
 const PUB_PATH_PREFIX = '/pub/' as const;
 const PRIV_PATH_PREFIX = '/priv/' as const;
 /** Paths the current session owns outright: its own public and private trees. */
@@ -156,16 +161,25 @@ export class HomeserverService {
     return capabilitiesGrantWrite(capabilities, path);
   }
 
+  /**
+   * Whether the current session holds exactly what its sign-in requests: the
+   * Shop grant for a grant session, the Ring cookie set for a cookie session.
+   * A cookie session restored after a pubky.app sign-in replaced the cookie
+   * holds pubky.app's narrower set and is not full.
+   */
   static currentSessionHasFullGrant(): boolean {
-    const capabilities = useAuthStore.getState().selectSession()?.info?.capabilities;
+    const session = useAuthStore.getState().selectSession();
+    const capabilities = session?.info?.capabilities;
     if (!capabilities) return false;
-    return capabilitiesMatchFullGrant(capabilities);
+    return this.isGrantSession(session)
+      ? capabilitiesMatchFullGrant(capabilities)
+      : capabilitiesMatchRingCookieGrant(capabilities);
   }
 
   /**
-   * Introspect AuthToken bytes, refuse anything other than Shop's full grant,
-   * POST them to `/session` via WASM `Client.fetch`, and hydrate a `Session`
-   * from the SessionInfo body. Homeserver `AlreadyUsed` (or a lost 2xx) is
+   * Introspect AuthToken bytes, refuse anything other than the Ring cookie set
+   * ({@link RING_COOKIE_CAPABILITIES}), POST them to `/session` via WASM
+   * `Client.fetch`, and hydrate a `Session` from the SessionInfo body. Homeserver `AlreadyUsed` (or a lost 2xx) is
    * recovered with GET `/session` when a cookie already exists.
    *
    * Bytes are not logged, persisted, or placed in error context.
@@ -174,7 +188,7 @@ export class HomeserverService {
     let publicKeyZ32: string;
     try {
       const token = AuthToken.fromBytes(authTokenBytes);
-      if (!capabilitiesMatchFullGrant(token.capabilities)) {
+      if (!capabilitiesMatchRingCookieGrant(token.capabilities)) {
         throw Err.validation(
           ValidationErrorCode.INVALID_INPUT,
           'This approval does not include the full Shop permission list. Scan again from Shop.',
@@ -610,7 +624,7 @@ export class HomeserverService {
    * @returns The authentication URL and approval promise
    */
   static async generateAuthUrl(caps?: Capabilities): Promise<TGenerateAuthUrlResult> {
-    const capabilities: Capabilities = caps || CAPABILITIES;
+    const capabilities: Capabilities = caps || RING_COOKIE_CAPABILITIES;
 
     try {
       const pubkySdk = this.getPubkySdk();
