@@ -5,12 +5,17 @@ import { MarketplaceMessagingEnablePanel } from './MarketplaceMessagingEnableDia
 
 const state = vi.hoisted(() => ({
   isGrantSession: true,
+  grantSigner: 'bitkit' as 'bitkit' | 'passport',
   inventoryStart: vi.fn(),
   messagingStart: vi.fn(),
 }));
 
 vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
   useIsGrantSession: () => state.isGrantSession,
+}));
+
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', () => ({
+  useGrantSigner: () => (state.isGrantSession ? state.grantSigner : null),
 }));
 
 vi.mock('@/hooks/useMarketplaceInventoryGrantConnect/useMarketplaceInventoryGrantConnect', () => ({
@@ -57,6 +62,7 @@ vi.mock('@/atoms/Dialog/Dialog', () => ({
 describe('classic Pubky Ring approvals and a grant session', () => {
   beforeEach(() => {
     state.isGrantSession = true;
+    state.grantSigner = 'bitkit';
     state.inventoryStart.mockClear();
     state.messagingStart.mockClear();
   });
@@ -85,9 +91,22 @@ describe('classic Pubky Ring approvals and a grant session', () => {
     render(<MarketplaceMessagingEnablePanel reconnect={false} />);
 
     expect(screen.getByTestId('grant-session-refusal')).toHaveTextContent(
-      'Messages need a Pubky Ring sign-in for now.',
+      'Messages are not available for Bitkit sign-ins yet. Everything else in Shop works with this sign-in.',
     );
+    expect(screen.queryByText(/Approve in your Pubky signer/)).not.toBeInTheDocument();
     expect(screen.queryByTestId('qr-auth-url')).not.toBeInTheDocument();
+    expect(state.messagingStart).not.toHaveBeenCalled();
+  });
+
+  it('a Pubky Passport sign-in reads that messages are not available yet, without being sent to Ring', () => {
+    state.grantSigner = 'passport';
+    render(<MarketplaceMessagingEnablePanel reconnect={false} />);
+
+    const refusal = screen.getByTestId('grant-session-refusal');
+    expect(refusal).toHaveTextContent(
+      'Messages are not available for Pubky Passport sign-ins yet. Everything else in Shop works with this sign-in.',
+    );
+    expect(refusal).not.toHaveTextContent(/Pubky Ring/);
     expect(state.messagingStart).not.toHaveBeenCalled();
   });
 

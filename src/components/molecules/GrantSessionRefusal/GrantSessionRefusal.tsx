@@ -1,12 +1,32 @@
+'use client';
+
 import { Typography } from '@/atoms/Typography/Typography';
+import { useGrantSigner } from '@/hooks/useGrantSigner/useGrantSigner';
+import type { GrantSigner } from '@/stores/auth/auth.types';
 
-export const GRANT_SESSION_REFUSAL_COPY = {
-  default: 'Bitkit sign-in does not cover this step yet. Sign in with Pubky Ring to continue.',
-  messaging: 'Messages need a Pubky Ring sign-in for now.',
-} as const;
+export type GrantSessionRefusalReason = 'default' | 'messaging';
 
-/** Shown instead of a Pubky Ring approval QR when the Shop session came from a Bitkit sign-in. */
-export function GrantSessionRefusal({ message = GRANT_SESSION_REFUSAL_COPY.default }: { message?: string }) {
+const GRANT_SIGNER_NAMES: Record<GrantSigner, string> = {
+  bitkit: 'Bitkit',
+  passport: 'Pubky Passport',
+};
+
+/**
+ * What a grant (Bitkit or Pubky Passport) sign-in reads where the Shop cannot
+ * serve it yet. Messaging needs an encrypted-messaging session that grant
+ * sign-ins cannot open today, so that copy names no other signer: it says
+ * what is missing and that the rest of Shop works.
+ */
+export function grantSessionRefusalCopy(reason: GrantSessionRefusalReason, signer: GrantSigner): string {
+  const name = GRANT_SIGNER_NAMES[signer];
+  return reason === 'messaging'
+    ? `Messages are not available for ${name} sign-ins yet. Everything else in Shop works with this sign-in.`
+    : `${name} sign-in does not cover this step yet. Sign in with Pubky Ring to continue.`;
+}
+
+/** Shown instead of a Pubky Ring approval QR when the Shop session came from a grant sign-in. */
+export function GrantSessionRefusal({ reason = 'default' }: { reason?: GrantSessionRefusalReason }) {
+  const signer = useGrantSigner() ?? 'bitkit';
   return (
     <div
       role="status"
@@ -14,7 +34,7 @@ export function GrantSessionRefusal({ message = GRANT_SESSION_REFUSAL_COPY.defau
       className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground"
     >
       <Typography as="p" className="text-sm text-muted-foreground">
-        {message}
+        {grantSessionRefusalCopy(reason, signer)}
       </Typography>
     </div>
   );

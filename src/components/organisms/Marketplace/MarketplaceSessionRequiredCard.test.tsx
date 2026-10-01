@@ -2,10 +2,14 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketplaceSessionRequiredCard, SALES_LIST_SESSION_NOTE } from './MarketplaceSessionRequiredCard';
 
-const view = vi.hoisted(() => ({ isGrantSession: false, grantEnabled: false }));
+const view = vi.hoisted(() => ({
+  isGrantSession: false,
+  grantSigner: 'bitkit' as 'bitkit' | 'passport',
+  grantEnabled: false,
+}));
 
-vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
-  useIsGrantSession: () => view.isGrantSession,
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', () => ({
+  useGrantSigner: () => (view.isGrantSession ? view.grantSigner : null),
 }));
 
 vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
@@ -20,6 +24,7 @@ vi.mock('./MarketplaceSessionConnectDialog', () => ({
 describe('MarketplaceSessionRequiredCard', () => {
   beforeEach(() => {
     view.isGrantSession = false;
+    view.grantSigner = 'bitkit';
     view.grantEnabled = false;
   });
 
@@ -37,6 +42,16 @@ describe('MarketplaceSessionRequiredCard', () => {
 
     expect(screen.getByRole('heading', { name: 'Approve purchases in Bitkit' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve in Bitkit' })).toBeInTheDocument();
+  });
+
+  it('names Pubky Passport for a Passport sign-in that can bootstrap', () => {
+    view.isGrantSession = true;
+    view.grantSigner = 'passport';
+    view.grantEnabled = true;
+    render(<MarketplaceSessionRequiredCard />);
+
+    expect(screen.getByRole('heading', { name: 'Approve purchases in Pubky Passport' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve in Pubky Passport' })).toBeInTheDocument();
   });
 
   it('explains that sales use the same approval', () => {

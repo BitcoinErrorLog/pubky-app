@@ -58,12 +58,22 @@ export interface UseMarketplaceSessionConnectReturn {
   requestsGrantReconnect: boolean;
   /**
    * True while `start()` is running (or about to run) the browser bootstrap:
-   * a Bitkit (grant) sign-in with no marketplace bearer yet. Its approval is a
-   * Bitkit grant, so the dialog shows Bitkit copy, never the Ring prompt.
+   * a grant (Bitkit or Pubky Passport) sign-in with no marketplace bearer yet.
+   * Its approval comes from the same signer, never the Ring prompt.
    */
   requestsGrantBootstrap: boolean;
+  /**
+   * True when Pubky Passport approved the Shop sign-in, so it approves this
+   * grant too. Passport opens in a popup, which needs a click: `start()` only
+   * arms the approval (status `idle`, no URL) and `startPassport()` runs it.
+   * The URL is set while Passport shows it, for the disclosure only: it is
+   * never a QR or a deeplink.
+   */
+  requestsPassport: boolean;
   /** Begins a fresh flow, cancelling any in-flight one. */
   start: () => void;
+  /** Opens the armed Passport approval. Call it from the click handler itself. */
+  startPassport: () => void;
   /** Cancels the in-flight flow (frees it) and returns to `idle`. */
   cancel: () => void;
   /** Copies the authorization URL for manual transfer to the signer device. */

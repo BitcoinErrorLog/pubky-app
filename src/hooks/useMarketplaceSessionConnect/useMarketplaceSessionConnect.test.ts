@@ -6,6 +6,7 @@ import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
+import { getPassportOrigin } from '@/libs/runtime-config/runtime-config';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { beginMarketplaceBootstrapFlow } from '@/services/marketplace/marketplace-bootstrap-client';
 import { beginMarketplaceGrantFlow } from '@/services/marketplace/marketplace-grant-client';
@@ -792,6 +793,258 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
         await waitFor(() => expect(result.current.status).toBe('error'));
 
         expect(result.current.errorMessage).toBe('That approval could not be verified. Approve again in Bitkit.');
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  describe('Pubky Passport sign-in purchase approval', () => {
+    const ACTIVE_SESSION = {
+      token: 'session-token',
+      sessionId: '11111111-1111-4111-8111-111111111111',
+      pubky: SESSION.pubky,
+      capabilities: '',
+      expiresAt: SESSION.expiresAt,
+      expiresAtMs: Date.parse(SESSION.expiresAt),
+      issuedAt: SESSION.issuedAt,
+    };
+
+    function signInWithPassport() {
+      useAuthStore.setState({
+        currentUserPubky: SESSION.pubky,
+        session: asOpaque({ grant: {}, info: { publicKey: { z32: () => SESSION.pubky } } }),
+        grantSigner: 'passport',
+      });
+    }
+
+    function openPopup() {
+      const popup = {
+        closed: false,
+        location: { replace: vi.fn() },
+        close: vi.fn(() => {
+          popup.closed = true;
+        }),
+        focus: vi.fn(),
+        postMessage: vi.fn(),
+      };
+      const open = vi.spyOn(window, 'open').mockReturnValue(asOpaque<Window>(popup));
+      return { popup, open };
+    }
+
+    function passportSays(popup: unknown, outcome: string) {
+      const event = new Event('message');
+      Object.defineProperties(event, {
+        data: {
+          value: { type: 'pubky-passport.authorization-outcome', version: 1, outcome, messageId: 'm-1' },
+        },
+        origin: { value: getPassportOrigin() },
+        source: { value: popup },
+      });
+      window.dispatchEvent(event);
+    }
+
+    afterEach(() => {
+      useAuthStore.setState({ currentUserPubky: null, session: null, grantSigner: null });
+    });
+
+    it('arms the bootstrap on start and opens nothing until the click', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithPassport();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const { open } = openPopup();
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        expect(result.current.requestsPassport).toBe(true);
+        act(() => result.current.start());
+
+        expect(result.current.status).toBe('idle');
+        expect(result.current.requestsGrantBootstrap).toBe(true);
+        expect(result.current.authorizationUrl).toBe('');
+        expect(beginMarketplaceBootstrapFlow).not.toHaveBeenCalled();
+        expect(open).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('the click opens Passport with the service grant URL and connects on approval', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithPassport();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const claimed = { ...ACTIVE_SESSION, token: 'claimed-token' };
+        const establish = vi
+          .spyOn(MarketplaceSessionService, 'establishClaimedGrantSession')
+          .mockReturnValue(asOpaque(claimed));
+        const { popup, open } = openPopup();
+        const url = `pubkyauth://signin_grant?caps=${encodeURIComponent('/pub/pubky.app/marketplace-service/v1/:rw')}`;
+        const { grantFlow, resolveResult } = createDeferredGrantFlow(url);
+        vi.mocked(beginMarketplaceBootstrapFlow).mockResolvedValue(grantFlow);
+        const onConnected = vi.fn();
+        const { result } = renderHook(() => useMarketplaceSessionConnect({ onConnected }));
+
+        act(() => result.current.start());
+        act(() => result.current.startPassport());
+
+        expect(open).toHaveBeenCalledTimes(1);
+        await waitFor(() => expect(result.current.status).toBe('awaiting'));
+        expect(beginMarketplaceBootstrapFlow).toHaveBeenCalledWith({ pubky: SESSION.pubky });
+        expect(popup.location.replace).toHaveBeenCalledWith(
+          `${getPassportOrigin()}/authorize#d=${encodeURIComponent(url)}`,
+        );
+
+        resolveResult({
+          status: 'connected',
+          token: 'claimed-token',
+          pubky: SESSION.pubky,
+          capabilities: '/pub/pubky.app/marketplace-service/v1/:rw',
+          expires_at: SESSION.expiresAt,
+        });
+        await waitFor(() => expect(result.current.status).toBe('connected'));
+        expect(establish).toHaveBeenCalledTimes(1);
+        expect(CommerceController.writeMarketplaceSessionStore).toHaveBeenCalledWith(claimed);
+        expect(onConnected).toHaveBeenCalledWith(claimed);
+        expect(popup.close).toHaveBeenCalled();
+        expect(grantFlow.cancel).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('a cancel in Passport cancels the service flow and ends as cancelled', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithPassport();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const { popup } = openPopup();
+        const { grantFlow } = createDeferredGrantFlow('pubkyauth://signin_grant?caps=bootstrap');
+        vi.mocked(beginMarketplaceBootstrapFlow).mockResolvedValue(grantFlow);
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        act(() => result.current.startPassport());
+        await waitFor(() => expect(result.current.status).toBe('awaiting'));
+        act(() => passportSays(popup, 'cancel'));
+
+        await waitFor(() => expect(result.current.status).toBe('cancelled'));
+        expect(grantFlow.cancel).toHaveBeenCalledTimes(1);
+        expect(popup.close).toHaveBeenCalled();
+        expect(CommerceController.writeMarketplaceSessionStore).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('a blocked popup reports it and never mints a service flow', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithPassport();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        vi.spyOn(window, 'open').mockReturnValue(null);
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        act(() => result.current.startPassport());
+
+        await waitFor(() => expect(result.current.status).toBe('error'));
+        expect(result.current.errorMessage).toBe(
+          'Your browser blocked the Pubky Passport window. Allow pop-ups for this site and try again.',
+        );
+        expect(beginMarketplaceBootstrapFlow).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('a failed Passport approval names Passport, not Bitkit', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithPassport();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        openPopup();
+        vi.mocked(beginMarketplaceBootstrapFlow).mockResolvedValue({
+          authorizationUrl: 'pubkyauth://signin_grant?caps=bootstrap',
+          awaitResult: vi.fn().mockResolvedValue({ status: 'failed' }),
+          cancel: vi.fn().mockResolvedValue(undefined),
+        });
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        act(() => result.current.startPassport());
+
+        await waitFor(() => expect(result.current.status).toBe('error'));
+        expect(result.current.errorMessage).toBe(
+          'That approval could not be verified. Approve again in Pubky Passport.',
+        );
+      } finally {
+        restore();
+      }
+    });
+
+    it('a Passport reconnect that needs a session ends with the copy, never a Ring AuthToken QR', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithPassport();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(ACTIVE_SESSION);
+        openPopup();
+        vi.mocked(beginMarketplaceGrantFlow).mockRejectedValue(new Error('shop_session_missing'));
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        expect(result.current.requestsGrantReconnect).toBe(true);
+        expect(beginMarketplaceGrantFlow).not.toHaveBeenCalled();
+        act(() => result.current.startPassport());
+
+        await waitFor(() => expect(result.current.status).toBe('error'));
+        expect(beginMarketplaceGrantFlow).toHaveBeenCalledTimes(1);
+        expect(result.current.errorMessage).toBe(MARKETPLACE_FAILURE_MESSAGES.sessionMissing);
+        expect(CommerceController.beginMarketplaceSessionConnect).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('cancel drops an armed approval, so a later click opens nothing', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        signInWithPassport();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const { open } = openPopup();
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        act(() => result.current.start());
+        act(() => result.current.cancel());
+        act(() => result.current.startPassport());
+
+        expect(open).not.toHaveBeenCalled();
+        expect(beginMarketplaceBootstrapFlow).not.toHaveBeenCalled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('a Bitkit grant sign-in keeps the QR bootstrap and never opens Passport', async () => {
+      const restore = await enableGrantFlow();
+      try {
+        useAuthStore.setState({
+          currentUserPubky: SESSION.pubky,
+          session: asOpaque({ grant: {}, info: { publicKey: { z32: () => SESSION.pubky } } }),
+          grantSigner: 'bitkit',
+        });
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const { open } = openPopup();
+        const { grantFlow } = createDeferredGrantFlow('pubkyauth://signin_grant?caps=bootstrap');
+        vi.mocked(beginMarketplaceBootstrapFlow).mockResolvedValue(grantFlow);
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        expect(result.current.requestsPassport).toBe(false);
+        act(() => result.current.start());
+        await waitFor(() => expect(result.current.status).toBe('awaiting'));
+
+        expect(result.current.authorizationUrl).toBe('pubkyauth://signin_grant?caps=bootstrap');
+        expect(open).not.toHaveBeenCalled();
       } finally {
         restore();
       }

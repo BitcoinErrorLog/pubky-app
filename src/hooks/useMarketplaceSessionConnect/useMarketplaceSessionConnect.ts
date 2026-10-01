@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isSingleApprovalSignInEnabled } from '@/config/app';
 import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { readGrantSigner } from '@/hooks/useGrantSigner/useGrantSigner';
 import {
   MARKETPLACE_FAILURE_MESSAGES,
   marketplaceBootstrapFailureMessage,
@@ -13,7 +14,13 @@ import {
 import { isAppError } from '@/libs/error/error';
 import { ErrorCategory } from '@/libs/error/error.types';
 import { Logger } from '@/libs/logger/logger';
-import { getMarketplaceGrantFlowEnabled } from '@/libs/runtime-config/runtime-config';
+import {
+  isPassportAttemptError,
+  PassportAttemptError,
+  type PassportAttemptFailure,
+  startPassportAttempt,
+} from '@/libs/passport/passport-popup';
+import { getMarketplaceGrantFlowEnabled, getPassportOrigin } from '@/libs/runtime-config/runtime-config';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import { beginMarketplaceBootstrapFlow } from '@/services/marketplace/marketplace-bootstrap-client';
@@ -41,12 +48,27 @@ type ActiveFlow =
  * `start()` first detach the current flow, so a rejection arriving from a
  * detached flow is dropped silently instead of being surfaced as a failure.
  */
-/** The signed-in pubky when the Shop session is grant-backed (Bitkit sign-in), else null. */
+/** The signed-in pubky when the Shop session is grant-backed (Bitkit or Pubky Passport sign-in), else null. */
 function grantSignInPubky(): string | null {
   const session = useAuthStore.getState().session;
   if (!session || session.grant === undefined) return null;
   return session.info.publicKey.z32();
 }
+
+/** True when Pubky Passport approved the Shop sign-in, so it approves the purchase grant too. */
+function isPassportGrantSignIn(): boolean {
+  return readGrantSigner(useAuthStore.getState()) === 'passport';
+}
+
+/** Copy for a Passport purchase approval that ended without a result. Null returns to idle silently. */
+export const PASSPORT_GRANT_FAILURE_COPY: Record<PassportAttemptFailure, string | null> = {
+  blocked: 'Your browser blocked the Pubky Passport window. Allow pop-ups for this site and try again.',
+  busy: 'A Pubky Passport window is already open. Finish or close it, then try again.',
+  cancelled: null,
+  closed: null,
+  failed: 'Pubky Passport could not approve the request. Try again.',
+  timeout: null,
+};
 
 export function useMarketplaceSessionConnect(
   options: UseMarketplaceSessionConnectOptions = {},
@@ -64,7 +86,12 @@ export function useMarketplaceSessionConnect(
     () =>
       getMarketplaceGrantFlowEnabled() && grantSignInPubky() !== null && !MarketplaceSessionService.getActiveSession(),
   );
+  // A Passport approval opens a popup, which needs a click: `start()` only
+  // arms it and `startPassport()` runs it.
+  const requestsPassport = getMarketplaceGrantFlowEnabled() && isPassportGrantSignIn();
   const activeFlowRef = useRef<ActiveFlow | null>(null);
+  /** The Passport approval `start()` prepared, waiting for the user's click. */
+  const passportRunRef = useRef<(() => void) | null>(null);
   const activeGrantFlowRef = useRef<MarketplaceGrantFlow | null>(null);
   const generationRef = useRef(0);
   const onConnectedRef = useRef(options.onConnected);
@@ -84,6 +111,7 @@ export function useMarketplaceSessionConnect(
 
   const detachActiveFlow = useCallback(() => {
     generationRef.current += 1;
+    passportRunRef.current = null;
     const flow = activeFlowRef.current;
     activeFlowRef.current = null;
     const grantFlow = activeGrantFlowRef.current;
@@ -95,6 +123,13 @@ export function useMarketplaceSessionConnect(
     // the plain cancel.
     if (flow) AuthController.releaseAuthFlow(flow.cancel);
     if (grantFlow) void grantFlow.cancel();
+  }, []);
+
+  /** Holds a Passport approval until the user clicks; the dialog shows the Passport button meanwhile. */
+  const armPassport = useCallback((run: () => void) => {
+    passportRunRef.current = run;
+    setAuthorizationUrl('');
+    setStatus('idle');
   }, []);
 
   /**
@@ -187,19 +222,34 @@ export function useMarketplaceSessionConnect(
       begin: () => Promise<MarketplaceGrantFlow>,
       failureMessage: (code: string) => string,
       onSessionMissing?: () => void,
+      viaPassport = false,
     ) => {
       setAuthorizationUrl('');
       setStatus('creating');
-      void begin()
-        .then(async (grantFlow) => {
-          if (generationRef.current !== generation) {
-            await grantFlow.cancel();
-            return;
-          }
-          activeGrantFlowRef.current = grantFlow;
-          setAuthorizationUrl(grantFlow.authorizationUrl);
-          setStatus('awaiting');
-          const result = await grantFlow.awaitResult();
+      let grantFlow: MarketplaceGrantFlow | null = null;
+      const attach = async () => {
+        const flow = await begin();
+        if (generationRef.current !== generation) {
+          await flow.cancel();
+          throw new PassportAttemptError('cancelled');
+        }
+        grantFlow = flow;
+        activeGrantFlowRef.current = flow;
+        setAuthorizationUrl(flow.authorizationUrl);
+        setStatus('awaiting');
+        return flow;
+      };
+      const settled = viaPassport
+        ? startPassportAttempt(
+            async () => {
+              const flow = await attach();
+              return { authorizationUrl: flow.authorizationUrl, result: flow.awaitResult(), cancel: flow.cancel };
+            },
+            { passportOrigin: getPassportOrigin() },
+          )
+        : attach().then((flow) => flow.awaitResult());
+      void settled
+        .then(async (result) => {
           if (generationRef.current !== generation || activeGrantFlowRef.current !== grantFlow) return;
           activeGrantFlowRef.current = null;
           setAuthorizationUrl('');
@@ -249,6 +299,20 @@ export function useMarketplaceSessionConnect(
           if (generationRef.current !== generation) return;
           activeGrantFlowRef.current = null;
           setAuthorizationUrl('');
+          if (isPassportAttemptError(error)) {
+            if (error.reason === 'timeout') {
+              setStatus('expired');
+              return;
+            }
+            const message = PASSPORT_GRANT_FAILURE_COPY[error.reason];
+            if (!message) {
+              setStatus(error.reason === 'cancelled' ? 'cancelled' : 'idle');
+              return;
+            }
+            setErrorMessage(message);
+            setStatus('error');
+            return;
+          }
           const code = error instanceof Error ? error.message : '';
           if ((code === 'shop_session_missing' || code === 'shop_session_expired') && onSessionMissing) {
             Logger.warn('Marketplace grant reconnect needs a session; starting AuthToken connect', { code });
@@ -261,32 +325,67 @@ export function useMarketplaceSessionConnect(
         });
     };
 
-    // A Bitkit (grant) sign-in carries no AuthToken to redeem: its purchase
-    // session comes from the browser bootstrap, a second Bitkit approval.
+    const viaPassport = isPassportGrantSignIn();
+
+    // A grant (Bitkit or Pubky Passport) sign-in carries no AuthToken to
+    // redeem: its purchase session comes from the browser bootstrap, a second
+    // approval in the same signer.
     const bootstrapPubky = grantSignInPubky();
     if (grantFlowEnabled && bootstrapPubky && !MarketplaceSessionService.getActiveSession()) {
       setRequestsGrantReconnect(false);
       setRequestsGrantBootstrap(true);
-      runGrantFlow(() => beginMarketplaceBootstrapFlow({ pubky: bootstrapPubky }), marketplaceBootstrapFailureMessage);
+      const runBootstrap = () =>
+        runGrantFlow(
+          () => beginMarketplaceBootstrapFlow({ pubky: bootstrapPubky }),
+          (code) => marketplaceBootstrapFailureMessage(code, viaPassport ? 'Pubky Passport' : 'Bitkit'),
+          undefined,
+          viaPassport,
+        );
+      if (viaPassport) {
+        armPassport(runBootstrap);
+        return;
+      }
+      runBootstrap();
       return;
     }
 
     // Reconnect grant cannot mint a first session: BFF createFlow requires a
     // paired cookie. A seller with no marketplace bearer must bootstrap via
     // AuthToken instead of opening a grant that 401s locally as "expired".
+    // Pubky Passport cannot approve that Ring AuthToken, so a Passport
+    // reconnect that needs a session ends with the failure copy instead.
     if (grantFlowEnabled && MarketplaceSessionService.getActiveSession()) {
       setRequestsGrantBootstrap(false);
       setRequestsGrantReconnect(true);
-      runGrantFlow(
-        beginMarketplaceGrantFlow,
-        (code) => marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sessionStart),
-        startAuthTokenConnect,
-      );
+      const runReconnect = () =>
+        runGrantFlow(
+          beginMarketplaceGrantFlow,
+          (code) => marketplaceFailureMessage(code, MARKETPLACE_FAILURE_MESSAGES.sessionStart),
+          viaPassport ? undefined : startAuthTokenConnect,
+          viaPassport,
+        );
+      if (viaPassport) {
+        armPassport(runReconnect);
+        return;
+      }
+      runReconnect();
       return;
     }
 
     startAuthTokenConnect();
-  }, [detachActiveFlow, grantFlowEnabled, removeVisibilityHandler, requestsFullGrant]);
+  }, [armPassport, detachActiveFlow, grantFlowEnabled, removeVisibilityHandler, requestsFullGrant]);
+
+  /**
+   * Runs the armed Pubky Passport approval. Call it from the click handler
+   * itself: the popup must open before any await.
+   */
+  const startPassport = useCallback(() => {
+    const run = passportRunRef.current;
+    if (!run) return;
+    passportRunRef.current = null;
+    setErrorMessage(null);
+    run();
+  }, []);
 
   const cancel = useCallback(() => {
     detachActiveFlow();
@@ -334,7 +433,9 @@ export function useMarketplaceSessionConnect(
     requestsFullGrant,
     requestsGrantReconnect,
     requestsGrantBootstrap,
+    requestsPassport,
     start,
+    startPassport,
     cancel,
     copyAuthUrl,
     openInRing,
