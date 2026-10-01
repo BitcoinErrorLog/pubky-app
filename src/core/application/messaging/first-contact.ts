@@ -1,6 +1,7 @@
 import { followUriBuilder } from 'pubky-app-specs';
 import { CommercePrivKeyringApplication } from '@/application/commerce/priv-keyring';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
+import { NEXUS_USER_IDS_MAX_LIMIT } from '@/config/nexus';
 import { newPrivEntryName, privErrorSummary, type PrivKeyring } from '@/libs/commerce/priv-envelope';
 import {
   buildMarketplaceConversationAggregateId,
@@ -23,6 +24,7 @@ import {
   RECEIVE_CAP_MAX_MESSAGES,
   RECEIVE_CAP_WINDOW_MS,
 } from '@/libs/messaging/first-contact';
+import { FollowGraphPager } from '@/libs/messaging/follow-graph-pager';
 import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import {
   buildMuteChange,
@@ -44,6 +46,12 @@ const MUTES_FAMILY = 'messaging_mutes';
 
 /** Followers whose request directories one sync lists. */
 export const FIRST_CONTACT_MAX_REQUEST_SOURCES = 20;
+/**
+ * Ids per follow-graph page one sync reads. The Nexus user-ids stream
+ * rejects a larger `limit` with a 400, and one page is exactly the request
+ * directories a sync lists.
+ */
+export const FIRST_CONTACT_FOLLOW_PAGE_SIZE = Math.min(NEXUS_USER_IDS_MAX_LIMIT, FIRST_CONTACT_MAX_REQUEST_SOURCES);
 /** Request documents read from one buyer per sync. */
 export const FIRST_CONTACT_MAX_REQUESTS_PER_BUYER = 10;
 
@@ -98,6 +106,7 @@ export class FirstContactApplication {
   private static orderCounterparties = new Map<string, ReadonlySet<string>>();
   private static seenRequests = new Set<string>();
   private static rateLimitedCounts = new Map<string, number>();
+  private static followGraphPagers = new Map<string, FollowGraphPager>();
 
   // --- mutes --------------------------------------------------------------
 
@@ -305,6 +314,17 @@ export class FirstContactApplication {
     const orderCounterparties = new Set(contacts.orderCounterparties);
     this.orderCounterparties.set(ownerPubky, orderCounterparties);
     this.knownContacts.set(ownerPubky, new Set([...contacts.following, ...orderCounterparties]));
+  }
+
+  /** Where the account's inbox sync is in its walk through one of its follow lists. */
+  static followGraphPager(ownerPubky: string, reach: 'following' | 'followers'): FollowGraphPager {
+    const key = `${ownerPubky}:${reach}`;
+    let pager = this.followGraphPagers.get(key);
+    if (!pager) {
+      pager = new FollowGraphPager(FIRST_CONTACT_FOLLOW_PAGE_SIZE);
+      this.followGraphPagers.set(key, pager);
+    }
+    return pager;
   }
 
   /**
@@ -532,6 +552,7 @@ export class FirstContactApplication {
     this.orderCounterparties.clear();
     this.seenRequests.clear();
     this.rateLimitedCounts.clear();
+    this.followGraphPagers.clear();
   }
 }
 

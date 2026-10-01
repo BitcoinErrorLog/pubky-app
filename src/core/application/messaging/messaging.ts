@@ -112,6 +112,11 @@ export class MessagingApplication {
     };
   }
 
+  /** True when this device holds the account's receiver key and published its marker. Local read only. */
+  static async isReceiverProvisioned(ownerPubky: string): Promise<boolean> {
+    return await PaykitMessagingService.isReceiverProvisioned(ownerPubky);
+  }
+
   /** Sign-out teardown: drops the in-memory session and all live link handles. */
   static clearMessagingSession(): void {
     PaykitMessagingService.clearSession();

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommerceApplication } from '@/application/commerce/commerce';
-import { FirstContactApplication } from '@/application/messaging/first-contact';
+import { FIRST_CONTACT_FOLLOW_PAGE_SIZE, FirstContactApplication } from '@/application/messaging/first-contact';
 import { MessagingApplication } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
 import { getCommerceAdapterMode } from '@/config/commerce';
+import { httpStatusCodeToError } from '@/libs/error/error.http';
+import { ErrorService } from '@/libs/error/error.types';
 import type { Pubky } from '@/models/models.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
@@ -33,20 +35,25 @@ function mockAuth(pubky: Pubky | null) {
   });
 }
 
+/** Nexus serving each follow list by offset; an Error fails every read of that list. */
 function mockFollowGraph(perReach: Record<'following' | 'followers', string[] | Error>) {
-  return vi.spyOn(UserStreamApplication, 'getOrFetchStreamSlice').mockImplementation(async ({ streamId }) => {
+  return vi.spyOn(UserStreamApplication, 'fetchStreamIds').mockImplementation(async ({ streamId, skip = 0, limit }) => {
     const reach = String(streamId).endsWith(':following') ? 'following' : 'followers';
     const outcome = perReach[reach];
     if (outcome instanceof Error) throw outcome;
-    return { nextPageIds: outcome as Pubky[], cacheMissUserIds: [], skip: undefined, isExhausted: false };
+    return outcome.slice(skip, skip + limit) as Pubky[];
   });
 }
+
+const manyPubkys = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, index) => `${prefix}${String(index).padStart(3, '0')}`.padEnd(52, prefix));
 
 describe('MessagingController inbox naming set', () => {
   let syncCounterpartiesSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    FirstContactApplication.clear();
     mockAuth(OWNER);
     commerceModeMock.mockReturnValue('unavailable');
     syncCounterpartiesSpy = vi.spyOn(MessagingApplication, 'syncCounterparties').mockResolvedValue();
@@ -101,6 +108,117 @@ describe('MessagingController inbox naming set', () => {
     await MessagingController.syncInbox();
 
     expect(syncCounterpartiesSpy).toHaveBeenCalledWith(OWNER, [FOLLOWER], expect.anything());
+  });
+
+  it('reads the next page of followers on each pass and starts over after the last one', async () => {
+    const followers = manyPubkys('g', FIRST_CONTACT_FOLLOW_PAGE_SIZE + 5);
+    mockFollowGraph({ following: [], followers });
+    const discoverSpy = vi.mocked(FirstContactApplication.discoverRequests);
+
+    await MessagingController.syncInbox();
+    await MessagingController.syncInbox();
+    await MessagingController.syncInbox();
+
+    expect(discoverSpy.mock.calls.map(([, page]) => page)).toEqual([
+      followers.slice(0, FIRST_CONTACT_FOLLOW_PAGE_SIZE),
+      followers.slice(FIRST_CONTACT_FOLLOW_PAGE_SIZE),
+      followers.slice(0, FIRST_CONTACT_FOLLOW_PAGE_SIZE),
+    ]);
+    expect(syncCounterpartiesSpy.mock.calls[1][1]).toEqual(followers.slice(FIRST_CONTACT_FOLLOW_PAGE_SIZE));
+  });
+
+  it('reads Nexus on every pass instead of the stream cache', async () => {
+    const cacheSpy = vi.spyOn(UserStreamApplication, 'getOrFetchStreamSlice');
+    const nexusSpy = mockFollowGraph({ following: [FOLLOWED], followers: [FOLLOWER] });
+
+    await MessagingController.syncInbox();
+    await MessagingController.syncInbox();
+
+    expect(cacheSpy).not.toHaveBeenCalled();
+    expect(nexusSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it('starts the walk over when Nexus has nothing at the next offset', async () => {
+    const followers = manyPubkys('g', FIRST_CONTACT_FOLLOW_PAGE_SIZE);
+    vi.spyOn(UserStreamApplication, 'fetchStreamIds').mockImplementation(async ({ streamId, skip = 0, limit }) => {
+      if (String(streamId).endsWith(':following')) return [];
+      if (skip >= followers.length)
+        throw httpStatusCodeToError(404, 'Not Found', ErrorService.Nexus, 'fetchNexus', 'followers');
+      return followers.slice(skip, skip + limit) as Pubky[];
+    });
+    const discoverSpy = vi.mocked(FirstContactApplication.discoverRequests);
+
+    await MessagingController.syncInbox();
+    await MessagingController.syncInbox();
+    await MessagingController.syncInbox();
+
+    expect(discoverSpy.mock.calls.map(([, page]) => page.length)).toEqual([
+      FIRST_CONTACT_FOLLOW_PAGE_SIZE,
+      0,
+      FIRST_CONTACT_FOLLOW_PAGE_SIZE,
+    ]);
+  });
+
+  it('reads the same page again after a failed read', async () => {
+    const followers = manyPubkys('g', FIRST_CONTACT_FOLLOW_PAGE_SIZE * 2);
+    let failNext = false;
+    const nexusSpy = vi
+      .spyOn(UserStreamApplication, 'fetchStreamIds')
+      .mockImplementation(async ({ streamId, skip = 0, limit }) => {
+        if (String(streamId).endsWith(':following')) return [];
+        if (failNext) {
+          failNext = false;
+          throw new Error('nexus unreachable');
+        }
+        return followers.slice(skip, skip + limit) as Pubky[];
+      });
+
+    await MessagingController.syncInbox();
+    failNext = true;
+    await MessagingController.syncInbox();
+    await MessagingController.syncInbox();
+
+    const followerSkips = nexusSpy.mock.calls
+      .filter(([params]) => String(params.streamId).endsWith(':followers'))
+      .map(([params]) => params.skip);
+    expect(followerSkips).toEqual([0, FIRST_CONTACT_FOLLOW_PAGE_SIZE, FIRST_CONTACT_FOLLOW_PAGE_SIZE]);
+  });
+
+  it('keeps everyone the account follows known across the pages of a walk', async () => {
+    const following = manyPubkys('f', FIRST_CONTACT_FOLLOW_PAGE_SIZE + 2);
+    mockFollowGraph({ following, followers: [] });
+    const knownSpy = vi.spyOn(FirstContactApplication, 'setKnownContacts');
+
+    await MessagingController.syncInbox();
+    await MessagingController.syncInbox();
+    await MessagingController.syncInbox();
+
+    const knownAfter = knownSpy.mock.calls.map(([, contacts]) => new Set(contacts.following));
+    expect(knownAfter[0]).toEqual(new Set(following.slice(0, FIRST_CONTACT_FOLLOW_PAGE_SIZE)));
+    expect(knownAfter[1]).toEqual(new Set(following));
+    expect(knownAfter[2]).toEqual(new Set(following));
+  });
+
+  it('runs one pass for overlapping calls', async () => {
+    mockFollowGraph({ following: [FOLLOWED], followers: [] });
+    let release: () => void = () => undefined;
+    syncCounterpartiesSpy.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    const first = MessagingController.syncInbox();
+    const second = MessagingController.syncInbox();
+    await vi.waitFor(() => expect(syncCounterpartiesSpy).toHaveBeenCalledOnce());
+    release();
+    await Promise.all([first, second]);
+
+    expect(syncCounterpartiesSpy).toHaveBeenCalledOnce();
+    syncCounterpartiesSpy.mockResolvedValue();
+    await MessagingController.syncInbox();
+    expect(syncCounterpartiesSpy).toHaveBeenCalledTimes(2);
   });
 
   it('refreshes the device-local unread fact into the store after the pass', async () => {
