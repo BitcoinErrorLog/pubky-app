@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Container } from '@/atoms/Container/Container';
+import { isSocialLinkOutEnabled } from '@/config/social';
 import { FileController } from '@/controllers/file/file';
 import { useCurrentUserProfile } from '@/hooks/useCurrentUserProfile/useCurrentUserProfile';
 import { SearchInput } from '@/organisms/SearchInput/SearchInput';
@@ -15,7 +16,8 @@ export const HeaderSignIn = ({ ...props }: React.HTMLAttributes<HTMLDivElement>)
 
   return (
     <Container className="min-w-0 flex-1 flex-row items-center justify-end gap-3" {...props}>
-      <SearchInput />
+      {/* Social search (posts, people, tags) lives on the social host once link-out is on. */}
+      {!isSocialLinkOutEnabled() && <SearchInput />}
       <HeaderNavigationButtons
         avatarImage={
           currentUserPubky && userDetails?.image
