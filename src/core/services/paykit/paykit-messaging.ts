@@ -710,14 +710,16 @@ export class PaykitMessagingService {
 
   /**
    * The user's explicit acceptance of a counterparty's changed key.
-   * `acceptedKey` is the key the user was shown; it is accepted only while
+   * `acceptedKey` must be the key recorded as shown to the user (the row's
+   * `observed_noise_public_key`); any other key is refused and the user is
+   * asked again about the key published now. It is accepted only while
    * the counterparty's marker still advertises exactly it. Then the pair's
    * link state on the old key is replaced: live handles are dropped and a
    * fresh handshake on the accepted key is answered or initiated, whose
    * link row pins the accepted key from now on. If the marker meanwhile
    * advertises the pinned key again, the hold is simply cleared; if it
-   * advertises yet another key, that key is recorded and reported instead,
-   * and nothing is accepted. A marker that cannot be read rejects with the
+   * advertises yet another key, that key is recorded as the shown key and
+   * reported instead, and nothing is accepted. A marker that cannot be read rejects with the
    * marker read failure and changes nothing.
    */
   static async acceptCounterpartyKey(
@@ -732,13 +734,22 @@ export class PaykitMessagingService {
       const pin = await LocalMessagingService.getPeerKeyPin(ownerPubky, counterpartyPubky);
       if (!pin?.observedKey)
         return (await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true)) as MessagingLinkState;
+      // Only the key recorded as shown to the user can be accepted.
+      if (acceptedKey !== pin.observedKey) {
+        Logger.warn('Refused to accept a messaging key that was not the one shown', {
+          reason: 'accepted_key_not_shown',
+        });
+        return await this.repromptKeyChange(ownerPubky, counterpartyPubky);
+      }
       const marker = await this.getCounterpartyMarkerWith(wasmModule, counterpartyPubky);
       if (!marker) {
         return { status: 'key-changed', pinnedKey: pin.pinnedKey, observedKey: pin.observedKey };
       }
       if (marker.noisePublicKey !== acceptedKey) {
-        this.linkRetry.restart((candidate) => candidate === key);
-        return (await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true)) as MessagingLinkState;
+        Logger.warn('The contact published another messaging key after it was shown; nothing was accepted', {
+          reason: 'shown_key_superseded',
+        });
+        return await this.repromptKeyChange(ownerPubky, counterpartyPubky);
       }
       const receiver = await this.requireReceiver(ownerPubky);
       this.dropPairState(key);
@@ -756,6 +767,17 @@ export class PaykitMessagingService {
         true,
       )) as MessagingLinkState;
     });
+  }
+
+  /**
+   * After a refused accept: reads the marker again now, so the key recorded
+   * as shown becomes the one published (or the hold clears when the pinned
+   * key is back), and reports the state the user must decide on again.
+   */
+  private static async repromptKeyChange(ownerPubky: string, counterpartyPubky: string): Promise<MessagingLinkState> {
+    const key = this.linkKey(ownerPubky, counterpartyPubky);
+    this.linkRetry.restart((candidate) => candidate === key);
+    return (await this.ensureLinkLocked(ownerPubky, counterpartyPubky, true)) as MessagingLinkState;
   }
 
   /**

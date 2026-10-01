@@ -3407,6 +3407,47 @@ describe('PaykitMessagingService', () => {
       });
     });
 
+    it('never pins a key the user was not shown: Q shown, the marker moves to R, accepting R is refused and re-prompts', async () => {
+      await holdForQ();
+      world.markers.set(COUNTERPARTY, markerFor(R_KEY));
+      world.calls = [];
+
+      const refused = await PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, R_KEY);
+
+      expect(refused).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: R_KEY });
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        pinnedKey: P_KEY,
+        observedKey: R_KEY,
+      });
+
+      // R has now been shown, so accepting R is the user's decision.
+      await expect(PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, R_KEY)).resolves.toEqual({
+        status: 'handshaking',
+        role: 'initiator',
+      });
+      await expect(LocalMessagingService.getPeerKeyPin(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        pinnedKey: R_KEY,
+        observedKey: null,
+      });
+    });
+
+    it('refuses a key that was never shown or published, and changes nothing', async () => {
+      await holdForQ();
+      world.calls = [];
+
+      const refused = await PaykitMessagingService.acceptCounterpartyKey(OWNER, COUNTERPARTY, 's'.repeat(52));
+
+      expect(refused).toEqual({ status: 'key-changed', pinnedKey: P_KEY, observedKey: Q_KEY });
+      expect(world.calls).not.toContain('initiateEncryptedLink');
+      expect(world.calls).not.toContain('acceptEncryptedLink');
+      await expect(LocalMessagingService.getLink(OWNER, COUNTERPARTY)).resolves.toMatchObject({
+        remote_noise_public_key: P_KEY,
+        status: 'established',
+      });
+    });
+
     it('accepts nothing while the marker cannot be read', async () => {
       await holdForQ();
       PaykitMessagingService.setMarkerReadSleepForTests(async () => undefined);
@@ -3614,4 +3655,5 @@ describe('PaykitMessagingService', () => {
       expect(PaykitMessagingService.takeOwnMarkerRepublished(OWNER)).toBeNull();
     });
   });
+
 });
