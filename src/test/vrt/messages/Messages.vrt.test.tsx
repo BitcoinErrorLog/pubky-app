@@ -155,6 +155,13 @@ vi.mock('@/stores/auth/auth.store', () => ({
     selector({ currentUserPubky: auth.currentUserPubky }),
 }));
 
+const grantView = vi.hoisted(() => ({ signer: null as 'bitkit' | 'passport' | null }));
+
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGrantSigner/useGrantSigner')>()),
+  useGrantSigner: () => grantView.signer,
+}));
+
 vi.mock('@/hooks/useEncryptedInbox/useEncryptedInbox', () => ({
   useEncryptedInbox: () => ({
     status: inboxView.status,
@@ -225,6 +232,7 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 
 describe('Messages area — visual regression', () => {
   beforeEach(() => {
+    grantView.signer = null;
     auth.currentUserPubky = OWNER;
     inboxView.status = 'ready';
     inboxView.conversations = [];
@@ -305,6 +313,22 @@ describe('Messages area — visual regression', () => {
 
     const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP });
     await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-reconnect-desktop');
+  });
+
+  it('renders the grant sign-in notice in place of the enable prompt at desktop viewport', async () => {
+    grantView.signer = 'passport';
+    inboxView.status = 'needs-enable';
+
+    const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_DESKTOP });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-grant-unavailable-desktop');
+  });
+
+  it('renders the grant sign-in notice in place of the enable prompt at mobile viewport', async () => {
+    grantView.signer = 'passport';
+    inboxView.status = 'needs-enable';
+
+    const screen = await renderForVRT(<Messages />, { viewport: VRT_VIEWPORT_MOBILE });
+    await expect(screen.getByTestId(VRT_ROOT_TESTID)).toMatchScreenshot('messages-grant-unavailable-mobile');
   });
 
   it('renders the error state at desktop viewport', async () => {

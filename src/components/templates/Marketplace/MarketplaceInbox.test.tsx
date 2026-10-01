@@ -49,6 +49,13 @@ vi.mock('@/stores/auth/auth.store', () => ({
   ),
 }));
 
+const grant = vi.hoisted(() => ({ signer: null as 'bitkit' | 'passport' | null }));
+
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGrantSigner/useGrantSigner')>()),
+  useGrantSigner: () => grant.signer,
+}));
+
 vi.mock('@/hooks/useEncryptedInbox/useEncryptedInbox', () => ({
   useEncryptedInbox: () => ({
     status: encryptedView.status,
@@ -252,5 +259,37 @@ describe('MarketplaceInbox conversation query', () => {
     expect(screen.getByText(MESSAGING_COPY.mutesUnavailable)).toBeInTheDocument();
     expect(screen.queryByText(MESSAGING_COPY.inboxEmptyTitle)).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: MESSAGING_COPY.requestsTitle })).not.toBeInTheDocument();
+  });
+});
+
+describe('MarketplaceInbox for a grant sign-in', () => {
+  beforeEach(() => {
+    search.params = new URLSearchParams();
+    auth.currentUserPubky = BUYER;
+    config.mode = 'transaction-service';
+    encryptedView.status = 'needs-enable';
+    encryptedView.conversations = [];
+    encryptedView.receiverProvisioned = false;
+    encryptedView.errorMessage = null;
+    encryptedView.mutesStatus = 'ready';
+    grant.signer = null;
+  });
+
+  it('a Pubky Passport sign-in reads that messages are not available, with no enable button', () => {
+    grant.signer = 'passport';
+    render(<MarketplaceInbox />);
+
+    expect(screen.getByTestId('grant-session-messaging-unavailable')).toHaveTextContent(
+      'Messages are not available for Pubky Passport sign-ins yet. Everything else in Shop works with this sign-in.',
+    );
+    expect(screen.queryByRole('button', { name: /encrypted messaging/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(MESSAGING_COPY.inboxNeedsEnable)).not.toBeInTheDocument();
+  });
+
+  it('a Ring (cookie) sign-in still gets the enable prompt', () => {
+    render(<MarketplaceInbox />);
+
+    expect(screen.getByRole('button', { name: /Enable encrypted messaging/ })).toBeInTheDocument();
+    expect(screen.queryByTestId('grant-session-messaging-unavailable')).not.toBeInTheDocument();
   });
 });

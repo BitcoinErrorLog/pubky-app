@@ -1,5 +1,6 @@
 'use client';
 
+import { LockKeyhole } from 'lucide-react';
 import { Typography } from '@/atoms/Typography/Typography';
 import { useGrantSigner } from '@/hooks/useGrantSigner/useGrantSigner';
 import type { GrantSigner } from '@/stores/auth/auth.types';
@@ -35,6 +36,27 @@ export function GrantSessionRefusal({ reason = 'default' }: { reason?: GrantSess
     >
       <Typography as="p" className="text-sm text-muted-foreground">
         {grantSessionRefusalCopy(reason, signer)}
+      </Typography>
+    </div>
+  );
+}
+
+/**
+ * The messages inbox for a grant sign-in: messaging cannot be enabled for it
+ * yet, so the inbox states that in place of the enable prompt and offers no
+ * approval to start.
+ */
+export function GrantSessionMessagingNotice() {
+  const signer = useGrantSigner() ?? 'bitkit';
+  return (
+    <div
+      role="status"
+      data-testid="grant-session-messaging-unavailable"
+      className="flex items-center gap-2 rounded-xl border border-dashed p-5"
+    >
+      <LockKeyhole className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+      <Typography as="p" className="text-sm text-muted-foreground">
+        {grantSessionRefusalCopy('messaging', signer)}
       </Typography>
     </div>
   );

@@ -145,6 +145,13 @@ vi.mock('@/hooks/useMarketplaceInbox/useMarketplaceInbox', () => ({
   }),
 }));
 
+const grantView = vi.hoisted(() => ({ signer: null as 'bitkit' | 'passport' | null }));
+
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGrantSigner/useGrantSigner')>()),
+  useGrantSigner: () => grantView.signer,
+}));
+
 vi.mock('@/hooks/useEncryptedInbox/useEncryptedInbox', () => ({
   useEncryptedInbox: () => ({
     status: encryptedView.status,
@@ -186,6 +193,7 @@ describe('Marketplace inbox — visual regression', () => {
     view.isLoading = false;
     view.error = null;
     view.isSandbox = true;
+    grantView.signer = null;
     encryptedView.status = 'ready';
     encryptedView.conversations = [];
     encryptedView.receiverProvisioned = false;
@@ -285,6 +293,24 @@ describe('Marketplace inbox — visual regression', () => {
 
     await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
     await expect(expectVrtSurface('marketplace-inbox')).toMatchScreenshot('inbox-encrypted-enable-mobile');
+  });
+
+  it('renders the grant sign-in notice in place of the enable prompt at desktop viewport', async () => {
+    config.mode = 'transaction-service';
+    encryptedView.status = 'needs-enable';
+    grantView.signer = 'passport';
+
+    await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_DESKTOP, disableHover: true });
+    await expect(expectVrtSurface('marketplace-inbox')).toMatchScreenshot('inbox-encrypted-grant-unavailable-desktop');
+  });
+
+  it('renders the grant sign-in notice in place of the enable prompt at mobile viewport', async () => {
+    config.mode = 'transaction-service';
+    encryptedView.status = 'needs-enable';
+    grantView.signer = 'passport';
+
+    await renderForVRT(<MarketplaceInbox />, { viewport: VRT_VIEWPORT_MOBILE, disableHover: true });
+    await expect(expectVrtSurface('marketplace-inbox')).toMatchScreenshot('inbox-encrypted-grant-unavailable-mobile');
   });
 
   it('renders the empty state at mobile viewport', async () => {

@@ -14,6 +14,7 @@ import { Skeleton } from '@/atoms/Skeleton/Skeleton';
 import { Typography } from '@/atoms/Typography/Typography';
 import { getCommerceAdapterMode, isDurableCommerceMode } from '@/config/commerce';
 import { useEncryptedInbox } from '@/hooks/useEncryptedInbox/useEncryptedInbox';
+import { useGrantSigner } from '@/hooks/useGrantSigner/useGrantSigner';
 import { useMarketplaceInbox } from '@/hooks/useMarketplaceInbox/useMarketplaceInbox';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import {
@@ -23,6 +24,7 @@ import {
 import { parseConversationAggregateId } from '@/libs/commerce/messaging-contracts';
 import { marketplaceCounterpartyLabel, MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { buildMarketplaceConversationAggregateId } from '@/libs/commerce/transaction-commands';
+import { GrantSessionMessagingNotice } from '@/molecules/GrantSessionRefusal/GrantSessionRefusal';
 import { ContentLayout } from '@/organisms/ContentLayout/ContentLayout';
 import { MarketplaceEncryptedConversationDialog } from '@/organisms/Marketplace/MarketplaceEncryptedConversationDialog';
 import { MarketplaceMessagingEnableDialog } from '@/organisms/Marketplace/MarketplaceMessagingEnableDialog';
@@ -82,6 +84,7 @@ function useConsumedConversationQuery(currentUserPubky: string | null | undefine
 function EncryptedInbox() {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const inbox = useEncryptedInbox();
+  const isGrantSignIn = useGrantSigner() !== null;
   const query = useConsumedConversationQuery(currentUserPubky);
   const reportedRejection = useRef(false);
 
@@ -141,17 +144,20 @@ function EncryptedInbox() {
         />
       )}
 
-      {inbox.status === 'needs-enable' && (
-        <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5">
-          <div className="flex items-center gap-2">
-            <LockKeyhole className="size-5 text-muted-foreground" />
-            <Typography as="p" className="text-sm text-muted-foreground">
-              {inbox.receiverProvisioned ? MESSAGING_COPY.inboxNeedsReconnect : MESSAGING_COPY.inboxNeedsEnable}
-            </Typography>
+      {inbox.status === 'needs-enable' &&
+        (isGrantSignIn ? (
+          <GrantSessionMessagingNotice />
+        ) : (
+          <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5">
+            <div className="flex items-center gap-2">
+              <LockKeyhole className="size-5 text-muted-foreground" />
+              <Typography as="p" className="text-sm text-muted-foreground">
+                {inbox.receiverProvisioned ? MESSAGING_COPY.inboxNeedsReconnect : MESSAGING_COPY.inboxNeedsEnable}
+              </Typography>
+            </div>
+            <MarketplaceMessagingEnableDialog reconnect={inbox.receiverProvisioned} onEnabled={inbox.refresh} />
           </div>
-          <MarketplaceMessagingEnableDialog reconnect={inbox.receiverProvisioned} onEnabled={inbox.refresh} />
-        </div>
-      )}
+        ))}
 
       {inbox.status === 'error' && (
         <div className="flex flex-col items-start gap-3">

@@ -13,7 +13,16 @@ const OWNER = 'o'.repeat(52);
 const COUNTERPARTY = 'z'.repeat(52);
 
 const inboxView = vi.hoisted(() => ({
+  status: 'ready' as string,
+  receiverProvisioned: true,
   conversations: [] as unknown[],
+}));
+
+const grant = vi.hoisted(() => ({ signer: null as 'bitkit' | 'passport' | null }));
+
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGrantSigner/useGrantSigner')>()),
+  useGrantSigner: () => grant.signer,
 }));
 
 const dmView = vi.hoisted(() => ({
@@ -33,9 +42,9 @@ vi.mock('@/stores/auth/auth.store', () => ({
 
 vi.mock('@/hooks/useEncryptedInbox/useEncryptedInbox', () => ({
   useEncryptedInbox: () => ({
-    status: 'ready',
+    status: inboxView.status,
     conversations: inboxView.conversations,
-    receiverProvisioned: true,
+    receiverProvisioned: inboxView.receiverProvisioned,
     errorMessage: null,
     refresh: vi.fn(),
   }),
@@ -227,5 +236,37 @@ describe('MessagesConversation counterparty links', () => {
       'href',
       `https://pubky.app/profile/${COUNTERPARTY}`,
     );
+  });
+});
+
+describe('Messages inbox for a grant sign-in', () => {
+  beforeEach(() => {
+    inboxView.status = 'needs-enable';
+    inboxView.receiverProvisioned = false;
+    inboxView.conversations = [];
+    grant.signer = null;
+  });
+
+  it.each([
+    ['passport', 'Pubky Passport'],
+    ['bitkit', 'Bitkit'],
+  ] as const)('a %s sign-in reads that messages are not available, with nothing to enable', (signer, name) => {
+    grant.signer = signer;
+    render(<Messages />);
+
+    expect(screen.getByTestId('grant-session-messaging-unavailable')).toHaveTextContent(
+      `Messages are not available for ${name} sign-ins yet. Everything else in Shop works with this sign-in.`,
+    );
+    expect(screen.queryByText(/Enable encrypted messaging|Reconnect encrypted messaging/)).not.toBeInTheDocument();
+    expect(screen.queryByText(MESSAGING_COPY.inboxNeedsEnable)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('a Ring (cookie) sign-in still gets the enable prompt', () => {
+    render(<Messages />);
+
+    expect(screen.getByRole('heading', { name: 'Enable encrypted messaging' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Enable encrypted messaging/ })).toBeInTheDocument();
+    expect(screen.queryByTestId('grant-session-messaging-unavailable')).not.toBeInTheDocument();
   });
 });
