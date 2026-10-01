@@ -14,7 +14,8 @@ vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
   useIsGrantSession: () => state.isGrantSession,
 }));
 
-vi.mock('@/hooks/useGrantSigner/useGrantSigner', () => ({
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGrantSigner/useGrantSigner')>()),
   useGrantSigner: () => (state.isGrantSession ? state.grantSigner : null),
 }));
 

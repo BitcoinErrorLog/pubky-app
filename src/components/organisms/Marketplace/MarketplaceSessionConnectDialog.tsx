@@ -5,6 +5,7 @@ import { Copy, KeyRound, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Typography } from '@/atoms/Typography/Typography';
+import { isPassportApprovalRefused } from '@/hooks/useGrantSigner/useGrantSigner';
 import { useIsGrantSession } from '@/hooks/useIsGrantSession/useIsGrantSession';
 import { useMarketplaceSessionConnect } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect';
 import type { MarketplaceSessionConnectStatus } from '@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect.types';
@@ -56,9 +57,10 @@ export function MarketplaceSessionConnectDialog({
     if (autoOpen) setOpen(true);
   }, [autoOpen]);
 
-  // A Bitkit (grant) sign-in has no AuthToken to redeem; it connects through
-  // the grant bootstrap, so it is refused only where that flow is off.
-  const refusesGrantSession = useIsGrantSession() && !grantFlowEnabled;
+  // A grant (Bitkit or Pubky Passport) sign-in has no AuthToken to redeem; it
+  // connects through the grant bootstrap, so it is refused where that flow is
+  // off, and a Passport sign-in also while the deploy switched Passport off.
+  const refusesGrantSession = useIsGrantSession() && (!grantFlowEnabled || isPassportApprovalRefused());
   useEffect(() => {
     if (open) {
       if (!refusesGrantSession) start();

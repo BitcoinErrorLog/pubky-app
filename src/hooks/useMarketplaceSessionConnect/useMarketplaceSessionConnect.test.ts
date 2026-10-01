@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthController } from '@/controllers/auth/auth';
 import { CommerceController } from '@/controllers/commerce/commerce';
+import { isPassportApprovalRefused } from '@/hooks/useGrantSigner/useGrantSigner';
 import { MARKETPLACE_FAILURE_MESSAGES } from '@/libs/commerce/failure-messages';
 import { AppError } from '@/libs/error/error';
 import { AuthErrorCode } from '@/libs/error/error.codes';
@@ -1021,6 +1022,34 @@ describe('useMarketplaceSessionConnect grant reconnect', () => {
         expect(open).not.toHaveBeenCalled();
         expect(beginMarketplaceBootstrapFlow).not.toHaveBeenCalled();
       } finally {
+        restore();
+      }
+    });
+
+    it('with Passport switched off, a Passport sign-in starts no approval of any kind', async () => {
+      const restore = await enableGrantFlow();
+      process.env.PUBKY_RUNTIME_PASSPORT_SIGN_IN = 'false';
+      const { resetRuntimeConfigForTests } = await import('@/libs/runtime-config/runtime-config');
+      resetRuntimeConfigForTests();
+      try {
+        signInWithPassport();
+        vi.spyOn(MarketplaceSessionService, 'getActiveSession').mockReturnValue(null);
+        const { open } = openPopup();
+        const { result } = renderHook(() => useMarketplaceSessionConnect());
+
+        expect(result.current.requestsPassport).toBe(false);
+        expect(isPassportApprovalRefused()).toBe(true);
+        act(() => result.current.start());
+        act(() => result.current.startPassport());
+
+        expect(result.current.status).toBe('idle');
+        expect(result.current.authorizationUrl).toBe('');
+        expect(open).not.toHaveBeenCalled();
+        expect(beginMarketplaceBootstrapFlow).not.toHaveBeenCalled();
+        expect(beginMarketplaceGrantFlow).not.toHaveBeenCalled();
+        expect(CommerceController.beginMarketplaceSessionConnect).not.toHaveBeenCalled();
+      } finally {
+        delete process.env.PUBKY_RUNTIME_PASSPORT_SIGN_IN;
         restore();
       }
     });

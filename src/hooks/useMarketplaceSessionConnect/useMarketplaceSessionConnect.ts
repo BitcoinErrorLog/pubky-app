@@ -20,7 +20,11 @@ import {
   type PassportAttemptFailure,
   startPassportAttempt,
 } from '@/libs/passport/passport-popup';
-import { getMarketplaceGrantFlowEnabled, getPassportOrigin } from '@/libs/runtime-config/runtime-config';
+import {
+  getMarketplaceGrantFlowEnabled,
+  getPassportOrigin,
+  getPassportSignInEnabled,
+} from '@/libs/runtime-config/runtime-config';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { AUTH_FLOW_CANCELED_ERROR_NAME } from '@/services/homeserver/error.utils';
 import { beginMarketplaceBootstrapFlow } from '@/services/marketplace/marketplace-bootstrap-client';
@@ -88,7 +92,7 @@ export function useMarketplaceSessionConnect(
   );
   // A Passport approval opens a popup, which needs a click: `start()` only
   // arms it and `startPassport()` runs it.
-  const requestsPassport = getMarketplaceGrantFlowEnabled() && isPassportGrantSignIn();
+  const requestsPassport = getMarketplaceGrantFlowEnabled() && isPassportGrantSignIn() && getPassportSignInEnabled();
   const activeFlowRef = useRef<ActiveFlow | null>(null);
   /** The Passport approval `start()` prepared, waiting for the user's click. */
   const passportRunRef = useRef<(() => void) | null>(null);
@@ -326,6 +330,12 @@ export function useMarketplaceSessionConnect(
     };
 
     const viaPassport = isPassportGrantSignIn();
+    if (viaPassport && !getPassportSignInEnabled()) {
+      // Passport is switched off: no approval of any kind starts for this sign-in.
+      setAuthorizationUrl('');
+      setStatus('idle');
+      return;
+    }
 
     // A grant (Bitkit or Pubky Passport) sign-in carries no AuthToken to
     // redeem: its purchase session comes from the browser bootstrap, a second

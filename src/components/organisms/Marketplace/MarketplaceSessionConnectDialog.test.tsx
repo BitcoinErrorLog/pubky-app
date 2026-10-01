@@ -26,6 +26,7 @@ const view = vi.hoisted(() => ({
   requestsGrantReconnect: false,
   requestsGrantBootstrap: false,
   requestsPassport: false,
+  passportRefused: false,
   isGrantSession: false,
   grantEnabled: false,
   start: vi.fn(),
@@ -37,6 +38,11 @@ vi.mock('@/libs/runtime-config/runtime-config', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/useIsGrantSession/useIsGrantSession', () => ({
   useIsGrantSession: () => view.isGrantSession,
+}));
+
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGrantSigner/useGrantSigner')>()),
+  isPassportApprovalRefused: () => view.passportRefused,
 }));
 
 vi.mock('@/hooks/useMarketplaceSessionConnect/useMarketplaceSessionConnect', () => ({
@@ -82,6 +88,7 @@ describe('MarketplaceSessionConnectDialog', () => {
     view.requestsGrantReconnect = false;
     view.requestsGrantBootstrap = false;
     view.requestsPassport = false;
+    view.passportRefused = false;
     view.isGrantSession = false;
     view.grantEnabled = false;
     view.start.mockClear();
@@ -331,5 +338,22 @@ describe('MarketplaceSessionConnectDialog', () => {
       ).toBeInTheDocument();
       expect(screen.queryByText(/Bitkit or Pubky Ring/)).not.toBeInTheDocument();
     });
+  });
+
+  it('a Passport sign-in is refused, with no approval started, while Passport is switched off', () => {
+    view.isGrantSession = true;
+    view.grantEnabled = true;
+    view.passportRefused = true;
+    view.requestsPassport = false;
+    view.requestsGrantBootstrap = true;
+    view.requestsFullGrant = false;
+    view.status = 'idle';
+
+    render(<MarketplaceSessionConnectDialog autoOpen />);
+
+    expect(screen.getByTestId('grant-session-refusal')).toBeInTheDocument();
+    expect(view.start).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Continue in Pubky Passport' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Copy authorization link')).not.toBeInTheDocument();
   });
 });

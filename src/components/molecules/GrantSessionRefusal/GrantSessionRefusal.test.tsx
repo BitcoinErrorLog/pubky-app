@@ -4,7 +4,8 @@ import { GrantSessionRefusal, grantSessionRefusalCopy } from './GrantSessionRefu
 
 const view = vi.hoisted(() => ({ signer: null as 'bitkit' | 'passport' | null }));
 
-vi.mock('@/hooks/useGrantSigner/useGrantSigner', () => ({
+vi.mock('@/hooks/useGrantSigner/useGrantSigner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGrantSigner/useGrantSigner')>()),
   useGrantSigner: () => view.signer,
 }));
 
