@@ -108,6 +108,13 @@ export function useAuthUrl(options: UseAuthUrlOptions = {}): UseAuthUrlReturn {
     } catch (error) {
       Logger.error('Failed to generate auth URL:', error);
       if (!isMountedRef.current) return;
+      // The Bitkit grant options (sign-in and sign-up) need WebCrypto algorithms older browsers lack;
+      // each sits beside a Pubky Ring option, so fail it quietly into its reload state instead of an
+      // error toast.
+      if (type === 'grant' || type === 'signup-grant') {
+        setIsExpired(true);
+        return;
+      }
       toast({
         variant: 'error',
         description: 'Could not generate QR. Refresh and try again.',

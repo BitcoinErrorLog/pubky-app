@@ -14,6 +14,7 @@ const mockCopyToClipboard = vi.fn().mockResolvedValue(undefined);
 const mockGetAuthUrl = vi.fn();
 const mockGetSignupAuthUrl = vi.fn();
 const mockGetSignupGrantAuthUrl = vi.fn();
+const mockGetGrantAuthUrl = vi.fn();
 const mockInitializeAuthenticatedSession = vi.fn();
 const mockCancelActiveAuthFlow = vi.fn();
 vi.mock('@/molecules/Toaster/use-toast', () => {
@@ -45,6 +46,7 @@ vi.mock('@/controllers/auth/auth', () => ({
     getAuthUrl: (...args: unknown[]) => mockGetAuthUrl(...args),
     getSignupAuthUrl: (...args: unknown[]) => mockGetSignupAuthUrl(...args),
     getSignupGrantAuthUrl: (...args: unknown[]) => mockGetSignupGrantAuthUrl(...args),
+    getGrantAuthUrl: (...args: unknown[]) => mockGetGrantAuthUrl(...args),
     initializeAuthenticatedSession: (...args: unknown[]) => mockInitializeAuthenticatedSession(...args),
     cancelActiveAuthFlow: (...args: unknown[]) => mockCancelActiveAuthFlow(...args),
   },
@@ -381,6 +383,24 @@ describe('useAuthUrl', () => {
         description: 'Could not generate QR. Refresh and try again.',
       });
     });
+  });
+
+  it('fails the Bitkit grant option quietly when the browser cannot generate its keys', async () => {
+    mockGetGrantAuthUrl.mockRejectedValue(new Error('Unrecognized algorithm name'));
+
+    const { result } = renderHook(() => useAuthUrl({ type: 'grant' }));
+
+    await waitFor(() => expect(result.current.isExpired).toBe(true));
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+
+  it('fails the Bitkit sign-up option quietly when the browser cannot generate its keys', async () => {
+    mockGetSignupGrantAuthUrl.mockRejectedValue(new Error('Unrecognized algorithm name'));
+
+    const { result } = renderHook(() => useAuthUrl({ type: 'signup-grant', inviteCode: 'A9KM-7MJP-ERM9' }));
+
+    await waitFor(() => expect(result.current.isExpired).toBe(true));
+    expect(mockToast).not.toHaveBeenCalled();
   });
 
   it('does not cancel active auth flow on unmount', async () => {
