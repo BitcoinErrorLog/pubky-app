@@ -986,6 +986,110 @@ describe('HomeserverService', () => {
         }
       });
 
+      it('gives up after the resume cap while the page stays visible', async () => {
+        vi.useFakeTimers();
+        try {
+          const transportError = Object.assign(new Error('HTTP transport error'), { name: 'RequestError' });
+          const deadFlow = () => ({ tryPollOnce: vi.fn().mockRejectedValue(transportError), free: vi.fn() });
+          mockState.startAuthFlow.mockReturnValue({
+            authorizationUrl: 'https://auth.example.com/authorize',
+            ...deadFlow(),
+          });
+          mockState.resumeAuthFlow.mockImplementation(deadFlow);
+
+          const result = await HomeserverService.generateAuthUrl();
+          const rejection = expect(result.awaitApproval).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+          await vi.advanceTimersByTimeAsync(61_000);
+
+          await rejection;
+          expect(mockState.resumeAuthFlow).toHaveBeenCalledTimes(60);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('rejects with SESSION_EXPIRED when the relay channel cannot be resumed', async () => {
+        vi.useFakeTimers();
+        try {
+          const transportError = Object.assign(new Error('HTTP transport error'), { name: 'RequestError' });
+          const deadFlow = {
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce: vi.fn().mockRejectedValue(transportError),
+            free: vi.fn(),
+          };
+          mockState.startAuthFlow.mockReturnValue(deadFlow);
+          mockState.resumeAuthFlow.mockImplementation(() => {
+            throw Object.assign(new Error('invalid url'), { name: 'AuthenticationError' });
+          });
+
+          const result = await HomeserverService.generateAuthUrl();
+          const rejection = expect(result.awaitApproval).rejects.toMatchObject({
+            code: AuthErrorCode.SESSION_EXPIRED,
+            context: { resumeError: 'invalid url' },
+          });
+          await vi.advanceTimersByTimeAsync(1_000);
+
+          await rejection;
+          expect(mockState.resumeAuthFlow).toHaveBeenCalledTimes(1);
+          expect(deadFlow.free).toHaveBeenCalled();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('does not resume once the relay no longer holds the approval when the page is visible again', async () => {
+        vi.useFakeTimers();
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+          const transportError = Object.assign(new Error('HTTP transport error'), { name: 'RequestError' });
+          mockState.startAuthFlow.mockReturnValue({
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce: vi.fn().mockRejectedValue(transportError),
+            free: vi.fn(),
+          });
+
+          const result = await HomeserverService.generateAuthUrl();
+          const rejection = expect(result.awaitApproval).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+          // Away for longer than the relay keeps an approval.
+          await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+          visibility.mockReturnValue('visible');
+          document.dispatchEvent(new Event('visibilitychange'));
+          await vi.advanceTimersByTimeAsync(0);
+
+          await rejection;
+          expect(mockState.resumeAuthFlow).not.toHaveBeenCalled();
+        } finally {
+          visibility.mockRestore();
+          vi.useRealTimers();
+        }
+      });
+
+      it('ends the token flow without resuming once the relay no longer holds the approval', async () => {
+        vi.useFakeTimers();
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        try {
+          const transportError = Object.assign(new Error('HTTP transport error'), { name: 'RequestError' });
+          mockState.startAuthFlow.mockReturnValue({
+            authorizationUrl: 'https://auth.example.com/authorize',
+            awaitToken: vi.fn().mockRejectedValue(transportError),
+            free: vi.fn(),
+          });
+
+          const flow = HomeserverService.generateAuthTokenFlow();
+          const rejection = expect(flow.awaitToken()).rejects.toBe(transportError);
+          await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+          visibility.mockReturnValue('visible');
+          document.dispatchEvent(new Event('visibilitychange'));
+          await vi.advanceTimersByTimeAsync(0);
+
+          await rejection;
+          expect(mockState.resumeAuthFlow).not.toHaveBeenCalled();
+        } finally {
+          visibility.mockRestore();
+          vi.useRealTimers();
+        }
+      });
+
       it('should call startAuthFlow with default capabilities', async () => {
         await HomeserverService.generateAuthUrl();
 

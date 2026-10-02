@@ -66,6 +66,7 @@ import type {
 import {
   assertOk,
   AUTH_POLL_MAX_RESUMES,
+  AUTH_RELAY_RETENTION_MS,
   bytesToBase64,
   capabilitiesGrantWrite,
   createCancelableAuthApproval,
@@ -675,6 +676,7 @@ export class HomeserverService {
       let live = flow;
       let freed = false;
       const waiting = new AbortController();
+      const startedAt = Date.now();
       const free = () => {
         if (freed) return;
         freed = true;
@@ -696,7 +698,8 @@ export class HomeserverService {
               // channel when the page is visible again: an approval made meanwhile is still there.
               if (freed || !isTransientPollError(error) || ++resumes > AUTH_POLL_MAX_RESUMES) throw error;
               await waitUntilVisible(waiting.signal);
-              if (freed) throw error;
+              // Past the relay's retention the approval is gone: end the flow instead of waiting on an empty channel.
+              if (freed || Date.now() - startedAt > AUTH_RELAY_RETENTION_MS) throw error;
               live = pubkySdk.resumeCookieAuthFlow(authorizationUrl);
             }
           }

@@ -29,7 +29,7 @@ const PUBKY_HOSTNAME_PREFIX = '_pubky.';
 // Auth polling defaults
 /** Default interval between auth flow polls in milliseconds */
 const AUTH_POLL_INTERVAL_MS = 100;
-/** Maximum auth poll attempts (3000 × 100ms = 5 minutes max wait) */
+/** Maximum auth poll attempts (3000 × 100ms = 5 minutes of polling; time parked on a hidden page does not count) */
 const AUTH_POLL_MAX_ATTEMPTS = 3_000;
 
 /**
@@ -168,6 +168,12 @@ export const parseResponseOrUndefined = async <T>({
 export const AUTH_POLL_MAX_RESUMES = 60;
 
 /**
+ * How long the relay keeps an approval (per the SDK docs). A flow older than this when the page is visible again
+ * cannot find its approval, so it fails at once instead of resuming.
+ */
+export const AUTH_RELAY_RETENTION_MS = 5 * 60 * 1000;
+
+/**
  * A transport failure with no HTTP status: the relay never answered (aborted, refused or offline fetch).
  * The SDK reports it as a `RequestError` without `data.statusCode`; an HTTP error response carries one.
  */
@@ -244,8 +250,10 @@ export const createCancelableAuthApproval = (
   const awaitApproval = (async () => {
     await sleep(0);
 
+    const startedAt = Date.now();
     let attempts = 0;
     let resumes = 0;
+    let resumeError: unknown;
     for (;;) {
       if (canceled) throw createCanceledError();
       if (++attempts > maxPollAttempts) {
@@ -268,16 +276,19 @@ export const createCancelableAuthApproval = (
         if (options?.resume && isTransientPollError(error) && ++resumes <= AUTH_POLL_MAX_RESUMES) {
           await waitUntilVisible(waiting.signal);
           if (canceled) throw createCanceledError();
-          try {
-            flow.free();
-          } catch {
-            // Ignore double-free or already-finalized WASM objects.
-          }
-          try {
-            flow = options.resume();
-            continue;
-          } catch {
-            // The channel cannot be resumed: fall through to the dead-flow error below.
+          if (Date.now() - startedAt <= AUTH_RELAY_RETENTION_MS) {
+            try {
+              flow.free();
+            } catch {
+              // Ignore double-free or already-finalized WASM objects.
+            }
+            try {
+              flow = options.resume();
+              continue;
+            } catch (resumeFailure) {
+              // The channel cannot be resumed: fall through to the dead-flow error below.
+              resumeError = resumeFailure;
+            }
           }
         }
         // From the caller's view, tryPollOnce is one-shot: one call, one outcome
@@ -289,6 +300,7 @@ export const createCancelableAuthApproval = (
           operation: 'awaitApproval',
           context: {
             originalError: error instanceof Error ? error.message : String(error),
+            resumeError: resumeError instanceof Error ? resumeError.message : undefined,
             statusCode: extractStatusCode(error),
           },
           cause: error,
