@@ -241,23 +241,41 @@ describe('Marketplace edit listing — visual regression', () => {
     expect(header.getBoundingClientRect().bottom - rootTop()).toBeCloseTo(headerBottom, 0);
     expect(stepper.getBoundingClientRect().top - rootTop()).toBeGreaterThanOrEqual(headerBottom - 0.5);
 
-    await screen.getByRole('button', { name: 'Next' }).click();
     const section = document.getElementById('listing-section-item') as HTMLElement;
-    // The jump scrolls smoothly: measure and capture only once it has settled,
-    // on a whole pixel, so Firefox's capture box is stable.
     const nextFrames = () =>
       new Promise<void>((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
-    await vi.waitFor(async () => {
-      const before = root.scrollTop;
-      await nextFrames();
-      expect(root.scrollTop).toBe(before);
-      expect(Math.abs(before - 1_200)).toBeGreaterThan(1);
+    // The step jump scrolls smoothly, and in Firefox the frame a smooth scroll
+    // settles on varies run to run. This scene checks where the jump lands, not
+    // the animation, so it jumps instantly here.
+    const nativeScrollIntoView = Element.prototype.scrollIntoView;
+    const instantScrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (
+      this: Element,
+      arg?: boolean | ScrollIntoViewOptions,
+    ) {
+      nativeScrollIntoView.call(this, typeof arg === 'object' ? { ...arg, behavior: 'instant' } : arg);
     });
-    root.scrollTop = Math.round(root.scrollTop);
+    root.style.scrollBehavior = 'auto';
+    try {
+      await screen.getByRole('button', { name: 'Next' }).click();
+      expect(instantScrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }));
+      expect(instantScrollIntoView.mock.contexts).toContain(section);
+    } finally {
+      instantScrollIntoView.mockRestore();
+    }
+    await nextFrames();
+    // The jump lands on the section's resting position: its offset in the
+    // scroller less its scroll-margin. It can be a half pixel (1010.5 here);
+    // pin it as is. Firefox ignores a rounded assignment from a half pixel.
+    const offsetInScroller = section.getBoundingClientRect().top - rootTop() + root.scrollTop;
+    const restingScrollTop = offsetInScroller - parseFloat(getComputedStyle(section).scrollMarginTop);
+    expect(Math.abs(restingScrollTop - 1_200)).toBeGreaterThan(1);
+    expect(Math.abs(root.scrollTop - restingScrollTop)).toBeLessThan(1);
+    root.scrollTop = restingScrollTop;
     window.scrollTo(0, 0);
     await nextFrames();
+    expect(Math.abs(root.scrollTop - restingScrollTop)).toBeLessThan(0.5);
     const stepperBottom = stepper.getBoundingClientRect().bottom - rootTop();
     const sectionTop = section.getBoundingClientRect().top - rootTop();
     expect(stepperBottom).toBeGreaterThan(headerBottom);
