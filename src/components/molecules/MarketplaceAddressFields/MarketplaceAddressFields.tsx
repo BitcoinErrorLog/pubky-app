@@ -217,6 +217,47 @@ export function MarketplaceAddressFields<T extends FieldValues>({
 
   return (
     <div className="grid gap-4" data-surface="marketplace-address-fields">
+      {/* Country comes first: the address suggestions, region list and postal rules all follow it. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Controller
+          name={'countryCode' as Path<T>}
+          control={control}
+          render={({ field, fieldState }) => (
+            <Container className="gap-2">
+              <Label htmlFor="countryCode" className={FORM_LABEL_CLASSES}>
+                Country
+              </Label>
+              <InputField
+                id="countryCode"
+                name={field.name}
+                value={field.value ?? ''}
+                onChange={(event) => {
+                  const next = event.target.value.toUpperCase();
+                  field.onChange(next);
+                  const nextList = subdivisionsForCountry(next);
+                  if (
+                    nextList &&
+                    regionValue &&
+                    !nextList.some((option) => option.code === canonicalizeRegion(next, regionValue))
+                  ) {
+                    setValue('region' as Path<T>, '' as T[Path<T>], { shouldValidate: true, shouldDirty: true });
+                  }
+                }}
+                onBlur={field.onBlur}
+                disabled={disabled}
+                variant="dashed"
+                size="lg"
+                className="mb-0"
+                maxLength={2}
+                autoComplete="country"
+                status={fieldState.error ? 'error' : 'default'}
+                message={fieldState.error?.message}
+                messageType={fieldState.error ? 'error' : 'default'}
+              />
+            </Container>
+          )}
+        />
+      </div>
       <Controller
         name={'line1' as Path<T>}
         control={control}
@@ -391,44 +432,6 @@ export function MarketplaceAddressFields<T extends FieldValues>({
           control={control}
           label={postalLabel}
           disabled={disabled}
-        />
-        <Controller
-          name={'countryCode' as Path<T>}
-          control={control}
-          render={({ field, fieldState }) => (
-            <Container className="gap-2">
-              <Label htmlFor="countryCode" className={FORM_LABEL_CLASSES}>
-                Country
-              </Label>
-              <InputField
-                id="countryCode"
-                name={field.name}
-                value={field.value ?? ''}
-                onChange={(event) => {
-                  const next = event.target.value.toUpperCase();
-                  field.onChange(next);
-                  const nextList = subdivisionsForCountry(next);
-                  if (
-                    nextList &&
-                    regionValue &&
-                    !nextList.some((option) => option.code === canonicalizeRegion(next, regionValue))
-                  ) {
-                    setValue('region' as Path<T>, '' as T[Path<T>], { shouldValidate: true, shouldDirty: true });
-                  }
-                }}
-                onBlur={field.onBlur}
-                disabled={disabled}
-                variant="dashed"
-                size="lg"
-                className="mb-0"
-                maxLength={2}
-                autoComplete="country"
-                status={fieldState.error ? 'error' : 'default'}
-                message={fieldState.error?.message}
-                messageType={fieldState.error ? 'error' : 'default'}
-              />
-            </Container>
-          )}
         />
       </div>
     </div>

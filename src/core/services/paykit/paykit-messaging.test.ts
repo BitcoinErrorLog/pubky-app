@@ -11,7 +11,11 @@
 // browser e2e at the pinned commit.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS, MessagingApplication } from '@/application/messaging/messaging';
+import {
+  MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS,
+  MESSAGING_PLAINTEXT_SWEEP_WAIT_MS,
+  MessagingApplication,
+} from '@/application/messaging/messaging';
 import { DB_NAME } from '@/config/database';
 import { resumePendingMessagingTeardown } from '@/database/franky/franky.helpers';
 import {
@@ -128,6 +132,8 @@ function createFakeWorld() {
     // Scripted marker read rejections per owner: the binding's own message text,
     // for `remaining` reads (Infinity = every read).
     markerReadFailures: new Map<string, { message: string; remaining: number }>(),
+    // When set, a marker read waits on it before it answers.
+    markerReadHold: null as Promise<void> | null,
     // When set, every link reports this counterparty key instead of the one it was created with.
     linkKeyOverride: null as string | null,
   };
@@ -312,6 +318,7 @@ function createFakeWorld() {
     },
     getReceiverMarker: async (_client: unknown, ownerPubky: string, path?: string) => {
       world.calls.push(`getReceiverMarker:${ownerPubky.slice(0, 4)}`);
+      if (world.markerReadHold) await world.markerReadHold;
       const scripted = world.markerReadFailures.get(ownerPubky);
       if (scripted && scripted.remaining > 0) {
         scripted.remaining -= 1;
@@ -3645,6 +3652,49 @@ describe('PaykitMessagingService', () => {
       PaykitMessagingService.setMarkerReadSleepForTests(null);
     });
 
+    it('status reads retried while the check is slow join it: one marker read, one receiver lock', async () => {
+      await publishedThenReload();
+      await PaykitMessagingService.restorePersistedSession(OWNER, { provision: false });
+      world.calls = [];
+      let release = () => {};
+      world.markerReadHold = new Promise<void>((resolve) => (release = resolve));
+      const lockRequests = vi.spyOn(navigator.locks, 'request');
+
+      const reads = [
+        MessagingApplication.getStatus(OWNER),
+        MessagingApplication.getStatus(OWNER),
+        MessagingApplication.getStatus(OWNER),
+      ];
+      await vi.waitFor(() => expect(world.calls).toContain(`getReceiverMarker:${OWNER.slice(0, 4)}`));
+      const receiverLocks = () =>
+        lockRequests.mock.calls.filter(([name]) => String(name).startsWith('pubky-messaging-receiver|')).length;
+      expect(receiverLocks()).toBe(1);
+
+      world.markerReadHold = null;
+      release();
+      await expect(Promise.all(reads)).resolves.toEqual([
+        expect.objectContaining({ sessionActive: true, ownKeyRepublished: null }),
+        expect.objectContaining({ sessionActive: true, ownKeyRepublished: null }),
+        expect.objectContaining({ sessionActive: true, ownKeyRepublished: null }),
+      ]);
+      expect(world.calls.filter((call) => call.startsWith('getReceiverMarker'))).toHaveLength(1);
+      expect(receiverLocks()).toBe(1);
+    });
+
+    it('a notice put back is told once by the next take, only while the session is live, never over a newer one', async () => {
+      await publishedThenReload();
+      await PaykitMessagingService.restorePersistedSession(OWNER, { provision: false });
+
+      PaykitMessagingService.returnOwnMarkerRepublished(OWNER, 'replaced');
+      PaykitMessagingService.returnOwnMarkerRepublished(OWNER, 'missing');
+      expect(PaykitMessagingService.takeOwnMarkerRepublished(OWNER)).toBe('replaced');
+      expect(PaykitMessagingService.takeOwnMarkerRepublished(OWNER)).toBeNull();
+
+      PaykitMessagingService.clearSession();
+      PaykitMessagingService.returnOwnMarkerRepublished(OWNER, 'missing');
+      expect(PaykitMessagingService.takeOwnMarkerRepublished(OWNER)).toBeNull();
+    });
+
     it('forgets an untold notice on sign-out', async () => {
       await publishedThenReload();
       world.markers.delete(OWNER);
@@ -3698,6 +3748,27 @@ describe('PaykitMessagingService', () => {
         rows.filter((row) => row.id === `${OWNER}:old-build-b`),
       );
       expect(opened.body).toBe('written by the old build b');
+    });
+
+    it('a sweep that does not settle holds the status read for the bounded wait only', async () => {
+      await enableMessaging(world);
+      let finish = () => {};
+      const sweep = vi
+        .spyOn(LocalMessagingService, 'sealPlaintextHistory')
+        .mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+      const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      const started = performance.now();
+
+      await expect(MessagingApplication.getStatus(OWNER)).resolves.toMatchObject({ sessionActive: true });
+
+      const waited = performance.now() - started;
+      expect(waited).toBeGreaterThanOrEqual(MESSAGING_PLAINTEXT_SWEEP_WAIT_MS - 50);
+      expect(waited).toBeLessThan(MESSAGING_PLAINTEXT_SWEEP_WAIT_MS + 1_000);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), { reason: 'plaintext_sweep_slow' });
+      // The next status read does not start a second sweep while this one runs.
+      await MessagingApplication.getStatus(OWNER);
+      expect(sweep).toHaveBeenCalledTimes(1);
+      finish();
     });
 
     it('never fails the status read when sealing fails', async () => {

@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { marketplaceAddressFormSchema } from '@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook.types';
 import { marketplaceCheckoutSchema } from '@/hooks/useMarketplaceCheckout/useMarketplaceCheckout.types';
 import {
+  addressCountryFromLocales,
+  browserAddressCountry,
   canonicalizeRegion,
   commerceDeliveryAddressValueSchema,
   filterSubdivisions,
@@ -158,5 +160,34 @@ describe('form schemas', () => {
       region: '',
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe('the country a new address starts with', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('is the region of the first locale that names one', () => {
+    expect(addressCountryFromLocales(['en-GB', 'en-US'])).toBe('GB');
+    expect(addressCountryFromLocales(['de', 'de-AT', 'en-US'])).toBe('AT');
+    expect(addressCountryFromLocales(['pt-br'])).toBe('BR');
+    expect(addressCountryFromLocales(['zh-Hant-TW'])).toBe('TW');
+  });
+
+  it('skips numeric, non-country and malformed regions, falling back to US', () => {
+    expect(addressCountryFromLocales(['es-419', 'es-MX'])).toBe('MX');
+    expect(addressCountryFromLocales(['en-150'])).toBe('US');
+    expect(addressCountryFromLocales(['en-EU', 'en-UN', 'en-ZZ', 'en-XA', 'en-QO'])).toBe('US');
+    expect(addressCountryFromLocales(['not a tag', ''])).toBe('US');
+    expect(addressCountryFromLocales(['fr', 'ja'])).toBe('US');
+    expect(addressCountryFromLocales([])).toBe('US');
+  });
+
+  it('reads the browser preferences, and navigator.language when the list is empty', () => {
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['fr-CA', 'fr']);
+    expect(browserAddressCountry()).toBe('CA');
+
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue([]);
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('nl-BE');
+    expect(browserAddressCountry()).toBe('BE');
   });
 });

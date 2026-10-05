@@ -55,6 +55,8 @@ import type {
   TGenerateSignupAuthUrlParams,
   TGetBlobParams,
   THomeserverFetchParams,
+  THomeserverGetJsonIfFoundParams,
+  THomeserverJsonIfFound,
   THomeserverListAllParams,
   THomeserverListParams,
   THomeserverPublicKeyParams,
@@ -71,6 +73,7 @@ import {
   capabilitiesGrantWrite,
   createCancelableAuthApproval,
   getOwnedResponse,
+  getResponseOrNullWhenMissing,
   isHttpUrl,
   isTransientPollError,
   parseResponseOrUndefined,
@@ -996,6 +999,25 @@ export class HomeserverService {
   }
 
   /**
+   * A GET of a record that may not exist yet, read like {@link request}: a
+   * 404 resolves `{ found: false }` and is neither logged nor reported as an
+   * error. Every other failure throws as it does there.
+   */
+  static async getJsonIfFound<T>({ url, logUrl }: THomeserverGetJsonIfFoundParams): Promise<THomeserverJsonIfFound<T>> {
+    const contextUrl = logUrl ?? url;
+    const owned = this.resolveOwnedSessionPath(url);
+    const load = owned
+      ? () => owned.session.storage.get(toSdkPath(owned.path))
+      : () => {
+          const pubkySdk = this.getPubkySdk();
+          return isHttpUrl(url) ? pubkySdk.client.fetch(url) : pubkySdk.publicStorage.get(url as Address);
+        };
+    const response = await getResponseOrNullWhenMissing(load, contextUrl, 'getJsonIfFound');
+    if (response === null) return { found: false };
+    return { found: true, json: await parseResponseOrUndefined<T>({ response }) };
+  }
+
+  /**
    * Uploads binary data to the homeserver using PUT.
    *
    * Intended for blob contents (e.g., avatars). Throws if the response is not OK.
@@ -1098,7 +1120,7 @@ export class HomeserverService {
     } catch (error) {
       // 404 here is not an error: missing directory means empty list. Bypass handleError to avoid Sentry capture.
       if (extractStatusCode(error) === HttpStatusCode.NOT_FOUND) {
-        Logger.warn('[homeserver:list]', { outcome: 'fallback', reason: 'not_found', baseDirectory: contextUrl });
+        Logger.debug('[homeserver:list]', { outcome: 'fallback', reason: 'not_found', baseDirectory: contextUrl });
         return [];
       }
       return handleError({ error, additionalContext: { url: contextUrl, baseDirectory: contextUrl } });

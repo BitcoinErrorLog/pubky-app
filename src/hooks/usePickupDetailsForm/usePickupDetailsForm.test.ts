@@ -104,11 +104,28 @@ beforeEach(() => {
 
 describe('usePickupDetailsForm', () => {
   it('canonicalizes the UTC device timezone to a contract-valid IANA zone', () => {
-    const defaults = pickupDetailsFormDefaults('UTC');
+    const defaults = pickupDetailsFormDefaults('UTC', 'US');
     defaults.spot = 'Harbor Market, stall 12';
 
     expect(defaults.zone).toBe('Etc/UTC');
     expect(pickupDetailsFormSchema.safeParse(defaults).success).toBe(true);
+  });
+
+  it('starts an address in the browser country: no details yet, or a spot pickup switched to an address', async () => {
+    const languages = vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-GB']);
+    try {
+      controllerState.ownerRead = { ...ownerRead, current: null, lastVersion: 0 };
+      const empty = await renderReadyForm();
+      expect(empty.result.current.form.getValues('countryCode')).toBe('GB');
+      empty.unmount();
+
+      controllerState.ownerRead = ownerRead;
+      const spot = await renderReadyForm();
+      expect(spot.result.current.form.getValues('kind')).toBe('spot');
+      expect(spot.result.current.form.getValues('countryCode')).toBe('GB');
+    } finally {
+      languages.mockRestore();
+    }
   });
 
   it('hydrates from the owner read and saves with the current version as CAS', async () => {

@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MARKETPLACE_DELIVERY_ADDRESS_DISCLOSURE } from '@/config/commerce-copy';
 import { setHeavySuiteBudgets } from '@/test-utils/load-budget';
 import { MarketplaceAddressSettings } from './MarketplaceAddressSettings';
@@ -34,6 +34,19 @@ vi.mock('@/organisms/ContentLayout/ContentLayout', () => ({
 }));
 
 describe('MarketplaceAddressSettings', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('starts a new address in the browser country', async () => {
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-GB', 'en']);
+    const user = userEvent.setup();
+    render(<MarketplaceAddressSettings />);
+
+    await user.click(screen.getByRole('button', { name: 'Add address' }));
+
+    expect(screen.getByRole('textbox', { name: 'Country' })).toHaveValue('GB');
+    expect(screen.queryByLabelText('State')).not.toBeInTheDocument();
+  });
+
   it('uses the checkout disclosure and limits packing-slip access to eligible shipping orders', () => {
     render(<MarketplaceAddressSettings />);
 

@@ -1619,6 +1619,80 @@ describe('HomeserverService', () => {
       });
     });
 
+    describe('getJsonIfFound', () => {
+      it('answers not found for a 404 response, logging and reporting nothing', async () => {
+        mockState.currentSession = createMockSession();
+        mockState.sessionStorageGet.mockResolvedValue(new Response('Not Found', { status: 404 }));
+
+        await expect(
+          HomeserverService.getJsonIfFound({ url: 'pubky://user/priv/missing.json', logUrl: '/priv/redacted/' }),
+        ).resolves.toEqual({ found: false });
+        expect(mockState.sessionStorageGet).toHaveBeenCalledWith('/priv/missing.json');
+        expect(Logger.error).not.toHaveBeenCalled();
+        expect(Logger.warn).not.toHaveBeenCalled();
+      });
+
+      it('answers not found when the client throws the 404', async () => {
+        mockState.currentSession = createMockSession();
+        mockState.sessionStorageGet.mockRejectedValue({
+          name: 'RequestError',
+          message: 'Not Found',
+          data: { statusCode: 404 },
+        });
+
+        await expect(HomeserverService.getJsonIfFound({ url: 'pubky://user/priv/missing.json' })).resolves.toEqual({
+          found: false,
+        });
+        expect(Logger.error).not.toHaveBeenCalled();
+      });
+
+      it('answers not found for a public 404', async () => {
+        mockState.currentSession = null;
+        mockState.publicStorageGet.mockResolvedValue(new Response('Not Found', { status: 404 }));
+
+        await expect(HomeserverService.getJsonIfFound({ url: 'pubky://someone/pub/missing.json' })).resolves.toEqual({
+          found: false,
+        });
+        expect(Logger.error).not.toHaveBeenCalled();
+      });
+
+      it('returns the parsed body of a stored record, a stored null included', async () => {
+        mockState.currentSession = createMockSession();
+        mockState.sessionStorageGet
+          .mockResolvedValueOnce(new Response(JSON.stringify({ name: 'kept' }), { status: 200 }))
+          .mockResolvedValueOnce(new Response('null', { status: 200 }));
+
+        await expect(HomeserverService.getJsonIfFound({ url: 'pubky://user/priv/a.json' })).resolves.toEqual({
+          found: true,
+          json: { name: 'kept' },
+        });
+        await expect(HomeserverService.getJsonIfFound({ url: 'pubky://user/priv/b.json' })).resolves.toEqual({
+          found: true,
+          json: null,
+        });
+      });
+
+      it('throws every other failure like a GET', async () => {
+        mockState.currentSession = createMockSession();
+        mockState.sessionStorageGet
+          .mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }))
+          .mockResolvedValueOnce(new Response('Boom', { status: 500 }))
+          .mockRejectedValueOnce(new Error('Network error'));
+
+        await expect(HomeserverService.getJsonIfFound({ url: 'pubky://user/priv/a.json' })).rejects.toMatchObject({
+          category: ErrorCategory.Auth,
+          code: AuthErrorCode.SESSION_EXPIRED,
+        });
+        await expect(HomeserverService.getJsonIfFound({ url: 'pubky://user/priv/a.json' })).rejects.toMatchObject({
+          category: ErrorCategory.Server,
+        });
+        await expect(HomeserverService.getJsonIfFound({ url: 'pubky://user/priv/a.json' })).rejects.toMatchObject({
+          category: ErrorCategory.Server,
+          code: ServerErrorCode.INTERNAL_ERROR,
+        });
+      });
+    });
+
     describe('putBlob', () => {
       it('should upload binary data successfully', async () => {
         mockState.currentSession = createMockSession();

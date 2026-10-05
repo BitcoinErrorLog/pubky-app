@@ -24,6 +24,7 @@ import {
   marketplaceAddressFormDefaults,
   marketplaceAddressFormSchema,
 } from '@/hooks/useMarketplaceAddressBook/useMarketplaceAddressBook.types';
+import { browserAddressCountry } from '@/libs/commerce/postal-address';
 import type { CommerceDeliveryAddressModelSchema } from '@/models/commerce/commerce.schema';
 import { ControlledInputField } from '@/molecules/ControlledInputField/ControlledInputField';
 import { MarketplaceAddressFields } from '@/molecules/MarketplaceAddressFields/MarketplaceAddressFields';
@@ -44,7 +45,7 @@ export function MarketplaceAddressSettings() {
   });
 
   const beginCreate = () => {
-    form.reset(marketplaceAddressFormDefaults);
+    form.reset({ ...marketplaceAddressFormDefaults, countryCode: browserAddressCountry() });
     setEditingId('new');
   };
 

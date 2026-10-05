@@ -11,6 +11,7 @@ import {
   pickupCommandToastDescription,
   pickupRefusalFromUnknown,
 } from '@/libs/commerce/pickup';
+import { browserAddressCountry, DEFAULT_ADDRESS_COUNTRY } from '@/libs/commerce/postal-address';
 import { isMarketplaceRevisionConflict } from '@/libs/commerce/transaction-commands';
 import { isMarketplaceSessionRequiredError } from '@/libs/error/error.utils';
 import { toast } from '@/molecules/Toaster/use-toast';
@@ -88,7 +89,12 @@ export function usePickupDetailsForm(
     // The device timezone is the honest default for the windows' IANA zone —
     // the seller authors windows in the pickup location's wall clock (§B2
     // timezones; in Wave 7 the windows are informational only).
-    defaultValues: pickupDetailsFormDefaults(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+    // The country is the default until the owner read resets the form with
+    // the browser's country, after mount.
+    defaultValues: pickupDetailsFormDefaults(
+      Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      DEFAULT_ADDRESS_COUNTRY,
+    ),
     mode: 'onChange',
   });
 
@@ -125,8 +131,11 @@ export function usePickupDetailsForm(
         // logged, never persisted (MaskedPickupDetails makes that structural).
         form.reset(
           ownerRead.current
-            ? pickupDetailsFormValuesFromDetails(ownerRead.current.details.value)
-            : pickupDetailsFormDefaults(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+            ? pickupDetailsFormValuesFromDetails(ownerRead.current.details.value, browserAddressCountry())
+            : pickupDetailsFormDefaults(
+                Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                browserAddressCountry(),
+              ),
         );
         setReadState('ready');
       } catch {

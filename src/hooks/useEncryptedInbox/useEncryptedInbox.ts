@@ -33,8 +33,9 @@ export interface UseEncryptedInboxReturn {
 }
 
 /**
- * The encrypted inbox (durable modes): lists device-local conversations and —
- * while a messaging session is live — runs the bounded sync pass that
+ * The encrypted inbox (durable modes): lists device-local conversations as
+ * soon as it mounts and — while a messaging session is live — runs the
+ * bounded sync pass that
  * advances pending handshakes, answers queued inbound handshakes from known
  * counterparties, and receives new messages. This surface syncs on the
  * commerce poll interval while mounted and visible, resumes on focus, and
@@ -66,16 +67,29 @@ export function useEncryptedInbox(): UseEncryptedInboxReturn {
     let cancelled = false;
     let timer: number | null = null;
     let syncing = false;
+    // The opening list read and the sync's reads overlap: only a read newer
+    // than the last one shown replaces it.
+    let listReads = 0;
+    let shownRead = 0;
     // Opening or retrying the inbox retries every conversation's failed
     // attempts now; a hidden page keeps backing off.
     if (!document.hidden) MessagingController.restartInboxRetries();
 
     const loadConversations = async () => {
+      const read = ++listReads;
       const next = await MessagingController.getConversations();
-      if (cancelled) return;
+      if (cancelled || read < shownRead) return;
+      shownRead = read;
       setConversations(next.conversations);
       setMutesStatus(next.mutes);
     };
+
+    // The conversations already on this device are listed at once, before
+    // the status read and the first sync pass, which can take long on a slow
+    // connection. A failure here is left to the sync, which reports it.
+    void loadConversations().catch((error) => {
+      Logger.warn('Could not list the saved conversations before the first sync', { error });
+    });
 
     const sync = async () => {
       if (cancelled || document.hidden || syncing) return;

@@ -460,6 +460,34 @@ describe('useMarketplaceCheckout', () => {
     expect(descriptions).toContain('Checkout completed, but the address could not be saved.');
   });
 
+  it('starts a new address in the browser country, and a saved address replaces it', async () => {
+    authMock.currentUserPubky = BUYER;
+    const languages = vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['de-DE', 'de']);
+    try {
+      const fresh = renderHook(() =>
+        useMarketplaceCheckout(
+          [item],
+          vi.fn(async () => {}),
+        ),
+      );
+      await waitFor(() => expect(fresh.result.current.form.getValues('countryCode')).toBe('DE'));
+      expect(fresh.result.current.form.getFieldState('countryCode').isDirty).toBe(false);
+      fresh.unmount();
+
+      vi.mocked(CommerceController.getDeliveryAddresses).mockResolvedValue([savedAddress]);
+      const saved = renderHook(() =>
+        useMarketplaceCheckout(
+          [item],
+          vi.fn(async () => {}),
+        ),
+      );
+      await waitFor(() => expect(saved.result.current.selectedAddressId).toBe(savedAddress.id));
+      expect(saved.result.current.form.getValues('countryCode')).toBe('US');
+    } finally {
+      languages.mockRestore();
+    }
+  });
+
   it('prefills from the top saved address and marks it used after a successful order', async () => {
     authMock.currentUserPubky = BUYER;
     vi.mocked(CommerceController.getDeliveryAddresses).mockResolvedValue([savedAddress]);

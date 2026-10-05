@@ -13,7 +13,6 @@ import {
 import { ClientErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { isAppError, isNotFound } from '@/libs/error/error.utils';
 import { HttpMethod } from '@/libs/http/http.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
 
@@ -52,14 +51,9 @@ export class CommercePrivStoreService {
   }
 
   private static async readAt(keyring: PrivKeyring, family: PrivFamily, name: string, url: string): Promise<unknown> {
-    let envelope: unknown;
-    try {
-      envelope = await HomeserverService.request<unknown>({ method: HttpMethod.GET, url, logUrl: PRIV_V2_LOG_PATH });
-    } catch (error) {
-      if (isAppError(error) && isNotFound(error)) return null;
-      throw error;
-    }
-    return decryptPrivRecord({ keyring, family, name, envelope });
+    const stored = await HomeserverService.getJsonIfFound<unknown>({ url, logUrl: PRIV_V2_LOG_PATH });
+    if (!stored.found) return null;
+    return decryptPrivRecord({ keyring, family, name, envelope: stored.json });
   }
 
   private static async writeAt(

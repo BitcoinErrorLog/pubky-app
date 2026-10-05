@@ -89,6 +89,15 @@ export type THomeserverRequestParams = {
   singleAttempt?: boolean;
 };
 
+export type THomeserverGetJsonIfFoundParams = {
+  url: string;
+  /** The URL recorded in error context and logs; defaults to `url`. Unpublished paths pass a redacted form. */
+  logUrl?: string;
+};
+
+/** A GET that may find nothing: `json` is the parsed body, `undefined` for an empty or non-JSON one. */
+export type THomeserverJsonIfFound<T> = { found: false } | { found: true; json: T | undefined };
+
 export type TPutBlobParams = {
   url: string;
   blob: Uint8Array;

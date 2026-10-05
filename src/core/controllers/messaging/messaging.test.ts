@@ -4,9 +4,11 @@ import { FIRST_CONTACT_FOLLOW_PAGE_SIZE, FirstContactApplication } from '@/appli
 import { MessagingApplication } from '@/application/messaging/messaging';
 import { UserStreamApplication } from '@/application/stream/users/users';
 import { getCommerceAdapterMode } from '@/config/commerce';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
 import { httpStatusCodeToError } from '@/libs/error/error.http';
 import { ErrorService } from '@/libs/error/error.types';
-import { MESSAGING_SYNC_PASS_TIMEOUT_MS } from '@/libs/messaging/pass-deadline';
+import { Logger } from '@/libs/logger/logger';
+import { MESSAGING_STATUS_TIMEOUT_MS, MESSAGING_SYNC_PASS_TIMEOUT_MS } from '@/libs/messaging/pass-deadline';
 import type { Pubky } from '@/models/models.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useMessagingStore } from '@/stores/messaging/messaging.store';
@@ -393,5 +395,66 @@ describe('MessagingController retry restarts', () => {
     MessagingController.restartConversationRetries(OWNER, BUYER);
 
     expect(restartSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('MessagingController status read deadline', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth(OWNER);
+  });
+
+  it('rejects with the delay copy once the read runs past its deadline, and the next read is answered', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      const status = vi
+        .spyOn(MessagingApplication, 'getStatus')
+        .mockImplementationOnce(() => new Promise(() => undefined))
+        .mockResolvedValueOnce({ sessionActive: true, receiverProvisioned: true, ownKeyRepublished: null });
+
+      const stuck = MessagingController.getMessagingStatus();
+      let settled = false;
+      void stuck.catch(() => undefined).finally(() => (settled = true));
+      const timedOut = expect(stuck).rejects.toMatchObject({
+        code: 'REQUEST_TIMEOUT',
+        message: MESSAGING_COPY.statusTimeout,
+      });
+      await vi.advanceTimersByTimeAsync(MESSAGING_STATUS_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await timedOut;
+      expect(Logger.warn).toHaveBeenCalledWith(expect.any(String), { reason: 'status_timeout' });
+
+      await expect(MessagingController.getMessagingStatus()).resolves.toMatchObject({ sessionActive: true });
+      expect(status).toHaveBeenCalledTimes(2);
+      expect(status).toHaveBeenCalledWith(OWNER);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the republished-key notice of a read that settled after the deadline, and only then', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      const returned = vi.spyOn(MessagingApplication, 'returnOwnKeyRepublished').mockImplementation(() => {});
+      let settleLate: (status: Awaited<ReturnType<typeof MessagingApplication.getStatus>>) => void = () => {};
+      vi.spyOn(MessagingApplication, 'getStatus')
+        .mockImplementationOnce(() => new Promise((resolve) => (settleLate = resolve)))
+        .mockResolvedValueOnce({ sessionActive: true, receiverProvisioned: true, ownKeyRepublished: 'missing' });
+
+      const late = MessagingController.getMessagingStatus();
+      const timedOut = expect(late).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+      await vi.advanceTimersByTimeAsync(MESSAGING_STATUS_TIMEOUT_MS);
+      await timedOut;
+      settleLate({ sessionActive: true, receiverProvisioned: true, ownKeyRepublished: 'replaced' });
+      await vi.waitFor(() => expect(returned).toHaveBeenCalledWith(OWNER, 'replaced'));
+
+      await expect(MessagingController.getMessagingStatus()).resolves.toMatchObject({ ownKeyRepublished: 'missing' });
+      expect(returned).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

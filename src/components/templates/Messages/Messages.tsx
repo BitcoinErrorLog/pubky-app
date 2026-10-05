@@ -97,9 +97,7 @@ export function Messages() {
 
             <MessagingMutesNotice status={inbox.mutesStatus} onRetry={inbox.refresh} />
 
-            {inbox.status === 'loading' ? (
-              <Skeleton className="h-32 w-full" />
-            ) : inbox.conversations.length ? (
+            {inbox.conversations.length ? (
               <div className="flex flex-col gap-3">
                 <Typography as="p" className="text-xs text-muted-foreground">
                   End-to-end encrypted · history stored on this device · both sides must have enabled encrypted
@@ -120,6 +118,8 @@ export function Messages() {
                   onChanged={inbox.refresh}
                 />
               </div>
+            ) : inbox.status === 'loading' ? (
+              <Skeleton className="h-32 w-full" />
             ) : inbox.status === 'ready' && !isMuteListUnconfirmed(inbox.mutesStatus) ? (
               <EmptyState
                 title="No messages yet"

@@ -29,6 +29,7 @@ import { commerceListingFulfillmentMethods } from '@/libs/commerce/marketplace-r
 import type { PaymentMethodKind } from '@/libs/commerce/payment-methods';
 import type { MarketplaceFulfillmentMethod } from '@/libs/commerce/pickup';
 import { pickupRefusalFailureMessage } from '@/libs/commerce/pickup';
+import { browserAddressCountry } from '@/libs/commerce/postal-address';
 import {
   buildMarketplaceListingAggregateId,
   buildMarketplaceOrderAggregateId,
@@ -226,6 +227,14 @@ export function useMarketplaceCheckout(
       CommerceController.clearIdentitySession();
     }
   }, [marketplaceSession]);
+
+  // A new address starts in the browser's country. Set after mount, so the
+  // server-rendered form and the first client render agree; a saved address
+  // applied below replaces it.
+  useEffect(() => {
+    if (form.getFieldState('countryCode').isDirty) return;
+    form.reset({ ...form.getValues(), countryCode: browserAddressCountry() }, { keepDirtyValues: true });
+  }, [form]);
 
   // Pre-fill once from the picker's top address (default, else last used) —
   // but never over anything the buyer already typed.
