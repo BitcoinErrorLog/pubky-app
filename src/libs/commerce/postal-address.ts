@@ -168,6 +168,37 @@ export function normalizeCountryCode(countryCode: string): string {
   return countryCode.trim().toUpperCase();
 }
 
+/** The country a new address starts with when the browser names no usable region. */
+export const DEFAULT_ADDRESS_COUNTRY = 'US';
+
+// ISO 3166-1 user-assigned codes and CLDR macro-regions: two letters, but no country.
+const NON_COUNTRY_REGION = /^(AA|Q[M-Z]|X[A-Z]|ZZ|EU|EZ|UN)$/;
+
+/**
+ * The country a new address starts with: the region of the first locale
+ * that names one (`en-GB` gives `GB`), or {@link DEFAULT_ADDRESS_COUNTRY}.
+ * Numeric regions (`es-419`), non-country codes and malformed tags are skipped.
+ */
+export function addressCountryFromLocales(locales: readonly string[]): string {
+  for (const tag of locales) {
+    let region: string | undefined;
+    try {
+      region = new Intl.Locale(tag).region;
+    } catch {
+      continue;
+    }
+    if (region && /^[A-Z]{2}$/.test(region) && !NON_COUNTRY_REGION.test(region)) return region;
+  }
+  return DEFAULT_ADDRESS_COUNTRY;
+}
+
+/** {@link addressCountryFromLocales} for this browser's preferred languages; the default outside a browser. */
+export function browserAddressCountry(): string {
+  if (typeof navigator === 'undefined') return DEFAULT_ADDRESS_COUNTRY;
+  const locales = navigator.languages?.length ? navigator.languages : [navigator.language];
+  return addressCountryFromLocales(locales.filter((tag): tag is string => typeof tag === 'string'));
+}
+
 export function postalCountryRule(countryCode: string): PostalCountryRule {
   const country = normalizeCountryCode(countryCode);
   if (country === 'US') {

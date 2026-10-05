@@ -62,6 +62,32 @@ function Harness({ provider }: { provider?: AddressAutocompleteProvider | null }
 }
 
 describe('MarketplaceAddressFields', () => {
+  it('asks for the country first, before any field that depends on it', () => {
+    render(<Harness provider={null} />);
+
+    const fields = [...document.querySelectorAll('[data-surface="marketplace-address-fields"] input')].map((input) =>
+      input.getAttribute('name'),
+    );
+    expect(fields).toEqual(['countryCode', 'line1', 'line2', 'city', 'region', 'postalCode']);
+  });
+
+  it('searches in the country chosen before the street is typed', async () => {
+    const user = userEvent.setup();
+    const provider = providerReturning({ status: 'ok', suggestions: [] });
+    render(<Harness provider={provider} />);
+
+    await user.clear(screen.getByRole('textbox', { name: 'Country' }));
+    await user.type(screen.getByRole('textbox', { name: 'Country' }), 'de');
+    await user.type(screen.getByLabelText('Address line 1'), 'Unter den Linden 1');
+
+    await waitFor(() => expect(provider.suggest).toHaveBeenCalled());
+    expect(provider.suggest).toHaveBeenLastCalledWith(
+      'Unter den Linden 1',
+      expect.objectContaining({ countryCode: 'DE' }),
+    );
+    expect(provider.suggest.mock.calls.every(([, options]) => options.countryCode === 'DE')).toBe(true);
+  });
+
   it('labels US subdivision State and ZIP, and keeps suggestions closed without a provider', async () => {
     const user = userEvent.setup();
     render(<Harness provider={null} />);

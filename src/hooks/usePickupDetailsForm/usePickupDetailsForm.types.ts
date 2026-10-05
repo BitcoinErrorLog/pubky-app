@@ -118,7 +118,7 @@ export const pickupDetailsFormSchema = z
 
 export type PickupDetailsFormData = z.infer<typeof pickupDetailsFormSchema>;
 
-export function pickupDetailsFormDefaults(zone: string): PickupDetailsFormData {
+export function pickupDetailsFormDefaults(zone: string, countryCode: string): PickupDetailsFormData {
   // `Intl.DateTimeFormat().resolvedOptions().timeZone` returns the IANA link
   // "UTC" on UTC hosts (including CI), while the marketplace contract
   // requires an Area/City-shaped identifier. Canonicalize that valid device
@@ -133,7 +133,7 @@ export function pickupDetailsFormDefaults(zone: string): PickupDetailsFormData {
     city: '',
     region: '',
     postalCode: '',
-    countryCode: 'US',
+    countryCode,
     instructions: '',
     availabilityMode: 'arrange',
     zone: contractZone,
@@ -173,8 +173,15 @@ export function toPickupDetails(data: PickupDetailsFormData): MarketplacePickupD
   return pickupDetailsSchema.parse(details);
 }
 
-/** Hydrates the editor from the seller's owner read (the current details version). */
-export function pickupDetailsFormValuesFromDetails(details: MarketplacePickupDetails): PickupDetailsFormData {
+/**
+ * Hydrates the editor from the seller's owner read (the current details
+ * version). A spot pickup has no address; switching it to one starts in
+ * `fallbackCountryCode`.
+ */
+export function pickupDetailsFormValuesFromDetails(
+  details: MarketplacePickupDetails,
+  fallbackCountryCode: string,
+): PickupDetailsFormData {
   return {
     kind: details.kind,
     spot: details.spot ?? '',
@@ -184,7 +191,7 @@ export function pickupDetailsFormValuesFromDetails(details: MarketplacePickupDet
     city: details.address?.city ?? '',
     region: details.address?.region ?? '',
     postalCode: details.address?.postalCode ?? '',
-    countryCode: details.address?.countryCode ?? 'US',
+    countryCode: details.address?.countryCode ?? fallbackCountryCode,
     instructions: details.instructions,
     availabilityMode: details.availability.windows?.length ? 'windows' : 'arrange',
     zone: details.availability.zone,
