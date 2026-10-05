@@ -172,9 +172,7 @@ function EncryptedInbox() {
 
       <MessagingMutesNotice status={inbox.mutesStatus} onRetry={inbox.refresh} />
 
-      {inbox.status === 'loading' ? (
-        <Skeleton className="h-32 w-full" />
-      ) : inboxRows.length || requestRows.length ? (
+      {inboxRows.length || requestRows.length ? (
         <div className="flex flex-col gap-3">
           {inboxRows.map((conversation) => (
             <EncryptedConversationRow
@@ -185,6 +183,8 @@ function EncryptedInbox() {
           ))}
           <MessagingRequests requests={requestRows} canMute onChanged={inbox.refresh} />
         </div>
+      ) : inbox.status === 'loading' ? (
+        <Skeleton className="h-32 w-full" />
       ) : inbox.status === 'ready' && !isMuteListUnconfirmed(inbox.mutesStatus) ? (
         <EmptyState title={MESSAGING_COPY.inboxEmptyTitle} body={MESSAGING_COPY.inboxEmptyBody} />
       ) : null}

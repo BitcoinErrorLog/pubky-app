@@ -1,6 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MessagingConversationSummary } from '@/application/messaging/messaging';
 import { MessagingController } from '@/controllers/messaging/messaging';
+import { MESSAGING_COPY } from '@/libs/commerce/messaging-copy';
+import { asInvalid } from '@/test-utils/type-assertions';
 import { useEncryptedInbox } from './useEncryptedInbox';
 
 const OWNER = 'o'.repeat(52);
@@ -32,6 +35,89 @@ vi.mock('@/controllers/messaging/messaging', () => ({
 vi.mock('@/molecules/Toaster/use-toast', () => ({
   toast: vi.fn(),
 }));
+
+// Only the fields the hook passes through; the rows are never rendered here.
+const savedConversation = (id: string) =>
+  asInvalid<MessagingConversationSummary>({ id, conversation_id: id, counterparty_pubky: 'c'.repeat(52) });
+
+describe('useEncryptedInbox lists saved conversations before the first sync', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(MessagingController.syncInbox).mockResolvedValue({ mutes: 'ready', rateLimited: 0 });
+  });
+
+  it('shows the saved conversations while the status read has not settled', async () => {
+    vi.mocked(MessagingController.getMessagingStatus).mockReturnValue(new Promise(() => undefined));
+    vi.mocked(MessagingController.getConversations).mockResolvedValue({
+      mutes: 'ready',
+      conversations: [savedConversation('a')],
+    });
+
+    const { result } = renderHook(() => useEncryptedInbox());
+
+    await waitFor(() => expect(result.current.conversations.map((row) => row.id)).toEqual(['a']));
+    expect(result.current.status).toBe('loading');
+    expect(result.current.mutesStatus).toBe('ready');
+    expect(MessagingController.syncInbox).not.toHaveBeenCalled();
+  });
+
+  it('a slower opening read never replaces the list the first sync showed', async () => {
+    let finishOpening: (value: Awaited<ReturnType<typeof MessagingController.getConversations>>) => void = () => {};
+    vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
+      sessionActive: true,
+      receiverProvisioned: true,
+      ownKeyRepublished: null,
+    });
+    vi.mocked(MessagingController.getConversations)
+      .mockReturnValueOnce(new Promise((resolve) => (finishOpening = resolve)))
+      .mockResolvedValue({ mutes: 'ready', conversations: [savedConversation('after-sync')] });
+
+    const { result } = renderHook(() => useEncryptedInbox());
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.conversations.map((row) => row.id)).toEqual(['after-sync']);
+
+    await act(async () => finishOpening({ mutes: 'ready', conversations: [savedConversation('stale')] }));
+    expect(result.current.conversations.map((row) => row.id)).toEqual(['after-sync']);
+  });
+
+  it('a failed opening read leaves the inbox to the sync', async () => {
+    vi.mocked(MessagingController.getMessagingStatus).mockResolvedValue({
+      sessionActive: true,
+      receiverProvisioned: true,
+      ownKeyRepublished: null,
+    });
+    vi.mocked(MessagingController.getConversations)
+      .mockRejectedValueOnce(new Error('local read failed'))
+      .mockResolvedValue({ mutes: 'ready', conversations: [savedConversation('a')] });
+
+    const { result } = renderHook(() => useEncryptedInbox());
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.conversations.map((row) => row.id)).toEqual(['a']);
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('a status read that timed out shows its copy; the next sync recovers', async () => {
+    vi.mocked(MessagingController.getConversations).mockResolvedValue({
+      mutes: 'ready',
+      conversations: [savedConversation('a')],
+    });
+    vi.mocked(MessagingController.getMessagingStatus)
+      .mockRejectedValueOnce(new Error(MESSAGING_COPY.statusTimeout))
+      .mockResolvedValue({ sessionActive: true, receiverProvisioned: true, ownKeyRepublished: null });
+
+    const { result } = renderHook(() => useEncryptedInbox());
+
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    expect(result.current.errorMessage).toBe(MESSAGING_COPY.statusTimeout);
+    expect(result.current.conversations.map((row) => row.id)).toEqual(['a']);
+
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+  });
+});
 
 describe('useEncryptedInbox retry backoff restarts only while someone can see it', () => {
   const restart = () => vi.mocked(MessagingController.restartInboxRetries);

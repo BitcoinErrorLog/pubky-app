@@ -26,6 +26,7 @@ import { Logger } from '@/libs/logger/logger';
 import { buildDmConversationId, parseDmConversationId } from '@/libs/messaging/dm-contracts';
 import type { MessagingPolicy } from '@/libs/messaging/intake-gate';
 import {
+  MESSAGING_STATUS_TIMEOUT_MS,
   MESSAGING_SYNC_PASS_TIMEOUT_MS,
   MESSAGING_SYNC_RESUME_TIMEOUT_MS,
   withPassDeadline,
@@ -67,8 +68,21 @@ export class MessagingController {
     };
   }
 
+  /**
+   * The messaging status of the signed-in account. A read that does not
+   * settle within {@link MESSAGING_STATUS_TIMEOUT_MS} rejects with a timeout
+   * so the surface can show the delay; the session resume and receiver
+   * check it started keep going, and the next status read joins them.
+   */
   static async getMessagingStatus() {
-    return await MessagingApplication.getStatus(this.getCurrentUserPubky());
+    return await withPassDeadline(MessagingApplication.getStatus(this.getCurrentUserPubky()), {
+      timeoutMs: MESSAGING_STATUS_TIMEOUT_MS,
+      operation: 'getMessagingStatus',
+      message: MESSAGING_COPY.statusTimeout,
+      onExpire: () => {
+        Logger.warn('The messaging status read did not settle; the surface retries', { reason: 'status_timeout' });
+      },
+    });
   }
 
   /** Sign-out teardown: drops the session, link handles, and the store fact. */

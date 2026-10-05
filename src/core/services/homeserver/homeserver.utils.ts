@@ -447,6 +447,26 @@ export const getOwnedResponse = async ({ session, path, url }: TGetOwnedResponse
 };
 
 /**
+ * Runs a GET that may find nothing: `null` when the homeserver answers 404,
+ * whether the client throws it or returns it, before any error is created,
+ * so a missing record is neither logged nor reported. Every other failure
+ * is handled like any GET.
+ */
+export const getResponseOrNullWhenMissing = async (
+  load: () => Promise<Response>,
+  url: string,
+  operation: string,
+): Promise<Response | null> => {
+  const response = await load().catch((error: unknown) => {
+    if (extractStatusCode(error) === HttpStatusCode.NOT_FOUND) return null;
+    return handleError({ error, additionalContext: { url, method: HttpMethod.GET } });
+  });
+  if (response === null || response.status === HttpStatusCode.NOT_FOUND) return null;
+  await assertOk({ response, url, operation });
+  return response;
+};
+
+/**
  * Reads a response body, refusing more than `maxBytes`: a declared
  * `Content-Length` over the limit is refused before reading, and a stream is
  * cancelled as soon as it passes the limit, so an oversized body is never

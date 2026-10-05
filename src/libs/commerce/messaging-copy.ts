@@ -50,6 +50,8 @@ export const MESSAGING_COPY = {
     'Another app or device replaced your private-messaging key. This device published its own key again; conversations started elsewhere may need to reconnect.',
   ownKeyMissing: 'Your private-messaging key was missing from your account. This device published it again.',
   inboxSyncFailed: 'Your messages could not be loaded right now. Check your connection and try again.',
+  statusTimeout:
+    'Connecting to private messages is taking longer than usual. Saved messages stay readable. Try again in a moment.',
   queued: 'Queued',
   queuedToast: 'Queued. It sends while the Shop is open on this device.',
   composerOverLimit: 'Shorten this message to send it.',

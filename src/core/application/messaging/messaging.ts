@@ -116,7 +116,11 @@ export class MessagingApplication {
     // show the enable/reconnect card while a valid session is actually
     // recoverable without a signer.
     const sessionActive = await PaykitMessagingService.restorePersistedSession(ownerPubky);
-    await this.sealPlaintextHistoryNow(Date.now());
+    await settledOrAfter(this.sealPlaintextHistoryNow(Date.now()), MESSAGING_PLAINTEXT_SWEEP_WAIT_MS, () => {
+      Logger.warn('Sealing plaintext message history is slow; it finishes in the background', {
+        reason: 'plaintext_sweep_slow',
+      });
+    });
     return {
       sessionActive,
       receiverProvisioned: await PaykitMessagingService.isReceiverProvisioned(ownerPubky),
@@ -759,6 +763,9 @@ export class MessagingApplication {
 /** Least time between two plaintext-history sweeps from status reads in one tab. */
 export const MESSAGING_PLAINTEXT_SWEEP_INTERVAL_MS = 5 * 60_000;
 
+/** Longest a status read waits for its plaintext-history sweep; a slower sweep finishes after the read returns. */
+export const MESSAGING_PLAINTEXT_SWEEP_WAIT_MS = 2_000;
+
 /** Upper bound on healthy counterparties probed per inbox sync pass. */
 export const MESSAGING_SYNC_MAX_COUNTERPARTIES = 25;
 
@@ -767,6 +774,22 @@ export const MESSAGING_SYNC_RESERVED_NEW_PROBES = 10;
 
 /** Upper bound on due link retries run per inbox sync pass, on top of the healthy budget. */
 export const MESSAGING_SYNC_MAX_RECOVERY_PROBES = 3;
+
+/** Waits for `work` to settle, or for `waitMs` and then calls `onLate`; `work` itself keeps running. */
+async function settledOrAfter(work: Promise<void>, waitMs: number, onLate: () => void): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      onLate();
+      resolve();
+    }, waitMs);
+  });
+  try {
+    await Promise.race([work, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Refuses any contact with a person the confirmed policy says is muted.

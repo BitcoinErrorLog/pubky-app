@@ -292,6 +292,13 @@ export class PaykitMessagingService {
   private static provisioningHolds = new Map<string, number>();
   /** Accounts whose published marker was confirmed (or published) by this session. Cleared with the session. */
   private static ownMarkerChecked = new Set<string>();
+  /**
+   * The receiver check running for each account and the session it runs
+   * for. Another check of that session joins it, so status reads retried
+   * while one is slow never queue more receiver-lock requests or marker
+   * reads behind it. Cleared with the session.
+   */
+  private static provisioningInFlight = new Map<string, { session: ActiveSession; run: Promise<void> }>();
   /** What the own-marker check republished and the user has not been told yet, per account. */
   private static ownMarkerNotices = new Map<string, OwnMarkerRepublished>();
   private static markerReadSleep: MarkerReadSleep = realMarkerReadSleep;
@@ -472,6 +479,8 @@ export class PaykitMessagingService {
    * ({@link takeOwnMarkerRepublished}). A marker that cannot be read is
    * checked again on the spaced schedule; nothing is republished on a
    * failed read.
+   *
+   * A check of the same session already running is joined, not repeated.
    */
   private static async ensureReceiverProvisioned(pubky: string): Promise<void> {
     const session = this.session;
@@ -482,6 +491,16 @@ export class PaykitMessagingService {
       });
       return;
     }
+    const running = this.provisioningInFlight.get(pubky);
+    if (running?.session === session) return await running.run;
+    const run = this.ensureReceiverProvisionedFor(session, pubky).finally(() => {
+      if (this.provisioningInFlight.get(pubky)?.run === run) this.provisioningInFlight.delete(pubky);
+    });
+    this.provisioningInFlight.set(pubky, { session, run });
+    return await run;
+  }
+
+  private static async ensureReceiverProvisionedFor(session: ActiveSession, pubky: string): Promise<void> {
     const receiver = await this.endSessionIfKeyringChanged(() => LocalMessagingService.getReceiver(pubky));
     if (receiver?.marker_published && this.ownMarkerChecked.has(pubky)) return;
     if (this.receiverRetry.status(pubky) === 'waiting') return;
@@ -636,6 +655,7 @@ export class PaykitMessagingService {
     this.receiverRetry.clear();
     this.ownMarkerChecked.clear();
     this.ownMarkerNotices.clear();
+    this.provisioningInFlight.clear();
     if (this.session) closeQuietly(() => this.session?.handle.free());
     this.session = null;
     // The client is stateless config; dropping it costs one lazy re-create

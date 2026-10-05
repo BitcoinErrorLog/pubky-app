@@ -4,7 +4,11 @@ import { ClientErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
 import { HomeserverService } from '@/services/homeserver/homeserver';
-import type { THomeserverListParams, THomeserverRequestParams } from '@/services/homeserver/homeserver.types';
+import type {
+  THomeserverGetJsonIfFoundParams,
+  THomeserverListParams,
+  THomeserverRequestParams,
+} from '@/services/homeserver/homeserver.types';
 
 /**
  * An HTTP failure shaped like the real client's: the message may echo the
@@ -49,8 +53,9 @@ export type FakeHomeserver = {
 };
 
 /**
- * An in-memory homeserver behind `HomeserverService.request` and
- * `HomeserverService.list`, so application code runs its real service calls
+ * An in-memory homeserver behind `HomeserverService.request`,
+ * `HomeserverService.getJsonIfFound` and `HomeserverService.list`, so
+ * application code runs its real service calls
  * (and real crypto) against stored bytes the test can inspect.
  */
 export function installFakeHomeserver(): FakeHomeserver {
@@ -108,6 +113,19 @@ export function installFakeHomeserver(): FakeHomeserver {
     }
     throw homeserverHttpError(405);
   };
+
+  vi.spyOn(HomeserverService, 'getJsonIfFound').mockImplementation(async (params: THomeserverGetJsonIfFoundParams) => {
+    const entry = `${HttpMethod.GET} ${params.url}`;
+    notify(entry, 'before');
+    try {
+      return { found: true, json: (await perform({ method: HttpMethod.GET, ...params })) as never };
+    } catch (error) {
+      if (error instanceof AppError && error.context?.statusCode === 404) return { found: false };
+      throw error;
+    } finally {
+      notify(entry, 'after');
+    }
+  });
 
   vi.spyOn(HomeserverService, 'list').mockImplementation(async (params: THomeserverListParams) => {
     notify(`LIST ${params.baseDirectory}`, 'before');
