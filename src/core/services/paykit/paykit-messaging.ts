@@ -1964,6 +1964,17 @@ export class PaykitMessagingService {
   }
 
   /**
+   * Puts back a notice {@link takeOwnMarkerRepublished} handed to a status
+   * read nobody was waiting for any more, so the next read tells the user.
+   * Only while that account's session is still live, and never over a newer
+   * notice.
+   */
+  static returnOwnMarkerRepublished(pubky: string, notice: OwnMarkerRepublished): void {
+    if (!this.hasActiveSession(pubky) || this.ownMarkerNotices.has(pubky)) return;
+    this.ownMarkerNotices.set(pubky, notice);
+  }
+
+  /**
    * The keys the Verify step compares out of band: the receiver key this
    * device publishes, and the key pinned for the counterparty with any
    * different key their marker advertised since. Local reads only.

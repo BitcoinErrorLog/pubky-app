@@ -433,4 +433,28 @@ describe('MessagingController status read deadline', () => {
       vi.useRealTimers();
     }
   });
+
+  it('keeps the republished-key notice of a read that settled after the deadline, and only then', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(Logger, 'warn').mockImplementation(() => {});
+      const returned = vi.spyOn(MessagingApplication, 'returnOwnKeyRepublished').mockImplementation(() => {});
+      let settleLate: (status: Awaited<ReturnType<typeof MessagingApplication.getStatus>>) => void = () => {};
+      vi.spyOn(MessagingApplication, 'getStatus')
+        .mockImplementationOnce(() => new Promise((resolve) => (settleLate = resolve)))
+        .mockResolvedValueOnce({ sessionActive: true, receiverProvisioned: true, ownKeyRepublished: 'missing' });
+
+      const late = MessagingController.getMessagingStatus();
+      const timedOut = expect(late).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+      await vi.advanceTimersByTimeAsync(MESSAGING_STATUS_TIMEOUT_MS);
+      await timedOut;
+      settleLate({ sessionActive: true, receiverProvisioned: true, ownKeyRepublished: 'replaced' });
+      await vi.waitFor(() => expect(returned).toHaveBeenCalledWith(OWNER, 'replaced'));
+
+      await expect(MessagingController.getMessagingStatus()).resolves.toMatchObject({ ownKeyRepublished: 'missing' });
+      expect(returned).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

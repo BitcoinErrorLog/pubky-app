@@ -3681,6 +3681,20 @@ describe('PaykitMessagingService', () => {
       expect(receiverLocks()).toBe(1);
     });
 
+    it('a notice put back is told once by the next take, only while the session is live, never over a newer one', async () => {
+      await publishedThenReload();
+      await PaykitMessagingService.restorePersistedSession(OWNER, { provision: false });
+
+      PaykitMessagingService.returnOwnMarkerRepublished(OWNER, 'replaced');
+      PaykitMessagingService.returnOwnMarkerRepublished(OWNER, 'missing');
+      expect(PaykitMessagingService.takeOwnMarkerRepublished(OWNER)).toBe('replaced');
+      expect(PaykitMessagingService.takeOwnMarkerRepublished(OWNER)).toBeNull();
+
+      PaykitMessagingService.clearSession();
+      PaykitMessagingService.returnOwnMarkerRepublished(OWNER, 'missing');
+      expect(PaykitMessagingService.takeOwnMarkerRepublished(OWNER)).toBeNull();
+    });
+
     it('forgets an untold notice on sign-out', async () => {
       await publishedThenReload();
       world.markers.delete(OWNER);

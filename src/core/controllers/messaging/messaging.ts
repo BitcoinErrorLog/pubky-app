@@ -72,14 +72,28 @@ export class MessagingController {
    * The messaging status of the signed-in account. A read that does not
    * settle within {@link MESSAGING_STATUS_TIMEOUT_MS} rejects with a timeout
    * so the surface can show the delay; the session resume and receiver
-   * check it started keep going, and the next status read joins them.
+   * check it started keep going, and the next status read joins them. A
+   * republished-key notice that read takes after the timeout is kept for
+   * the next read, which a surface does show.
    */
   static async getMessagingStatus() {
-    return await withPassDeadline(MessagingApplication.getStatus(this.getCurrentUserPubky()), {
+    const ownerPubky = this.getCurrentUserPubky();
+    let expired = false;
+    const read = MessagingApplication.getStatus(ownerPubky);
+    read.then(
+      (status) => {
+        if (expired && status.ownKeyRepublished) {
+          MessagingApplication.returnOwnKeyRepublished(ownerPubky, status.ownKeyRepublished);
+        }
+      },
+      () => undefined,
+    );
+    return await withPassDeadline(read, {
       timeoutMs: MESSAGING_STATUS_TIMEOUT_MS,
       operation: 'getMessagingStatus',
       message: MESSAGING_COPY.statusTimeout,
       onExpire: () => {
+        expired = true;
         Logger.warn('The messaging status read did not settle; the surface retries', { reason: 'status_timeout' });
       },
     });

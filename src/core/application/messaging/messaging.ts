@@ -128,6 +128,11 @@ export class MessagingApplication {
     };
   }
 
+  /** Keeps a republished-key notice from a status read nobody waited for, for the next read to tell. */
+  static returnOwnKeyRepublished(ownerPubky: string, notice: OwnMarkerRepublished): void {
+    PaykitMessagingService.returnOwnMarkerRepublished(ownerPubky, notice);
+  }
+
   /** The receiver key this device published for the account, or `null`. Local read only. */
   static async publishedReceiverKey(ownerPubky: string): Promise<string | null> {
     return await PaykitMessagingService.publishedReceiverKey(ownerPubky);
