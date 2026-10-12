@@ -300,7 +300,8 @@ Try again resends the **same** purchase, unlike D-4. You are not stuck on a spin
 
 Open the same post in two tabs and press Unlock in both.
 
-Expected: only one request goes out. Two payment requests must not arrive in Bitkit.
+Expected: both tabs use the same purchase id. Two submissions may go out, but only one payment
+request reaches Bitkit.
 
 **D-9. Reload during the payment**
 
