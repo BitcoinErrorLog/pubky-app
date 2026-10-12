@@ -427,9 +427,9 @@ describe('usePostInputLock', () => {
       expect(result.current.lockSwitch?.checked).toBe(false); // lock state reset
     });
 
-    it('reopens sign-in and keeps the lock when the session expired mid-publish', async () => {
+    it.each(['auth-expired', 'setup-required'])('reopens setup and keeps the lock after %s', async (status) => {
       setUpLocks();
-      mocks.publish.mockResolvedValue({ status: 'auth-expired' });
+      mocks.publish.mockResolvedValue({ status });
       const { result, onPublished } = setup();
 
       configureLock(result);
@@ -439,6 +439,43 @@ describe('usePostInputLock', () => {
       expect(mocks.setPostAttachments).not.toHaveBeenCalled();
       expect(onPublished).not.toHaveBeenCalled();
       expect(result.current.lockSwitch?.checked).toBe(true); // lock kept
+    });
+
+    it('keeps the USD configuration when receiving setup must be completed', async () => {
+      setUpLocks();
+      mocks.publish.mockResolvedValue({ status: 'setup-required' });
+      const { result, clearComposer, onPublished } = setup();
+      act(() => result.current.lockSwitch?.onCheckedChange(true));
+      act(() => result.current.handleLockApplied({ amount: '500', asset: 'USD' }));
+      clearComposer.mockClear();
+
+      await act(async () => result.current.submitOrPublish());
+
+      expect(result.current.isAuthDialogOpen).toBe(true);
+      expect(result.current.lockConfig).toEqual({ amount: '500', asset: 'USD' });
+      expect(clearComposer).not.toHaveBeenCalled();
+      expect(onPublished).not.toHaveBeenCalled();
+      act(() => result.current.handleAuthSuccess());
+      expect(result.current.isLockDialogOpen).toBe(false);
+      expect(result.current.lockConfig).toEqual({ amount: '500', asset: 'USD' });
+    });
+
+    it('keeps the draft without opening setup or committing when authentication was canceled', async () => {
+      setUpLocks();
+      mocks.publish.mockResolvedValue({ status: 'canceled' });
+      const { result, clearComposer, clearTags, onPublished } = setup();
+      configureLock(result);
+      clearComposer.mockClear();
+
+      await act(async () => result.current.submitOrPublish());
+
+      expect(result.current.isAuthDialogOpen).toBe(false);
+      expect(result.current.isLockConfigured).toBe(true);
+      expect(mocks.setPostAttachments).not.toHaveBeenCalled();
+      expect(mocks.toast).not.toHaveBeenCalled();
+      expect(clearComposer).not.toHaveBeenCalled();
+      expect(clearTags).not.toHaveBeenCalled();
+      expect(onPublished).not.toHaveBeenCalled();
     });
 
     it('publishes the same draft and price once the creator signs in again', async () => {

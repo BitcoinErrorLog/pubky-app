@@ -30,6 +30,7 @@ const payMocks = vi.hoisted(() => ({
 const authMocks = vi.hoisted(() => {
   const mocks = {
     isAuthenticated: true,
+    waitForAuth: vi.fn<() => Promise<boolean>>(),
     setShowSignInDialog: vi.fn(),
     requireAuth: vi.fn((action: () => unknown) => {
       if (mocks.isAuthenticated) return action();
@@ -78,7 +79,11 @@ vi.mock('@/hooks/usePurchaseResume/usePurchaseResume', () => ({
   },
 }));
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
-  useRequireAuth: () => ({ isAuthenticated: authMocks.isAuthenticated, requireAuth: authMocks.requireAuth }),
+  useRequireAuth: () => ({
+    isAuthenticated: authMocks.isAuthenticated,
+    requireAuth: authMocks.requireAuth,
+    waitForAuth: authMocks.waitForAuth,
+  }),
 }));
 vi.mock('@/molecules/DialogPayToUnlock/DialogPayToUnlock', () => ({
   DialogPayToUnlock: ({
@@ -208,6 +213,7 @@ describe('LockedPostContent', () => {
     purchasedMocks.markPurchased.mockClear();
     payMocks.viewContent.mockClear();
     authMocks.isAuthenticated = true;
+    authMocks.waitForAuth.mockImplementation(async () => authMocks.requireAuth(() => true) === true);
     authMocks.requireAuth.mockClear();
     authMocks.setShowSignInDialog.mockClear();
     vi.mocked(LocksController.fetchReplicatedContent).mockResolvedValue(null);
@@ -270,6 +276,24 @@ describe('LockedPostContent', () => {
       expect(screen.getByTestId('pay-dialog')).toHaveAttribute('data-handshake-pubky', 'pubkybob');
       expect(screen.getByTestId('pay-dialog')).toHaveAttribute('data-connection-state', 'handshake');
       expect(authMocks.requireAuth).toHaveBeenCalled();
+    });
+
+    it.each([true, false])('waits for authentication before opening a USD unlock dialog (ready: %s)', async (ready) => {
+      const auth = Promise.withResolvers<boolean>();
+      authMocks.waitForAuth.mockReturnValue(auth.promise);
+      mockLockData({
+        lockFile: asOpaque<LockFile>({ creator: 'pubkybob' }),
+        price: { amount: '500', asset: 'USD' },
+      });
+      render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+      await waitFor(() => expect(authMocks.waitForAuth).toHaveBeenCalledOnce());
+      expect(screen.queryByTestId('pay-dialog')).not.toBeInTheDocument();
+      await act(async () => auth.resolve(ready));
+
+      if (ready) expect(screen.getByTestId('pay-dialog')).toHaveTextContent('500');
+      else expect(screen.queryByTestId('pay-dialog')).not.toBeInTheDocument();
     });
 
     // Signed out, Unlock opens the sign-in dialog and no unlock modal follows — so the card never

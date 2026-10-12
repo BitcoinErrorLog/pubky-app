@@ -14,6 +14,7 @@ import { useCreateLockContent } from './useCreateLockContent';
 
 const mocks = vi.hoisted(() => ({
   createLockContent: vi.fn(),
+  waitForAuth: vi.fn<() => Promise<boolean>>(),
   fetchPaykitSetupStatus: vi.fn(),
   commitCreate: vi.fn(),
   post: vi.fn(),
@@ -68,6 +69,7 @@ describe('useCreateLockContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.fetchPaykitSetupStatus.mockResolvedValue('ready');
+    mocks.waitForAuth.mockResolvedValue(true);
     mocks.createLockContent.mockResolvedValue({
       lock_id: 'LOCK1',
       content_lock_path: '/pub/app.locks/LOCK1.json',
@@ -189,6 +191,36 @@ describe('useCreateLockContent', () => {
     const outcome = await act(() => result.current.publish());
 
     expect(outcome).toEqual({ status: 'auth-expired' });
+  });
+
+  it.each(['BTC', 'USD'] as const)('waits for app authentication before checking %s receiving setup', async (asset) => {
+    const auth = Promise.withResolvers<boolean>();
+    mocks.waitForAuth.mockReturnValue(auth.promise);
+    const { result } = renderHook(() => useCreateLockContent({ ...params(), lockConfig: { amount: '500', asset } }));
+    let publish!: ReturnType<typeof result.current.publish>;
+    act(() => {
+      publish = result.current.publish();
+    });
+
+    expect(mocks.fetchPaykitSetupStatus).not.toHaveBeenCalled();
+    expect(mocks.createLockContent).not.toHaveBeenCalled();
+    await act(async () => {
+      auth.resolve(true);
+      expect(await publish).toEqual({ status: 'published', postId: 'POST1' });
+    });
+    expect(mocks.fetchPaykitSetupStatus).toHaveBeenCalledWith(asset);
+  });
+
+  it('does not check receiving setup or publish after app authentication is canceled', async () => {
+    mocks.waitForAuth.mockResolvedValue(false);
+    const { result } = renderHook(() => useCreateLockContent(params()));
+
+    expect(await act(() => result.current.publish())).toEqual({ status: 'canceled' });
+
+    expect(mocks.fetchPaykitSetupStatus).not.toHaveBeenCalled();
+    expect(mocks.createLockContent).not.toHaveBeenCalled();
+    expect(mocks.commitCreate).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
   });
 
   it.each(['BTC', 'USD'] as const)('checks %s receiving readiness before creating content', async (asset) => {
@@ -323,3 +355,7 @@ describe('useCreateLockContent', () => {
     expect(outcome).toEqual({ status: 'failed' });
   });
 });
+
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({ waitForAuth: mocks.waitForAuth }),
+}));

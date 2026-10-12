@@ -20,6 +20,7 @@ type TLockAnnouncement = {
 };
 
 export type TUseCreateLockContentParams = {
+  active?: boolean;
   lockedPost: TLockedPost;
   announcement: TLockAnnouncement;
   /** Null until the creator applies a lock in the dialog; `publish` rejects that case. */
@@ -34,7 +35,8 @@ export type TPublishResult =
   | { status: 'published'; postId: string }
   | { status: 'auth-expired' } // the Lock Server rejected the session; the creator must sign in again
   | { status: 'setup-required' }
-  | { status: 'failed' };
+  | { status: 'failed' }
+  | { status: 'canceled' };
 
 export type TUseCreateLockContentReturn = {
   /** Publishes the lock, then its announcement. */
