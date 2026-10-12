@@ -12,8 +12,7 @@ Companions:
 - `pubky/flow-inspectorate` → `docs/manual-e2e-locks-ring-bitkit.md` — what to do inside Bitkit at each
   step. That document refers to the scenario ids used here (C-1, C-4, C-6, D-5, ...).
 
-Checked against `dev` on 2026-10-09 (`@synonymdev/locks-sdk` 0.1.0-rc9). Changes that are not merged
-yet are marked as such.
+Checked against `dev` at `7246d705a` on 2026-10-12 (`@synonymdev/locks-sdk` 0.1.0-rc9).
 
 ## The parts
 
@@ -55,8 +54,8 @@ the payment request is delivered to.
 | 2   | Press **Unlock**.                                                            | The button slides over the price. The **Pay to Unlock** modal opens with the title, the creator's avatar, **COST TO UNLOCK** and a spinner. No confirm button. | The app reads the reader's purchase record, checks that Bitkit (Paykit) is set up for this pubky, then mints a purchase id, saves it and submits the unlock request. |
 | 3   | A QR appears with "Scan with Bitkit and pay to unlock." Scan it with Bitkit. | The QR encodes the **creator's** pubky. It stays while the reader's Bitkit has no link to this creator yet.                                                    | The request is accepted. Paykit opens a private link to the reader's wallet; the wallet still needs the creator's pubky to answer, which the scan gives it.          |
 | 4   | Bitkit shows the creator as a contact and the payment request arrives.       | In the app the QR disappears. A spinner with "Please confirm in Bitkit." (desktop prefixes "Awaiting payment."; a phone shows an **AWAITING PAYMENT** label).  | The link is connected and the payment request was delivered. The app polls the Lock Server every 3 seconds.                                                          |
-| 5   | Approve the payment in Bitkit.                                               | **PAYMENT RECEIVED**, "Thank you for supporting creators!" (desktop prefixes "Unlocked."), a check mark, **View Content**.                                     | The Lock Server verified the payment, the app downloaded the content and copied it into the reader's `/priv`.                                                        |
-| 6   | Press **View Content**.                                                      | The content in place of the lock card, with the label **Unlocked**.                                                                                            |                                                                                                                                                                      |
+| 5   | Approve the payment in Bitkit.                                               | **PAYMENT RECEIVED**, "Thank you for supporting creators!" (desktop prefixes "Unlocked."), a check mark, **View Content**.                                     | The Lock Server verified the payment and the app downloaded the content. The private copy starts at step 6.                                                          |
+| 6   | Press **View Content**.                                                      | The content in place of the lock card, with the label **Unlocked**.                                                                                            | The content is shown from memory, then copied to the reader's `/priv` in the background. Closing the paid modal does the same.                                       |
 
 On a phone step 3 shows a **Pay with Bitkit** button instead of the QR. It opens
 `bitkit://contact?pubky=<creator pubky, prefixed form>`, the same screen a scan reaches.
@@ -82,7 +81,7 @@ in Bitkit.
 | "This creator cannot receive payments from you right now. Please contact support."                             | The Paykit link is `blocked`, a policy state. A new purchase does not clear it.                                                                                                                       | No                                    | The reader cannot fix it from here.                                                                                                                                                                                                        |
 | "Your Bitkit connection to this creator is being restored. Keep Bitkit open while we reconnect."               | The Paykit link is `recovery_required`.                                                                                                                                                               | Rare                                  | Keep Bitkit open and wait.                                                                                                                                                                                                                 |
 | "The payment could not continue. Try again when Bitkit is ready." with **Try again**                           | The purchase ended `failed` or `expired` (a toast said which), or the submission itself failed (toast "The payment could not be started. Try again later.").                                          | Expected after a decline or an outage | Try again. After `failed`/`expired` it starts a **new** purchase (after `failed` it checks the wallet first and shows the install screen when there is none); after a failed submission it resends the same one. Nothing is charged twice. |
-| "Payment received. The content could not be opened — nothing is lost." with **Check again**                    | The payment completed but the download or the copy into `/priv` failed. Toast "Your payment went through, but the content could not be opened. Nothing is lost — try again."                          | No                                    | Check again. Retrying is free; the entitlement is permanent.                                                                                                                                                                               |
+| "Payment received. The content could not be opened — nothing is lost." with **Check again**                    | The payment completed but the guarded content could not be downloaded. Toast "Your payment went through, but the content could not be opened. Nothing is lost — try again."                           | No                                    | Check again. Retrying is free; the entitlement is permanent.                                                                                                                                                                               |
 | "This purchase could not be checked. Close the dialog and try again."                                          | The saved purchase record could not be read from the homeserver, or a saved purchase could not be looked up on the Lock Server. Paying blind could charge twice, so the app refuses.                  | No                                    | Bring the server back, close, reopen.                                                                                                                                                                                                      |
 | **PAYMENT RECEIVED**, "Thank you for supporting creators!", **View Content**                                   | Paid and downloaded.                                                                                                                                                                                  | Yes                                   | View Content. Closing the modal here also reveals the content.                                                                                                                                                                             |
 | Dialog "The payment is still running" with **Keep waiting** / **Close anyway**                                 | You closed the modal during the submission or the wait.                                                                                                                                               | Yes                                   | Either. Closing only stops this tab's polling; the payment continues and reopening resumes it.                                                                                                                                             |
@@ -96,15 +95,22 @@ screen closes without asking, and closing the paid screen reveals the content.
 | Card                                                                                                                                     | Meaning                                                                                                                                              |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Title, **Unlock**, price                                                                                                                 | Normal. Pressing Unlock opens the modal, or the sign-in dialog when signed out.                                                                      |
-| Title, dimmed pill with `••••••` instead of a price                                                                                      | The lock file is still loading, could not be read, or has no readable price. Unlock does nothing.                                                    |
-| Dimmed card above the content, label **My locked content**                                                                               | The creator's own post. No payment involved.                                                                                                         |
+| Title, undimmed pill with a spinner                                                                                                      | The lock file is loading. Unlock is inactive until a readable price is available.                                                                    |
+| Title, dimmed pill with `••••••` instead of a price                                                                                      | The lock file could not be read or has no readable price after loading. Unlock does nothing.                                                         |
+| Dimmed card above the content, label **My locked content**                                                                               | The creator's own post. Text or attachment skeletons can appear while loading; Unlock is inactive.                                                   |
 | Content with the label **Unlocked** and a check mark                                                                                     | This reader unlocked it before. Read from the reader's own copy.                                                                                     |
 | Notice "Pubky.app needs your permission to read your Locks data on your homeserver." with **Authorize with Pubky Ring**, Unlock disabled | The session predates Locks and cannot read `/priv` (#2373). The app cannot tell whether this reader already paid, so it does not offer to pay again. |
 
-Not merged yet: #2573 (PR #2772) replaces the masked dimmed pill with a spinner while the lock file
-loads, and stops it on failure.
+The loading spinner (#2573), own-lock layout with skeletons (#2757) and IndexedDB cache (#2561)
+are merged. Cached lock files and post metadata can appear immediately; attachment bytes still load
+from the homeserver. Logout clears this cache.
 
 ## Reading again, and the Unlocked tab
+
+The private copy is best-effort: after View Content (or closing the paid modal), the app displays the
+downloaded content before copying it into `/priv`. A failed copy does not put the payment dialog on
+Check again. The visible content and PAYMENT RECEIVED screen do not prove that the private copy was
+saved; a later visit may need to recover the completed purchase again.
 
 A post the reader already unlocked opens with the content at once, no modal, even with the Lock Server
 stopped. The reader's own profile has an **Unlocked** tab listing everything unlocked, newest first,
@@ -255,8 +261,15 @@ Expected: it moves to the paid screen.
 
 **D-6. A server is down when the modal opens**
 
-1. With the homeserver stopped, press Unlock. Also: with the Lock Server stopped, open a post whose
-   purchase was already started earlier.
+1. First open a post as the reader and wait for its price to load. In DevTools Network, identify the
+   reader's purchase-record request (`/priv/social/purchases/<lockId>.json`) for an unpaid lock (close
+   the modal if you opened it to capture the request). Block that specific request URL, then press
+   Unlock again. Leave the homeserver and its other requests running. Separately, with the Lock Server
+   stopped, open a post whose purchase was already started earlier.
+
+   Do not stop `pubky-testnet` for this test: the local Locks and Paykit ports share its network
+   namespace, and restarting it discards homeserver data. Blocking the whole homeserver origin can
+   also prevent the lock price or wallet prerequisites from loading.
 
 Expected: "This purchase could not be checked. Close the dialog and try again." Nothing is submitted.
 
@@ -271,7 +284,8 @@ Expected: the request is accepted anyway. The Lock Server keeps trying to create
 until its deadline (10 minutes at the time of writing); the modal waits, and when the server gives up a
 toast says the payment failed and **Try again** shows.
 
-4. Bring the server back and reopen the modal.
+4. Remove the request block, or restart the individual Lock Server/Paykit service stopped for that
+   case, and reopen the modal.
 
 Expected: it proceeds normally.
 

@@ -12,17 +12,16 @@ Companions:
 - `pubky/flow-inspectorate` → `docs/manual-e2e-locks-ring-bitkit.md` — what to do inside Pubky Ring and
   Bitkit at each step. That document refers to the scenario ids used here (A-1, B-1, ...).
 
-Checked against `dev` on 2026-10-09 (`@synonymdev/locks-sdk` 0.1.0-rc9). Changes that are not merged
-yet are marked as such.
+Checked against `dev` at `7246d705a` on 2026-10-12 (`@synonymdev/locks-sdk` 0.1.0-rc9).
 
 ## The parts
 
-| Part            | Role for the creator                                                                                              |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **pubky-app**   | The composer, the setup dialog, the price dialog. Holds no keys and no money.                                     |
-| **Lock Server** | Stores the lock and verifies payments. The creator authorizes it once; that session is separate from the sign-in. |
-| **Pubky Ring**  | Approves the Lock Server authorization. Also approves the extra homeserver permission for old sessions (#2373).   |
-| **Bitkit**      | The payout wallet. Connected once through the Paykit setup page inside the dialog.                                |
+| Part            | Role for the creator                                                                                            |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| **pubky-app**   | The composer, the setup dialog, the price dialog. Holds no keys and no money.                                   |
+| **Lock Server** | Stores the lock and verifies payments. The creator authorizes a browser session, separate from the app sign-in. |
+| **Pubky Ring**  | Approves the Lock Server authorization. Also approves the extra homeserver permission for old sessions (#2373). |
+| **Bitkit**      | The payout wallet. Connected once through the Paykit setup page inside the dialog.                              |
 
 The pubky.app account, the Ring identity and the Bitkit wallet must be the **same key**. Until #2283
 lands, the app rejects a Lock Server authorization from another account (#2758).
@@ -63,33 +62,36 @@ lands, the app rejects a Lock Server authorization from another account (#2758).
 | 4   | Old sessions only (#2373): **Enable Locks (2/2)**. Approve in Ring again.                                                                                                   | The two steps are numbered (1/2) and (2/2) only when both were pending when the dialog opened.                                                                                   | The homeserver session is replaced by one that may read the `/priv` area. Nothing else changes; you stay signed in.                                                            |
 | 5   | **Enable Payments**: "Checking whether your Bitkit wallet is connected." then Paykit's setup page: a QR (desktop) or a button that opens Bitkit (phone). Approve in Bitkit. | If the payout account was connected before, this step is skipped after the check.                                                                                                | The Lock Server is asked whether this creator's Paykit setup is done. If not, Paykit's setup page binds the Bitkit wallet as the payout account.                               |
 | 6   | **Locks Enabled** ("You authorized the Locks server to manage your Locks data."). Press **Continue**.                                                                       |                                                                                                                                                                                  |                                                                                                                                                                                |
-| 7   | **Lock Content**: enter a **Bitcoin Amount** in sats. Press **Apply Lock**.                                                                                                 | The USD value appears next to the amount. Apply Lock stays disabled for an empty value, `0` or a negative number. A decimal is cut at the dot: `1.5` becomes `1`.                | Only the price is recorded. Nothing is uploaded yet.                                                                                                                           |
+| 7   | **Lock Content**: enter a **Bitcoin Amount** in sats. Press **Apply Lock**.                                                                                                 | The USD value appears next to the amount. Apply Lock stays disabled for an empty value or `0`. Typing `-5` gives `5`; typing `1.5` gives `15`; pasting `1.5` gives `1` (B-4).    | Only the price is recorded. Nothing is uploaded yet.                                                                                                                           |
 | 8   | The composer is now empty. Write the **teaser** and the lock title (the field inside the lock card, default "Locked content"). Press **Post**.                              | The lock card with the title and the price previews inside the composer.                                                                                                         | Publishing uploads the locked post and its files to the creator's `/priv/app.locks/content/`, registers the lock, then posts the teaser with a link to the public `lock.json`. |
 | 9   | Look at the timeline.                                                                                                                                                       | The teaser is there at once, with the lock card: title, **Unlock**, price. Readers do not see the locked content; the creator sees it under **My locked content** once it loads. |                                                                                                                                                                                |
 
-The two approvals (steps 3 and 5) happen once per account. After a page reload the dialog still opens: it
-shows the Bitkit check, then **Locks Enabled**, and Continue leads to the price dialog. Within one page
-session the switch opens the price dialog directly.
+The Bitkit payout connection (step 5) is stored server-side for the account. The Ring authorization
+(step 3) lasts while this browser retains a valid Lock Server secret. Another browser, logout, cleared
+storage or an expired secret can require Ring approval again. With a valid stored secret, a page reload
+keeps the Ring authorization: the dialog shows the Bitkit check, then **Locks Enabled**, and Continue
+leads to the price dialog. Within one page session, after setup completes, the switch opens the price
+dialog directly.
 
 ## Screens you may meet in the setup dialog
 
-| Screen                                                                                              | Meaning                                                                                                 | Normal?                                   | What to do                                                                                  |
-| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Lock Content** with Continue showing a spinner                                                    | The app is checking that the Lock Server answers.                                                       | Yes, for a moment                         | Wait.                                                                                       |
-| "The Lock Server is unavailable right now. Please try again later." and Continue disabled           | The Lock Server did not answer.                                                                         | No                                        | Check the Lock Server. The composer and the draft are untouched.                            |
-| **Enable Locks** with a QR or a Ring button                                                         | No Lock Server session for this account yet.                                                            | Yes, first time                           | Approve in Ring with the account you are signed in with.                                    |
-| **Enable Locks** again after a reload                                                               | The Lock Server rejected the stored secret when the page loaded, and the app cleared it.                | Yes, if the secret was invalidated        | Approve again. With a valid secret this is a bug.                                           |
-| "Something went wrong while authorizing the Lock Server." with **Try again**                        | Ring denied, the approval was closed, or the exchange failed.                                           | Expected after a deny                     | Try again and approve.                                                                      |
-| The same, with "Approve with the account you are signed in with."                                   | Ring approved with a different identity than the pubky.app account (#2758).                             | Expected for a wrong identity             | Approve with the right identity.                                                            |
-| **Enable Locks (1/2)** then **(2/2)**                                                               | The session predates Locks and lacks the `/priv` permission (#2373).                                    | Yes, once per old session                 | Approve both. Nothing is signed out.                                                        |
-| **Enable Payments** with "Checking whether your Bitkit wallet is connected."                        | The Lock Server is being asked whether the payout account exists (first dialog open after a page load). | Yes, for a moment                         | Wait. If the account exists the step is skipped.                                            |
-| **Enable Payments** with a QR or a Bitkit button                                                    | No payout account yet.                                                                                  | Yes, first time                           | Approve in Bitkit.                                                                          |
-| "Something went wrong while checking your Bitkit wallet." and "Payments are unavailable right now." | The Lock Server could not reach Paykit.                                                                 | No                                        | Check Paykit. Try again runs the check again.                                               |
-| "Something went wrong while connecting your Bitkit wallet."                                         | The Paykit setup page failed or was denied.                                                             | Expected after a deny                     | Try again. It runs the check first and reopens the setup only if needed.                    |
-| **Locks Enabled**                                                                                   | Everything is set up.                                                                                   | Yes                                       | Continue to the price.                                                                      |
-| The price dialog opens directly, no setup dialog                                                    | Lock Server session and payout account were both confirmed in this page session.                        | Yes, within one page session              |                                                                                             |
-| The setup dialog opens while you press **Post**                                                     | The Lock Server rejected the stored secret during publishing (401).                                     | Expected after the secret was invalidated | Press Continue, approve again, then press **Post** again. The draft and the price are kept. |
-| Toast "Something went wrong. Try again." on **Post**                                                | Publishing failed for another reason (network, server error).                                           | No                                        | Press Post again. Nothing was published.                                                    |
+| Screen                                                                                              | Meaning                                                                                                 | Normal?                                   | What to do                                                                                                                                    |
+| --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Lock Content** with Continue showing a spinner                                                    | The app is checking that the Lock Server answers.                                                       | Yes, for a moment                         | Wait.                                                                                                                                         |
+| "The Lock Server is unavailable right now. Please try again later." and Continue disabled           | The Lock Server did not answer.                                                                         | No                                        | Check the Lock Server. The composer and the draft are untouched.                                                                              |
+| **Enable Locks** with a QR or a Ring button                                                         | No Lock Server session for this account yet.                                                            | Yes, first time                           | Approve in Ring with the account you are signed in with.                                                                                      |
+| **Enable Locks** again after a reload                                                               | The Lock Server rejected the stored secret when the page loaded, and the app cleared it.                | Yes, if the secret was invalidated        | Approve again. With a valid secret this is a bug.                                                                                             |
+| "Something went wrong while authorizing the Lock Server." with **Try again**                        | Ring denied, the approval was closed, or the exchange failed.                                           | Expected after a deny                     | Try again and approve.                                                                                                                        |
+| The same, with "Approve with the account you are signed in with."                                   | Ring approved with a different identity than the pubky.app account (#2758).                             | Expected for a wrong identity             | Approve with the right identity.                                                                                                              |
+| **Enable Locks (1/2)** then **(2/2)**                                                               | The session predates Locks and lacks the `/priv` permission (#2373).                                    | Yes, once per old session                 | Approve both. Nothing is signed out.                                                                                                          |
+| **Enable Payments** with "Checking whether your Bitkit wallet is connected."                        | The Lock Server is being asked whether the payout account exists (first dialog open after a page load). | Yes, for a moment                         | Wait. If the account exists the step is skipped.                                                                                              |
+| **Enable Payments** with a QR or a Bitkit button                                                    | No payout account yet.                                                                                  | Yes, first time                           | Approve in Bitkit.                                                                                                                            |
+| "Something went wrong while checking your Bitkit wallet." and "Payments are unavailable right now." | The payout-status check failed; either the Lock Server or Paykit may be unavailable.                    | No                                        | Check the Lock Server first, then Paykit. Try again repeats the check.                                                                        |
+| "Something went wrong while connecting your Bitkit wallet."                                         | The Paykit setup page failed or was denied.                                                             | Expected after a deny                     | Try again. It runs the check first and reopens the setup only if needed.                                                                      |
+| **Locks Enabled**                                                                                   | Everything is set up.                                                                                   | Yes                                       | Continue to the price.                                                                                                                        |
+| The price dialog opens directly, no setup dialog                                                    | Lock Server session and payout account were both confirmed in this page session.                        | Yes, within one page session              |                                                                                                                                               |
+| The setup dialog opens while you press **Post**                                                     | The Lock Server rejected the stored secret during publishing (401).                                     | Expected after the secret was invalidated | Press Continue, approve again, wait for the Bitkit check, then Continue on **Locks Enabled** before **Post**. Cancel abandons the lock (B-7). |
+| Toast "Something went wrong. Try again." on **Post**                                                | Publishing failed for another reason (network, server error).                                           | No                                        | Press Post again. Nothing was published.                                                                                                      |
 
 The composer never breaks or goes blank in any of these cases. If it does, that is a bug.
 
@@ -103,16 +105,20 @@ page.
 Two conditions must both hold: the lock creator and the post author are the signed-in account. A post
 that points at someone else's lock is not "own".
 
-Current limitation (#2717): the content appears only after every attachment has downloaded. Until
-then the post shows the reader-style lock card with an active **Unlock** button. Two fixes are pending:
-#2573 (PR #2772) shows a spinner on the pill while the lock file loads, and #2757 (PR #2780, on top of
-#2561) shows the own-lock layout at once with skeletons for the attachments.
+While `lock.json` loads, the pill shows a spinner and Unlock is inactive (#2573). As soon as the lock
+file identifies your own post, the dimmed card and **My locked content** appear with a text skeleton
+until the original is read (#2757). Unlock stays inactive on your own post. If the post metadata is
+already cached, the text appears first and each attachment has a skeleton until its bytes arrive.
+Without cached metadata, the original post and attachment bytes are fetched together.
+
+The lock file and readable post metadata are cached in IndexedDB (#2561); attachment bytes are fetched
+from the homeserver. A later visit can use the cached metadata immediately. Logout clears the cache.
 
 ## Editing the teaser
 
-Open the edit dialog on the teaser. Only the teaser text and the lock title can be changed. The price
-is read-only, taken from the existing `lock.json`. After saving, the locked content and the price are
-unchanged and the post still renders as a lock card.
+Open the edit dialog on the teaser. You can change the teaser text and lock title, and add or remove
+public teaser attachments. The price is read-only, taken from the existing `lock.json`. After saving,
+the locked content and the price are unchanged and the post still renders as a lock card.
 
 ## Scenarios
 
@@ -153,14 +159,15 @@ be an article (B-2). Articles with images in the body are covered in section F.
 Open the teaser you published.
 
 Expected: the locked content is visible without payment, with the dimmed lock card above it and the
-label **My locked content**. See "Reading your own post" for the current loading limitation.
+label **My locked content**. See "Reading your own post" for the loading and cache behavior.
 
 **A-5. Edit the teaser**
 
 Open the edit dialog for the teaser.
 
-Expected: only the teaser text and the lock title can be changed; the price is read-only. After saving,
-the locked content and the price are unchanged and the post still renders as a lock card.
+Expected: the teaser text, lock title and public teaser attachments can be changed; the price is
+read-only. After saving, the locked content and the price are unchanged and the post still renders as
+a lock card.
 
 ### B. Unhappy path
 
@@ -189,12 +196,13 @@ A draft with only an attachment can be locked.
 
 **B-4. An invalid price**
 
-On the price dialog try an empty value, then `0`, then a negative number, then `1.5`.
+Clear the price field before each case: leave it empty, enter `0`, type `-5`, type `1.5`, then paste `1.5`.
 
-Expected: **Apply Lock** stays disabled for the first three (only a positive whole number of sats is
-accepted), and the cursor shows the not-allowed state. `1.5` is cut at the dot: the field shows `1` and
-Apply Lock is enabled for 1 sat. If the exchange rate cannot be loaded the dialog
-says so and the price in sats still works.
+Expected: **Apply Lock** stays disabled for an empty value and `0` (only a positive whole number of sats
+is accepted), and the cursor shows the not-allowed state. A minus sign or dot is dropped on its own
+keystroke: typing `-5` gives `5`, and typing `1.5` gives `15`, both with Apply Lock enabled. Pasting
+`1.5` stops at the dot, giving `1` with Apply Lock enabled for 1 sat. If the exchange rate cannot be
+loaded the dialog says so, and the price in sats still works.
 
 **B-5. Cancel partway through the setup**
 
@@ -206,10 +214,16 @@ half-locked.
 
 **B-6. The Lock Server is down**
 
-With the Lock Server stopped, turn the switch on.
+In a browser without a stored Lock Server secret, stop the Lock Server and turn the switch on.
 
 Expected: "The Lock Server is unavailable right now. Please try again later." with Continue disabled.
 The composer does not break or go blank.
+
+With a stored secret (after A-1 and a reload), an unreachable server does not invalidate the restored
+session. The dialog opens on **Enable Payments** and shows "Something went wrong while checking your
+Bitkit wallet." with "Payments are unavailable right now. Please try again later." and **Try again**.
+Within one page session after a completed setup, the switch opens the price dialog directly; pressing
+**Post** then shows the failure toast "Something went wrong. Try again."
 
 **B-7. The Lock Server rejects the session during publishing**
 
@@ -229,9 +243,13 @@ Steps:
 2. Write the teaser and publish.
 
 Expected: the setup dialog reopens on the **Lock Content** intro; Continue leads to **Enable Locks**.
-After you approve again the dialog closes, the draft and the price are still there, and pressing **Post**
-again publishes the lock. You never have to start over, and it never publishes as a normal unlocked
-post.
+After you approve again, the dialog checks the Bitkit connection ("Checking whether your Bitkit
+wallet is connected.") and shows **Locks Enabled**. Press **Continue** to close it: the draft and price
+are preserved, and pressing **Post** again publishes the lock.
+
+**Cancel** on Locks Enabled abandons the lock: the original locked content returns to the composer,
+and the price and teaser are discarded. Nothing is published automatically. A later **Post** can
+publish that restored draft as an ordinary, unlocked post.
 
 ### E-3. A session from before Locks (#2373)
 
@@ -357,5 +375,5 @@ never sees these messages.
    other size labels.
 5. Content with an SVG cannot be locked yet (#2683).
 6. Reloading while writing an article leaves already-uploaded images in public storage (#2687).
-7. The own-post loading limitation described in "Reading your own post" (#2717), until #2573 and #2757
-   are merged.
+7. Own posts show skeletons while their content loads. On a later visit, cached text can appear before
+   attachment bytes; see "Reading your own post" (#2573, #2757, #2561).

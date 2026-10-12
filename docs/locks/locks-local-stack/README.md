@@ -134,6 +134,16 @@ The paykit-rs version must be the one pinned in paykit-server's `Cargo.toml` for
 
 ### 4.2 Paykit Server and Lock Server
 
+Before building Locks, edit `$SRC/locks/docker/locks-server-compose-entrypoint.sh` in the rc9 build
+worktree:
+
+1. Set `frontend_session_code_ttl_seconds = 600` (120 seconds is too short for manual copy and paste).
+2. Add `"http://localhost:4000"` to `allowed_return_origins` so the app's auth iframe can return there.
+
+The Dockerfile copies this script into the image. The Compose service does **not** mount the script
+from `~/dev/synonym/locks`, so editing that other checkout and restarting a container has no effect.
+Build the patched worktree below, then retag it in 4.4.
+
 ```bash
 cd $SRC/paykit && docker buildx build --load -f Dockerfile.local -t pubky-locks-paykit-server:rc9 \
   --build-context paykit-lib='https://github.com/pubky/paykit-rs.git#v0.1.0-rc71:paykit-lib' \
@@ -183,8 +193,7 @@ that you still need, such as the rollback tags from 4.4.
 
 ### 5.1 First start
 
-On a new machine, replace the Lock Server entrypoint first (5.2 step 2), so that the rc9 Lock Server starts with an
-rc9 configuration.
+On a new machine, first build and tag the patched rc9 Lock Server image (4.2 and 4.4).
 
 ```bash
 cd ~/dev/synonym/locks
@@ -195,19 +204,32 @@ This starts `paykit-server` and everything it depends on. If some services stay 
 command once more. Check the state with `dc ps -a --format '{{.Service}}\t{{.State}}\t{{.Health}}' | sort`.
 `paykit-server` stops right away on the first start, because the generated config is not valid for rc9 yet. 5.2 fixes it.
 
+Once `locks-server` reports healthy, generate the JavaScript demo configuration explicitly:
+
+```bash
+dc run --rm --no-deps demo-config
+test -s .local/demo-config/config.json
+```
+
+`demo-config` is a sibling service, not a dependency of `paykit-server`, so the `up` command above
+never runs it. The later `authenticate` command needs this JSON. This one-off job writes only the demo
+configuration; do not rerun `paykit-config` after editing its TOML in 5.2.
+
 ### 5.2 Fix the configuration for rc9
 
 1. **Paykit config** (`.local/paykit-config/config.toml`). rc9 refuses to start when the file has a key it does not
    know.
    1. Delete the lines `receiver_path = ...` and `receiver_path_priority = ...`.
    2. In the `[paykit]` table, add `app_id = "paykit-server"` (keep `client_id`).
-2. **Lock Server entrypoint** (`docker/locks-server-compose-entrypoint.sh`, mounted into the container). Take the rc9
-   version and add two local values, so that pubky-app on port 4000 can use the sign-in flow:
+   3. In `[setup].allowed_origins`, keep the existing entries and add `"http://localhost:4000"`. This is
+      Paykit's own callback allowlist; the separate Lock Server `allowed_return_origins` does not cover it.
+2. **Lock Server entrypoint.** The image must contain the patch from 4.2. If the container already
+   existed before that build, repeat 4.2 and 4.4 with the patched build worktree, then recreate only Locks:
    ```bash
-   git show v0.1.0-rc9:docker/locks-server-compose-entrypoint.sh > docker/locks-server-compose-entrypoint.sh
+   dc up -d --no-deps --force-recreate locks-server
    ```
-   1. Set `frontend_session_code_ttl_seconds = 600` (the default 120 seconds is too short for copy and paste).
-   2. Add `"http://localhost:4000"` to `allowed_return_origins`.
+   A plain restart keeps the old image and cannot apply a changed entrypoint. Do not recreate
+   `pubky-testnet` just to apply this patch.
 3. **Paykit database.** If this Paykit database was created by an older Paykit version, rc9 cannot start, because the
    first migration's checksum changed. Empty the schema. This removes every connected creator account, so the creator
    must do the Bitkit approval again (section 9).
@@ -270,13 +292,18 @@ If new posts appear on the homeserver but not in the app, see section 12 ("Feeds
 
 Each role has its keys in `.local/<role>/` in the `locks` repository: `recovery_file`, `passphrase` and
 `profile.json`. The `examples/js-sdk` commands sign with these files, and you sign in to pubky-app with the same
-recovery file and passphrase.
+recovery file and passphrase after the role has been registered on the homeserver.
 
 ```bash
 npm --prefix examples/js-sdk install            # once
 npm --prefix examples/js-sdk run create-user -- --role content-creator
 npm --prefix examples/js-sdk run create-user -- --role content-viewer
 ```
+
+`create-user` only creates local files; it does not register the identity. For each new role, start
+pubky-app's **Pubky Ring** sign-in, copy its `pubkyauth://signin?...` URL, and approve it with
+`authenticate` in 9.1 (`content-creator` or `content-viewer` as appropriate). That command registers
+the identity before approving the app sign-in. Subsequent sign-ins can use the recovery file.
 
 1. Do not use `create-user --force` on an existing role. It overwrites the recovery file and the pubky changes.
 2. To use another account for a role, back up the three files first, then replace `recovery_file` and `passphrase`
@@ -291,10 +318,10 @@ npm --prefix examples/js-sdk run create-user -- --role content-viewer
 Homeserver v0.15 starts with an empty database every time. Lock Server and Paykit keep their databases. Recover in
 this order:
 
-1. Register both identities on the new homeserver again and republish their pkarr records.
-   **Needs fix / to confirm:** `examples/js-sdk` has no command for this with an existing identity (`create-user`
-   refuses an existing role, and `--force` makes a new key). Without this step, the creator steps fail with
-   `404 UserNotFound`, and the SDK says `Failed to resolve the DHT record`.
+1. Register both existing identities on the new homeserver again using `authenticate` with the app's
+   Pubky Ring sign-in URL, as in sections 7 and 9.1. It loads the existing role key and calls signup
+   before approving. Do not use `create-user --force`: that replaces the identity rather than restoring it.
+   Without registration the creator steps fail with `404 UserNotFound` or DHT-resolution errors.
 2. Reset the Nexus cursor. The new homeserver numbers its events from the start again, but Nexus waits for events
    after its old cursor, so new posts never reach the app:
    ```bash
@@ -316,15 +343,16 @@ after you copy the URL.
 | `pubkyauth://signin?caps=/pub/pubky.app/...`      | pubky-app sign-in with Pubky Ring, or the Locks permission step (#2373); creator or reader | 9.1      |
 | `pubkyauth://signin_grant?...&x-bitkit-claim=...` | Creator connects a Paykit account                                                          | 9.2, 9.3 |
 
-### 9.1 Lock Server sign-in
+### 9.1 App or Lock Server sign-in
 
 ```bash
 npm --prefix examples/js-sdk run authenticate -- --role content-creator --auth "pubkyauth://signin?..."
 ```
 
-pubky-app never shows this URL for a reader: readers stay anonymous to Lock Server. Use `--role content-viewer` for
-the `pubkyauth://` URLs that pubky-app shows the reader instead — the Pubky Ring sign-in and the Locks permission
-step (#2373). The same command approves them. This command works with rc9.
+Lock Server sign-in is creator-only; readers stay anonymous to Lock Server. Use `--role content-viewer`
+for the reader's app sign-in or Locks permission-upgrade URL (#2373). The same command approves them.
+It attempts homeserver signup before approval and accepts an already registered identity, so it also
+bootstraps the first app sign-in for either role (section 7). This command works with rc9.
 
 ### 9.2 Creator: Paykit key authorization — Needs fix
 
@@ -417,32 +445,32 @@ Notes:
 ## 11. Database cheat sheet
 
 ```bash
-PK='docker exec pubky-locks-paykit-demo-paykit-postgres-1 psql -U paykit -d paykit'
-LK='docker exec pubky-locks-paykit-demo-postgres-1 psql -U locks -d locks_test'
+PK() { docker exec pubky-locks-paykit-demo-paykit-postgres-1 psql -U paykit -d paykit "$@"; }
+LK() { docker exec pubky-locks-paykit-demo-postgres-1 psql -U locks -d locks_test "$@"; }
 ```
 
-| Question                                   | Query                                                                                                                                                                     |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Is the creator's Paykit account connected? | `$PK -Atc "select updated_at, next_child_index from creators"`                                                                                                            |
-| Invoices and their payment state           | `$PK -c "select * from invoices order by created_at desc limit 5"`                                                                                                        |
-| Did the payment request reach the reader?  | `$PK -c "select invoice_id, status, error_class, attempt_count, next_attempt_at from outbox where status<>'delivered' order by created_at desc limit 5"`                  |
-| Did the reader accept the request?         | `$PK -Atc "select sdk_payment_request_id, request_state from payment_request_lifecycles order by updated_at desc limit 3"`                                                |
-| Lock Server tasks                          | `$LK -c "select bundle_id, status, invoice_admission_phase, admission_deadline_at, failure_message, created_at from verification_tasks order by created_at desc limit 5"` |
+| Question                                   | Query                                                                                                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Is the creator's Paykit account connected? | `PK -Atc "select updated_at, next_child_index from creators"`                                                                                                            |
+| Invoices and their payment state           | `PK -c "select * from invoices order by created_at desc limit 5"`                                                                                                        |
+| Did the payment request reach the reader?  | `PK -c "select invoice_id, status, error_class, attempt_count, next_attempt_at from outbox where status<>'delivered' order by created_at desc limit 5"`                  |
+| Did the reader accept the request?         | `PK -Atc "select sdk_payment_request_id, request_state from payment_request_lifecycles order by updated_at desc limit 3"`                                                |
+| Lock Server tasks                          | `LK -c "select bundle_id, status, invoice_admission_phase, admission_deadline_at, failure_message, created_at from verification_tasks order by created_at desc limit 5"` |
 
 Outbox states: `handed_off` means the message was delivered and only the bookkeeping is left; it becomes `delivered`
 on the next retry. `retryable` with `error_class=link_establishment` that keeps counting up means the link is stuck
 (section 12). To retry now instead of waiting 5 minutes:
-`$PK -c "update outbox set next_attempt_at=now() where status in ('retryable','queued')"`.
+`PK -c "update outbox set next_attempt_at=now() where status in ('retryable','queued')"`.
 
 ### Resets
 
 1. **A task stuck in `pending`.** The app reuses the same bundle id while the task is pending, so it waits forever.
    Mark it failed, then press Try again in the app:
-   `$LK -c "update verification_tasks set status='failed', failure_message='local test reset' where status='pending'"`
+   `LK -c "update verification_tasks set status='failed', failure_message='local test reset' where status='pending'"`
 2. **Empty the Paykit data** (broken sessions or links). Delete `creators` together with `sdk_states`. If you delete
    only `sdk_states`, Paykit does not start (`creator integrity check failed`). Afterwards, redo 9.2 to 9.4.
    ```bash
-   $PK -c "delete from outbox; delete from bitcoin_observations; delete from invoices; delete from reader_assignments; delete from sdk_states; delete from creators;"
+   PK -c "delete from outbox; delete from bitcoin_observations; delete from invoices; delete from reader_assignments; delete from sdk_states; delete from creators;"
    docker restart pubky-locks-paykit-demo-paykit-server-1
    ```
 3. Homeserver data: with v0.15 there is nothing to reset. Every testnet start uses a new temporary database
@@ -541,10 +569,11 @@ PUBKY_RUNTIME_PAYKIT_SERVER_URL=http://localhost:3001
 ```
 
 1. Without `PUBKY_RUNTIME_LOCK_SERVER` and `PUBKY_RUNTIME_PAYKIT_SERVER_URL`, the app hides the Locks features.
-2. `npm run build && npm run start` runs in production mode, which also requires
-   `PUBKY_RUNTIME_SHOP_URL` (for example `https://shop.staging.pubky.app/marketplace`) and every value in the block
-   above, including `PUBKY_RUNTIME_ENV`.
+2. `npm run build && PORT=4000 npm run start` keeps the app on port 4000 (Locks uses 3000) and runs in
+   production mode, which also requires `PUBKY_RUNTIME_SHOP_URL` (for example
+   `https://shop.staging.pubky.app/marketplace`) and every value in the block above, including `PUBKY_RUNTIME_ENV`.
 3. `PUBKY_RUNTIME_ENV=production` turns off the staging homeserver sign-in guard. With `staging`, every sign-in
    resolves the account's homeserver through the local PKARR relay and compares it with `PUBKY_RUNTIME_HOMESERVER`;
    that works on the local stack only when the relay answers, so `production` is the safer value here.
-4. Sign in to the app with the recovery file and passphrase from `.local/<role>/` (section 7).
+4. For a new role, first register it with the app's Pubky Ring sign-in URL and `authenticate`
+   (sections 7 and 9.1). Once registered, sign in with the recovery file and passphrase from `.local/<role>/`.
