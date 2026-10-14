@@ -124,6 +124,20 @@ describe('DialogTerms', () => {
     expect(screen.getByText(/Effective Date: January 29, 2026/)).toBeInTheDocument();
     expect(screen.getByText(/PLEASE REVIEW THE ARBITRATION PROVISION/)).toBeInTheDocument();
   });
+
+  // This deployment offers Pubchi, which sends a question and the context assembled to
+  // answer it to a third-party model provider. These assertions fail if that disclosure is
+  // dropped, including by an upstream merge that overwrites this file.
+  it('discloses the Pubchi outbound flow', () => {
+    render(<DialogTerms />);
+
+    expect(screen.getByText(/PUBCHI, YOUR PERSONAL BOT/)).toBeInTheDocument();
+    expect(screen.getByText(/passed to a third-party provider of AI language models/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your identity secret, your recovery phrase and your device key never leave/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/It is not advice of any kind/)).toBeInTheDocument();
+  });
 });
 
 describe('DialogTerms - Snapshots', () => {

@@ -511,6 +511,64 @@ export function DialogPrivacy({ trigger }: DialogPrivacyProps) {
               required by law. We will also post an updated copy on our Platform. Please check our Platform periodically
               for updates.
             </Typography>
+
+            {/** Section 17 */}
+            <Typography className={baseCSS}>PUBCHI</Typography>
+            <Typography className={baseCSS}>
+              This section applies only if you enroll a Pubchi. If you do not, none of it happens.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>What we process.</strong> When you enroll and use a Pubchi, we process the record binding your
+              Pubchi to your account, including your public key and your Pubchi’s key; the content of each request you
+              make, meaning your question, the conversation so far, the context assembled for it, the feed you are
+              working on and the subject you named; the signed request accompanying it, which carries your public key,
+              your Pubchi’s key, the purpose of the request, a hash of the request, timestamps and a single-use value
+              that prevents replay; the answer returned; and the drafts, suggestions and records your Pubchi writes into
+              your own Pubky storage.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Why.</strong> To answer the question you asked, to keep the feature working, to stop abuse of it,
+              and for no other purpose. We do not use your questions to advertise to you, and we do not sell them.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Who receives it.</strong> To generate an answer, part of your request is disclosed to a
+              third-party provider of AI language models. That means the substance of your question, and the material
+              assembled to answer it, is seen by a company other than Synonym. We choose that provider on terms that
+              forbid it from using your material to train its models or for any purpose other than returning the answer.
+              You can ask us which provider is in use at any time by writing to{' '}
+              <Link href={EMAIL_PRIVACY_URL}>privacy@synonym.to</Link>.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Where it goes.</strong> That provider may process your request outside the country you are in,
+              including outside the United Kingdom and the European Economic Area. Where it does, we rely on appropriate
+              safeguards for the transfer, including the Standard Contractual Clauses approved for that purpose under
+              Articles 44 to 49 GDPR. You can request a copy of the safeguards we rely on by writing to{' '}
+              <Link href={EMAIL_PRIVACY_URL}>privacy@synonym.to</Link>.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>What we do not receive.</strong> Your identity secret, your recovery phrase and your device
+              signing key never leave your device, and never reach us or the provider.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>How long.</strong> We keep a request and its answer only for as long as needed to return the
+              answer, to diagnose faults, and to detect and investigate abuse, and then delete them or reduce them to
+              statistics that no longer identify a request. In practice this is a short period measured in days, not
+              years. The drafts and records your Pubchi writes into your own Pubky storage are yours and stay until you
+              delete them.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Your choices.</strong> Enrolling a Pubchi is your decision and the feature does nothing until you
+              make it. You can stop using it, unenroll your Pubchi, and delete what it wrote into your own storage. The
+              rights set out elsewhere in this Policy apply to everything above. What has already been disclosed to the
+              provider for a past request is held under that provider’s terms, which is why those terms forbid it from
+              keeping your material for its own purposes.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Other people’s information.</strong> If you ask your Pubchi about another person, that person’s
+              information is included in what is sent for processing. You are responsible for what you ask. We do not
+              build profiles of people from Pubchi questions, and we do not use one person’s questions to answer another
+              person’s.
+            </Typography>
           </Container>
         </Container>
       </DialogContent>
