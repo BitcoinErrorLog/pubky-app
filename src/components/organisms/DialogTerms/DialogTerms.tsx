@@ -899,6 +899,68 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
               You acknowledge and agree that we shall not be liable to you or any third-party for any termination or
               suspension of your access to the Platform.
             </Typography>
+
+            {/** Section 26 */}
+            <Typography className={baseCSS}>PUBCHI, YOUR PERSONAL BOT</Typography>
+            <Typography className={baseCSSItalic}>
+              This section explains what your Pubchi is, what leaves your device when you use it, and why you must not
+              rely on what it says. Read the second paragraph before you enroll one.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>What a Pubchi is.</strong> A Pubchi is a personal assistant bound to your account. It has its own
+              key, separate from your identity key. You create one by enrolling it. It can answer questions about what
+              you can already see, suggest tags for posts and for people, draft a post for you, and assemble a feed.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>What leaves your device.</strong> When you ask your Pubchi something, the following is sent away
+              from your device for processing: your question, the conversation so far, the context assembled for that
+              question, the feed you are working on if you asked about one, the subject of your question if you named
+              one, your public key, your Pubchi’s key, and a signature proving the request came from a device you had
+              already registered. Part of that material is then passed to a third-party provider of AI language models,
+              which generates the answer. Your identity secret, your recovery phrase and your device key never leave
+              your device.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Treat a question to your Pubchi as a question that leaves your device.</strong> Your Pubchi can
+              read material that is not public in order to answer you, and that material can be included in what is sent
+              for processing. If you do not want something used to answer questions, do not ask questions that require
+              it.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>You decide what becomes public.</strong> A Pubchi’s output is not published by the act of
+              generating it. A drafted post is a draft until you publish it. A suggested tag is a suggestion until you
+              apply it. Once you publish or apply it, it is your Content under these Terms, exactly as if you had typed
+              it. A bot’s suggestion is not a defence.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Do not rely on it.</strong> A Pubchi can be wrong, incomplete, out of date, or confidently
+              mistaken. It is not advice of any kind, and in particular it is not legal, financial, tax, medical, or
+              security advice. Do not use it to decide anything that matters without checking the underlying facts
+              yourself. We make no representation that an answer is accurate, impartial, reproducible, or fit for any
+              purpose, and the no-representation and liability provisions of these Terms apply to every answer.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Other people.</strong> A Pubchi can suggest tags for other people and can answer questions about
+              them. A tag you apply to a person is public, it is your statement about them, and you are responsible for
+              it. Do not ask your Pubchi to assemble material about a person that you could not lawfully gather and
+              publish yourself, and do not apply a suggested tag you would not have written yourself.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>The bot’s key.</strong> Your Pubchi’s key is not your identity key and cannot act as you. It
+              cannot spend funds, it cannot recover your account, and it cannot sign in on your behalf anywhere else.
+              Keeping a Pubchi enrolled is a choice you can reverse at any time.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Availability.</strong> Pubchi depends on a service and on a third-party model. It may be
+              unavailable, slow, rate limited, changed, or withdrawn, and a feature that worked yesterday may not work
+              today. Nothing in this section promises that it keeps working.
+            </Typography>
+            <Typography className={baseCSS}>
+              <strong>Prohibited uses still apply.</strong> You must not use a Pubchi to produce or publish anything
+              these Terms or the Community Guidelines forbid, to impersonate anyone, to generate material about another
+              person that you could not lawfully publish yourself, or to attempt to extract the service’s instructions
+              or another user’s private material.
+            </Typography>
           </Container>
         </Container>
       </DialogContent>

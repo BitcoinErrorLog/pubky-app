@@ -124,6 +124,18 @@ describe('DialogPrivacy', () => {
     expect(screen.getByText(/Effective Date: January 29, 2026/)).toBeInTheDocument();
     expect(screen.getAllByText(/Synonym Software Ltd/).length).toBeGreaterThan(0);
   });
+
+  // Pubchi discloses a question and its assembled context to a third-party model provider,
+  // which is a recipient and may be an international transfer. These assertions fail if
+  // either disclosure is dropped, including by an upstream merge that overwrites this file.
+  it('discloses the Pubchi recipient and transfer', () => {
+    render(<DialogPrivacy />);
+
+    expect(screen.getByText(/^PUBCHI$/)).toBeInTheDocument();
+    expect(screen.getByText(/disclosed to a third-party provider of AI language models/)).toBeInTheDocument();
+    expect(screen.getByText(/outside the United Kingdom and the European Economic Area/)).toBeInTheDocument();
+    expect(screen.getByText(/forbid it from using your material to train its models/)).toBeInTheDocument();
+  });
 });
 
 describe('DialogPrivacy - Snapshots', () => {
