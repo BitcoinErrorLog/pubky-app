@@ -5,18 +5,27 @@ Paykit Server, a Pubky homeserver testnet and a regtest Bitcoin chain. There is 
 act as Bitkit from the terminal: you approve the creator's Paykit setup, you receive the reader's payment request, and
 you pay it with `bitcoin-cli`.
 
-**Status with `@synonymdev/locks-sdk` `0.1.0-rc9` (2026-10-08).** Several commands that `locks` and `paykit-server`
-ship do not work as shipped with rc9. Those steps are marked **Needs fix / to confirm** and are listed in section 13.
-They have to be fixed in `locks` or `paykit-server`; this runbook does not carry workarounds. The full flow (approval,
-payment, unlock) was verified on rc9 with local workarounds for those steps. The first start on a new machine
-(section 5.1) and the pubky-app values (section 14) were written from the stack configuration and not run from scratch.
+**Version contract checked on 2026-10-15.** The app at `ef6ad207e` installs Locks SDK
+`0.1.0-rc9+git.c692fb70522c`. Build Lock Server from that same source commit, **not** the stock rc9
+tag: the SDK sends `GET /creator/paykit/setup-status?asset=BTC`, which stock rc9 rejects. Section 3
+pins the compatible source revisions; section 4 uses them for the images and local helper checkout.
+
+The original 2026-10-08 notes reported a full rc9 payment/unlock flow with local helper workarounds.
+That is not a fresh-stack validation of the recipe below. The helper gaps remain marked **Needs fix /
+to confirm** in section 13; this runbook does not supply those missing helpers. The revised version
+pairing is checked against source, and the reset SQL against a disposable database. Local stack startup,
+account registration, Ring/Bitkit approvals and payments still need a live pass.
 
 ---
 
 ## 0. Conventions
 
 1. Repositories are cloned under `~/dev/synonym/`: `locks`, `paykit-server`, `pubky-app`, `pubky-nexus`.
-2. Run commands from the `locks` repository root, unless a step says otherwise.
+2. For a new stack, run commands from the pinned Locks worktree created in 4.1:
+   `SRC="$HOME/dev/synonym/locks-local-build"`, then `cd "$SRC/locks"`. It owns the Compose file,
+   helper scripts and `.local/` state. Keep this directory between runs. An existing stack must keep
+   its original Compose directory and `.local/` state; update that clean checkout to the same source
+   pin instead of starting another directory against the same Compose project.
 3. Helper alias used below:
    ```bash
    dc() { docker compose -f compose.paykit-local-demo.yaml "$@"; }
@@ -95,20 +104,30 @@ and the homeserver from their public Git repositories.
 build fails and the Docker VM can become read-only (section 12). To free space, use `docker builder prune -af`
 (section 4.5). Never delete volumes.
 
-These three versions must match. Older combinations fail in ways that are hard to see.
+Use these exact revisions together. The app dependency's `rc9` version prefix alone is not a
+compatibility check; its source suffix matters.
 
-| Component          | Version                                                 | Image tag that Compose uses                    |
-| ------------------ | ------------------------------------------------------- | ---------------------------------------------- |
-| Lock Server        | locks `v0.1.0-rc9`                                      | `pubky-locks-paykit-demo-locks-server:latest`  |
-| Paykit Server      | paykit-server `v0.1.0-rc9` with paykit-rs `v0.1.0-rc71` | `pubky-locks-paykit-server:local`              |
-| Homeserver testnet | pubky-homeserver `v0.15.0`                              | `pubky-locks-paykit-demo-pubky-testnet:latest` |
+| Component          | Version                                                                  | Image tag that Compose uses                    |
+| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------- |
+| Lock Server        | locks `c692fb70522cf75025b86ad72a3b98fa7ef84e72` (SDK source, Locks #75) | `pubky-locks-paykit-demo-locks-server:latest`  |
+| Paykit Server      | paykit-server `v0.1.0-rc9` with paykit-rs `v0.1.0-rc71`                  | `pubky-locks-paykit-server:local`              |
+| Homeserver testnet | pubky-homeserver `v0.15.0`                                               | `pubky-locks-paykit-demo-pubky-testnet:latest` |
 
 Why these versions:
 
 1. The rc9 Pubky SDK uses the homeserver write-lock API. Homeserver v0.11 fails with `acquire Pubky write lock`.
-2. rc9 Lock Server needs the `paid_on_time` field, which only rc9 Paykit sends.
+2. The matching Lock Server accepts the SDK's denomination-aware setup request and quoted lock
+   prices. Stock rc9 rejects that setup request before the creator can publish.
+3. Paykit `v0.1.0-rc9` (`f7029fcd20a9a69a63daca396328289d6dcd1d8b`) includes #47's asset-aware
+   setup/quote contract and `paid_on_time`. Keep its `[usdt]` section absent for this Bitcoin regtest
+   flow; the walkthroughs use Bitcoin prices unless stated otherwise.
 
-The `locks` compose file pins neither of them (section 13, issues 6 and 7), so you build these images yourself.
+Source contracts: [SDK request](https://github.com/pubky/locks/blob/c692fb70522cf75025b86ad72a3b98fa7ef84e72/locks-sdk/src/creator.rs),
+[matching handler](https://github.com/pubky/locks/blob/c692fb70522cf75025b86ad72a3b98fa7ef84e72/locks-server/src/api/paykit.rs)
+and [Paykit #47](https://github.com/pubky/paykit-server/pull/47).
+
+The stock rc9 Compose defaults are older (section 13, issues 6 and 7). The Locks source pin above
+updates Paykit's default to #47, but still needs the explicit images and homeserver recipe below.
 
 Check what is running:
 
@@ -125,16 +144,27 @@ You only need this when you set up the stack for the first time, or when you mov
 ### 4.1 Source checkouts
 
 ```bash
-SRC=/tmp/rc-build
-cd ~/dev/synonym/paykit-server && git fetch --tags && git worktree add -f --detach $SRC/paykit v0.1.0-rc9
-cd ~/dev/synonym/locks && git fetch --tags && git worktree add -f --detach $SRC/locks v0.1.0-rc9
+SRC="$HOME/dev/synonym/locks-local-build"
+LOCKS_SOURCE=c692fb70522cf75025b86ad72a3b98fa7ef84e72
+PAYKIT_SOURCE=f7029fcd20a9a69a63daca396328289d6dcd1d8b
+mkdir -p "$SRC"
+cd ~/dev/synonym/paykit-server
+git fetch origin "$PAYKIT_SOURCE"
+git worktree add --detach "$SRC/paykit" "$PAYKIT_SOURCE"
+cd ~/dev/synonym/locks
+git fetch origin "$LOCKS_SOURCE"
+git worktree add --detach "$SRC/locks" "$LOCKS_SOURCE"
 ```
+
+For an existing worktree, verify `git rev-parse HEAD` against these pins instead of adding it again.
+Do not discard its local entrypoint edits or `.local/` state. The Paykit tag below remains `rc9`; the
+Locks image uses `c692fb70522c` so it cannot be confused with the incompatible stock rc9 image.
 
 The paykit-rs version must be the one pinned in paykit-server's `Cargo.toml` for that tag.
 
 ### 4.2 Paykit Server and Lock Server
 
-Before building Locks, edit `$SRC/locks/docker/locks-server-compose-entrypoint.sh` in the rc9 build
+Before building Locks, edit `$SRC/locks/docker/locks-server-compose-entrypoint.sh` in the pinned build
 worktree:
 
 1. Set `frontend_session_code_ttl_seconds = 600` (120 seconds is too short for manual copy and paste).
@@ -145,12 +175,12 @@ from `~/dev/synonym/locks`, so editing that other checkout and restarting a cont
 Build the patched worktree below, then retag it in 4.4.
 
 ```bash
-cd $SRC/paykit && docker buildx build --load -f Dockerfile.local -t pubky-locks-paykit-server:rc9 \
+cd "$SRC/paykit" && docker buildx build --load -f Dockerfile.local -t pubky-locks-paykit-server:rc9 \
   --build-context paykit-lib='https://github.com/pubky/paykit-rs.git#v0.1.0-rc71:paykit-lib' \
   --build-context paykit-sdk='https://github.com/pubky/paykit-rs.git#v0.1.0-rc71:paykit-sdk' \
-  --build-context locks='https://github.com/pubky/locks.git#v0.1.0-rc9' .
+  --build-context locks='https://github.com/pubky/locks.git#c692fb70522cf75025b86ad72a3b98fa7ef84e72' .
 
-cd $SRC/locks && docker build -f Dockerfile -t pubky-locks-paykit-demo-locks-server:rc9 .
+cd "$SRC/locks" && docker build -f Dockerfile -t pubky-locks-paykit-demo-locks-server:c692fb70522c .
 ```
 
 ### 4.3 Homeserver testnet v0.15.0 — Needs fix / to confirm
@@ -168,7 +198,7 @@ Keep the old images under a second tag, so that you can roll back.
 docker tag pubky-locks-paykit-server:local pubky-locks-paykit-server:pre-rc9 2>/dev/null
 docker tag pubky-locks-paykit-server:rc9 pubky-locks-paykit-server:local
 docker tag pubky-locks-paykit-demo-locks-server:latest pubky-locks-paykit-demo-locks-server:pre-rc9 2>/dev/null
-docker tag pubky-locks-paykit-demo-locks-server:rc9 pubky-locks-paykit-demo-locks-server:latest
+docker tag pubky-locks-paykit-demo-locks-server:c692fb70522c pubky-locks-paykit-demo-locks-server:latest
 docker tag pubky-locks-paykit-demo-pubky-testnet:latest pubky-locks-paykit-demo-pubky-testnet:v0.11.0 2>/dev/null
 docker tag pubky-locks-paykit-demo-pubky-testnet:v0.15.0 pubky-locks-paykit-demo-pubky-testnet:latest
 ```
@@ -193,10 +223,10 @@ that you still need, such as the rollback tags from 4.4.
 
 ### 5.1 First start
 
-On a new machine, first build and tag the patched rc9 Lock Server image (4.2 and 4.4).
+On a new machine, first build and tag the patched `c692fb70522c` Lock Server image (4.2 and 4.4).
 
 ```bash
-cd ~/dev/synonym/locks
+cd "$SRC/locks"
 LOCKS_CREATOR_DEMO_PORT=8090 docker compose -f compose.paykit-local-demo.yaml up -d paykit-server
 ```
 
@@ -226,7 +256,7 @@ configuration; do not rerun `paykit-config` after editing its TOML in 5.2.
 2. **Lock Server entrypoint.** The image must contain the patch from 4.2. If the container already
    existed before that build, repeat 4.2 and 4.4 with the patched build worktree, then recreate only Locks:
    ```bash
-   dc up -d --no-deps --force-recreate locks-server
+   LOCKS_CREATOR_DEMO_PORT=8090 dc up -d --no-deps --force-recreate locks-server
    ```
    A plain restart keeps the old image and cannot apply a changed entrypoint. Do not recreate
    `pubky-testnet` just to apply this patch.
@@ -301,7 +331,7 @@ npm --prefix examples/js-sdk run create-user -- --role content-viewer
 ```
 
 `create-user` only creates local files; it does not register the identity. For each new role, start
-pubky-app's **Pubky Ring** sign-in, copy its `pubkyauth://signin?...` URL, and approve it with
+pubky-app's **Pubky Ring** sign-in, copy its `pubkyauth://signin_grant?...` URL, and approve it with
 `authenticate` in 9.1 (`content-creator` or `content-viewer` as appropriate). That command registers
 the identity before approving the app sign-in. Subsequent sign-ins can use the recovery file.
 
@@ -340,7 +370,7 @@ after you copy the URL.
 | URL shape                                         | Meaning                                                                                    | Section  |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------- |
 | `pubkyauth://signin?caps=/pub/app.locks/...`      | Sign in to Lock Server (creator)                                                           | 9.1      |
-| `pubkyauth://signin?caps=/pub/pubky.app/...`      | pubky-app sign-in with Pubky Ring, or the Locks permission step (#2373); creator or reader | 9.1      |
+| `pubkyauth://signin_grant?...&cid=pubky.app&...`  | pubky-app sign-in with Pubky Ring, or the Locks permission step (#2373); creator or reader | 9.1      |
 | `pubkyauth://signin_grant?...&x-bitkit-claim=...` | Creator connects a Paykit account                                                          | 9.2, 9.3 |
 
 ### 9.1 App or Lock Server sign-in
@@ -350,9 +380,12 @@ npm --prefix examples/js-sdk run authenticate -- --role content-creator --auth "
 ```
 
 Lock Server sign-in is creator-only; readers stay anonymous to Lock Server. Use `--role content-viewer`
-for the reader's app sign-in or Locks permission-upgrade URL (#2373). The same command approves them.
+for the reader's app sign-in or Locks permission-upgrade URL (#2373). Pass the complete URL the app
+shows, including `cid`, `cpk` and the relay; app sign-in uses `signin_grant`, while Lock Server sign-in
+still uses `signin`. The helper passes either URL to the SDK's `approveAuthRequest`.
 It attempts homeserver signup before approval and accepts an already registered identity, so it also
-bootstraps the first app sign-in for either role (section 7). This command works with rc9.
+bootstraps registration for either role (section 7). Live grant approval with the current app remains
+part of the validation still needed at the top of this runbook.
 
 ### 9.2 Creator: Paykit key authorization — Needs fix
 
@@ -467,12 +500,60 @@ on the next retry. `retryable` with `error_class=link_establishment` that keeps 
 1. **A task stuck in `pending`.** The app reuses the same bundle id while the task is pending, so it waits forever.
    Mark it failed, then press Try again in the app:
    `LK -c "update verification_tasks set status='failed', failure_message='local test reset' where status='pending'"`
-2. **Empty the Paykit data** (broken sessions or links). Delete `creators` together with `sdk_states`. If you delete
-   only `sdk_states`, Paykit does not start (`creator integrity check failed`). Afterwards, redo 9.2 to 9.4.
+2. **Empty this disposable local Paykit database** (broken sessions or links). This deletes creator
+   payout registrations, invoice history and drain state. Stop browser/demo payment activity and any
+   terminal `receive` process first. Stop both producers, keeping PostgreSQL and `pubky-testnet` running:
+
    ```bash
-   PK -c "delete from outbox; delete from bitcoin_observations; delete from invoices; delete from reader_assignments; delete from sdk_states; delete from creators;"
-   docker restart pubky-locks-paykit-demo-paykit-server-1
+   dc stop locks-server paykit-server creator-demo reader-demo
+   PK -c "COPY (SELECT creator_lookup_hash, next_child_index FROM creators) TO STDOUT WITH CSV HEADER" > paykit-reset-address-indices.csv
+   docker exec pubky-locks-paykit-demo-paykit-postgres-1 pg_dump -U paykit -d paykit > paykit-before-reset.sql
+   docker exec pubky-locks-paykit-demo-postgres-1 pg_dump -U locks -d locks_test > locks-before-paykit-reset.sql
    ```
+
+   Verify both dumps succeeded before continuing. Preserve the recorded address indices: after
+   reapproval, raise each creator's `next_child_index` to at least its saved next index before any new
+   invoice (9.3, note 3), or use a fresh regtest account descriptor. Do not reuse already-paid addresses.
+   Abandon outstanding **local test** purchases so restarting Locks cannot resume their old invoices,
+   then reset all dependent rc9 Paykit tables in one statement:
+
+   ```bash
+   LK -v ON_ERROR_STOP=1 -c "UPDATE verification_tasks SET status='failed', failure_message='local Paykit reset' WHERE status IN ('pending', 'in_progress');"
+   PK -v ON_ERROR_STOP=1 -c "TRUNCATE TABLE
+     payment_drain_cancellations,
+     payment_drain_items,
+     payment_drains,
+     payment_request_lifecycles,
+     invoice_timely_amount_matched_outpoints,
+     bitcoin_observations,
+     usdt_observations,
+     outbox,
+     invoices,
+     lock_payment_generations,
+     reader_assignments,
+     creators;"
+   ```
+
+   This preserves `deployment_metadata`, `_sqlx_migrations`, configuration and server identities.
+   It deliberately uses an explicit `TRUNCATE` set, without `CASCADE`: ordinary drain deletion runs a
+   completion/generation trigger and cannot implement a full reset of active drains. rc9 has no
+   `sdk_states` table; do not copy old reset commands that mention it. The table set follows the
+   [rc9 migrations](https://github.com/pubky/paykit-server/tree/f7029fcd20a9a69a63daca396328289d6dcd1d8b/paykit-server/migrations),
+   including lifecycle, generation, drain/cancellation and USDT dependencies.
+
+   After both SQL commands succeed, start the existing containers without regenerating config:
+
+   ```bash
+   docker start pubky-locks-paykit-demo-paykit-server-1 &&
+     curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:3001/health/ready &&
+     docker start pubky-locks-paykit-demo-locks-server-1 &&
+     curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:3000/readyz
+   ```
+
+   Wait for each readiness check to succeed before the next service or any approval. Redo 9.2–9.4,
+   restore the address-index floor, and use new lock posts for new tests. Keep the demo workers stopped
+   while using terminal helpers (rule 5). No live stack should use this destructive test reset.
+
 3. Homeserver data: with v0.15 there is nothing to reset. Every testnet start uses a new temporary database
    (`pubky_test_*`).
 
@@ -493,7 +574,7 @@ on the next retry. `retryable` with `error_class=link_establishment` that keeps 
 | `{"error":"state_busy"}`                                                                        | Another reader process uses the same state (an earlier `receive`, or the `reader-demo` worker)  | Stop the other process (rule 5, rule 8)                                                           |
 | Task `failed` with `invoice admission deadline exceeded`                                        | Paykit was down for more than 10 minutes                                                        | Start Paykit (rule 4), Try again in the app                                                       |
 | `paykit-server` dies with `configuration TOML is invalid`                                       | `paykit-config` job overwrote the config                                                        | Section 5.2 step 1, then `docker start`                                                           |
-| `paykit-server` dies with `creator integrity check failed`                                      | `sdk_states` deleted without `creators`                                                         | Section 11, reset 2                                                                               |
+| `paykit-server` dies with `creator integrity check failed`                                      | Creator credentials fail integrity checks, for example after a master-key mismatch              | Section 11, reset 2                                                                               |
 | Payments stay undetected; Paykit log repeats `Trying to connect to ...:50001`                   | Fulcrum is not serving. After a day off, bitcoind is back in initial block download             | Mine one block (below)                                                                            |
 | Feeds do not show new posts                                                                     | Nexus cursor after a testnet restart, or `nexusd` lost the homeserver                           | Section 8 step 2, or restart `nexusd`                                                             |
 | Homeserver file: `HEAD` 200 but `GET` 404                                                       | File contents lost on the homeserver                                                            | Publish the lock again                                                                            |
@@ -516,8 +597,10 @@ nc -z -G 3 127.0.0.1 60001 && echo fulcrum open
 
 ## 13. Known issues with rc9 commands (needs fix / to confirm)
 
-These have to be fixed in `locks` or `paykit-server`. "Checked at rc10" means the issue is still in the
-`v0.1.0-rc10` tag of that repository.
+These are the original helper limitations, separate from the SDK/server compatibility fix in
+section 3. They have to be fixed in `locks` or `paykit-server`; the version pairing does not make the
+terminal approval/payment flow complete. "Checked at rc10" below records the original author's
+check of that tag, not a live validation performed for the 2026-10-15 documentation update.
 
 1. **Bitkit approval** (`authenticate-paykit`, `locks`): does not send `key_generation`, which the rc9 companion
    helper requires. Result: `invalid input`. Checked at rc10.
@@ -535,7 +618,8 @@ These have to be fixed in `locks` or `paykit-server`. "Checked at rc10" means th
    (the value is `bitkit`). To confirm how they should run with rc9.
 6. **Compose pins an old Paykit** (`locks`): `compose.paykit-local-demo.yaml` builds paykit-server `0.1.0-rc7` with
    paykit-rs `v0.1.0-rc59`, which does not send `paid_on_time`. With the default build, payments never complete.
-   Checked at rc10.
+   This is the stock rc9 default. The `c692fb70522c` source pin updates it to Paykit #47 and paykit-rs
+   rc71; sections 3–4 still pin the images explicitly.
 7. **Testnet pins homeserver v0.11.0** (`locks`): the rc9 SDK needs v0.15 or newer. Checked at rc10.
 8. **rc10 adds a reader step** (to confirm when moving to rc10): paykit-server rc10 requires the reader's signed
    Noise Key Authorization at invoice admission, so the reader flow will need its own key authorization step.
@@ -547,7 +631,14 @@ These have to be fixed in `locks` or `paykit-server`. "Checked at rc10" means th
 ```bash
 cd ~/dev/synonym/pubky-app
 npm ci
-grep '"version"' node_modules/@synonymdev/locks-sdk/package.json     # expect 0.1.0-rc9 or newer
+node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+const sdk = JSON.parse(readFileSync('node_modules/@synonymdev/locks-sdk/package.json', 'utf8'));
+if (sdk.locksSourceCommit !== 'c692fb70522cf75025b86ad72a3b98fa7ef84e72') {
+  throw new Error('Recheck the SDK/server pins before using this runbook');
+}
+console.log(sdk.version, sdk.locksSourceCommit);
+NODE
 PORT=4000 npm run dev -- --webpack
 ```
 
@@ -569,9 +660,9 @@ PUBKY_RUNTIME_PAYKIT_SERVER_URL=http://localhost:3001
 ```
 
 1. Without `PUBKY_RUNTIME_LOCK_SERVER` and `PUBKY_RUNTIME_PAYKIT_SERVER_URL`, the app hides the Locks features.
-2. `npm run build && PORT=4000 npm run start` keeps the app on port 4000 (Locks uses 3000) and runs in
-   production mode, which also requires `PUBKY_RUNTIME_SHOP_URL` (for example
-   `https://shop.staging.pubky.app/marketplace`) and every value in the block above, including `PUBKY_RUNTIME_ENV`.
+2. `npm run build && PORT=4000 npm run start` keeps the app on port 4000 (Locks uses 3000).
+   Production requires all network values in the block above, including `PUBKY_RUNTIME_ENV`.
+   `PUBKY_RUNTIME_SHOP_URL` was removed with the embedded Shop; it is not part of this configuration.
 3. `PUBKY_RUNTIME_ENV=production` turns off the staging homeserver sign-in guard. With `staging`, every sign-in
    resolves the account's homeserver through the local PKARR relay and compares it with `PUBKY_RUNTIME_HOMESERVER`;
    that works on the local stack only when the relay answers, so `production` is the safer value here.

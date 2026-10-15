@@ -12,7 +12,8 @@ Companions:
 - `pubky/flow-inspectorate` → `docs/manual-e2e-locks-ring-bitkit.md` — what to do inside Pubky Ring and
   Bitkit at each step. That document refers to the scenario ids used here (A-1, B-1, ...).
 
-Checked against `dev` at `7246d705a` on 2026-10-12 (`@synonymdev/locks-sdk` 0.1.0-rc9).
+Checked against `dev` at `ef6ad207e` on 2026-10-15
+(`@synonymdev/locks-sdk` `0.1.0-rc9+git.c692fb70522c`).
 
 ## The parts
 
@@ -53,6 +54,11 @@ lands, the app rejects a Lock Server authorization from another account (#2758).
 | The draft and the price   | Memory only                                                                                             | Gone.                                                                                                                                            |
 
 ## The happy path
+
+The scenarios below use **Bitcoin** in **Price currency**, with the amount in whole sats. The selector
+also offers **USD**: enter a positive dollar amount with up to two decimal places. Changing currency
+clears the amount. The approximate dollar value next to a Bitcoin amount is only a display estimate;
+a USD-priced lock keeps its dollar price and is quoted for payment by the server.
 
 | #   | You do                                                                                                                                                                      | You see                                                                                                                                                                          | What is happening                                                                                                                                                              |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -134,7 +140,7 @@ them.
    button on a phone).
 3. The dialog moves to **Enable Payments** on its own. Approve in the creator's Bitkit.
 
-Expected: **Locks Enabled**, then the price dialog. The draft stays visible behind the dialogs the whole
+Expected: **Locks Enabled**; press **Continue** to open the price dialog. The draft stays visible behind the dialogs the whole
 time.
 
 **A-2. Publish a locked post**
@@ -196,7 +202,7 @@ A draft with only an attachment can be locked.
 
 **B-4. An invalid price**
 
-Clear the price field before each case: leave it empty, enter `0`, type `-5`, type `1.5`, then paste `1.5`.
+Select **Bitcoin** in **Price currency**, then clear the price field before each case: leave it empty, enter `0`, type `-5`, type `1.5`, then paste `1.5`.
 
 Expected: **Apply Lock** stays disabled for an empty value and `0` (only a positive whole number of sats
 is accepted), and the cursor shows the not-allowed state. A minus sign or dot is dropped on its own
@@ -253,8 +259,10 @@ publish that restored draft as an ordinary, unlocked post.
 
 ### E-3. A session from before Locks (#2373)
 
-Setup: an account that signed in with Pubky Ring before this build. An account that signed in with a
-recovery file or key has every permission and never gets into this state.
+Setup: an older, still-valid grant whose capabilities lack the Locks `/priv` paths. Legacy cookie
+sessions must authorize again first; a fresh Ring grant already includes these paths. A recovery-file
+or recovery-phrase login obtains a root grant and does not enter this state. See the
+[grant migration guide](../migrations/2600-grant-auth-and-locks.md).
 
 1. Turn the switch on.
 
