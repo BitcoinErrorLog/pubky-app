@@ -98,7 +98,9 @@ describe('DialogPayToUnlock', () => {
         screen.getByText('If this creator is not in your Bitkit contacts, scan this code to add them.'),
       ).toBeInTheDocument();
       expect(screen.getByText('If this creator is not in your Bitkit contacts, add them.')).toBeInTheDocument();
-      expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
+      expect(screen.queryAllByRole('status', { name: 'Loading' })).toHaveLength(
+        connectionState === 'handshake' ? 1 : 0,
+      );
       expect(screen.getByTestId('qr-code')).toHaveAttribute('data-value', 'pubkylockcreator');
       expect(screen.getByRole('link', { name: 'Open in Bitkit' })).toHaveAttribute(
         'href',
@@ -137,8 +139,33 @@ describe('DialogPayToUnlock', () => {
     const onRetry = vi.fn();
     renderDialog('retry', { onRetry });
 
+    expect(screen.getByText('The payment could not continue. Try again when Bitkit is ready.')).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('expired: offers a new attempt without blaming Bitkit or showing a payment spinner', () => {
+    const onRetry = vi.fn();
+    const onOpenChange = vi.fn();
+    renderDialog('expired', { onRetry, onOpenChange });
+
+    expect(screen.getByText('The payment was not completed. You can try again.')).toBeInTheDocument();
+    expect(screen.queryByText(/when Bitkit is ready/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('qr-code')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'App Store' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Google Play' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.queryByText('The payment is still running')).not.toBeInTheDocument();
+  });
+
+  it('expired: disables the new attempt while its submission is in flight', () => {
+    renderDialog('expired', { isSubmitting: true });
+    expect(document.querySelector('[data-cy="pay-to-unlock-retry"]')).toBeDisabled();
   });
 
   it('install: shows the setup steps, the store links and the I completed the steps button, and no QR', () => {
@@ -188,13 +215,32 @@ describe('DialogPayToUnlock', () => {
     const state = { connectionState, handshakePubky: 'lockcreator' };
     const { rerender } = renderDialog('waiting', { ...state, isStalled: true });
 
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeInTheDocument();
+
     rerender(dialogElement('waiting', { ...state, isConnectionPending: true }));
 
     expect(screen.getByText(copy)).toBeInTheDocument();
     expect(screen.queryByText('Checking your Bitkit connection…')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Copy creator pubky' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open in Bitkit' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('status', { name: 'Loading' })).toHaveLength(connectionState === 'handshake' ? 1 : 0);
+  });
+
+  it('waiting: stops the handshake loader when polling parks and keeps the contact handoff', () => {
+    const onRecheck = vi.fn();
+    const state = { connectionState: 'handshake', handshakePubky: 'lockcreator', onRecheck } as const;
+    const { rerender } = renderDialog('waiting', state);
+
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+    rerender(dialogElement('waiting', { ...state, isStalled: true }));
+
     expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Connecting to this creator/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy creator pubky' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open in Bitkit' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(onRecheck).toHaveBeenCalledTimes(1);
   });
 
   // Notices and the parked prompt take precedence over a pending connection read.
@@ -286,7 +332,7 @@ describe('DialogPayToUnlock', () => {
     expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
   });
 
-  it.each(['none', 'recovery_required', 'connected'] as const)(
+  it.each(['none', 'handshake', 'recovery_required', 'connected'] as const)(
     'waiting: asks for wallet setup while %s, with no handoff or spinner',
     (connectionState) => {
       renderDialog('waiting', { connectionState, walletSetupNeeded: true });
@@ -364,6 +410,56 @@ describe('DialogPayToUnlock', () => {
 
     expect(onViewContent).toHaveBeenCalledTimes(1);
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('finishing: shows the received payment and loading state without payment instructions or actions', () => {
+    renderDialog('finishing');
+
+    expect(screen.getByText('PAYMENT RECEIVED')).toHaveClass('text-brand');
+    expect(screen.getByText('Opening your content…')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument();
+    expect(screen.queryByText(/Check Bitkit|COST TO UNLOCK|Thank you for supporting/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Try again|View Content|Copy creator pubky/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Open in Bitkit' })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-cy="pay-to-unlock-cancel"]')).toHaveTextContent('Close');
+  });
+
+  it('finishing: a parked content check offers Check again without sending the reader to Bitkit', () => {
+    const onRecheck = vi.fn();
+    renderDialog('finishing', { isStalled: true, onRecheck });
+
+    expect(screen.getByText('Your payment is complete. Check again to open the content.')).toBeInTheDocument();
+    expect(screen.queryByText(/Check Bitkit|Opening your content/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(onRecheck).toHaveBeenCalledTimes(1);
+  });
+
+  it('finishing: closing still asks first and acknowledges the completed payment', () => {
+    const onOpenChange = vi.fn();
+    renderDialog('finishing', { onOpenChange });
+
+    fireEvent.click(document.querySelector('[data-cy="pay-to-unlock-cancel"]') as HTMLElement);
+    expect(screen.getByRole('heading', { name: 'Payment received' })).toBeInTheDocument();
+    expect(screen.queryByText(/The payment is still running|has not finished yet/)).not.toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Close anyway' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('updates an open close prompt when the payment completes before the content is ready', () => {
+    const overrides = { onViewContent: vi.fn(), onOpenChange: vi.fn() };
+    const { rerender } = renderDialog('waiting', overrides);
+    fireEvent.click(document.querySelector('[data-cy="pay-to-unlock-cancel"]') as HTMLElement);
+
+    rerender(dialogElement('finishing', overrides));
+    expect(screen.getByRole('heading', { name: 'Payment received' })).toBeInTheDocument();
+    expect(screen.queryByText(/has not finished yet/)).not.toBeInTheDocument();
+
+    rerender(dialogElement('paid', overrides));
+    fireEvent.click(screen.getByRole('button', { name: 'Close anyway' }));
+    expect(overrides.onViewContent).toHaveBeenCalledTimes(1);
+    expect(overrides.onOpenChange).not.toHaveBeenCalled();
   });
 
   // A completed purchase must not ask the reader to make another payment.

@@ -292,7 +292,14 @@ describe('usePayToUnlock (retry)', () => {
     vi.mocked(LocksController.fetchPaymentStatus).mockResolvedValue(task(status));
 
     const { result } = renderPay();
-    await waitFor(() => expect(result.current.stage).toBe('retry'));
+    await waitFor(() => expect(result.current.stage).toBe(status === 'expired' ? 'expired' : 'retry'));
+    expect(toastMock).toHaveBeenCalledWith({
+      variant: 'error',
+      description:
+        status === 'expired'
+          ? 'The payment was not completed. You can try again.'
+          : 'The payment failed. You can try again.',
+    });
     expect(LocksController.startPayment).not.toHaveBeenCalled();
     result.current.retry();
 
@@ -300,6 +307,28 @@ describe('usePayToUnlock (retry)', () => {
     expect(LocksController.startPayment).toHaveBeenCalledWith(expect.objectContaining({ rejectBundleId: 'dead-1' }));
     // `expired` comes after an invoice reached the wallet, so only `failed` re-checks it.
     expect(LocksController.hasPaykitReceiver).toHaveBeenCalledTimes(status === 'failed' ? 1 : 0);
+  });
+
+  it('shows the generic message when the submission immediately reports an expired request', async () => {
+    vi.mocked(LocksController.fetchPurchaseBundleId).mockResolvedValue(null);
+    vi.mocked(LocksController.hasPaykitReceiver).mockResolvedValue(true);
+    vi.mocked(LocksController.startPayment).mockResolvedValue(submitted('ended-1', 'expired'));
+
+    const { result } = renderPay();
+    await waitFor(() => expect(result.current.stage).toBe('expired'));
+    expect(toastMock).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'The payment was not completed. You can try again.',
+    });
+    expect(result.current.isSubmitting).toBe(false);
+    expect(LocksController.fetchPaykitConnectionState).not.toHaveBeenCalled();
+
+    vi.mocked(LocksController.startPayment).mockResolvedValue(submitted('fresh-2'));
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.stage).toBe('waiting'));
+    expect(LocksController.startPayment).toHaveBeenLastCalledWith(
+      expect.objectContaining({ rejectBundleId: 'ended-1' }),
+    );
   });
 
   // A reader without a wallet ends `failed`: another id would fail the same way after the same wait.
@@ -506,6 +535,56 @@ describe('usePayToUnlock (finishing)', () => {
     vi.mocked(LocksController.fetchPaymentStatus).mockResolvedValue(task('completed'));
   });
 
+  it.each(['saved purchase', 'submission'] as const)(
+    'shows finishing while the %s content downloads',
+    async (source) => {
+      if (source === 'submission') {
+        vi.mocked(LocksController.fetchPurchaseBundleId).mockResolvedValue(null);
+        vi.mocked(LocksController.hasPaykitReceiver).mockResolvedValue(true);
+        vi.mocked(LocksController.startPayment).mockResolvedValue(submitted('stored-1', 'completed'));
+      }
+      let resolveContent: (content: TUnlockedContent) => void = () => {};
+      vi.mocked(LocksController.fetchPaidContent).mockReturnValue(
+        new Promise((resolve) => {
+          resolveContent = resolve;
+        }),
+      );
+      const { result, onCompleted } = renderPay();
+
+      await waitFor(() => expect(result.current.stage).toBe('finishing'));
+      expect(result.current.handshakePubky).toBeNull();
+      expect(result.current.isConnectionPending).toBe(false);
+      expect(onCompleted).not.toHaveBeenCalled();
+      expect(LocksController.fetchPaykitConnectionState).not.toHaveBeenCalled();
+      await act(async () => resolveContent(unlockedContent));
+      expect(result.current.stage).toBe('paid');
+      act(() => result.current.viewContent());
+      expect(onCompleted).toHaveBeenCalledExactlyOnceWith(unlockedContent);
+    },
+  );
+
+  it('ignores a download that finishes after close and resumes the paid purchase on reopen', async () => {
+    let resolveContent: (content: TUnlockedContent) => void = () => {};
+    vi.mocked(LocksController.fetchPaidContent)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveContent = resolve;
+        }),
+      )
+      .mockResolvedValue(unlockedContent);
+    const { result, rerender, onCompleted } = renderPayWith({ open: true });
+    await waitFor(() => expect(result.current.stage).toBe('finishing'));
+
+    rerender({ open: false });
+    await act(async () => resolveContent(unlockedContent));
+    expect(result.current.stage).toBe('finishing');
+    expect(onCompleted).not.toHaveBeenCalled();
+    rerender({ open: true });
+    await waitFor(() => expect(result.current.stage).toBe('paid'));
+    expect(LocksController.startPayment).not.toHaveBeenCalled();
+    expect(LocksController.fetchPaidContent).toHaveBeenCalledTimes(2);
+  });
+
   // The payment landed and only the read failed, so this must not share the waiting screen, which
   // asks the reader to go pay.
   it('lands on its own stage when the completion fails, so Check again is reachable', async () => {
@@ -550,7 +629,7 @@ describe('usePayToUnlock (finishing)', () => {
     vi.mocked(LocksController.fetchPaymentStatus).mockReturnValue(new Promise<TVerificationTask>(() => {}));
     act(() => result.current.recheck());
 
-    expect(result.current.stage).toBe('waiting');
+    expect(result.current.stage).toBe('finishing');
     // This wait re-reads the content, never the link, so there is no link state to be waiting on.
     expect(result.current.isConnectionPending).toBe(false);
   });
@@ -721,8 +800,7 @@ describe('usePayToUnlock (waiting)', () => {
     expect(result.current.handshakePubky).toBe('pubkybob');
   });
 
-  // The download after a completed payment keeps the waiting stage; a link read still out by then
-  // must not leave the screen saying it is checking the connection.
+  // A completed payment stays acknowledged while its content downloads, even if the link read hangs.
   it('drops the pending link once the payment completes, even with the link read still out', async () => {
     vi.mocked(LocksController.fetchPaykitConnectionState).mockImplementation(hangForever);
     vi.mocked(LocksController.fetchPaymentStatus)
@@ -735,9 +813,35 @@ describe('usePayToUnlock (waiting)', () => {
     expect(result.current.isConnectionPending).toBe(true);
 
     await advance(POLL_INTERVAL_MS);
-    expect(result.current.stage).toBe('waiting');
+    expect(result.current.stage).toBe('finishing');
     expect(LocksController.fetchPaidContent).toHaveBeenCalledWith({ lockFile, bundleId: 'stored-1' });
     expect(result.current.isConnectionPending).toBe(false);
+  });
+
+  it('parks and resumes a paid-content recheck without restarting the connection or payment', async () => {
+    vi.mocked(LocksController.fetchPaymentStatus).mockResolvedValue(task('completed'));
+    vi.mocked(LocksController.fetchPaidContent).mockRejectedValue(new Error('content unavailable'));
+    const { result } = renderPay();
+    await advance(0);
+    expect(result.current.stage).toBe('unopened');
+
+    vi.mocked(LocksController.fetchPaymentStatus).mockImplementation(hangForever);
+    act(() => result.current.recheck());
+    expect(result.current.stage).toBe('finishing');
+    await advance(STALL_AFTER_MS);
+    expect(result.current.stage).toBe('finishing');
+    expect(result.current.isStalled).toBe(true);
+    expect(connectionCalls()).toBe(0);
+    expect(LocksController.startPayment).not.toHaveBeenCalled();
+
+    vi.mocked(LocksController.fetchPaymentStatus).mockResolvedValue(task('completed'));
+    vi.mocked(LocksController.fetchPaidContent).mockResolvedValue(unlockedContent);
+    act(() => result.current.recheck());
+    await advance(0);
+    expect(result.current.stage).toBe('paid');
+    expect(result.current.isStalled).toBe(false);
+    expect(connectionCalls()).toBe(0);
+    expect(LocksController.startPayment).not.toHaveBeenCalled();
   });
 
   it('keeps the last QR and keeps polling the task when the link read fails', async () => {
@@ -840,8 +944,14 @@ describe('usePayToUnlock (waiting)', () => {
       expect(result.current.stage).toBe('waiting');
 
       await advance(POLL_INTERVAL_MS);
-      expect(result.current.stage).toBe('retry');
-      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining(status) }));
+      expect(result.current.stage).toBe(status === 'expired' ? 'expired' : 'retry');
+      expect(toastMock).toHaveBeenCalledWith({
+        variant: 'error',
+        description:
+          status === 'expired'
+            ? 'The payment was not completed. You can try again.'
+            : 'The payment failed. You can try again.',
+      });
 
       const callsWhenDead = { status: statusCalls(), connection: connectionCalls() };
       await advance(POLL_INTERVAL_MS);
