@@ -1,6 +1,7 @@
 import { webcrypto } from 'node:crypto';
 import type { Keypair, PublicKey, Session } from '@synonymdev/pubky';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getDefaultHttpRelay } from '@/config/network';
 import { AppError } from '@/libs/error/error';
 import {
   AuthErrorCode,
@@ -1273,6 +1274,56 @@ describe('HomeserverService', () => {
           expect(liveFlow.tryPollOnce).toHaveBeenCalledTimes(pollsBeforeHide + 1);
           expect(mockState.resumeDelegatedGrantAuthFlow).not.toHaveBeenCalled();
           expect(liveFlow.free).toHaveBeenCalledOnce();
+        });
+
+        it('keeps the flow on iOS when the page hides while the relay ACK is in flight, so the same approval completes', async () => {
+          // The listener has the approval and has sent its DELETE; the relay applied it, the response is held.
+          let releaseAck!: (response: Response) => void;
+          const network = vi.fn(
+            () =>
+              new Promise<Response>((resolve) => {
+                releaseAck = resolve;
+              }),
+          );
+          const originalFetch = globalThis.fetch;
+          globalThis.fetch = network;
+          let result: Awaited<ReturnType<typeof startSignin>> | undefined;
+          try {
+            const session = createMockSession();
+            const liveFlow = {
+              saveDelegated: () => 'saved-delegated',
+              authorizationUrl: 'https://auth.example.com/authorize',
+              tryPollOnce: vi.fn().mockResolvedValue(undefined),
+              free: vi.fn(),
+            };
+            mockState.startGrantAuthFlow.mockReturnValue(liveFlow);
+            mockState.resumeDelegatedGrantAuthFlow.mockReset();
+
+            result = await startSignin();
+            await vi.advanceTimersByTimeAsync(250);
+            void fetch(new Request(`${getDefaultHttpRelay()}/held-channel`, { method: 'DELETE' }));
+            expect(network).toHaveBeenCalledOnce();
+
+            // Not queued yet, so the poll on hide comes back empty, but the relay may no longer hold the approval.
+            hide();
+            await vi.advanceTimersByTimeAsync(30_000);
+            expect(liveFlow.free).not.toHaveBeenCalled();
+            expect(mockState.resumeDelegatedGrantAuthFlow).not.toHaveBeenCalled();
+
+            // The ACK settles and the listener queues the approval it already holds.
+            releaseAck(new Response(null, { status: 200 }));
+            liveFlow.tryPollOnce.mockResolvedValue(session);
+            show();
+            await vi.advanceTimersByTimeAsync(100);
+
+            await expect(result.awaitApproval).resolves.toBe(session);
+            expect(mockState.resumeDelegatedGrantAuthFlow).not.toHaveBeenCalled();
+            expect(liveFlow.free).toHaveBeenCalledOnce();
+            expect(globalThis.fetch).toBe(network);
+          } finally {
+            result?.cancelAuthFlow();
+            globalThis.fetch = originalFetch;
+          }
         });
 
         it('collects an approval published at the end of a long hidden interval on iOS', async () => {
