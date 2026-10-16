@@ -1147,6 +1147,80 @@ describe('HomeserverService', () => {
           },
         );
 
+        it('frees the flow on iOS when the page hides, without waiting for the poll timer', async () => {
+          const session = createMockSession();
+          const liveFlow = {
+            saveDelegated: () => 'saved-delegated',
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce: vi.fn().mockResolvedValue(undefined),
+            free: vi.fn(),
+          };
+          const resumedFlow = { tryPollOnce: vi.fn().mockResolvedValue(session), free: vi.fn() };
+          mockState.startGrantAuthFlow.mockReturnValue(liveFlow);
+          mockState.resumeDelegatedGrantAuthFlow.mockReset().mockReturnValue(resumedFlow);
+
+          const result = await startSignin();
+          await vi.advanceTimersByTimeAsync(250);
+          const pollsBeforeHide = liveFlow.tryPollOnce.mock.calls.length;
+
+          // The loop is sleeping between polls; WebKit may hold that timer back for seconds once hidden.
+          hide();
+          expect(liveFlow.free).toHaveBeenCalledOnce();
+
+          // Back before the timer fires: the freed handle is never polled again, the same channel is resumed.
+          show();
+          await vi.advanceTimersByTimeAsync(100);
+
+          await expect(result.awaitApproval).resolves.toBe(session);
+          expect(liveFlow.tryPollOnce).toHaveBeenCalledTimes(pollsBeforeHide);
+          expect(mockState.resumeDelegatedGrantAuthFlow).toHaveBeenCalledExactlyOnceWith('saved-delegated');
+
+          // The settled approval no longer reacts to visibility changes.
+          hide();
+          show();
+          await vi.advanceTimersByTimeAsync(1_000);
+          expect(mockState.resumeDelegatedGrantAuthFlow).toHaveBeenCalledOnce();
+          expect(resumedFlow.free).toHaveBeenCalledOnce();
+        });
+
+        it('frees the flow on iOS as soon as a poll in flight at hide time returns', async () => {
+          let finishPoll!: (value: undefined) => void;
+          const liveFlow = {
+            saveDelegated: () => 'saved-delegated',
+            authorizationUrl: 'https://auth.example.com/authorize',
+            tryPollOnce: vi.fn(
+              () =>
+                new Promise<undefined>((resolve) => {
+                  finishPoll = resolve;
+                }),
+            ),
+            free: vi.fn(),
+          };
+          mockState.startGrantAuthFlow.mockReturnValue(liveFlow);
+          mockState.resumeDelegatedGrantAuthFlow.mockReset();
+
+          const result = await startSignin();
+          const rejection = expect(result.awaitApproval).rejects.toMatchObject({ name: 'AuthFlowCanceled' });
+          await vi.advanceTimersByTimeAsync(0);
+          expect(liveFlow.tryPollOnce).toHaveBeenCalledOnce();
+
+          // The poll still borrows the WASM handle, so it is not freed under it.
+          hide();
+          expect(liveFlow.free).not.toHaveBeenCalled();
+
+          // No poll-interval sleep between the poll returning and the release.
+          finishPoll(undefined);
+          await vi.advanceTimersByTimeAsync(0);
+          expect(liveFlow.free).toHaveBeenCalledOnce();
+
+          await vi.advanceTimersByTimeAsync(30_000);
+          expect(liveFlow.tryPollOnce).toHaveBeenCalledOnce();
+          result.cancelAuthFlow();
+          await rejection;
+          expect(mockState.resumeDelegatedGrantAuthFlow).not.toHaveBeenCalled();
+          expect(liveFlow.free).toHaveBeenCalledOnce();
+        });
+
         it('never polls on iOS while the page stays hidden from the start', async () => {
           visibility.mockReturnValue('hidden');
           const liveFlow = {
