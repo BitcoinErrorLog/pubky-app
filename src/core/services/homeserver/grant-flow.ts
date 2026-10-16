@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { getAuthClientId } from '@/config/auth';
 import { getDefaultHttpRelay, getDeployEnv, getHomeserver, getTestnet } from '@/config/network';
 import { createCanceledError } from '@/libs/error/auth-flow-canceled';
+import { isIosDevice } from '@/libs/pwa/platform';
 import { isPubkyErrorLike } from './error.utils';
 import type { TGenerateAuthUrlResult } from './homeserver.types';
 import { createCancelableAuthApproval } from './homeserver.utils';
@@ -159,6 +160,9 @@ export class GrantFlowService {
             }
             return resumed;
           },
+      // WebKit on iOS suspends hidden pages and aborts their in-flight work; other browsers keep
+      // polling in the background so an approval made there completes at once.
+      releaseWhileHidden: isIosDevice(),
     });
     return {
       authorizationUrl: flow.authorizationUrl,

@@ -197,9 +197,13 @@ const waitUntilVisible = (signal?: AbortSignal): Promise<void> =>
     document.addEventListener('visibilitychange', onChange);
   });
 
+const isPageHidden = (): boolean => typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
 /**
  * Polls approval without consuming the WASM handle. A resumable flow reconnects to the same relay
  * channel after a transport failure; late sessions returned after cancellation are handed to cleanup.
+ * With `releaseWhileHidden`, a resumable flow is also freed while the page is hidden and resumed once it
+ * is visible, so the approval stays on the relay and the grant exchange only runs in the foreground.
  */
 export const createCancelableAuthApproval = (
   initialFlow: Pick<AuthFlow, 'tryPollOnce' | 'free'>,
@@ -207,6 +211,7 @@ export const createCancelableAuthApproval = (
     pollIntervalMs?: number;
     maxPollAttempts?: number;
     resume?: () => Pick<AuthFlow, 'tryPollOnce' | 'free'> | Promise<Pick<AuthFlow, 'tryPollOnce' | 'free'>>;
+    releaseWhileHidden?: boolean;
     onCanceledSession?: (session: Session) => Promise<void>;
   },
 ): CancelableAuthApproval => {
@@ -234,6 +239,24 @@ export const createCancelableAuthApproval = (
     freeFlow();
   };
 
+  /** Replaces the current handle with one resumed on the same relay channel and PoP key. */
+  const replaceFlow = async (
+    resume: () => Pick<AuthFlow, 'tryPollOnce' | 'free'> | Promise<Pick<AuthFlow, 'tryPollOnce' | 'free'>>,
+  ): Promise<void> => {
+    freeFlow();
+    try {
+      flow = await resume();
+      freed = false;
+      if (canceled) {
+        freeFlow();
+        throw createCanceledError();
+      }
+    } catch (resumeError) {
+      if (canceled) throw createCanceledError();
+      return handleError({ error: resumeError, additionalContext: { operation: 'awaitApproval' } });
+    }
+  };
+
   const awaitApproval = (async () => {
     await sleep(0);
 
@@ -242,6 +265,23 @@ export const createCancelableAuthApproval = (
     let resumes = 0;
     for (;;) {
       if (canceled) throw createCanceledError();
+      // A live SDK flow takes the approval off the relay as soon as it arrives and the next poll exchanges it.
+      // iOS suspends a hidden page mid-exchange and WebKit aborts its IndexedDB and fetch work, losing the
+      // approval. Without a live flow the relay keeps the approval for the same channel to collect when visible.
+      if (options?.resume && options.releaseWhileHidden && isPageHidden()) {
+        freeFlow();
+        await waitUntilVisible(waiting.signal);
+        if (canceled) throw createCanceledError();
+        if (Date.now() - startedAt > AUTH_RELAY_RETENTION_MS) {
+          throw Err.timeout(TimeoutErrorCode.REQUEST_TIMEOUT, 'Auth flow expired while the page was hidden', {
+            service: ErrorService.Homeserver,
+            operation: 'awaitApproval',
+            context: { retentionMs: AUTH_RELAY_RETENTION_MS, statusCode: HttpStatusCode.REQUEST_TIMEOUT },
+          });
+        }
+        await replaceFlow(options.resume);
+        continue;
+      }
       if (++attempts > maxPollAttempts) {
         throw Err.timeout(TimeoutErrorCode.REQUEST_TIMEOUT, 'Auth flow timed out after maximum attempts', {
           service: ErrorService.Homeserver,
@@ -265,19 +305,8 @@ export const createCancelableAuthApproval = (
           await waitUntilVisible(waiting.signal);
           if (canceled) throw createCanceledError();
           if (Date.now() - startedAt <= AUTH_RELAY_RETENTION_MS) {
-            freeFlow();
-            try {
-              flow = await options.resume();
-              freed = false;
-              if (canceled) {
-                freeFlow();
-                throw createCanceledError();
-              }
-              continue;
-            } catch (resumeError) {
-              if (canceled) throw createCanceledError();
-              return handleError({ error: resumeError, additionalContext: { operation: 'awaitApproval' } });
-            }
+            await replaceFlow(options.resume);
+            continue;
           }
         }
         // Keep transport, permission and authentication failures distinct for the grant flow.
