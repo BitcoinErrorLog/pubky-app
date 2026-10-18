@@ -81,6 +81,17 @@ Differentiate transient errors (`SERVICE_UNAVAILABLE`, `NETWORK_ERROR`) from fat
 
 Pubky SDK (`@synonymdev/pubky`) errors are mapped by their `name` in `src/core/services/homeserver/error.utils.ts`: `InvalidInput` → Validation, `AuthenticationError` (or HTTP 401) → Auth `SESSION_EXPIRED`, `PkarrError` (PKARR lookup failed, absence not proven) → Network `CONNECTION_FAILED` (retryable). Anything else falls through to `httpStatusCodeToError`.
 
+#### Homeserver write retries
+
+Every homeserver PUT and DELETE goes through `HomeserverService` (`request`, `putBlob`, `delete`), which runs it in `retryHomeserverWrite` (`src/core/services/homeserver/write-retry.ts`); `write-call-sites.gate.test.ts` fails on a write that bypasses it. The policy makes up to three attempts with jittered exponential backoff (a 429's `Retry-After` when the response carries one) for:
+
+- 429, 500 and 503;
+- the publish conflict of a homeserver on GCS (0.16.2+): a 409 whose body is exactly `The file changed before the change was published; read it again and retry`. Nothing landed, so the same write is replayed.
+
+Any other 409 (a path collision, an unknown lock token, a 409 without that body), 412 and 423 are real conflicts and are never retried. A retry never runs after logout begins or the session or account changes; it fails with `SESSION_EXPIRED` instead.
+
+A write whose body is built from a read of the same data (a read-check-write) must not replay a publish conflict: the data changed after the read. It passes `retryPublishConflict: false` and wraps the read and the write in `retryHomeserverWriteAfterReread`, so the read runs again first. The profile merge, both settings syncs, the missing `last_read` creation and the lock purchase-file mint do this. A caller with its own retry loop (`deleteIdempotent`, account deletion) passes `singleAttempt` so the attempts don't multiply.
+
 When a specific HTTP status is an expected domain state, handle it before calling `httpResponseToError`.
 For example, a geoblocked availability endpoint can return `{ available: false }` for `403`. Keep these cases
 explicit and narrow:
