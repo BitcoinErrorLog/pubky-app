@@ -180,7 +180,7 @@
     },
     {
       "id": "homeserver-write-retry",
-      "rule": "Every homeserver PUT and DELETE goes through HomeserverService (request, putBlob, delete), which retries 429, 500, 503 and the GCS publish-conflict 409 in retryHomeserverWrite. Flag any direct SDK storage write or raw homeserver fetch outside it, and any new retry of another 409, 412 or 423. A write whose body comes from a homeserver read of the same data must pass retryPublishConflict: false and wrap the read and the write in retryHomeserverWriteAfterReread, so the read runs again; flag one that replays it blindly. See docs/error-handling.md.",
+      "rule": "Every homeserver PUT and DELETE goes through HomeserverService (request, putBlob, delete), which retries 429, 500, 503 and the GCS publish-conflict 409 in retryHomeserverWrite. Flag any direct SDK storage write or raw homeserver fetch outside it, and any new retry of another 409, 412 or 423. A write whose body comes from a homeserver read of the same data must pass retryPublishConflict: false and the fence from HomeserverService.createWriteFence(), and wrap the read and the write in retryHomeserverWriteAfterReread(fence, ...), so the read runs again and no later pass runs after logout; flag one that replays it blindly or omits the fence. Notifications' last_read must never move backward. See docs/error-handling.md.",
       "scope": ["src/core/**"],
       "severity": "high"
     }
