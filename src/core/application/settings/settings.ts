@@ -132,13 +132,12 @@ export class SettingsApplication {
    * Initializes settings on bootstrap.
    * Fetches settings from homeserver and merges with local settings.
    * Uses version and timestamp for conflict resolution (newer wins).
+   * A push refused by the homeserver's publish conflict starts over from the read: the remote
+   * document changed after the comparison and may now be the newer one.
    *
    * @param pubky, The user's public key
    * @returns The settings the store should adopt: remote when newer, or local enriched with
    *   remote-only moderation-bot state; null when the store is already current
-   * A push refused by the homeserver's publish conflict starts over from the read: the remote
-   * document changed after the comparison and may now be the newer one.
-   *
    * @throws If fetch or sync operations fail, caller should handle errors
    */
   static async initializeSettings(pubky: Pubky, localSettings: SettingsState): Promise<SettingsState | null> {
