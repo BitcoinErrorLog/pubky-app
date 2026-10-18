@@ -44,6 +44,7 @@ export class SettingsApplication {
 
       const fence = HomeserverService.createWriteFence();
       await retryHomeserverWriteAfterReread(fence, async () => {
+        if (signal?.aborted) return;
         let resolved = settings;
         if (settings.privacy.moderationBot === undefined) {
           const remote = await this.fetchFromHomeserver(pubky);

@@ -181,6 +181,15 @@ describe('a settings write that the homeserver refuses with the publish conflict
     expect(homeserver.putJson).toHaveBeenCalledOnce();
   });
 
+  it('stops without writing again when only the caller aborts during the backoff', async () => {
+    const controller = new AbortController();
+    homeserver.putJson.mockRejectedValueOnce(sdkError(409));
+    onBackoff = () => controller.abort();
+
+    await expect(SettingsApplication.commitUpdate(settings, USER, controller.signal)).resolves.toBeUndefined();
+    expect(homeserver.putJson).toHaveBeenCalledOnce();
+  });
+
   it('rejects instead of adopting a replacement session for the same account', async () => {
     homeserver.putJson.mockRejectedValueOnce(sdkError(409));
     onBackoff = () => {
