@@ -600,7 +600,7 @@ export class HomeserverService {
   }: THomeserverRequestParams): Promise<T> {
     const owned = this.resolveOwnedSessionPath(url);
     const retryOptions = { retryPublishConflict, ...(singleAttempt && { maxRetries: 0 }) };
-    // Snapshot once so every retry replays the same JSON even if the caller
+    // Snapshot once so every retry replays the same body even if the caller
     // mutates its object while an attempt is waiting.
     const serializedBody = bodyJson === undefined ? undefined : JSON.stringify(bodyJson);
 
@@ -614,7 +614,9 @@ export class HomeserverService {
           return (await parseResponseOrUndefined<T>({ response })) as T;
         }
         case HttpMethod.PUT: {
-          const ownedBody = serializedBody === undefined ? {} : (JSON.parse(serializedBody) as Record<string, unknown>);
+          // structuredClone, not a JSON round-trip: the SDK converts the object itself
+          // (serde_wasm_bindgen), which sends an `undefined` property as `null`.
+          const ownedBody = structuredClone(bodyJson ?? {});
           await retryHomeserverWrite(
             HttpMethod.PUT,
             () => this.withActiveSession(session, () => session.storage.putJson(path, ownedBody)),

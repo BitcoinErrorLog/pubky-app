@@ -116,6 +116,18 @@ describe('homeserver writes route through the shared retry policy', () => {
     expect(sleep).toHaveBeenCalledExactlyOnceWith(125);
   });
 
+  it('hands the SDK the body with its undefined properties, as it did before retries', async () => {
+    const body = { content: 'hi', kind: 'short', parent: undefined };
+    mockState.putJson.mockRejectedValueOnce(requestError(503)).mockResolvedValueOnce(undefined);
+
+    await HomeserverService.request({ method: HttpMethod.PUT, url: PROFILE_URL, bodyJson: body });
+
+    for (const [, sent] of mockState.putJson.mock.calls) {
+      expect(Object.keys(sent as object)).toEqual(['content', 'kind', 'parent']);
+      expect(sent).not.toBe(body);
+    }
+  });
+
   it.each([429, 500, 503])('retries an owned PUT on %i and then succeeds', async (status) => {
     mockState.putJson.mockRejectedValueOnce(requestError(status)).mockResolvedValueOnce(undefined);
 
