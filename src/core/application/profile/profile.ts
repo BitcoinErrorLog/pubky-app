@@ -113,7 +113,8 @@ export class ProfileApplication {
     deletedMessage: string;
   }) {
     await this.withProfileLock(pubky, async () => {
-      const user = await retryHomeserverWriteAfterReread(async () => {
+      const fence = HomeserverService.createWriteFence();
+      const user = await retryHomeserverWriteAfterReread(fence, async () => {
         let publishedJson: unknown;
         try {
           publishedJson = await HomeserverService.getFreshJson(userUriBuilder(pubky));
@@ -136,6 +137,7 @@ export class ProfileApplication {
           url: meta.url,
           bodyJson: user.toJson(),
           retryPublishConflict: false,
+          fence,
         });
         return user;
       });

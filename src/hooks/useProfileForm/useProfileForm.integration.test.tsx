@@ -13,7 +13,11 @@ vi.mock('@/controllers/auth/auth', () => ({ AuthController: { bootstrapWithDelay
 vi.mock('@/controllers/file/file', () => ({ FileController: { getAvatarUrl: vi.fn() } }));
 vi.mock('@/molecules/Toaster/toast');
 vi.mock('@/services/homeserver/homeserver', () => ({
-  HomeserverService: { getFreshJson: vi.fn(), request: vi.fn() },
+  HomeserverService: {
+    getFreshJson: vi.fn(),
+    request: vi.fn(),
+    createWriteFence: () => ({ enter: () => {}, assertCurrent: () => {} }),
+  },
 }));
 vi.mock('@/services/nexus/bootstrap/bootstrap', () => ({ NexusBootstrapService: { ingest: vi.fn() } }));
 
@@ -43,6 +47,7 @@ describe('useProfileForm published links integration', () => {
       url: `pubky://${pubky}/pub/pubky.app/profile.json`,
       bodyJson: { ...profile, image: undefined, bio: 'New bio', links: publishedLinks },
       retryPublishConflict: false,
+      fence: expect.anything(),
     });
     expect(await UserDetailsModel.findById(pubky)).toMatchObject({ bio: 'New bio', links: publishedLinks });
   });
@@ -64,6 +69,7 @@ describe('useProfileForm published links integration', () => {
       url: `pubky://${pubky}/pub/pubky.app/profile.json`,
       bodyJson: { ...published, image: undefined, links: repairedLinks },
       retryPublishConflict: false,
+      fence: expect.anything(),
     });
     expect(await UserDetailsModel.findById(pubky)).toMatchObject({ links: repairedLinks });
   });

@@ -108,6 +108,23 @@ describe('homeserver write call sites', () => {
     ).toEqual([]);
   });
 
+  it('fences every write that defers its publish conflict to a re-read', () => {
+    // retryPublishConflict: false only appears inside retryHomeserverWriteAfterReread, whose later
+    // passes must stop once the session ended: the write carries that loop's fence.
+    const offenders = files
+      .filter(({ path }) => path !== HOMESERVER_SERVICE)
+      .flatMap(({ path, code }) =>
+        callSpans(code, /\bHomeserverService\.(?:request|putBlob)\s*\(/g)
+          .filter(([open, close]) => {
+            const args = code.slice(open, close);
+            return /\bretryPublishConflict\s*:\s*false\b/.test(args) && !/\bfence\b/.test(args);
+          })
+          .map(([open]) => `${path}:${lineOf(code, open)}`),
+      );
+
+    expect(offenders).toEqual([]);
+  });
+
   it('sends no other SDK write from HomeserverService outside the retry policy', () => {
     // The only raw SDK DELETE is the legacy cookie revocation, `DELETE /session`: not storage,
     // so the homeserver's publish conflict cannot come from it.

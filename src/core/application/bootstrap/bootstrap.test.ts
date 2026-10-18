@@ -478,6 +478,7 @@ describe('BootstrapApplication', () => {
         url: MOCK_NORMALIZED_LAST_READ_URL,
         bodyJson: mockLastReadResult.last_read.toJson(),
         retryPublishConflict: false,
+        fence: expect.anything(),
       });
 
       expect(mocks.persistUsers).toHaveBeenCalledWith(

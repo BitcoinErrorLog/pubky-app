@@ -51,7 +51,7 @@ import {
   PUBKY_PREFIX,
   resolveOwnedSessionPath,
 } from './homeserver.utils';
-import { retryHomeserverWrite } from './write-retry';
+import { retryHomeserverWrite, type THomeserverWriteFence } from './write-retry';
 
 const STORAGE_PATH_PREFIXES = ['/pub/', '/priv/'] as const;
 const DELETE_IDEMPOTENT_MAX_ATTEMPTS = 3;
@@ -106,22 +106,55 @@ export class HomeserverService {
     }
   }
 
-  /**
-   * Fences write retries to the session that started them: a retry never runs after logout
-   * begins, the account changes, or the session is replaced. The first attempt is unguarded,
-   * as before retries existed.
-   */
-  private static writeRetryGuard(session: Session, url: string, method: HttpMethod): (attempt: number) => void {
-    const generation = useAuthStore.getState().generation;
-    return (attempt) => {
-      if (attempt === 0) return;
+  /** Throws once logout begins, the account changes, or the session is replaced after this call. */
+  private static sessionStillCurrent(context: Record<string, unknown>): () => void {
+    const start = useAuthStore.getState();
+    const session = start.selectSession();
+    const generation = start.generation;
+    return () => {
       const state = useAuthStore.getState();
       if (!state.isLoggingOut && state.selectSession() === session && state.generation === generation) return;
       throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Session ended before the homeserver write completed.', {
         service: ErrorService.Homeserver,
         operation: 'writeRetry',
-        context: { url, method },
+        context,
       });
+    };
+  }
+
+  /**
+   * Fences write retries to the session that started them: a retry never runs after logout
+   * begins, the account changes, or the session is replaced. The first attempt is unguarded,
+   * as before retries existed, unless it belongs to a later pass of a read-check-write (`fence`).
+   */
+  private static writeRetryGuard(
+    url: string,
+    method: HttpMethod,
+    fence: THomeserverWriteFence | undefined,
+  ): (attempt: number) => void {
+    const assertCurrent = this.sessionStillCurrent({ url, method });
+    return (attempt) => {
+      if (attempt === 0) fence?.assertCurrent();
+      else assertCurrent();
+    };
+  }
+
+  /**
+   * The fence for one read-check-write (`retryHomeserverWriteAfterReread`), taken when it starts.
+   * Its first pass runs as any write does; a later pass, and each write in it, throws
+   * `SESSION_EXPIRED` once logout began or the session or account changed.
+   */
+  static createWriteFence(): THomeserverWriteFence {
+    const assertCurrent = this.sessionStillCurrent({ operation: 'writeAfterReread' });
+    let pass = 0;
+    return {
+      enter: (next) => {
+        pass = next;
+        if (pass > 0) assertCurrent();
+      },
+      assertCurrent: () => {
+        if (pass > 0) assertCurrent();
+      },
     };
   }
 
@@ -597,6 +630,7 @@ export class HomeserverService {
     bodyJson,
     retryPublishConflict,
     singleAttempt,
+    fence,
   }: THomeserverRequestParams): Promise<T> {
     const owned = this.resolveOwnedSessionPath(url);
     const retryOptions = { retryPublishConflict, ...(singleAttempt && { maxRetries: 0 }) };
@@ -618,7 +652,7 @@ export class HomeserverService {
           await retryHomeserverWrite(
             HttpMethod.PUT,
             () => this.withActiveSession(session, () => session.storage.putJson(path, ownedBody)),
-            { beforeAttempt: this.writeRetryGuard(session, url, method), ...retryOptions },
+            { beforeAttempt: this.writeRetryGuard(url, method, fence), ...retryOptions },
           ).catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
         }
@@ -626,7 +660,7 @@ export class HomeserverService {
           await retryHomeserverWrite(
             HttpMethod.DELETE,
             () => this.withActiveSession(session, () => session.storage.delete(path)),
-            { beforeAttempt: this.writeRetryGuard(session, url, method), ...retryOptions },
+            { beforeAttempt: this.writeRetryGuard(url, method, fence), ...retryOptions },
           ).catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
       }
@@ -675,7 +709,7 @@ export class HomeserverService {
    * @param {string} url - Pubky URL.
    * @param {Uint8Array} blob - Raw bytes of the blob to upload.
    */
-  static async putBlob({ url, blob, retryPublishConflict }: TPutBlobParams) {
+  static async putBlob({ url, blob, retryPublishConflict, fence }: TPutBlobParams) {
     // Uint8Array is mutable; retries must replay the exact original payload.
     const retryBody = blob.slice();
     const owned = this.resolveOwnedSessionPath(url);
@@ -685,7 +719,7 @@ export class HomeserverService {
         await retryHomeserverWrite(
           HttpMethod.PUT,
           () => this.withActiveSession(session, () => session.storage.putBytes(path, retryBody.slice())),
-          { beforeAttempt: this.writeRetryGuard(session, url, HttpMethod.PUT), retryPublishConflict },
+          { beforeAttempt: this.writeRetryGuard(url, HttpMethod.PUT, fence), retryPublishConflict },
         );
         return;
       } catch (error) {

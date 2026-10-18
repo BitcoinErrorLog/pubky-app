@@ -164,11 +164,12 @@ export class BootstrapApplication {
    * file another client created meanwhile is kept rather than overwritten.
    */
   private static async createMissingLastRead(url: string, bodyJson: Record<string, unknown>): Promise<void> {
+    const fence = HomeserverService.createWriteFence();
     let seenMissing = true;
-    await retryHomeserverWriteAfterReread(async () => {
+    await retryHomeserverWriteAfterReread(fence, async () => {
       if (!seenMissing && (await HomeserverService.exists(url))) return;
       seenMissing = false;
-      await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson, retryPublishConflict: false });
+      await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson, retryPublishConflict: false, fence });
     });
   }
 }

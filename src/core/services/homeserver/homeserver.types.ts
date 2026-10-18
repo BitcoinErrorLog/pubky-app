@@ -1,6 +1,7 @@
 import type { Capabilities, PublicKey, Session, XCallbackParams } from '@synonymdev/pubky';
 import type { TKeypairParams } from '@/application/auth/auth.types';
 import { HttpMethod } from '@/libs/http/http.types';
+import type { THomeserverWriteFence } from './write-retry';
 
 export type FetchOptions = {
   method?: HttpMethod;
@@ -81,6 +82,8 @@ export type THomeserverRequestParams = {
   retryPublishConflict?: boolean;
   /** One attempt, for a caller that runs its own retry loop around this write. */
   singleAttempt?: boolean;
+  /** The fence of the read-check-write this write belongs to (`HomeserverService.createWriteFence`). */
+  fence?: THomeserverWriteFence;
 };
 
 export type TPutBlobParams = {
@@ -88,6 +91,8 @@ export type TPutBlobParams = {
   blob: Uint8Array;
   /** See {@link THomeserverRequestParams.retryPublishConflict}. */
   retryPublishConflict?: boolean;
+  /** See {@link THomeserverRequestParams.fence}. */
+  fence?: THomeserverWriteFence;
 };
 
 export type THomeserverListParams = {

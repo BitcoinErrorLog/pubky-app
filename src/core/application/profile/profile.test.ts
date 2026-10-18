@@ -37,6 +37,7 @@ vi.mock('pubky-app-specs', () => ({
 // Mock HomeserverService methods
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
+    createWriteFence: () => ({ enter: () => {}, assertCurrent: () => {} }),
     putBlob: vi.fn(),
     request: vi.fn(),
     getFreshJson: vi.fn(),
@@ -198,6 +199,7 @@ describe('ProfileApplication', () => {
               url: 'pubky://test-pubky/pub/pubky.app/profile.json',
               bodyJson: { ...published, status: '🪚building' },
               retryPublishConflict: false,
+              fence: expect.anything(),
             },
           ],
         ]);

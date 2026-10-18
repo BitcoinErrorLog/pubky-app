@@ -224,25 +224,48 @@ export async function retryHomeserverWrite<T>(
 }
 
 /**
+ * Keeps every pass of {@link retryHomeserverWriteAfterReread} on the session
+ * that started it (`HomeserverService.createWriteFence`). The loop calls
+ * `enter` before each pass, and each write in the pass passes the fence to
+ * `HomeserverService`, which calls `assertCurrent` before its first attempt.
+ * Both throw on a pass after the first once logout began or the session or
+ * account changed, so a re-run never reads or writes for an ended session.
+ */
+export type THomeserverWriteFence = {
+  enter: (pass: number) => void;
+  assertCurrent: () => void;
+};
+
+/**
  * Runs `readAndWrite` again from its read when the write it ends with is
  * refused by a publish conflict, with the same backoff and attempt cap as
  * {@link retryHomeserverWrite}. For a write whose body was checked against a
  * read of the same file: the conflict says that file changed, so the checks
  * must see the new version before anything is written. Its write passes
- * `retryPublishConflict: false`, so the conflict reaches this loop. Any other
- * failure propagates.
+ * `retryPublishConflict: false` and the fence, so the conflict reaches this
+ * loop and a later pass stops once the session ended. Any other failure
+ * propagates.
+ *
+ * `retryTransient` also starts over from the read on 429, 500 and 503, for a
+ * write that makes a single attempt and must not replay a stale body.
  */
 export async function retryHomeserverWriteAfterReread<T>(
-  readAndWrite: () => Promise<T>,
-  dependencies: Pick<THomeserverWriteRetryOptions, 'sleep' | 'random'> = {},
+  fence: THomeserverWriteFence,
+  readAndWrite: (pass: number) => Promise<T>,
+  dependencies: Pick<THomeserverWriteRetryOptions, 'sleep' | 'random' | 'now'> & { retryTransient?: boolean } = {},
 ): Promise<T> {
-  const { sleep, random, maxRetries } = resolveDependencies(dependencies);
-  for (let attempt = 0; ; attempt += 1) {
+  const { sleep, random, now, maxRetries } = resolveDependencies(dependencies);
+  for (let pass = 0; ; pass += 1) {
+    fence.enter(pass);
     try {
-      return await readAndWrite();
+      return await readAndWrite(pass);
     } catch (error) {
-      if (!isHomeserverPublishConflict(error) || attempt >= maxRetries) throw error;
-      await sleep(delayMs({ status: HttpStatusCode.CONFLICT, publishConflict: true }, attempt, random));
+      const metadata = errorMetadata(error, now());
+      const retry =
+        metadata !== undefined &&
+        (metadata.publishConflict || (dependencies.retryTransient === true && retryableStatus(metadata.status)));
+      if (!retry || pass >= maxRetries) throw error;
+      await sleep(delayMs(metadata, pass, random));
     }
   }
 }

@@ -22,6 +22,7 @@ import { SettingsApplication } from './settings';
 // Mock the HomeserverService
 vi.mock('@/services/homeserver/homeserver', () => ({
   HomeserverService: {
+    createWriteFence: () => ({ enter: () => {}, assertCurrent: () => {} }),
     request: vi.fn(),
   },
 }));
@@ -102,6 +103,7 @@ describe('SettingsApplication', () => {
         url: normalizerResult.meta.url,
         bodyJson: expect.any(Object),
         retryPublishConflict: false,
+        fence: expect.anything(),
       });
     });
 

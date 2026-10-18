@@ -9,7 +9,7 @@ import { CompositeIdDomain } from '@/models/models.types';
 import { buildCompositeIdFromPubkyUri } from '@/models/models.utils';
 import { GuardedContentParser, LockContentParser, LockProofBundler } from '@/pipes/locks/locks.parser';
 import { HomeserverService } from '@/services/homeserver/homeserver';
-import { retryHomeserverWriteAfterReread } from '@/services/homeserver/write-retry';
+import { retryHomeserverWriteAfterReread, type THomeserverWriteFence } from '@/services/homeserver/write-retry';
 import { LocalLocksService } from '@/services/local/locks/locks';
 import { LocksService } from '@/services/locks/locks';
 import type {
@@ -170,7 +170,7 @@ export class LocksApplication {
     const lockId = this.requireLockId(lockUrl, 'startPayment');
     // A purchase-file PUT refused by the homeserver's publish conflict starts over from the read:
     // the reader's purchases changed after they were read, so a saved id may now be reusable.
-    const resolveOrMint = async (): Promise<TStartPaymentResult | string> => {
+    const resolveOrMint = async (fence: THomeserverWriteFence): Promise<TStartPaymentResult | string> => {
       const resolved = await this.fetchResolvedPurchase({ lockFile, lockUrl, readerPubky });
       if (resolved?.kind === 'terminal' && !isRetry) return { bundleId: resolved.bundleId, status: resolved.status };
       if (resolved?.kind === 'reusable') return resolved.bundleId;
@@ -181,11 +181,13 @@ export class LocksApplication {
         url: GuardedContentParser.purchaseUrl(readerPubky, lockId, bundleId),
         blob: new TextEncoder().encode(GuardedContentParser.buildPurchaseFile(bundleId)),
         retryPublishConflict: false,
+        fence,
       });
       return bundleId;
     };
     const run = async (): Promise<TStartPaymentResult> => {
-      const resolved = await retryHomeserverWriteAfterReread(resolveOrMint);
+      const fence = HomeserverService.createWriteFence();
+      const resolved = await retryHomeserverWriteAfterReread(fence, () => resolveOrMint(fence));
       if (typeof resolved !== 'string') return resolved;
       const bundleId = resolved;
       const bundle = LockProofBundler.buildPayment(lockFile, lockUrl, bundleId, readerPubky);

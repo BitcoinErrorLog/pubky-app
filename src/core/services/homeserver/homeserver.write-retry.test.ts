@@ -10,6 +10,7 @@ import {
   HOMESERVER_WRITE_MAX_ATTEMPTS,
   installHomeserverWriteRetryDependenciesForTests,
   isHomeserverPublishConflict,
+  retryHomeserverWriteAfterReread,
 } from './write-retry';
 
 const mockState = vi.hoisted(() => ({
@@ -274,6 +275,59 @@ describe('homeserver writes route through the shared retry policy', () => {
         code: AuthErrorCode.SESSION_EXPIRED,
       });
       expect(mockState.putBytes).toHaveBeenCalledOnce();
+    });
+
+    it('stops a read-check-write before its next pass when logout begins during the backoff', async () => {
+      mockState.putJson.mockRejectedValue(conflictError(HOMESERVER_PUBLISH_CONFLICT_MESSAGE));
+      sleep.mockImplementationOnce(async () => {
+        useAuthStore.setState({ isLoggingOut: true });
+      });
+      const read = vi.fn(async () => ({ name: 'Alice' }));
+      const fence = HomeserverService.createWriteFence();
+
+      await expect(
+        retryHomeserverWriteAfterReread(fence, async () => {
+          const bodyJson = await read();
+          await HomeserverService.request({
+            method: HttpMethod.PUT,
+            url: PROFILE_URL,
+            bodyJson,
+            retryPublishConflict: false,
+            fence,
+          });
+        }),
+      ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+      expect(read).toHaveBeenCalledOnce();
+      expect(mockState.putJson).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      ['logout begins', () => useAuthStore.setState({ isLoggingOut: true })],
+      ['the session is replaced', () => useAuthStore.setState({ session: session() })],
+      ['the account generation changes', () => useAuthStore.setState({ generation: 'generation-2' })],
+    ])('does not start the write of a later pass when %s during its read', async (_name, change) => {
+      const fence = HomeserverService.createWriteFence();
+      fence.enter(1);
+      change();
+
+      await expect(
+        HomeserverService.request({ method: HttpMethod.PUT, url: PROFILE_URL, bodyJson: { a: 1 }, fence }),
+      ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+      await expect(
+        HomeserverService.putBlob({ url: BLOB_URL, blob: new Uint8Array([1]), fence }),
+      ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+      expect(mockState.putJson).not.toHaveBeenCalled();
+      expect(mockState.putBytes).not.toHaveBeenCalled();
+    });
+
+    it('leaves the first pass of a read-check-write as any write, even while logout is in progress', async () => {
+      const fence = HomeserverService.createWriteFence();
+      useAuthStore.setState({ isLoggingOut: true });
+      fence.enter(0);
+
+      await HomeserverService.request({ method: HttpMethod.PUT, url: PROFILE_URL, bodyJson: { a: 1 }, fence });
+
+      expect(mockState.putJson).toHaveBeenCalledOnce();
     });
 
     it('still makes the first attempt while logout is in progress, as before retries existed', async () => {

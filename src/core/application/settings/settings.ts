@@ -4,7 +4,7 @@ import { Logger } from '@/libs/logger/logger';
 import type { Pubky } from '@/models/models.types';
 import { type SettingsJson, SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
 import { HomeserverService } from '@/services/homeserver/homeserver';
-import { retryHomeserverWriteAfterReread } from '@/services/homeserver/write-retry';
+import { retryHomeserverWriteAfterReread, type THomeserverWriteFence } from '@/services/homeserver/write-retry';
 import type { SettingsState } from '@/stores/settings/settings.types';
 
 /**
@@ -42,7 +42,8 @@ export class SettingsApplication {
     await this.enqueueWrite(pubky, async () => {
       if (signal?.aborted) return;
 
-      await retryHomeserverWriteAfterReread(async () => {
+      const fence = HomeserverService.createWriteFence();
+      await retryHomeserverWriteAfterReread(fence, async () => {
         let resolved = settings;
         if (settings.privacy.moderationBot === undefined) {
           const remote = await this.fetchFromHomeserver(pubky);
@@ -50,7 +51,7 @@ export class SettingsApplication {
           resolved = this.withRemoteModerationBot(settings, remote);
         }
 
-        await this.push(resolved, pubky);
+        await this.push(resolved, pubky, fence);
       });
     });
   }
@@ -80,7 +81,7 @@ export class SettingsApplication {
     }
   }
 
-  private static async push(settings: SettingsState, pubky: Pubky): Promise<void> {
+  private static async push(settings: SettingsState, pubky: Pubky, fence: THomeserverWriteFence): Promise<void> {
     const { settings: settingsJson, meta } = SettingsNormalizer.to(settings, pubky);
 
     Logger.info('[Settings] Pushing to homeserver', { url: meta.url, settings: settingsJson });
@@ -90,6 +91,7 @@ export class SettingsApplication {
       url: meta.url,
       bodyJson: settingsJson as unknown as Record<string, unknown>,
       retryPublishConflict: false,
+      fence,
     });
 
     Logger.info('[Settings] Push complete');
@@ -142,17 +144,22 @@ export class SettingsApplication {
    */
   static async initializeSettings(pubky: Pubky, localSettings: SettingsState): Promise<SettingsState | null> {
     Logger.info('[Settings] Initializing settings sync');
-    return await retryHomeserverWriteAfterReread(() => this.reconcileWithRemote(pubky, localSettings));
+    const fence = HomeserverService.createWriteFence();
+    return await retryHomeserverWriteAfterReread(fence, () => this.reconcileWithRemote(pubky, localSettings, fence));
   }
 
-  private static async reconcileWithRemote(pubky: Pubky, localSettings: SettingsState): Promise<SettingsState | null> {
+  private static async reconcileWithRemote(
+    pubky: Pubky,
+    localSettings: SettingsState,
+    fence: THomeserverWriteFence,
+  ): Promise<SettingsState | null> {
     const remoteSettings = await this.fetchFromHomeserver(pubky);
 
     if (!remoteSettings) {
       Logger.info('[Settings] No remote settings, pushing local to homeserver');
       // Stamp a real timestamp if updatedAt is 0 (initial default), so homeserver has a valid timestamp for future conflict resolution
       const settingsWithTimestamp = { ...localSettings, updatedAt: localSettings.updatedAt || Date.now() };
-      await this.enqueueWrite(pubky, () => this.push(settingsWithTimestamp, pubky));
+      await this.enqueueWrite(pubky, () => this.push(settingsWithTimestamp, pubky, fence));
       return settingsWithTimestamp;
     }
 
@@ -175,7 +182,7 @@ export class SettingsApplication {
     Logger.info('[Settings] Local settings newer, pushing to homeserver');
     // The remote document was just read; reuse it instead of probing again inside commitUpdate.
     const settingsToPush = this.withRemoteModerationBot(localSettings, remoteSettings);
-    await this.enqueueWrite(pubky, () => this.push(settingsToPush, pubky));
+    await this.enqueueWrite(pubky, () => this.push(settingsToPush, pubky, fence));
     return settingsToPush === localSettings ? null : settingsToPush;
   }
 }
