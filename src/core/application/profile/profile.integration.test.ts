@@ -60,7 +60,6 @@ describe('ProfileApplication published profile repair', () => {
         method: HttpMethod.PUT,
         url: `pubky://${pubky}/pub/pubky.app/profile.json`,
         bodyJson: valid,
-        retryPublishConflict: false,
         fence: expect.anything(),
       });
       expect(await UserDetailsModel.findById(pubky)).toMatchObject(valid);

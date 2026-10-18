@@ -574,8 +574,6 @@ describe('NotificationApplication.markAllAsRead', () => {
       method: HttpMethod.PUT,
       url: mockLastReadUrl,
       bodyJson: { timestamp: mockTimestamp },
-      singleAttempt: true,
-      retryPublishConflict: false,
       fence: expect.objectContaining({ enter: expect.any(Function), assertCurrent: expect.any(Function) }),
     });
   });

@@ -728,9 +728,7 @@ describe('LocksApplication (payment unlock)', () => {
         await expect(LocksApplication.startPayment(params)).resolves.toEqual({ bundleId: BUNDLE_A, status: 'pending' });
         expect(mocks.listAll).toHaveBeenCalledTimes(2);
         expect(mocks.generateBundleId).toHaveBeenCalledOnce();
-        expect(mocks.putBlob).toHaveBeenCalledExactlyOnceWith(
-          expect.objectContaining({ retryPublishConflict: false, fence: expect.anything() }),
-        );
+        expect(mocks.putBlob).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ fence: expect.anything() }));
         expect(mocks.submitProof).toHaveBeenCalledWith(expect.objectContaining({ bundle_id: BUNDLE_A }));
       });
 

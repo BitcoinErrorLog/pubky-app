@@ -423,7 +423,7 @@ describe('BootstrapApplication', () => {
         const puts = await run(true);
 
         expect(puts).toHaveLength(1);
-        expect(puts[0][0]).toMatchObject({ url: LAST_READ_URL, retryPublishConflict: false });
+        expect(puts[0][0]).toMatchObject({ url: LAST_READ_URL, fence: expect.anything() });
       });
 
       it('writes again when the lastRead is still missing', async () => {
@@ -477,7 +477,6 @@ describe('BootstrapApplication', () => {
         method: HttpMethod.PUT,
         url: MOCK_NORMALIZED_LAST_READ_URL,
         bodyJson: mockLastReadResult.last_read.toJson(),
-        retryPublishConflict: false,
         fence: expect.anything(),
       });
 

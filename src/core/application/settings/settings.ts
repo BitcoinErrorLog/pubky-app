@@ -31,8 +31,8 @@ export class SettingsApplication {
    * only if the user changes settings again, since sign-in resets the store and session restore
    * does not sync settings. Dropping one toggle beats erasing the field and re-following the bot.
    *
-   * A PUT refused by the homeserver's publish conflict starts over from the read, since the
-   * remote document changed after it was read.
+   * A PUT the homeserver refuses with a retried status (429, 500, 503 or the publish conflict)
+   * starts over from the read, since the remote document may have changed meanwhile.
    *
    * @param settings, The current settings state to persist
    * @param pubky, The user's public key
@@ -90,7 +90,6 @@ export class SettingsApplication {
       method: HttpMethod.PUT,
       url: meta.url,
       bodyJson: settingsJson as unknown as Record<string, unknown>,
-      retryPublishConflict: false,
       fence,
     });
 
@@ -134,8 +133,8 @@ export class SettingsApplication {
    * Initializes settings on bootstrap.
    * Fetches settings from homeserver and merges with local settings.
    * Uses version and timestamp for conflict resolution (newer wins).
-   * A push refused by the homeserver's publish conflict starts over from the read: the remote
-   * document changed after the comparison and may now be the newer one.
+   * A push the homeserver refuses with a retried status starts over from the read: the remote
+   * document may have changed after the comparison and may now be the newer one.
    *
    * @param pubky, The user's public key
    * @returns The settings the store should adopt: remote when newer, or local enriched with

@@ -205,29 +205,6 @@ describe('retryHomeserverWrite', () => {
       expect(operation).toHaveBeenCalledOnce();
     });
 
-    it('throws the publish conflict at once for a write checked against a read', async () => {
-      const error = publishConflict();
-      const operation = vi.fn<() => Promise<void>>().mockRejectedValue(error);
-      const sleep = vi.fn<(delayMs: number) => Promise<void>>();
-
-      await expect(
-        retryHomeserverWrite(HttpMethod.PUT, operation, { sleep, retryPublishConflict: false }),
-      ).rejects.toBe(error);
-      expect(operation).toHaveBeenCalledOnce();
-      expect(sleep).not.toHaveBeenCalled();
-    });
-
-    it('still retries a 503 for a write checked against a read', async () => {
-      const operation = vi.fn<() => Promise<void>>().mockRejectedValueOnce(requestError(503)).mockResolvedValueOnce();
-
-      await retryHomeserverWrite(HttpMethod.PUT, operation, {
-        sleep: async () => {},
-        random: () => 0,
-        retryPublishConflict: false,
-      });
-      expect(operation).toHaveBeenCalledTimes(2);
-    });
-
     it('reads a fetch response body to tell the publish conflict from a path collision, leaving it readable', async () => {
       const operation = vi
         .fn<() => Promise<Response>>()
@@ -319,8 +296,8 @@ describe('retryHomeserverWriteAfterReread', () => {
     expect(readAndWrite.mock.calls).toEqual([[0], [1]]);
   });
 
-  it('does not run again after a real conflict, or after a 503 unless asked to', async () => {
-    for (const error of [pathCollision(), requestError(503)]) {
+  it('does not run again after a real conflict or a 400', async () => {
+    for (const error of [pathCollision(), requestError(409), requestError(400)]) {
       const readAndWrite = vi.fn<() => Promise<void>>().mockRejectedValue(error);
       const sleep = vi.fn<(delayMs: number) => Promise<void>>();
 
@@ -330,7 +307,7 @@ describe('retryHomeserverWriteAfterReread', () => {
     }
   });
 
-  it('with retryTransient, starts over from the read on 429, 500 and 503, honouring Retry-After', async () => {
+  it('starts over from the read on 429, 500 and 503 too, honouring Retry-After', async () => {
     const readAndWrite = vi
       .fn<() => Promise<string>>()
       .mockRejectedValueOnce(requestError(429, { retryAfter: 2 }))
@@ -338,17 +315,11 @@ describe('retryHomeserverWriteAfterReread', () => {
       .mockResolvedValueOnce('stored');
     const sleep = vi.fn<(delayMs: number) => Promise<void>>().mockResolvedValue();
 
-    await expect(
-      retryHomeserverWriteAfterReread(openFence(), readAndWrite, { sleep, random: () => 0, retryTransient: true }),
-    ).resolves.toBe('stored');
+    await expect(retryHomeserverWriteAfterReread(openFence(), readAndWrite, { sleep, random: () => 0 })).resolves.toBe(
+      'stored',
+    );
+    expect(readAndWrite.mock.calls).toEqual([[0], [1], [2]]);
     expect(sleep.mock.calls).toEqual([[2_000], [250]]);
-
-    const collision = pathCollision();
-    const once = vi.fn<() => Promise<void>>().mockRejectedValue(collision);
-    await expect(
-      retryHomeserverWriteAfterReread(openFence(), once, { sleep: async () => {}, retryTransient: true }),
-    ).rejects.toBe(collision);
-    expect(once).toHaveBeenCalledOnce();
   });
 
   it('stops before the next pass when the fence throws', async () => {

@@ -168,8 +168,8 @@ export class LocksApplication {
     isRetry,
   }: TStartPaymentParams): Promise<TStartPaymentResult> {
     const lockId = this.requireLockId(lockUrl, 'startPayment');
-    // A purchase-file PUT refused by the homeserver's publish conflict starts over from the read:
-    // the reader's purchases changed after they were read, so a saved id may now be reusable.
+    // A purchase-file PUT the homeserver refuses with a retried status starts over from the read:
+    // the reader's purchases may have changed meanwhile, so a saved id may now be reusable.
     const resolveOrMint = async (fence: THomeserverWriteFence): Promise<TStartPaymentResult | string> => {
       const resolved = await this.fetchResolvedPurchase({ lockFile, lockUrl, readerPubky });
       if (resolved?.kind === 'terminal' && !isRetry) return { bundleId: resolved.bundleId, status: resolved.status };
@@ -180,7 +180,6 @@ export class LocksApplication {
       await HomeserverService.putBlob({
         url: GuardedContentParser.purchaseUrl(readerPubky, lockId, bundleId),
         blob: new TextEncoder().encode(GuardedContentParser.buildPurchaseFile(bundleId)),
-        retryPublishConflict: false,
         fence,
       });
       return bundleId;

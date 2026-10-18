@@ -162,18 +162,28 @@ describe('homeserver writes route through the shared retry policy', () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
-  it('surfaces the publish conflict at once when the caller re-reads, still recognisable as one', async () => {
-    mockState.putJson.mockRejectedValue(conflictError(HOMESERVER_PUBLISH_CONFLICT_MESSAGE));
+  it.each([
+    ['the publish conflict', 409, () => conflictError(HOMESERVER_PUBLISH_CONFLICT_MESSAGE)],
+    ['a 429', 429, () => requestError(429)],
+    ['a 503', 503, () => requestError(503)],
+  ])('makes one attempt for a fenced write and surfaces %s for its re-read loop', async (name, statusCode, error) => {
+    mockState.putJson.mockRejectedValue(error());
+    mockState.putBytes.mockRejectedValue(error());
+    const fence = HomeserverService.createWriteFence();
 
-    const error = await HomeserverService.request({
+    const thrown = await HomeserverService.request({
       method: HttpMethod.PUT,
       url: PROFILE_URL,
       bodyJson: { name: 'Alice' },
-      retryPublishConflict: false,
-    }).catch((thrown: unknown) => thrown);
+      fence,
+    }).catch((caught: unknown) => caught);
+    await expect(HomeserverService.putBlob({ url: BLOB_URL, blob: new Uint8Array([1]), fence })).rejects.toThrow();
 
     expect(mockState.putJson).toHaveBeenCalledOnce();
-    expect(isHomeserverPublishConflict(error)).toBe(true);
+    expect(mockState.putBytes).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+    expect(thrown).toMatchObject({ context: { statusCode } });
+    expect(isHomeserverPublishConflict(thrown)).toBe(name === 'the publish conflict');
   });
 
   it('retries an owned DELETE on 503 and makes one attempt when asked to', async () => {
@@ -292,7 +302,6 @@ describe('homeserver writes route through the shared retry policy', () => {
             method: HttpMethod.PUT,
             url: PROFILE_URL,
             bodyJson,
-            retryPublishConflict: false,
             fence,
           });
         }),

@@ -198,7 +198,6 @@ describe('ProfileApplication', () => {
               method: HttpMethod.PUT,
               url: 'pubky://test-pubky/pub/pubky.app/profile.json',
               bodyJson: { ...published, status: '🪚building' },
-              retryPublishConflict: false,
               fence: expect.anything(),
             },
           ],

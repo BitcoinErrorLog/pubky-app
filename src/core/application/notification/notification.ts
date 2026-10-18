@@ -92,25 +92,19 @@ export class NotificationApplication {
     bodyJson: Record<string, unknown>,
   ): Promise<number> {
     const fence = HomeserverService.createWriteFence();
-    return await retryHomeserverWriteAfterReread(
-      fence,
-      async (pass) => {
-        if (pass > 0) {
-          const published = await this.readPublishedLastRead(url);
-          if (published !== null && published >= timestamp) return published;
-        }
-        await HomeserverService.request({
-          method: HttpMethod.PUT,
-          url,
-          bodyJson,
-          singleAttempt: true,
-          retryPublishConflict: false,
-          fence,
-        });
-        return timestamp;
-      },
-      { retryTransient: true },
-    );
+    return await retryHomeserverWriteAfterReread(fence, async (pass) => {
+      if (pass > 0) {
+        const published = await this.readPublishedLastRead(url);
+        if (published !== null && published >= timestamp) return published;
+      }
+      await HomeserverService.request({
+        method: HttpMethod.PUT,
+        url,
+        bodyJson,
+        fence,
+      });
+      return timestamp;
+    });
   }
 
   /** The published `last_read` timestamp, or null when the file is missing or unreadable. */

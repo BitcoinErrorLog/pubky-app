@@ -108,19 +108,27 @@ describe('homeserver write call sites', () => {
     ).toEqual([]);
   });
 
-  it('fences every write that defers its publish conflict to a re-read', () => {
-    // retryPublishConflict: false only appears inside retryHomeserverWriteAfterReread, whose later
-    // passes must stop once the session ended: the write carries that loop's fence.
+  it('fences every write in a file that re-reads before retrying', () => {
+    // A write here is built from a read unless listed: its retry must run the read again
+    // (retryHomeserverWriteAfterReread), so it passes the fence, which also makes it one attempt.
+    const unfenced: Record<string, string> = {
+      'ProfileApplication.commitCreate': 'the first profile.json, built from the form, not a read',
+      'ProfileApplication.deleteFile': 'account deletion: a DELETE has no body to go stale',
+      'LocksApplication.replicateUnlockedContent': 'the replica bytes are fixed by the unlocked content',
+    };
     const offenders = files
-      .filter(({ path }) => path !== HOMESERVER_SERVICE)
-      .flatMap(({ path, code }) =>
-        callSpans(code, /\bHomeserverService\.(?:request|putBlob)\s*\(/g)
+      .filter(({ path, code }) => path !== HOMESERVER_SERVICE && /\bretryHomeserverWriteAfterReread\s*\(/.test(code))
+      .flatMap(({ path, code }) => {
+        const owner = /\bexport\s+class\s+(\w+)/.exec(code)?.[1];
+        return callSpans(code, /\bHomeserverService\.(?:request|putBlob|delete|deleteIdempotent)\s*\(/g)
           .filter(([open, close]) => {
             const args = code.slice(open, close);
-            return /\bretryPublishConflict\s*:\s*false\b/.test(args) && !/\bfence\b/.test(args);
+            if (/HttpMethod\.GET\b/.test(args) || /\bfence\b/.test(args)) return false;
+            const method = [...code.slice(0, open).matchAll(/\bstatic\s+(?:async\s+)?(\w+)\s*[<(]/g)].pop()?.[1];
+            return !(`${owner}.${method}` in unfenced);
           })
-          .map(([open]) => `${path}:${lineOf(code, open)}`),
-      );
+          .map(([open]) => `${path}:${lineOf(code, open)}`);
+      });
 
     expect(offenders).toEqual([]);
   });

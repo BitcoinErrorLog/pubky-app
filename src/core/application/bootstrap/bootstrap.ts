@@ -159,9 +159,9 @@ export class BootstrapApplication {
   }
 
   /**
-   * Creates the last-read file a read just found missing. A PUT refused by the homeserver's
-   * publish conflict means the file changed after that read, so it is checked again, and a
-   * file another client created meanwhile is kept rather than overwritten.
+   * Creates the last-read file a read just found missing. Before a retry (429, 500, 503 or the
+   * publish conflict) it is checked again, and a file another client created meanwhile is kept
+   * rather than overwritten.
    */
   private static async createMissingLastRead(url: string, bodyJson: Record<string, unknown>): Promise<void> {
     const fence = HomeserverService.createWriteFence();
@@ -169,7 +169,7 @@ export class BootstrapApplication {
     await retryHomeserverWriteAfterReread(fence, async () => {
       if (!seenMissing && (await HomeserverService.exists(url))) return;
       seenMissing = false;
-      await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson, retryPublishConflict: false, fence });
+      await HomeserverService.request({ method: HttpMethod.PUT, url, bodyJson, fence });
     });
   }
 }

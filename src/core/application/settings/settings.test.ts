@@ -102,7 +102,6 @@ describe('SettingsApplication', () => {
         method: HttpMethod.PUT,
         url: normalizerResult.meta.url,
         bodyJson: expect.any(Object),
-        retryPublishConflict: false,
         fence: expect.anything(),
       });
     });

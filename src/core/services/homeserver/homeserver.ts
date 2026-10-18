@@ -624,16 +624,10 @@ export class HomeserverService {
    * @param {string} url - Pubky URL.
    * @param {Record<string, unknown>} [bodyJson] - JSON body to serialize and send.
    */
-  static async request<T>({
-    method,
-    url,
-    bodyJson,
-    retryPublishConflict,
-    singleAttempt,
-    fence,
-  }: THomeserverRequestParams): Promise<T> {
+  static async request<T>({ method, url, bodyJson, singleAttempt, fence }: THomeserverRequestParams): Promise<T> {
     const owned = this.resolveOwnedSessionPath(url);
-    const retryOptions = { retryPublishConflict, ...(singleAttempt && { maxRetries: 0 }) };
+    // A fenced write belongs to a read-check-write, whose loop retries it from the read.
+    const retryOptions = singleAttempt || fence ? { maxRetries: 0 } : {};
 
     // Handle owned session paths
     if (owned) {
@@ -709,7 +703,8 @@ export class HomeserverService {
    * @param {string} url - Pubky URL.
    * @param {Uint8Array} blob - Raw bytes of the blob to upload.
    */
-  static async putBlob({ url, blob, retryPublishConflict, fence }: TPutBlobParams) {
+  static async putBlob({ url, blob, fence }: TPutBlobParams) {
+    const retryOptions = fence ? { maxRetries: 0 } : {};
     // Uint8Array is mutable; retries must replay the exact original payload.
     const retryBody = blob.slice();
     const owned = this.resolveOwnedSessionPath(url);
@@ -719,7 +714,7 @@ export class HomeserverService {
         await retryHomeserverWrite(
           HttpMethod.PUT,
           () => this.withActiveSession(session, () => session.storage.putBytes(path, retryBody.slice())),
-          { beforeAttempt: this.writeRetryGuard(url, HttpMethod.PUT, fence), retryPublishConflict },
+          { beforeAttempt: this.writeRetryGuard(url, HttpMethod.PUT, fence), ...retryOptions },
         );
         return;
       } catch (error) {
@@ -742,7 +737,7 @@ export class HomeserverService {
     const response = await retryHomeserverWrite(
       HttpMethod.PUT,
       () => this.fetch({ url, options: { method: HttpMethod.PUT, body: retryBody.slice() } }),
-      { retryPublishConflict },
+      retryOptions,
     );
     await assertOk({ response, url, operation: 'putBlob' });
   }

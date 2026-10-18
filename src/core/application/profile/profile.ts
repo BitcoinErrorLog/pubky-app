@@ -98,8 +98,9 @@ export class ProfileApplication {
    * field the user didn't change comes from a fresh homeserver read, never from the local
    * cache, which can be older than the last save. A failed read aborts before the PUT, and a
    * missing profile (a deleted account) is refused so it isn't recreated. The whole write
-   * holds the user's profile lock (see `withProfileLock`). A PUT refused by the homeserver's
-   * publish conflict starts over from the read: `profile.json` changed after it was read.
+   * holds the user's profile lock (see `withProfileLock`). A PUT the homeserver refuses with a
+   * retried status (429, 500, 503 or the publish conflict) starts over from the read, so a field
+   * another device changed meanwhile is kept, never replayed from the stale read.
    */
   private static async commitChanges({
     pubky,
@@ -136,7 +137,6 @@ export class ProfileApplication {
           method: HttpMethod.PUT,
           url: meta.url,
           bodyJson: user.toJson(),
-          retryPublishConflict: false,
           fence,
         });
         return user;

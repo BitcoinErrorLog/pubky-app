@@ -46,7 +46,6 @@ describe('useProfileForm published links integration', () => {
       method: HttpMethod.PUT,
       url: `pubky://${pubky}/pub/pubky.app/profile.json`,
       bodyJson: { ...profile, image: undefined, bio: 'New bio', links: publishedLinks },
-      retryPublishConflict: false,
       fence: expect.anything(),
     });
     expect(await UserDetailsModel.findById(pubky)).toMatchObject({ bio: 'New bio', links: publishedLinks });
@@ -68,7 +67,6 @@ describe('useProfileForm published links integration', () => {
       method: HttpMethod.PUT,
       url: `pubky://${pubky}/pub/pubky.app/profile.json`,
       bodyJson: { ...published, image: undefined, links: repairedLinks },
-      retryPublishConflict: false,
       fence: expect.anything(),
     });
     expect(await UserDetailsModel.findById(pubky)).toMatchObject({ links: repairedLinks });
