@@ -4,6 +4,7 @@ import { Logger } from '@/libs/logger/logger';
 import type { Pubky } from '@/models/models.types';
 import { type SettingsJson, SettingsNormalizer } from '@/pipes/settings/settings.normalizer';
 import { HomeserverService } from '@/services/homeserver/homeserver';
+import { retryHomeserverWriteAfterReread } from '@/services/homeserver/write-retry';
 import type { SettingsState } from '@/stores/settings/settings.types';
 
 /**
@@ -30,6 +31,9 @@ export class SettingsApplication {
    * only if the user changes settings again, since sign-in resets the store and session restore
    * does not sync settings. Dropping one toggle beats erasing the field and re-following the bot.
    *
+   * A PUT refused by the homeserver's publish conflict starts over from the read, since the
+   * remote document changed after it was read.
+   *
    * @param settings, The current settings state to persist
    * @param pubky, The user's public key
    * @param signal, Optional cancellation signal checked when this queued write starts
@@ -38,14 +42,16 @@ export class SettingsApplication {
     await this.enqueueWrite(pubky, async () => {
       if (signal?.aborted) return;
 
-      let resolved = settings;
-      if (settings.privacy.moderationBot === undefined) {
-        const remote = await this.fetchFromHomeserver(pubky);
-        if (signal?.aborted) return;
-        resolved = this.withRemoteModerationBot(settings, remote);
-      }
+      await retryHomeserverWriteAfterReread(async () => {
+        let resolved = settings;
+        if (settings.privacy.moderationBot === undefined) {
+          const remote = await this.fetchFromHomeserver(pubky);
+          if (signal?.aborted) return;
+          resolved = this.withRemoteModerationBot(settings, remote);
+        }
 
-      await this.push(resolved, pubky);
+        await this.push(resolved, pubky);
+      });
     });
   }
 
@@ -83,6 +89,7 @@ export class SettingsApplication {
       method: HttpMethod.PUT,
       url: meta.url,
       bodyJson: settingsJson as unknown as Record<string, unknown>,
+      retryPublishConflict: false,
     });
 
     Logger.info('[Settings] Push complete');
@@ -129,10 +136,17 @@ export class SettingsApplication {
    * @param pubky, The user's public key
    * @returns The settings the store should adopt: remote when newer, or local enriched with
    *   remote-only moderation-bot state; null when the store is already current
+   * A push refused by the homeserver's publish conflict starts over from the read: the remote
+   * document changed after the comparison and may now be the newer one.
+   *
    * @throws If fetch or sync operations fail, caller should handle errors
    */
   static async initializeSettings(pubky: Pubky, localSettings: SettingsState): Promise<SettingsState | null> {
     Logger.info('[Settings] Initializing settings sync');
+    return await retryHomeserverWriteAfterReread(() => this.reconcileWithRemote(pubky, localSettings));
+  }
+
+  private static async reconcileWithRemote(pubky: Pubky, localSettings: SettingsState): Promise<SettingsState | null> {
     const remoteSettings = await this.fetchFromHomeserver(pubky);
 
     if (!remoteSettings) {

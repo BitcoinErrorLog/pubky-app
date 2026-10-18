@@ -17,6 +17,7 @@ import type { Pubky } from '@/models/models.types';
 import type { ProfileChanges } from '@/pipes/pipes.types';
 import { UserNormalizer } from '@/pipes/user/user.normalizer';
 import { HomeserverService } from '@/services/homeserver/homeserver';
+import { retryHomeserverWriteAfterReread } from '@/services/homeserver/write-retry';
 import { LocalProfileService } from '@/services/local/profile/profile';
 import { NexusBootstrapService } from '@/services/nexus/bootstrap/bootstrap';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -97,7 +98,8 @@ export class ProfileApplication {
    * field the user didn't change comes from a fresh homeserver read, never from the local
    * cache, which can be older than the last save. A failed read aborts before the PUT, and a
    * missing profile (a deleted account) is refused so it isn't recreated. The whole write
-   * holds the user's profile lock (see `withProfileLock`).
+   * holds the user's profile lock (see `withProfileLock`). A PUT refused by the homeserver's
+   * publish conflict starts over from the read: `profile.json` changed after it was read.
    */
   private static async commitChanges({
     pubky,
@@ -111,24 +113,32 @@ export class ProfileApplication {
     deletedMessage: string;
   }) {
     await this.withProfileLock(pubky, async () => {
-      let publishedJson: unknown;
-      try {
-        publishedJson = await HomeserverService.getFreshJson(userUriBuilder(pubky));
-      } catch (error) {
-        if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) {
-          throw Err.client(ClientErrorCode.GONE, deletedMessage, {
-            service: ErrorService.Homeserver,
-            operation,
-            context: { pubky },
-            cause: error,
-          });
+      const user = await retryHomeserverWriteAfterReread(async () => {
+        let publishedJson: unknown;
+        try {
+          publishedJson = await HomeserverService.getFreshJson(userUriBuilder(pubky));
+        } catch (error) {
+          if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) {
+            throw Err.client(ClientErrorCode.GONE, deletedMessage, {
+              service: ErrorService.Homeserver,
+              operation,
+              context: { pubky },
+              cause: error,
+            });
+          }
+          throw error;
         }
-        throw error;
-      }
 
-      const published = UserNormalizer.fromPublished(publishedJson);
-      const { user, meta } = UserNormalizer.to(UserNormalizer.merge(published, changes), pubky);
-      await HomeserverService.request({ method: HttpMethod.PUT, url: meta.url, bodyJson: user.toJson() });
+        const published = UserNormalizer.fromPublished(publishedJson);
+        const { user, meta } = UserNormalizer.to(UserNormalizer.merge(published, changes), pubky);
+        await HomeserverService.request({
+          method: HttpMethod.PUT,
+          url: meta.url,
+          bodyJson: user.toJson(),
+          retryPublishConflict: false,
+        });
+        return user;
+      });
       await LocalProfileService.updateDetails(user, pubky);
     });
   }
