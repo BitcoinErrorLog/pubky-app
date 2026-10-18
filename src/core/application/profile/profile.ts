@@ -173,12 +173,13 @@ export class ProfileApplication {
    * account — so a single transport blip used to abort the entire flow mid-way
    * (Sentry PUBKY-APP-6Y). Each file gets a few attempts with a short backoff.
    * A 404 counts as success: the file may have been removed by an attempt whose
-   * response was lost, and "file gone" is the desired end state either way.
+   * response was lost, and "file gone" is the desired end state either way. Each attempt is a
+   * single DELETE, so the homeserver write retry policy's attempts don't multiply with these.
    */
   private static async deleteFile(url: string) {
     for (let attempt = 1; ; attempt++) {
       try {
-        await HomeserverService.delete(url);
+        await HomeserverService.delete(url, { singleAttempt: true });
         return;
       } catch (error) {
         if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) {

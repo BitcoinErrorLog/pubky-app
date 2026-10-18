@@ -380,7 +380,9 @@ describe('ProfileApplication', () => {
         );
 
         const deletion = ProfileApplication.commitDelete({ pubky: testPubky });
-        await vi.waitFor(() => expect(HomeserverService.delete).toHaveBeenCalledWith(otherFile));
+        await vi.waitFor(() =>
+          expect(HomeserverService.delete).toHaveBeenCalledWith(otherFile, { singleAttempt: true }),
+        );
         const write = ProfileApplication.commitUpdateStatus({ pubky: testPubky, status: 'back' });
         await settle();
         // The write waits for the deletion instead of reading profile.json while it still exists

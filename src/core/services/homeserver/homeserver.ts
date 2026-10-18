@@ -51,6 +51,7 @@ import {
   PUBKY_PREFIX,
   resolveOwnedSessionPath,
 } from './homeserver.utils';
+import { retryHomeserverWrite } from './write-retry';
 
 const STORAGE_PATH_PREFIXES = ['/pub/', '/priv/'] as const;
 const DELETE_IDEMPOTENT_MAX_ATTEMPTS = 3;
@@ -103,6 +104,25 @@ export class HomeserverService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Fences write retries to the session that started them: a retry never runs after logout
+   * begins, the account changes, or the session is replaced. The first attempt is unguarded,
+   * as before retries existed.
+   */
+  private static writeRetryGuard(session: Session, url: string, method: HttpMethod): (attempt: number) => void {
+    const generation = useAuthStore.getState().generation;
+    return (attempt) => {
+      if (attempt === 0) return;
+      const state = useAuthStore.getState();
+      if (!state.isLoggingOut && state.selectSession() === session && state.generation === generation) return;
+      throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Session ended before the homeserver write completed.', {
+        service: ErrorService.Homeserver,
+        operation: 'writeRetry',
+        context: { url, method },
+      });
+    };
   }
 
   /**
@@ -571,8 +591,18 @@ export class HomeserverService {
    * @param {string} url - Pubky URL.
    * @param {Record<string, unknown>} [bodyJson] - JSON body to serialize and send.
    */
-  static async request<T>({ method, url, bodyJson }: THomeserverRequestParams): Promise<T> {
+  static async request<T>({
+    method,
+    url,
+    bodyJson,
+    retryPublishConflict,
+    singleAttempt,
+  }: THomeserverRequestParams): Promise<T> {
     const owned = this.resolveOwnedSessionPath(url);
+    const retryOptions = { retryPublishConflict, ...(singleAttempt && { maxRetries: 0 }) };
+    // Snapshot once so every retry replays the same JSON even if the caller
+    // mutates its object while an attempt is waiting.
+    const serializedBody = bodyJson === undefined ? undefined : JSON.stringify(bodyJson);
 
     // Handle owned session paths
     if (owned) {
@@ -583,15 +613,21 @@ export class HomeserverService {
           const response = await this.withActiveSession(session, () => getOwnedResponse({ session, path, url }));
           return (await parseResponseOrUndefined<T>({ response })) as T;
         }
-        case HttpMethod.PUT:
-          await this.withActiveSession(session, () => session.storage.putJson(path, bodyJson ?? {})).catch((error) =>
-            handleError({ error, additionalContext: { url, method } }),
-          );
+        case HttpMethod.PUT: {
+          const ownedBody = serializedBody === undefined ? {} : (JSON.parse(serializedBody) as Record<string, unknown>);
+          await retryHomeserverWrite(
+            HttpMethod.PUT,
+            () => this.withActiveSession(session, () => session.storage.putJson(path, ownedBody)),
+            { beforeAttempt: this.writeRetryGuard(session, url, method), ...retryOptions },
+          ).catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
+        }
         case HttpMethod.DELETE:
-          await this.withActiveSession(session, () => session.storage.delete(path)).catch((error) =>
-            handleError({ error, additionalContext: { url, method } }),
-          );
+          await retryHomeserverWrite(
+            HttpMethod.DELETE,
+            () => this.withActiveSession(session, () => session.storage.delete(path)),
+            { beforeAttempt: this.writeRetryGuard(session, url, method), ...retryOptions },
+          ).catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
       }
     }
@@ -616,7 +652,11 @@ export class HomeserverService {
         ? isHttpUrl(url)
           ? pubkySdk.client.fetch(url)
           : pubkySdk.publicStorage.get(url as Address)
-        : this.fetch({ url, options: { method, body: bodyJson ? JSON.stringify(bodyJson) : undefined } });
+        : retryHomeserverWrite(
+            method,
+            () => this.fetch({ url, options: { method, body: serializedBody } }),
+            retryOptions,
+          );
 
     const response = await fetchPromise.catch((error) => handleError({ error, additionalContext: { url, method } }));
 
@@ -634,11 +674,18 @@ export class HomeserverService {
    * @param {string} url - Pubky URL.
    * @param {Uint8Array} blob - Raw bytes of the blob to upload.
    */
-  static async putBlob({ url, blob }: TPutBlobParams) {
+  static async putBlob({ url, blob, retryPublishConflict }: TPutBlobParams) {
+    // Uint8Array is mutable; retries must replay the exact original payload.
+    const retryBody = blob.slice();
     const owned = this.resolveOwnedSessionPath(url);
     if (owned) {
+      const { session, path } = owned;
       try {
-        await this.withActiveSession(owned.session, () => owned.session.storage.putBytes(owned.path, blob));
+        await retryHomeserverWrite(
+          HttpMethod.PUT,
+          () => this.withActiveSession(session, () => session.storage.putBytes(path, retryBody.slice())),
+          { beforeAttempt: this.writeRetryGuard(session, url, HttpMethod.PUT), retryPublishConflict },
+        );
         return;
       } catch (error) {
         return handleError({ error, additionalContext: { url, method: HttpMethod.PUT } });
@@ -657,7 +704,11 @@ export class HomeserverService {
       );
     }
 
-    const response = await this.fetch({ url, options: { method: HttpMethod.PUT, body: blob } });
+    const response = await retryHomeserverWrite(
+      HttpMethod.PUT,
+      () => this.fetch({ url, options: { method: HttpMethod.PUT, body: retryBody.slice() } }),
+      { retryPublishConflict },
+    );
     await assertOk({ response, url, operation: 'putBlob' });
   }
 
@@ -734,9 +785,10 @@ export class HomeserverService {
    * Deletes a file from the homeserver.
    *
    * @param {string} url - Pubky URL of the file to delete.
+   * @param {boolean} [singleAttempt] - One attempt, for a caller that runs its own retry loop.
    */
-  static async delete(url: string) {
-    await this.request({ method: HttpMethod.DELETE, url });
+  static async delete(url: string, { singleAttempt }: { singleAttempt?: boolean } = {}) {
+    await this.request({ method: HttpMethod.DELETE, url, singleAttempt });
     Logger.debug('Delete successful', { url });
   }
 
@@ -745,11 +797,13 @@ export class HomeserverService {
    * ("already gone" is the desired end state) and transient failures retry
    * with a short backoff. Mirrors the hardened delete account deletion uses
    * (Sentry PUBKY-APP-6Y) so a single transport blip doesn't orphan resources.
+   * This loop is the retry: each attempt is a single DELETE, so the write
+   * retry policy's attempts don't multiply with these.
    */
   static async deleteIdempotent(url: string) {
     for (let attempt = 1; ; attempt++) {
       try {
-        await this.delete(url);
+        await this.delete(url, { singleAttempt: true });
         return;
       } catch (error) {
         if (hasHttpStatus(error, HttpStatusCode.NOT_FOUND)) {

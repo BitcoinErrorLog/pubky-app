@@ -74,11 +74,20 @@ export type THomeserverRequestParams = {
   method: HttpMethod;
   url: string;
   bodyJson?: Record<string, unknown>;
+  /**
+   * false when the body was built from a read of the same file: a publish conflict is thrown
+   * so the caller reads again (`retryHomeserverWriteAfterReread`) instead of replaying it.
+   */
+  retryPublishConflict?: boolean;
+  /** One attempt, for a caller that runs its own retry loop around this write. */
+  singleAttempt?: boolean;
 };
 
 export type TPutBlobParams = {
   url: string;
   blob: Uint8Array;
+  /** See {@link THomeserverRequestParams.retryPublishConflict}. */
+  retryPublishConflict?: boolean;
 };
 
 export type THomeserverListParams = {
