@@ -1,6 +1,7 @@
 import type { Session } from '@synonymdev/pubky';
 import type { LastReadResult } from 'pubky-app-specs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LocksApplication } from '@/application/locks/locks';
 import { ProfileApplication } from '@/application/profile/profile';
 import { SettingsApplication } from '@/application/settings/settings';
 import { TagApplication } from '@/application/tag/tag';
@@ -17,6 +18,8 @@ import {
   HOMESERVER_PUBLISH_CONFLICT_MESSAGE,
   installHomeserverWriteRetryDependenciesForTests,
 } from '@/services/homeserver/write-retry';
+import { LocksService } from '@/services/locks/locks';
+import type { LockFile } from '@/services/locks/locks.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useNotificationStore } from '@/stores/notification/notification.store';
 import {
@@ -384,5 +387,53 @@ describe('writes to one tag run in the order the user made them', () => {
 
     expect(tagOps()).toEqual(['DELETE', 'DELETE', 'PUT']);
     expect(homeserver.files.has(TAG_PATH)).toBe(true);
+  });
+});
+
+describe('a lock payment retry that reuses a saved bundle', () => {
+  const BUNDLE = 'A'.repeat(26);
+  const lockFile = asOpaque<LockFile>({
+    creator: 'pubkybob',
+    criteria: [
+      { criterion_id: 'criterion-1', verifier_type: 'paykit-payment', params: { amount: '1000', asset: 'BTC' } },
+    ],
+  });
+  const lockUrl = 'pubky://pubkybob/pub/app.locks/LOCK1.json';
+  const savedPurchase = `/priv/social/purchases/LOCK1/${BUNDLE}.json`;
+
+  it.each([
+    ['logout begins', () => useAuthStore.setState({ isLoggingOut: true })],
+    ['the session is replaced', () => useAuthStore.setState({ session: session() })],
+  ])("submits nothing when %s during the retry's task lookup", async (_name, change) => {
+    vi.spyOn(LocksService, 'generateBundleId').mockResolvedValue('B'.repeat(26));
+    const submitProof = vi.spyOn(LocksService, 'submitProof').mockResolvedValue(asOpaque({ status: 'pending' }));
+    vi.spyOn(LocksService, 'lookupVerificationTask').mockImplementation(async () => {
+      change();
+      return null;
+    });
+    homeserver.putBytes.mockRejectedValueOnce(sdkError(503));
+    onBackoff = () => {
+      homeserver.files.set(savedPurchase, JSON.stringify({ bundle_id: BUNDLE }));
+    };
+
+    await expect(
+      LocksApplication.startPayment({ lockFile, lockUrl, readerPubky: USER, isRetry: false }),
+    ).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+    expect(submitProof).not.toHaveBeenCalled();
+  });
+
+  it('still submits the reused bundle while the session is current', async () => {
+    vi.spyOn(LocksService, 'generateBundleId').mockResolvedValue('B'.repeat(26));
+    const submitProof = vi.spyOn(LocksService, 'submitProof').mockResolvedValue(asOpaque({ status: 'pending' }));
+    vi.spyOn(LocksService, 'lookupVerificationTask').mockResolvedValue(null);
+    homeserver.putBytes.mockRejectedValueOnce(sdkError(503));
+    onBackoff = () => {
+      homeserver.files.set(savedPurchase, JSON.stringify({ bundle_id: BUNDLE }));
+    };
+
+    await expect(
+      LocksApplication.startPayment({ lockFile, lockUrl, readerPubky: USER, isRetry: false }),
+    ).resolves.toEqual({ bundleId: BUNDLE, status: 'pending' });
+    expect(submitProof).toHaveBeenCalledWith(expect.objectContaining({ bundle_id: BUNDLE }));
   });
 });

@@ -189,6 +189,9 @@ export class LocksApplication {
       const resolved = await retryHomeserverWriteAfterReread(fence, () => resolveOrMint(fence));
       if (typeof resolved !== 'string') return resolved;
       const bundleId = resolved;
+      // A later pass may have returned a reused id after its asynchronous read, without a fenced
+      // write: the session that started this must still be current before anything is submitted.
+      fence.assertCurrent();
       const bundle = LockProofBundler.buildPayment(lockFile, lockUrl, bundleId, readerPubky);
       const task = await LocksService.submitProof(bundle);
       return { bundleId, status: task.status };
