@@ -142,18 +142,21 @@ export class HomeserverService {
   /**
    * The fence for one read-check-write (`retryHomeserverWriteAfterReread`), taken when it starts.
    * Its first pass runs as any write does; a later pass, and each write in it, throws
-   * `SESSION_EXPIRED` once logout began or the session or account changed.
+   * `SESSION_EXPIRED` once logout began or the session or account changed. `guardFirstPass`
+   * checks the first pass too, for work that waits in a queue before its first pass or reads
+   * before its first write.
    */
-  static createWriteFence(): THomeserverWriteFence {
+  static createWriteFence({ guardFirstPass = false }: { guardFirstPass?: boolean } = {}): THomeserverWriteFence {
     const assertCurrent = this.sessionStillCurrent({ operation: 'writeAfterReread' });
     let pass = 0;
+    const guarded = () => guardFirstPass || pass > 0;
     return {
       enter: (next) => {
         pass = next;
-        if (pass > 0) assertCurrent();
+        if (guarded()) assertCurrent();
       },
       assertCurrent: () => {
-        if (pass > 0) assertCurrent();
+        if (guarded()) assertCurrent();
       },
     };
   }

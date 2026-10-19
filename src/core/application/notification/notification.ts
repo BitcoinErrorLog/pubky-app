@@ -23,7 +23,7 @@ import { type FlatNotification, NotificationType } from '@/models/notification/n
 import { getTagCursor } from '@/models/shared/tag/tag.utils';
 import { NotificationNormalizer } from '@/pipes/notification/notification.normalizer';
 import { HomeserverService } from '@/services/homeserver/homeserver';
-import { retryHomeserverWriteAfterReread } from '@/services/homeserver/write-retry';
+import { retryHomeserverWriteAfterReread, type THomeserverWriteFence } from '@/services/homeserver/write-retry';
 import { LocalNotificationService } from '@/services/local/notification/notification';
 import { LocalStreamPostsService } from '@/services/local/stream/posts/posts';
 import { LocalStreamUsersService } from '@/services/local/stream/users/users';
@@ -66,8 +66,10 @@ export class NotificationApplication {
    * local state. Callers must ensure an active session that owns the path exists first.
    *
    * `last_read` only moves forward. This tab's writes to it run one at a time, so a write waiting
-   * out a 429 cannot land after a newer one. A retry reads the published value first and keeps
-   * it when it is newer (another device marked later), instead of replaying an older timestamp.
+   * out a 429 cannot land after a newer one. Every pass reads the published value first and keeps
+   * it when it is not older (a mark queued ahead of this one, or another device), instead of
+   * writing an older timestamp. The session fence is taken when this is called, so a mark still
+   * queued or reading when logout begins sends nothing.
    *
    * @param lastRead - The lastRead result (target URL + payload) built for the current user
    * @returns The timestamp now published: this one, or a newer one already there
@@ -76,8 +78,9 @@ export class NotificationApplication {
     const url = meta.url;
     const timestamp = Number(last_read.timestamp);
     const bodyJson = last_read.toJson();
+    const fence = HomeserverService.createWriteFence({ guardFirstPass: true });
     const previous = this.lastReadWrites.get(url) ?? Promise.resolve();
-    const write = previous.catch(() => {}).then(() => this.writeLastReadForward(url, timestamp, bodyJson));
+    const write = previous.catch(() => {}).then(() => this.writeLastReadForward(fence, url, timestamp, bodyJson));
     this.lastReadWrites.set(url, write);
     try {
       return await write;
@@ -87,16 +90,14 @@ export class NotificationApplication {
   }
 
   private static async writeLastReadForward(
+    fence: THomeserverWriteFence,
     url: string,
     timestamp: number,
     bodyJson: Record<string, unknown>,
   ): Promise<number> {
-    const fence = HomeserverService.createWriteFence();
-    return await retryHomeserverWriteAfterReread(fence, async (pass) => {
-      if (pass > 0) {
-        const published = await this.readPublishedLastRead(url);
-        if (published !== null && published >= timestamp) return published;
-      }
+    return await retryHomeserverWriteAfterReread(fence, async () => {
+      const published = await this.readPublishedLastRead(url);
+      if (published !== null && published >= timestamp) return published;
       await HomeserverService.request({
         method: HttpMethod.PUT,
         url,

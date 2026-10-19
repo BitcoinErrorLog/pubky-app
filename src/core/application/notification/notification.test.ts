@@ -564,13 +564,14 @@ describe('NotificationApplication.markAllAsRead', () => {
     vi.restoreAllMocks();
   });
 
-  it('should send lastRead to homeserver as a single attempt and return its timestamp', async () => {
+  it('reads the published lastRead, then sends this one as a single fenced attempt and returns it', async () => {
     const mockLastReadResult = lastReadResult();
     const homeserverSpy = vi.spyOn(HomeserverService, 'request').mockResolvedValue(undefined);
 
     await expect(NotificationApplication.markAllAsRead(mockLastReadResult)).resolves.toBe(mockTimestamp);
 
-    expect(homeserverSpy).toHaveBeenCalledExactlyOnceWith({
+    expect(homeserverSpy.mock.calls.map(([params]) => params.method)).toEqual([HttpMethod.GET, HttpMethod.PUT]);
+    expect(homeserverSpy).toHaveBeenLastCalledWith({
       method: HttpMethod.PUT,
       url: mockLastReadUrl,
       bodyJson: { timestamp: mockTimestamp },
@@ -586,14 +587,23 @@ describe('NotificationApplication.markAllAsRead', () => {
 
   it('keeps a newer published lastRead instead of retrying an older one after a 429', async () => {
     const newer = mockTimestamp + 5_000;
+    let reads = 0;
     const spy = vi.spyOn(HomeserverService, 'request').mockImplementation(async ({ method }) => {
-      if (method === HttpMethod.GET) return { timestamp: newer };
+      if (method === HttpMethod.GET) return { timestamp: (reads += 1) === 1 ? mockTimestamp - 1 : newer };
       throw homeserverError(429);
     });
 
     await expect(NotificationApplication.markAllAsRead(lastReadResult())).resolves.toBe(newer);
 
-    expect(spy.mock.calls.map(([params]) => params.method)).toEqual([HttpMethod.PUT, HttpMethod.GET]);
+    expect(spy.mock.calls.map(([params]) => params.method)).toEqual([HttpMethod.GET, HttpMethod.PUT, HttpMethod.GET]);
+  });
+
+  it('writes nothing when the published lastRead is already at least as new', async () => {
+    const spy = vi.spyOn(HomeserverService, 'request').mockResolvedValue({ timestamp: mockTimestamp });
+
+    await expect(NotificationApplication.markAllAsRead(lastReadResult())).resolves.toBe(mockTimestamp);
+
+    expect(spy.mock.calls.map(([params]) => params.method)).toEqual([HttpMethod.GET]);
   });
 
   it.each([
@@ -615,7 +625,12 @@ describe('NotificationApplication.markAllAsRead', () => {
 
     await expect(NotificationApplication.markAllAsRead(lastReadResult())).resolves.toBe(mockTimestamp);
 
-    expect(spy.mock.calls.map(([params]) => params.method)).toEqual([HttpMethod.PUT, HttpMethod.GET, HttpMethod.PUT]);
+    expect(spy.mock.calls.map(([params]) => params.method)).toEqual([
+      HttpMethod.GET,
+      HttpMethod.PUT,
+      HttpMethod.GET,
+      HttpMethod.PUT,
+    ]);
     expect(putBodies(spy)).toEqual([{ timestamp: mockTimestamp }, { timestamp: mockTimestamp }]);
   });
 

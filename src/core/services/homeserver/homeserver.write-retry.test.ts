@@ -328,6 +328,16 @@ describe('homeserver writes route through the shared retry policy', () => {
     });
   });
 
+  it('checks a guardFirstPass fence from its first pass', () => {
+    const fence = HomeserverService.createWriteFence({ guardFirstPass: true });
+    fence.enter(0);
+    useAuthStore.setState({ isLoggingOut: true });
+
+    expect(() => fence.enter(0)).toThrow(expect.objectContaining({ code: AuthErrorCode.SESSION_EXPIRED }));
+    expect(() => fence.assertCurrent()).toThrow(expect.objectContaining({ code: AuthErrorCode.SESSION_EXPIRED }));
+    expect(() => HomeserverService.createWriteFence().enter(0)).not.toThrow();
+  });
+
   describe('a retry never outlives the session that started it', () => {
     it.each([
       ['logout begins', () => useAuthStore.setState({ isLoggingOut: true })],

@@ -280,6 +280,49 @@ describe('marking notifications read never moves last_read backward', () => {
     expect(JSON.parse(homeserver.files.get(LAST_READ_PATH)!)).toEqual({ timestamp: T2 });
     expect(useNotificationStore.getState().lastRead).toBe(T2);
   });
+
+  it('sends no queued mark once logout begins while it waits behind a retrying one', async () => {
+    vi.spyOn(LastReadNormalizer, 'to').mockReturnValueOnce(lastRead(T1)).mockReturnValueOnce(lastRead(T2));
+    let releaseA!: () => void;
+    homeserver.putJson.mockRejectedValueOnce(sdkError(503));
+    onBackoff = () =>
+      new Promise<void>((resolve) => {
+        releaseA = resolve;
+      });
+
+    const a = NotificationController.markAllAsRead();
+    await vi.waitFor(() => expect(releaseA).toBeTypeOf('function'));
+    const b = NotificationController.markAllAsRead();
+    // Logout keeps the session while it saves the signed-out state.
+    useAuthStore.setState({ isLoggingOut: true });
+    releaseA();
+    await Promise.all([a, b]);
+
+    expect(homeserver.writes.filter(({ path }) => path === LAST_READ_PATH).map((w) => w.isLoggingOut)).toEqual([false]);
+    expect(homeserver.files.has(LAST_READ_PATH)).toBe(false);
+  });
+
+  it('does not let a queued mark overwrite a newer marker another device saved meanwhile', async () => {
+    const T3 = 3_000;
+    vi.spyOn(LastReadNormalizer, 'to').mockReturnValueOnce(lastRead(T1)).mockReturnValueOnce(lastRead(T2));
+    let releaseA!: () => void;
+    homeserver.putJson.mockRejectedValueOnce(sdkError(503));
+    onBackoff = () =>
+      new Promise<void>((resolve) => {
+        releaseA = resolve;
+      });
+
+    const a = NotificationController.markAllAsRead();
+    await vi.waitFor(() => expect(releaseA).toBeTypeOf('function'));
+    const b = NotificationController.markAllAsRead();
+    homeserver.files.set(LAST_READ_PATH, JSON.stringify({ timestamp: T3 }));
+    releaseA();
+    await Promise.all([a, b]);
+
+    expect(putsTo(LAST_READ_PATH)).toEqual([{ timestamp: T1 }]);
+    expect(JSON.parse(homeserver.files.get(LAST_READ_PATH)!)).toEqual({ timestamp: T3 });
+    expect(useNotificationStore.getState().lastRead).toBe(T3);
+  });
 });
 
 describe('writes to one tag run in the order the user made them', () => {
