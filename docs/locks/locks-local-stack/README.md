@@ -5,10 +5,14 @@ Paykit Server, a Pubky homeserver testnet and a regtest Bitcoin chain. There is 
 act as Bitkit from the terminal: you approve the creator's Paykit setup, you receive the reader's payment request, and
 you pay it with `bitcoin-cli`.
 
-**Version contract checked on 2026-10-15.** The app at `ef6ad207e` installs Locks SDK
-`0.1.0-rc9+git.c692fb70522c`. Build Lock Server from that same source commit, **not** the stock rc9
-tag: the SDK sends `GET /creator/paykit/setup-status?asset=BTC`, which stock rc9 rejects. Section 3
-pins the compatible source revisions; section 4 uses them for the images and local helper checkout.
+**Version contract checked on 2026-10-19.** Since #2849 the app at `d061f40f8` installs Locks SDK
+`0.1.0` from npm (Locks tag `v0.1.0`, commit `ac8e893b`). Apart from lock deletion, which the app does not
+call, its requests are the ones introduced at `c692fb70522c` (`GET /creator/paykit/setup-status?asset=BTC`), which the stock rc9 Lock Server
+rejects. This runbook still pairs the app with the Lock Server built from `c692fb70522c` and Paykit
+rc9: that is the last pairing anyone ran end to end. Lock Server `v0.1.0` depends on the stable
+`paykit-lib` 0.1.0 and `pubky` 0.16.2, so running it against Paykit rc9 is unverified (section 13,
+issue 9). Section 3 pins the source revisions; section 4 uses them for the images and local helper
+checkout.
 
 The original 2026-10-08 notes reported a full rc9 payment/unlock flow with local helper workarounds.
 That is not a fresh-stack validation of the recipe below. The helper gaps remain marked **Needs fix /
@@ -468,8 +472,10 @@ docker logs --since 5m pubky-locks-paykit-demo-locks-server-1 2>&1 | grep 'compl
 
 Notes:
 
-1. One payment per lock and reader. To pay again for the same lock, use a new lock. The app stores the purchase in
-   the reader's homeserver at `/priv/social/purchases/<lock_id>.json` and reuses it.
+1. A completed purchase is never paid again; to pay again, use a new lock. The app stores each purchase id in
+   the reader's homeserver at `/priv/social/purchases/<lock_id>/<bundle_id>.json` (older purchases:
+   `/priv/social/purchases/<lock_id>.json`) and reuses a saved id that can still pay (#2831). After a failed
+   or expired purchase, Try again saves a new id for the same lock.
 2. Since rc9, Lock Server creates the invoice in the background. It retries for up to 10 minutes. If Paykit is down
    longer, the task fails with `invoice admission deadline exceeded`, and the reader presses Try again in the app.
 
@@ -623,6 +629,10 @@ check of that tag, not a live validation performed for the 2026-10-15 documentat
 7. **Testnet pins homeserver v0.11.0** (`locks`): the rc9 SDK needs v0.15 or newer. Checked at rc10.
 8. **rc10 adds a reader step** (to confirm when moving to rc10): paykit-server rc10 requires the reader's signed
    Noise Key Authorization at invoice admission, so the reader flow will need its own key authorization step.
+9. **Lock Server `v0.1.0` pairing** (`locks` / `paykit-server`): the app installs SDK `0.1.0` since #2849. Its
+   server tag depends on the stable `paykit-lib` 0.1.0 and `pubky` 0.16.2, while this runbook builds Paykit rc9
+   with paykit-rs rc71. Whether paykit-server `v0.1.0` (its own stable tag) is the match for Lock Server
+   `v0.1.0`, and whether the rc9 helper gaps above still apply there, is to confirm. Until then the `c692fb70522c` build is the documented server.
 
 ---
 
@@ -634,10 +644,11 @@ npm ci
 node --input-type=module <<'NODE'
 import { readFileSync } from 'node:fs';
 const sdk = JSON.parse(readFileSync('node_modules/@synonymdev/locks-sdk/package.json', 'utf8'));
-if (sdk.locksSourceCommit !== 'c692fb70522cf75025b86ad72a3b98fa7ef84e72') {
+// The npm release carries no source-commit field; the version is the only pin to check.
+if (sdk.version !== '0.1.0') {
   throw new Error('Recheck the SDK/server pins before using this runbook');
 }
-console.log(sdk.version, sdk.locksSourceCommit);
+console.log(sdk.version);
 NODE
 PORT=4000 npm run dev -- --webpack
 ```
