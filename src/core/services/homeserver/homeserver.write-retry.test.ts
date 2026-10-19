@@ -258,6 +258,76 @@ describe('homeserver writes route through the shared retry policy', () => {
     expect(mockState.fetch).toHaveBeenCalledOnce();
   });
 
+  describe('writes to one file run in order', () => {
+    const OTHER_URL = `pubky://${USER}/pub/pubky.app/tags/OTHER`;
+
+    it('starts a second write to the same path only after the first settled, retries included', async () => {
+      let releaseRetry!: () => void;
+      sleep.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseRetry = resolve;
+          }),
+      );
+      mockState.putJson.mockRejectedValueOnce(requestError(503));
+
+      const first = HomeserverService.request({ method: HttpMethod.PUT, url: PROFILE_URL, bodyJson: { v: 1 } });
+      await vi.waitFor(() => expect(releaseRetry).toBeTypeOf('function'));
+      const second = HomeserverService.request({ method: HttpMethod.DELETE, url: PROFILE_URL });
+      const other = HomeserverService.request({ method: HttpMethod.PUT, url: OTHER_URL, bodyJson: { v: 3 } });
+      await other;
+      expect(mockState.delete).not.toHaveBeenCalled();
+      releaseRetry();
+      await Promise.all([first, second]);
+
+      expect(mockState.putJson.mock.calls.map(([path]) => path)).toEqual([
+        PROFILE_PATH,
+        '/pub/pubky.app/tags/OTHER',
+        PROFILE_PATH,
+      ]);
+      expect(mockState.delete.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockState.putJson.mock.invocationCallOrder[2],
+      );
+    });
+
+    it('starts a write with nothing ahead of it in the caller tick', () => {
+      void HomeserverService.request({ method: HttpMethod.PUT, url: PROFILE_URL, bodyJson: { v: 1 } });
+      expect(mockState.putJson).toHaveBeenCalledOnce();
+    });
+
+    it('sends nothing for a queued write once logout began while it waited', async () => {
+      let releaseRetry!: () => void;
+      sleep.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseRetry = resolve;
+          }),
+      );
+      mockState.putJson.mockRejectedValueOnce(requestError(503));
+
+      const first = HomeserverService.request({ method: HttpMethod.PUT, url: PROFILE_URL, bodyJson: { v: 1 } });
+      await vi.waitFor(() => expect(releaseRetry).toBeTypeOf('function'));
+      const queued = HomeserverService.putBlob({ url: PROFILE_URL, blob: new Uint8Array([1]) });
+      useAuthStore.setState({ isLoggingOut: true });
+      releaseRetry();
+
+      await expect(first).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+      await expect(queued).rejects.toMatchObject({ code: AuthErrorCode.SESSION_EXPIRED });
+      expect(mockState.putJson).toHaveBeenCalledOnce();
+      expect(mockState.putBytes).not.toHaveBeenCalled();
+    });
+
+    it('lets a write after a failed one run', async () => {
+      mockState.putJson.mockRejectedValueOnce(requestError(400));
+      const first = HomeserverService.request({ method: HttpMethod.PUT, url: PROFILE_URL, bodyJson: { v: 1 } });
+      const second = HomeserverService.request({ method: HttpMethod.PUT, url: PROFILE_URL, bodyJson: { v: 2 } });
+
+      await expect(first).rejects.toMatchObject({ context: { statusCode: 400 } });
+      await expect(second).resolves.toBeUndefined();
+      expect(mockState.putJson).toHaveBeenLastCalledWith(PROFILE_PATH, { v: 2 });
+    });
+  });
+
   describe('a retry never outlives the session that started it', () => {
     it.each([
       ['logout begins', () => useAuthStore.setState({ isLoggingOut: true })],

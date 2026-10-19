@@ -3,12 +3,16 @@ import type { LastReadResult } from 'pubky-app-specs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProfileApplication } from '@/application/profile/profile';
 import { SettingsApplication } from '@/application/settings/settings';
+import { TagApplication } from '@/application/tag/tag';
+import { TagKind } from '@/application/tag/tag.types';
 import { NotificationController } from '@/controllers/notification/notification';
 import { AuthErrorCode } from '@/libs/error/error.codes';
+import { HttpMethod } from '@/libs/http/http.types';
 import type { Pubky } from '@/models/models.types';
 import { UserDetailsModel } from '@/models/user/details/userDetails';
 import { UserTtlModel } from '@/models/user/ttl/userTtl';
 import { LastReadNormalizer } from '@/pipes/lastRead/lastRead.normalizer';
+import { HomeserverService } from '@/services/homeserver/homeserver';
 import {
   HOMESERVER_PUBLISH_CONFLICT_MESSAGE,
   installHomeserverWriteRetryDependenciesForTests,
@@ -27,6 +31,10 @@ import { asOpaque } from '@/test-utils/type-assertions';
 const homeserver = vi.hoisted(() => ({
   files: new Map<string, string>(),
   putJson: vi.fn<(path: string, body: unknown) => Promise<void>>(),
+  putBytes: vi.fn<(path: string, bytes: Uint8Array) => Promise<void>>(),
+  delete: vi.fn<(path: string) => Promise<void>>(),
+  /** Each write as it reaches the SDK, with whether logout had begun. */
+  writes: [] as { op: string; path: string; isLoggingOut: boolean }[],
 }));
 
 vi.mock('@/libs/logger/logger', () => ({
@@ -54,19 +62,33 @@ const USER = '5a1diz4pghi47ywdfyfzpit5f3bdomzt4pugpbmq4rngdd4iub4y' as Pubky;
 const PROFILE_PATH = '/pub/pubky.app/profile.json';
 const LAST_READ_PATH = '/pub/pubky.app/last_read';
 
+function logWrite(op: string, path: string) {
+  homeserver.writes.push({ op, path, isLoggingOut: useAuthStore.getState().isLoggingOut });
+}
+
 function session(): Session {
   return asOpaque<Session>({
     info: { publicKey: { z32: () => USER } },
     storage: {
-      putJson: (path: string, body: unknown) => homeserver.putJson(path, body),
+      putJson: (path: string, body: unknown) => {
+        logWrite('PUT', path);
+        return homeserver.putJson(path, body);
+      },
       get: async (path: string) =>
         homeserver.files.has(path)
           ? new Response(homeserver.files.get(path), { status: 200 })
           : new Response('Not found', { status: 404 }),
       exists: async (path: string) => homeserver.files.has(path),
-      putBytes: vi.fn(),
-      delete: vi.fn(),
-      list: vi.fn(),
+      putBytes: (path: string, bytes: Uint8Array) => {
+        logWrite('PUT', path);
+        return homeserver.putBytes(path, bytes);
+      },
+      delete: (path: string) => {
+        logWrite('DELETE', path);
+        return homeserver.delete(path);
+      },
+      list: async (dir: string) =>
+        [...homeserver.files.keys()].filter((path) => path.startsWith(dir)).map((path) => `pubky://${USER}${path}`),
     },
   });
 }
@@ -84,8 +106,15 @@ let onBackoff: (() => void | Promise<void>) | undefined;
 
 beforeEach(async () => {
   homeserver.files.clear();
+  homeserver.writes = [];
   homeserver.putJson.mockReset().mockImplementation(async (path, body) => {
     homeserver.files.set(path, JSON.stringify(body));
+  });
+  homeserver.putBytes.mockReset().mockImplementation(async (path, bytes) => {
+    homeserver.files.set(path, new TextDecoder().decode(bytes));
+  });
+  homeserver.delete.mockReset().mockImplementation(async (path) => {
+    homeserver.files.delete(path);
   });
   onBackoff = undefined;
   installHomeserverWriteRetryDependenciesForTests({
@@ -250,5 +279,67 @@ describe('marking notifications read never moves last_read backward', () => {
     expect(putsTo(LAST_READ_PATH)).toEqual([{ timestamp: T1 }]);
     expect(JSON.parse(homeserver.files.get(LAST_READ_PATH)!)).toEqual({ timestamp: T2 });
     expect(useNotificationStore.getState().lastRead).toBe(T2);
+  });
+});
+
+describe('writes to one tag run in the order the user made them', () => {
+  const POST_ID = `${USER}:0033SSE3B1FQ0` as Pubky;
+  const TAG_PATH = '/pub/pubky.app/tags/TAG0001';
+  const tag = {
+    taggerId: USER,
+    taggedId: POST_ID,
+    label: 'bitcoin',
+    taggedKind: TagKind.POST,
+    tagUrl: `pubky://${USER}${TAG_PATH}`,
+  };
+  const tagJson = { uri: `pubky://${USER}/pub/pubky.app/posts/0033SSE3B1FQ0`, label: 'bitcoin', created_at: 1 };
+  const tagOps = () => homeserver.writes.filter(({ path }) => path === TAG_PATH).map(({ op }) => op);
+
+  it('keeps a tag removed while its add was retrying removed', async () => {
+    let failAdd!: () => void;
+    homeserver.putJson.mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          failAdd = () => reject(sdkError(503));
+        }),
+    );
+
+    const request = vi.spyOn(HomeserverService, 'request');
+    const add = TagApplication.commitCreate({ tagList: [{ ...tag, tagJson }] });
+    await vi.waitFor(() => expect(failAdd).toBeTypeOf('function'));
+    const remove = TagApplication.commitDelete(tag);
+    // The removal has reached the homeserver service before the add's first attempt fails.
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(expect.objectContaining({ method: HttpMethod.DELETE })),
+    );
+    failAdd();
+    await Promise.all([add, remove]);
+
+    expect(tagOps()).toEqual(['PUT', 'PUT', 'DELETE']);
+    expect(homeserver.files.has(TAG_PATH)).toBe(false);
+  });
+
+  it('keeps a tag added back while its removal was retrying present', async () => {
+    homeserver.files.set(TAG_PATH, JSON.stringify(tagJson));
+    await TagApplication.commitCreate({ tagList: [{ ...tag, tagJson }] });
+    homeserver.writes = [];
+    let releaseRemove!: () => void;
+    homeserver.delete.mockRejectedValueOnce(sdkError(429));
+    onBackoff = () =>
+      new Promise<void>((resolve) => {
+        releaseRemove = resolve;
+      });
+
+    const request = vi.spyOn(HomeserverService, 'request');
+    const remove = TagApplication.commitDelete(tag);
+    await vi.waitFor(() => expect(releaseRemove).toBeTypeOf('function'));
+    const add = TagApplication.commitCreate({ tagList: [{ ...tag, tagJson }] });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ method: HttpMethod.PUT })));
+    expect(tagOps()).toEqual(['DELETE']);
+    releaseRemove();
+    await Promise.all([remove, add]);
+
+    expect(tagOps()).toEqual(['DELETE', 'DELETE', 'PUT']);
+    expect(homeserver.files.has(TAG_PATH)).toBe(true);
   });
 });

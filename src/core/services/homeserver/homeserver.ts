@@ -158,6 +158,42 @@ export class HomeserverService {
     };
   }
 
+  /** The pending owned write per session and path, so writes to one file never overlap. */
+  private static pathWrites = new WeakMap<Session, Map<string, Promise<unknown>>>();
+
+  /**
+   * Runs owned writes to the same file one after another, retries included, so an older
+   * write's retry cannot land after a newer one (a tag removed while its add waits out a 429).
+   * A write with nothing ahead of it starts in the caller's tick. One that waited checks the
+   * session it was queued under before it starts, and throws `SESSION_EXPIRED` if it ended.
+   */
+  private static async inPathOrder<T>(session: Session, path: string, url: string, write: () => Promise<T>) {
+    let pending = this.pathWrites.get(session);
+    if (!pending) {
+      pending = new Map();
+      this.pathWrites.set(session, pending);
+    }
+    const previous = pending.get(path);
+    let run: Promise<T>;
+    if (previous) {
+      const assertCurrent = this.sessionStillCurrent({ url, operation: 'queuedWrite' });
+      run = previous
+        .catch(() => {})
+        .then(() => {
+          assertCurrent();
+          return write();
+        });
+    } else {
+      run = write();
+    }
+    pending.set(path, run);
+    try {
+      return await run;
+    } finally {
+      if (pending.get(path) === run) pending.delete(path);
+    }
+  }
+
   /**
    * Gets the Pubky SDK singleton.
    */
@@ -643,20 +679,27 @@ export class HomeserverService {
           // object meanwhile. structuredClone, not a JSON round-trip: the SDK converts the object
           // itself (serde_wasm_bindgen), which sends an `undefined` property as `null`.
           const ownedBody = structuredClone(bodyJson ?? {});
-          await retryHomeserverWrite(
-            HttpMethod.PUT,
-            () => this.withActiveSession(session, () => session.storage.putJson(path, ownedBody)),
-            { beforeAttempt: this.writeRetryGuard(url, method, fence), ...retryOptions },
+          const beforeAttempt = this.writeRetryGuard(url, method, fence);
+          await this.inPathOrder(session, path, url, () =>
+            retryHomeserverWrite(
+              HttpMethod.PUT,
+              () => this.withActiveSession(session, () => session.storage.putJson(path, ownedBody)),
+              { beforeAttempt, ...retryOptions },
+            ),
           ).catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
         }
-        case HttpMethod.DELETE:
-          await retryHomeserverWrite(
-            HttpMethod.DELETE,
-            () => this.withActiveSession(session, () => session.storage.delete(path)),
-            { beforeAttempt: this.writeRetryGuard(url, method, fence), ...retryOptions },
+        case HttpMethod.DELETE: {
+          const beforeAttempt = this.writeRetryGuard(url, method, fence);
+          await this.inPathOrder(session, path, url, () =>
+            retryHomeserverWrite(
+              HttpMethod.DELETE,
+              () => this.withActiveSession(session, () => session.storage.delete(path)),
+              { beforeAttempt, ...retryOptions },
+            ),
           ).catch((error) => handleError({ error, additionalContext: { url, method } }));
           return undefined as T;
+        }
       }
     }
 
@@ -711,10 +754,13 @@ export class HomeserverService {
     if (owned) {
       const { session, path } = owned;
       try {
-        await retryHomeserverWrite(
-          HttpMethod.PUT,
-          () => this.withActiveSession(session, () => session.storage.putBytes(path, retryBody.slice())),
-          { beforeAttempt: this.writeRetryGuard(url, HttpMethod.PUT, fence), ...retryOptions },
+        const beforeAttempt = this.writeRetryGuard(url, HttpMethod.PUT, fence);
+        await this.inPathOrder(session, path, url, () =>
+          retryHomeserverWrite(
+            HttpMethod.PUT,
+            () => this.withActiveSession(session, () => session.storage.putBytes(path, retryBody.slice())),
+            { beforeAttempt, ...retryOptions },
+          ),
         );
         return;
       } catch (error) {
