@@ -147,6 +147,16 @@ describe('DialogTerms', () => {
     expect(screen.getByTestId('dialog-content')).not.toHaveTextContent('Synonym Software Ltd.');
   });
 
+  it('underlines every link inside the body', () => {
+    render(<DialogTerms />);
+
+    const links = screen.getAllByRole('link');
+    const body = links[0].closest('[data-testid="container"]');
+
+    expect(body).toHaveClass('flex-col', '[&_a]:underline');
+    links.forEach((link) => expect(body).toContainElement(link));
+  });
+
   it('exposes the default trigger as a keyboard focusable button', () => {
     render(<DialogTerms />);
 

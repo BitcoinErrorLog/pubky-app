@@ -29,7 +29,7 @@ export function DialogTerms({ trigger }: DialogTermsProps) {
           <DialogTitle>Terms of Service</DialogTitle>
         </DialogHeader>
         <Container className="h-[320px] overflow-y-auto pr-4">
-          <Container className="flex-col gap-4">
+          <Container className="flex-col gap-4 [&_a]:underline">
             {/** Section 1 */}
             <Typography className={baseCSS}>
               TERMS AND CONDITIONS
