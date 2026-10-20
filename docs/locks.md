@@ -339,8 +339,11 @@ minutes and happens in Bitkit, not the browser. `usePayToUnlock` owns the state 
 7. A completed payment enters `finishing` while the credential and content are fetched. The modal
    shows **PAYMENT RECEIVED**, "Opening your content…" and a spinner, without asking the reader
    to confirm in Bitkit. A failed content read enters `unopened`, and **Check again** runs it again.
-   Its status lookup stays in `finishing`; if that lookup parks, a paid-content prompt offers
-   **Check again** without payment instructions. Retrying is free — the entitlement is durable and the
+   Its status lookup stays in `finishing`. If that lookup or the content download itself is still out
+   after 3 wall-clock minutes, a paid-content prompt offers **Check again** without payment
+   instructions; unlike waiting, a returning tab does not re-read the download. A download that
+   **Check again** replaced still counts if its content arrives first, and its failure is ignored.
+   Retrying is free — the entitlement is durable and the
    credential is minted fresh each time, which is also why an expired credential needs no detection.
    Once the content is ready, the modal shows the paid confirmation; **View Content** closes it and
    reveals the guarded post.
@@ -457,6 +460,15 @@ profile/(own)/layout.tsx → ProfilePageContainer
 Locks use one `paykit-payment` criterion holding the recipient (always the lock's creator),
 an atomic amount as a string, and its denomination: `BTC` (sats) or `USD` (cents). The price
 dialog uses exact decimal conversion and clears the amount when the currency changes. Cards and checkout retain the denomination from the lock file.
+
+Locks SDK 0.1.0 requires a numeric `payment_in` in whole hours. The App records `payment_in: 24`
+using `PAYKIT_PAYMENT_IN_HOURS` in `src/config/locks.ts`. This is the payment-window policy stored
+in each new lock; readers use the deadline returned by Paykit.
+
+Locks published without `payment_in` are incompatible with new payment attempts on Locks/Paykit
+0.1.0: backend validation rejects the missing field. This fix covers new publications only;
+legacy locks need a separate compatibility or migration decision. Existing lock files are not
+rewritten, since their contents determine their canonical hash and identity.
 
 Paykit Server creates the immutable request and fixed conversion quote from the creator's
 enabled receiving methods. BTC prices need no conversion for Bitcoin; USD prices include a
