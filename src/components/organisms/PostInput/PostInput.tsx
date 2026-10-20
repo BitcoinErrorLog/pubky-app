@@ -102,6 +102,18 @@ export function PostInput({
   layoutOverride,
 }: PostInputProps) {
   const [lockDraft, setLockDraft] = useState<TLockDraft | null>(null);
+  // The edit dialog reads its post through a live query (`usePostDetails`): a failed save writes the
+  // row with the new content and attachments and reverts it, and another device or a background
+  // refresh can change it under an open dialog. The composer seeds from the row once per mount (the
+  // dialog remounts it via `resetKey`) and ignores later values, or a refused save would reset the
+  // editor to the published body and a retry would write that body over the user's edit (#2877).
+  // `useEditAttachments` snapshots the attachment list for the same reason.
+  const [editSeed] = useState(() => ({
+    content: editContent,
+    isArticle: editIsArticle,
+    attachments: editAttachments,
+    lockTitle: editLock?.title,
+  }));
   const isMobile = useIsMobile();
 
   const {
@@ -166,9 +178,9 @@ export function PostInput({
     originalPostId,
     editPostId,
     editLock,
-    editAttachmentUris: editAttachments,
-    editContent,
-    editIsArticle,
+    editAttachmentUris: editSeed.attachments,
+    editContent: editSeed.content,
+    editIsArticle: editSeed.isArticle,
     onSuccess,
     placeholder,
     successToastTitle,
@@ -356,10 +368,10 @@ export function PostInput({
 
   useEffect(() => {
     if (isEdit) {
-      if (editIsArticle) {
+      if (editSeed.isArticle) {
         setIsArticle(true);
 
-        const parsed = parseArticleContent(editContent);
+        const parsed = parseArticleContent(editSeed.content);
         if (parsed) {
           setArticleTitle(parsed.title);
           // Resolve published attachment:{n} image references back to their
@@ -374,7 +386,7 @@ export function PostInput({
           }
           const deserialized = deserializeArticleBody({
             body: parsed.body,
-            attachments: editAttachments ?? [],
+            attachments: editSeed.attachments ?? [],
             authorPubky: articleAuthorPubky,
           });
           setContent(deserialized.body);
@@ -394,14 +406,14 @@ export function PostInput({
           });
         }
       } else {
-        setContent(editContent);
+        setContent(editSeed.content ?? '');
       }
-      // Seeded with the body: a failed save rolls the stored row back, and reverting only one of the
-      // two would let the next save write the new title over the old body.
-      setEditLockTitle(editLock?.title ?? '');
+      // Seeded with the body from the same snapshot, so the title and the body always describe one
+      // version of the post.
+      setEditLockTitle(editSeed.lockTitle ?? '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- toast is an external side-effect, not a dependency
-  }, [variant, editContent, editIsArticle, editLock?.title]);
+  }, [variant, editSeed]);
 
   // Pre-fill content from share target or other external sources
   useEffect(() => {
