@@ -82,7 +82,10 @@ describe('pagination', () => {
     cy.findFirstPostInFeedFiltered(rootText, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
       cy.get('[data-cy="post-text"]').click();
     });
-    cy.location('pathname').should('eq', `/post/${authorId}/${rootId}`);
+    // Built inside `.then()`: the ids are only set once the commands above have run
+    cy.then(() => {
+      cy.location('pathname').should('eq', `/post/${authorId}/${rootId}`);
+    });
     cy.get('[data-cy="single-post-card"]:visible').should('have.length', 1);
     cy.get('[data-cy="quick-reply"]').filter(':visible').should('have.length', 1).as('quickReply');
     Cypress._.times(REPLY_COUNT, (index) => {
