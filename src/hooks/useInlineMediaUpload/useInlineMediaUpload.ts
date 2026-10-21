@@ -82,8 +82,9 @@ interface PendingStage {
  * then the cleanup boundary for what never made it into a published body:
  * `finalizeSession` (after a successful publish) releases the files no longer
  * referenced, deleting the uploaded ones, and `discardSession` (cancel, dialog
- * close, unmount) releases them all. Both are best-effort; failures are logged
- * and never surface to the user.
+ * close, unmount) releases them all, except that a discard which waited for a
+ * commit keeps the uploads (see `setCommitting`). Both are best-effort;
+ * failures are logged and never surface to the user.
  *
  * The session also serves in-editor previews: browsers cannot load `pubky://`
  * URIs, so `getPreviewUrl` serves the local object URL of a session file.
@@ -281,8 +282,7 @@ export function useInlineMediaUpload({
   const discardSession = async () => {
     // Never delete while a commit is in flight: it may succeed, and the
     // published article would reference deleted files. The discard runs once
-    // the commit settles (see setCommitting); after a success the session is
-    // already empty, after a failure it releases what the commit left behind.
+    // the commit settles (see setCommitting).
     if (committingRef.current) {
       pendingDiscardRef.current = true;
       return;
@@ -295,12 +295,25 @@ export function useInlineMediaUpload({
    * Marks a publish/edit commit as in flight. While set, discards are deferred
    * (see discardSession). Cleared in the caller's finally, which runs the
    * deferred discard if there is one.
+   *
+   * A deferred discard releases the previews but keeps the uploads. After a
+   * success the session is already empty (finalizeSession). After a failure
+   * the composer is gone, and the client cannot tell a refused write from one
+   * the homeserver applied but never acknowledged (a timeout, a proxy error
+   * after the retries): deleting the uploads then could strip a live post of
+   * its files, while an unreferenced upload is only an orphan.
    */
   const setCommitting = (committing: boolean) => {
     committingRef.current = committing;
     if (committing || !pendingDiscardRef.current) return;
     pendingDiscardRef.current = false;
-    void discardSession();
+    discardedRef.current = true;
+    const keptUris = releaseSession();
+    if (keptUris.length > 0) {
+      Logger.warn('[useInlineMediaUpload] Kept the uploads of a commit that settled after the composer closed', {
+        fileUris: keptUris,
+      });
+    }
   };
 
   const buildLocalAttachmentEntries = (orderedUris: string[]): (InlineMediaLocalEntry | null)[] => {

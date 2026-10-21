@@ -464,7 +464,7 @@ describe('useInlineMediaUpload', () => {
       expect(FileController.commitDelete).toHaveBeenCalledWith({ fileUris: [fileUri('cover')] });
     });
 
-    it('defers a discard requested while a commit is in flight until the commit settles', async () => {
+    it('defers a discard requested while a commit is in flight, then keeps the uploads it finds', async () => {
       const { result } = setup();
       const { a } = await stageTwo(result);
       await uploadOne(result, a, fileUri('A'));
@@ -479,15 +479,16 @@ describe('useInlineMediaUpload', () => {
       expect(FileController.commitDelete).not.toHaveBeenCalled();
       expect(mockRevokeObjectURL).not.toHaveBeenCalled();
 
-      // The commit failed: what it left behind is released now
+      // The commit failed with the composer already gone: the previews are released, the upload is
+      // kept. The client cannot tell a refused write from one the homeserver applied but never
+      // acknowledged, and deleting the upload then could strip a live post of its file.
       act(() => {
         result.current.setCommitting(false);
       });
 
-      await waitFor(() => {
-        expect(FileController.commitDelete).toHaveBeenCalledWith({ fileUris: [fileUri('A')] });
-      });
       expect(mockRevokeObjectURL).toHaveBeenCalledTimes(2);
+      expect(FileController.commitDelete).not.toHaveBeenCalled();
+      expect(result.current.getPreviewUrl(a)).toBeNull();
     });
 
     it('a deferred discard finds nothing after the commit finalized the session', async () => {
