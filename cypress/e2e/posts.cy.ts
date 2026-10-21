@@ -1,3 +1,4 @@
+import type { Interception } from 'cypress/types/net-stubbing';
 import { backupDownloadFilePath } from '../support/auth';
 import { slowCypressDown } from 'cypress-slow-down';
 // registers the cy.slowDown and cy.slowDownEnd commands
@@ -20,6 +21,7 @@ import {
   PostOrReply,
   waitForFeedToLoad,
 } from '../support/posts';
+import { taggedPostFromInterception, waitForNexusPostTags } from '../support/nexus';
 import { defaultMs } from '../support/slow-down';
 import { BackupType, CheckForNewPosts, HasBackedUp, WaitForNewPosts } from '../support/types/enums';
 
@@ -351,8 +353,10 @@ describe('posts', () => {
 
     fastTagPostInFeed([tag1, tag2, tag3], postContent);
 
-    // todo: remove wait workaround once bug is fixed, see https://github.com/pubky/pubky-app/issues/805
-    cy.wait(Cypress.expose('ci') ? 3_000 : 500);
+    cy.get<Interception>('@putTag').then((interception) => {
+      const { authorId, postId } = taggedPostFromInterception(interception);
+      waitForNexusPostTags(authorId, postId, [tag1, tag2, tag3]);
+    });
 
     cy.findFirstPostInFeedFiltered(postContent, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
       [tag1, tag2, tag3].forEach((tag) => {
