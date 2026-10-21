@@ -15,7 +15,7 @@ import {
   waitForNexusStream,
 } from '../support/pagination';
 import { createQuickPost } from '../support/posts';
-import { BackupType, HasBackedUp } from '../support/types/enums';
+import { BackupType, CheckForNewPosts, HasBackedUp, WaitForNewPosts } from '../support/types/enums';
 
 type SeededPost = { id: string; text: string };
 
@@ -76,8 +76,13 @@ describe('pagination', () => {
       .its('request.url')
       .then((url) => {
         rootId = postIdFromWriteUrl(url);
-        cy.visit(`/post/${authorId}/${rootId}`);
       });
+    // Open the thread from the feed: a fresh `cy.visit` lets the click below land on the
+    // server-rendered composer before it hydrates, and the composer then never expands
+    cy.findFirstPostInFeedFiltered(rootText, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
+      cy.get('[data-cy="post-text"]').click();
+    });
+    cy.location('pathname').should('eq', `/post/${authorId}/${rootId}`);
     cy.get('[data-cy="single-post-card"]:visible').should('have.length', 1);
     cy.get('[data-cy="quick-reply"]').filter(':visible').should('have.length', 1).as('quickReply');
     Cypress._.times(REPLY_COUNT, (index) => {
@@ -87,8 +92,10 @@ describe('pagination', () => {
         .filter(':visible')
         .should('have.length', 1)
         .should('have.value', '')
-        .click()
-        .type(text);
+        .click();
+      // The composer collapses after every reply; the click above expands it again
+      cy.get('@quickReply').find('[data-cy="post-input-action-bar-reply"]').filter(':visible').should('have.length', 1);
+      cy.get('@quickReply').find('[data-cy="quick-reply-textarea"]').filter(':visible').type(text);
       cy.intercept('PUT', '**/pub/pubky.app/posts/**').as('replyCreated');
       cy.get('@quickReply')
         .find('[data-cy="post-input-action-bar-reply"]')
