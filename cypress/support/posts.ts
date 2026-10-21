@@ -571,3 +571,12 @@ export const expectSessionExpiredWithoutRetryLoop = (writeAlias: string) => {
   cy.get(`${writeAlias}.all`).should('have.length.within', 1, 2);
   cy.location('pathname').should('eq', '/home');
 };
+
+// Only restoreStatus marks the session as needing sign-in, and it is not persisted: a reload hydrates the
+// saved session reference and boot restores it, which is how a user recovers from the session-expired prompt.
+export const restoreSessionByReload = () => {
+  cy.visit('/home');
+  waitForFeedToLoad();
+  cy.get('[data-cy="header-nav-profile-btn"]').filter(':visible').should('have.length', 1);
+  cy.get('[data-cy="home-post-input"]').find('[data-cy="post-input-textarea"]').should('not.have.attr', 'readonly');
+};

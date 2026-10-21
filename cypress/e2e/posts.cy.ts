@@ -21,6 +21,7 @@ import {
   expectSessionExpiredWithoutRetryLoop,
   fillArticleFields,
   PostOrReply,
+  restoreSessionByReload,
   switchToArticleMode,
   waitForFeedToLoad,
 } from '../support/posts';
@@ -853,7 +854,7 @@ describe('posts', () => {
     cy.get('[data-cy="home-post-input"]').find('[data-cy="post-input-textarea"]').should('have.value', postContent);
     cy.get('[data-cy="timeline-posts"]').should('not.contain.text', postContent);
 
-    cy.signInWithEncryptedFile(backupDownloadFilePath(username));
+    restoreSessionByReload();
   });
 
   it('prompts to sign in again when homeserver responds 401 to creating new article', () => {
@@ -876,7 +877,7 @@ describe('posts', () => {
     });
     cy.get('[data-cy="timeline-posts"]').should('not.contain.text', title);
 
-    cy.signInWithEncryptedFile(backupDownloadFilePath(username));
+    restoreSessionByReload();
   });
 
   // TODO: https://github.com/pubky/pubky-app/issues/2890
@@ -900,7 +901,7 @@ describe('posts', () => {
       cy.get(`[data-cy="post-tag"][data-tag-label="${tag}"]`).should('not.exist');
     });
 
-    cy.signInWithEncryptedFile(backupDownloadFilePath(username));
+    restoreSessionByReload();
   });
 
   it('warns that storage is full and keeps the draft when homeserver responds 507 to a new post', () => {
