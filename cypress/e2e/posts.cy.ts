@@ -879,7 +879,7 @@ describe('posts', () => {
     cy.signInWithEncryptedFile(backupDownloadFilePath(username));
   });
 
-  // TODO: https://github.com/pubky/pubky-app/issues/2555 covered post and collection writes only.
+  // TODO: https://github.com/pubky/pubky-app/issues/2890
   // usePostTags still shows the generic 'Could not add tag' toast for a 401, so the session-expired
   // prompt never appears. Re-enable once tag writes show the session-expired prompt.
   it.skip('prompts to sign in again when homeserver responds 401 to tagging a post', () => {
