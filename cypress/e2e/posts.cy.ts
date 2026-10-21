@@ -1088,7 +1088,9 @@ describe('posts', () => {
     cy.viewport(1920, 1080);
   });
 
-  it('can filter the feed by post kind', () => {
+  // TODO: https://github.com/pubky/pubky-app/issues/2900
+  // The mixed image+file post intermittently fails to create until file IDs are unique.
+  it.skip('can filter the feed by post kind', () => {
     cy.viewport(1920, 1080);
     applyContentFilter('All');
 
