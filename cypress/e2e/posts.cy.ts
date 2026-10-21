@@ -903,6 +903,64 @@ describe('posts', () => {
     cy.signInWithEncryptedFile(backupDownloadFilePath(username));
   });
 
+  it('warns that storage is full and keeps the draft when homeserver responds 507 to a new post', () => {
+    const postContent = `This post does not fit in storage! ${Date.now()}`;
+    cy.intercept('PUT', '**/pub/pubky.app/posts/**', { statusCode: 507 }).as('postInsufficientStorage');
+
+    cy.get('[data-cy="home-post-input"]').within(() => {
+      cy.get('[data-cy="post-input-textarea"]').type(postContent);
+      cy.get('[data-cy="post-input-action-bar-post"]').click();
+    });
+    cy.wait('@postInsufficientStorage');
+
+    cy.get('[data-cy="toast"]')
+      .filter(':visible')
+      .should('contain.text', 'You have reached your storage limit. Contact support to request more space.');
+    // 507 is not retryable
+    cy.get('@postInsufficientStorage.all').should('have.length', 1);
+    cy.get('[data-cy="home-post-input"]').find('[data-cy="post-input-textarea"]').should('have.value', postContent);
+    cy.get('[data-cy="timeline-posts"]').should('not.contain.text', postContent);
+  });
+
+  it('keeps the quick reply draft when the reply is rolled back', () => {
+    const postContent = `This post gets a reply that fails! ${Date.now()}`;
+    const replyContent = `This reply never reaches the homeserver! ${Date.now()}`;
+    createQuickPost(postContent);
+
+    cy.findFirstPostInFeedFiltered(postContent, CheckForNewPosts.No, WaitForNewPosts.Yes).within(() => {
+      cy.get('[data-cy="post-text"]').click();
+    });
+    cy.location('pathname').should('contain', '/post/');
+    cy.get('[data-cy="single-post-card"]').should('contain.text', postContent);
+
+    cy.intercept('PUT', '**/pub/pubky.app/posts/**', { statusCode: 500 }).as('replyFailed');
+    // The hidden feed under the post overlay has its own quick reply on the same post.
+    cy.get('[data-cy="quick-reply"]').filter(':visible').should('have.length', 1).as('postQuickReply');
+    cy.get('@postQuickReply')
+      .find('[data-cy="quick-reply-textarea"]')
+      .filter(':visible')
+      .should('have.length', 1)
+      .click()
+      .type(replyContent);
+    cy.get('@postQuickReply')
+      .find('[data-cy="post-input-action-bar-reply"]')
+      .should('be.visible')
+      .and('not.be.disabled')
+      .click();
+
+    cy.get('[data-cy="toast"]').filter(':visible').should('contain.text', 'Could not post reply. Try again.');
+    // homeserver writes retry a 500 twice before giving up
+    cy.get('@replyFailed.all').should('have.length', 3);
+    // the first reply flips the thread's reply list 0 -> 1 -> 0 on rollback; the composer must survive it
+    cy.get('@postQuickReply')
+      .find('[data-cy="quick-reply-textarea"]')
+      .filter(':visible')
+      .should('have.value', replyContent);
+
+    cy.visit('/home');
+    waitForFeedToLoad();
+  });
+
   //todo: implement once retaining scroll position is implemented, see https://github.com/pubky/franky/issues/416
   it.skip('can navigate back to feed from post view');
 });

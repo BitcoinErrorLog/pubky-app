@@ -443,3 +443,42 @@ describe('visual layout', () => {
       });
   });
 });
+
+describe('custom feed write failures', () => {
+  before(() => {
+    slowCypressDown();
+    cy.deleteDownloadsFolder();
+  });
+
+  it('rolls back the new feed tab when homeserver fails to save the feed', () => {
+    const stamp = Date.now();
+    const feedName = `Doomed feed ${stamp}`;
+    const tag = `doomed${String(stamp).slice(-6)}`;
+    const feedTab = `[data-cy="feed-navigation-custom-tab"][aria-label="${feedName}"]`;
+
+    cy.onboardAsNewUser('Feed Rollback', 'My feeds fail to save');
+
+    cy.get('[data-cy="feed-navigation"]').find('[data-cy="feed-navigation-create-btn"]').should('be.visible').click();
+    cy.get('[data-cy="custom-feed-dialog"]').should('be.visible').and('contain.text', 'Create Feed');
+    cy.get('[data-cy="custom-feed-name-input"]').type(feedName);
+    cy.get('[data-cy="custom-feed-dialog"]').find('[data-cy="add-tag-input"]').type(`${tag}{enter}`);
+    cy.get('[data-cy="custom-feed-dialog"]').find(`[data-cy="post-tag"][data-tag-label="${tag}"]`).should('be.visible');
+
+    cy.intercept('PUT', '**/pub/pubky.app/feeds/**', { statusCode: 500 }).as('feedFailed');
+    cy.get('[data-cy="custom-feed-save-btn"]').should('not.be.disabled').click();
+
+    cy.get('[data-cy="toast"]').filter(':visible').should('contain.text', 'Could not create feed. Try again.');
+    // homeserver writes retry a 500 twice before giving up
+    cy.get('@feedFailed.all').should('have.length', 3);
+    // the dialog stays open with the typed values so the user can retry
+    cy.get('[data-cy="custom-feed-dialog"]').should('be.visible');
+    cy.get('[data-cy="custom-feed-name-input"]').should('have.value', feedName);
+    cy.location('pathname').should('eq', '/home');
+    cy.get('[data-cy="feed-navigation"]').find(feedTab).should('not.exist');
+
+    // the rolled back local feed row does not come back from Dexie after a reload
+    cy.reload();
+    cy.get('[data-cy="feed-navigation"]').find('[data-cy="feed-navigation-create-btn"]').should('be.visible');
+    cy.get('[data-cy="feed-navigation"]').find(feedTab).should('not.exist');
+  });
+});
