@@ -105,9 +105,10 @@ describe('logged-out deep links', () => {
     cy.visit(`/collections/${authorId}/${collectionId}`);
 
     cy.get('[data-cy="collection-hero"]:visible').should('have.length', 1).and('contain.text', collectionName);
-    cy.get('[data-cy="post-text"]:visible').should(($texts) => {
-      const texts = $texts.toArray().map((text) => text.textContent?.trim());
-      expect(texts, 'collection items').to.include(collectionItemText);
+    // The list layout renders each item as a one-line snippet row, not a full post body
+    cy.get('[data-cy="post-card"]:visible [data-cy="post-list-snippet"]:visible').should(($snippets) => {
+      const snippets = $snippets.toArray().map((snippet) => snippet.textContent?.trim());
+      expect(snippets, 'collection items').to.include(collectionItemText);
     });
     assertWriteAsksToSignIn('[data-cy="collection-hero-follow-btn"]:visible');
   });
