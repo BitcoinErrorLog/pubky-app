@@ -12,6 +12,13 @@ How to make a change to this repo that a maintainer would write: right layer, ri
 6. Verify at the right level (see [Verification](#verification)), then read your own diff for drift: a stray `useMemo`, a hex colour, a new `index.ts`, an unrelated rename, a raw `Error`, a direct `process.env` read.
 7. If the change alters a UI surface with a VRT baseline, say so; if it needs an ADR-worthy decision, mention it rather than silently inventing a pattern.
 
+## People and names
+
+- In code, comments, docs, fixtures, commit messages and PR text, refer to people only by GitHub handle. Never use real names.
+- Do not attribute opinions, decisions or personal matters to people.
+- Test fixtures use clearly fictional names (`Alice Example`, `Bob Example`).
+- This is a public repo and history is kept forever: a scrubbed name stays in earlier commits, so get it right the first time.
+
 ## Worked Example: Create a Collection
 
 `src/hooks/useCreateCollection/useCreateCollection.ts` → `src/core/controllers/post/post.ts` (`commitCreateCollection`) → `src/core/application/post/post.ts` (`commitCreate`):
