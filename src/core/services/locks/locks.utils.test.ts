@@ -9,6 +9,7 @@ import {
   getLockSession,
   getPaykitServerOrigin,
   initLockClient,
+  isLockServerRegionBlocked,
   toLocksError,
 } from './locks.utils';
 
@@ -63,6 +64,27 @@ describe('locks.utils', () => {
     mocks.session = null;
     mocks.creatorPubky = 'account';
     mocks.currentUserPubky = 'account';
+  });
+
+  describe('isLockServerRegionBlocked', () => {
+    it('is true for the SDK failure carrying HTTP 451', () => {
+      expect(isLockServerRegionBlocked(new Error('Lock Server viewer request failed with HTTP 451'))).toBe(true);
+      expect(isLockServerRegionBlocked('Lock Server viewer request failed with HTTP 451')).toBe(true);
+    });
+
+    it('is false for other statuses, other failures and anything that is not a raw SDK failure', () => {
+      expect(isLockServerRegionBlocked(new Error('Lock Server viewer request failed with HTTP 429'))).toBe(false);
+      expect(isLockServerRegionBlocked(new Error('network down'))).toBe(false);
+      expect(isLockServerRegionBlocked(undefined)).toBe(false);
+    });
+
+    it('is false for an AppError, which was already reported at its origin', () => {
+      const reported = Err.validation(ValidationErrorCode.INVALID_INPUT, 'upstream said HTTP 451', {
+        service: ErrorService.Locks,
+        operation: 'op',
+      });
+      expect(isLockServerRegionBlocked(reported)).toBe(false);
+    });
   });
 
   describe('toLocksError', () => {

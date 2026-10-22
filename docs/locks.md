@@ -221,7 +221,7 @@ image, like any article card.
 | `components/organisms/LockedPostContent/LockedPostContent.tsx` | teaser + lock card + unlock dialog; renders the content once unlocked               |
 | `components/organisms/PostBody/PostBody.tsx`                   | shared text + link-embed + attachment renderer (feed post body **and** lock teaser) |
 | `components/molecules/LockedPostCard/LockedPostCard.tsx`       | lock card: title, shield graphic, Unlock control (also used by the composer)        |
-| `components/molecules/DialogPayToUnlock/DialogPayToUnlock.tsx` | Pay to Unlock modal (checking, retry, install, waiting, paid, unopened, blocked)    |
+| `components/molecules/DialogPayToUnlock/DialogPayToUnlock.tsx` | Pay to Unlock modal, one screen per stage (`TPayToUnlockStage`)                     |
 | `hooks/usePayToUnlock/usePayToUnlock.ts`                       | the payment state machine: bundle-id routing, submit, polling, stall/resume         |
 | `hooks/usePurchasedLocks/usePurchasedLocks.ts`                 | one listing of the reader's purchases, shared by every lock post                    |
 | `hooks/usePurchaseResume/usePurchaseResume.ts`                 | finishes a paid purchase whose content never landed, without interaction            |
@@ -305,7 +305,13 @@ minutes and happens in Bitkit, not the browser. `usePayToUnlock` owns the state 
    without a usable wallet or a Paykit outage therefore ends the task `failed`, not the submission.
    While the server waits on the reader's wallet it says so (`status_message`), and the modal shows
    a setup notice in place of the handoff. A failed submission (network, rate limit) shows **Try
-   again**, which keeps the saved id.
+   again**, which keeps the saved id. A submission the Lock Server refuses with **HTTP 451** (paid
+   unlocks are not offered in the reader's region) is not a failure: `LocksService.submitProof` returns
+   `{ regionBlocked: true }` before any `Err.*` is built, so it is not logged and not sent to Sentry
+   (the factories report on construction). `startPayment` passes it up as `regionBlocked`, and the
+   modal lands on `region-blocked`: "Paid unlocks aren't available in your region yet." with an info
+   icon, no Try again, no Bitkit badges, no toast, and the lock is not marked purchased. The saved
+   bundle id stays, so the next opening replays it, and from a supported region it creates one payment.
 5. The Paykit link has its own read (`fetchPaykitConnectionState`), bound to the task the submission
    created; with nothing submitted, the install screen has no link state. Until the first read
    answers, the modal says "Checking your Bitkit connection…". A failed first read keeps it there

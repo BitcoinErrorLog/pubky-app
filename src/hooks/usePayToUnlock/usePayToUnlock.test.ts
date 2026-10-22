@@ -1647,3 +1647,69 @@ describe('usePayToUnlock (waiting)', () => {
     expect(onCompleted).not.toHaveBeenCalled();
   });
 });
+
+describe('usePayToUnlock (region refusal)', () => {
+  const REGION_BLOCKED: TSubmitted = { bundleId: 'fresh-1', regionBlocked: true };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.currentUserPubky = 'reader1';
+    authState.session = {};
+    authState.restoreStatus = 'ready';
+    vi.mocked(LocksController.fetchResolvedPurchase).mockResolvedValue(null);
+    vi.mocked(LocksController.hasPaykitReceiver).mockResolvedValue(true);
+    vi.mocked(LocksController.startPayment).mockResolvedValue(REGION_BLOCKED);
+    vi.mocked(LocksController.fetchPaykitConnectionState).mockResolvedValue('connected');
+  });
+
+  it('lands on its own stage, with no toast, no purchase mark and no polling', async () => {
+    const { result } = renderPay();
+
+    await waitFor(() => expect(result.current.stage).toBe('region-blocked'));
+    expect(toastMock).not.toHaveBeenCalled();
+    // Marking the lock purchased would start the background finish for a payment that was never created.
+    expect(onPurchased).not.toHaveBeenCalled();
+    expect(result.current.isSubmitting).toBe(false);
+    expect(result.current.handshakePubky).toBeNull();
+    expect(LocksController.fetchPaymentStatus).not.toHaveBeenCalled();
+    expect(LocksController.fetchPaykitConnectionState).not.toHaveBeenCalled();
+    expect(LocksController.startPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not the install screen: the wallet is never blamed', async () => {
+    vi.mocked(LocksController.hasPaykitReceiver).mockResolvedValueOnce(false);
+    const { result } = renderPay();
+    await waitFor(() => expect(result.current.stage).toBe('install'));
+
+    vi.mocked(LocksController.hasPaykitReceiver).mockResolvedValueOnce(true);
+    result.current.retry();
+
+    await waitFor(() => expect(result.current.stage).toBe('region-blocked'));
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet when the modal closed before the refusal arrived', async () => {
+    let refuse!: (result: TSubmitted) => void;
+    vi.mocked(LocksController.startPayment).mockImplementation(() => new Promise((resolve) => (refuse = resolve)));
+    const { result, rerender } = renderPayWith({ open: true });
+    await waitFor(() => expect(LocksController.startPayment).toHaveBeenCalledTimes(1));
+
+    rerender({ open: false });
+    await act(async () => refuse(REGION_BLOCKED));
+
+    expect(result.current.stage).toBe('checking');
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('asks again on the next opening, so a reader who moved to a supported region can pay', async () => {
+    const { result, rerender } = renderPayWith({ open: true });
+    await waitFor(() => expect(result.current.stage).toBe('region-blocked'));
+
+    rerender({ open: false });
+    vi.mocked(LocksController.startPayment).mockResolvedValue({ bundleId: 'fresh-1', status: 'pending' });
+    rerender({ open: true });
+
+    await waitFor(() => expect(result.current.stage).toBe('waiting'));
+    expect(LocksController.startPayment).toHaveBeenCalledTimes(2);
+  });
+});

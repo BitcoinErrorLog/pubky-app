@@ -597,6 +597,29 @@ describe('LocksApplication (payment unlock)', () => {
       });
     });
 
+    // The Lock Server's 451 (paid unlocks not offered in the reader's region) is an answer, not a failure.
+    it('returns regionBlocked with the saved bundle id when the Lock Server refuses the region', async () => {
+      mocks.submitProof.mockResolvedValue({ regionBlocked: true });
+
+      await expect(LocksApplication.startPayment(params)).resolves.toEqual({
+        bundleId: 'fresh-1',
+        regionBlocked: true,
+      });
+      // The id stays saved: from a supported region the same unlock replays it and creates one payment.
+      expect(mocks.putBlob).toHaveBeenCalledTimes(1);
+    });
+
+    it('submits a saved id with no task again after a region refusal, and mints nothing new', async () => {
+      mocks.listAll.mockResolvedValue([purchaseFile(BUNDLE_A)]);
+      lookups({ [BUNDLE_A]: null });
+      mocks.submitProof.mockResolvedValueOnce({ regionBlocked: true }).mockResolvedValueOnce({ status: 'pending' });
+
+      await expect(LocksApplication.startPayment(params)).resolves.toEqual({ bundleId: BUNDLE_A, regionBlocked: true });
+      await expect(LocksApplication.startPayment(params)).resolves.toEqual({ bundleId: BUNDLE_A, status: 'pending' });
+      expect(mocks.generateBundleId).not.toHaveBeenCalled();
+      expect(mocks.putBlob).not.toHaveBeenCalled();
+    });
+
     // Another tab (or an earlier press) already saved an id: submit with THAT one. Minting again
     // would orphan its purchase and pay a second time.
     it('reuses a saved bundle id that is still paying, without minting or writing', async () => {

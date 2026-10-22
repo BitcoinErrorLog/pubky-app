@@ -3,7 +3,7 @@ import { getLockServer, getPaykitServerUrl, getPkarrRelays } from '@/config/netw
 import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
-import { toAppError } from '@/libs/error/error.utils';
+import { isAppError, toAppError } from '@/libs/error/error.utils';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useLocksAuthStore } from '@/stores/locksAuth/locksAuth.store';
 
@@ -24,6 +24,18 @@ export function toLocksError(error: unknown, operation: string) {
     });
   }
   return toAppError(error, ErrorService.Locks, operation);
+}
+
+/**
+ * The Lock Server answers a proof submission with HTTP 451 (Unavailable For Legal Reasons) from a
+ * region where paid unlocks are not offered. That is an expected, permanent answer, not a failure:
+ * callers turn it into a state of its own before any `Err.*` is built, because the factories log and
+ * report to Sentry on construction. Only a raw SDK failure counts; an `AppError` was already reported.
+ */
+export function isLockServerRegionBlocked(error: unknown): boolean {
+  if (isAppError(error)) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return /\bHTTP 451\b/.test(message);
 }
 
 /** One-time wasm init promise; see `ensureLocksSdkReady`. */

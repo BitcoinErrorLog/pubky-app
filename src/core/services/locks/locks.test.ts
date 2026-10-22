@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory } from '@/libs/error/error.types';
 import { isAppError } from '@/libs/error/error.utils';
+import { Logger } from '@/libs/logger/logger';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useLocksAuthStore } from '@/stores/locksAuth/locksAuth.store';
 import { locksAuthInitialState } from '@/stores/locksAuth/locksAuth.types';
@@ -489,6 +490,49 @@ describe('LocksService (reader unlock)', () => {
 
     expect(mocks.fakeViewer.submitProofBundle).toHaveBeenCalledWith(bundle);
     expect(task).toEqual({ status: 'pending' });
+  });
+
+  describe('submitProof when the Lock Server answers 451', () => {
+    const bundle = { version: 1, bundle_id: 'b1', pubky_lock_resource: 'creator/pub/l.json', proofs: [] };
+
+    it('returns a region-blocked result instead of throwing', async () => {
+      mocks.fakeViewer.submitProofBundle.mockRejectedValueOnce(
+        new Error('Lock Server viewer request failed with HTTP 451'),
+      );
+
+      await expect(LocksService.submitProof(bundle)).resolves.toEqual({ regionBlocked: true });
+    });
+
+    it('also reads a 451 the SDK throws as a bare string', async () => {
+      mocks.fakeViewer.submitProofBundle.mockRejectedValueOnce('Lock Server viewer request failed with HTTP 451');
+
+      await expect(LocksService.submitProof(bundle)).resolves.toEqual({ regionBlocked: true });
+    });
+
+    it('builds no AppError, so nothing is logged or sent to Sentry', async () => {
+      const logError = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+      mocks.fakeViewer.submitProofBundle.mockRejectedValueOnce(
+        new Error('Lock Server viewer request failed with HTTP 451'),
+      );
+
+      await LocksService.submitProof(bundle);
+
+      expect(logError).not.toHaveBeenCalled();
+      logError.mockRestore();
+    });
+
+    it.each(['HTTP 429', 'HTTP 500', 'HTTP 403', 'HTTP 4510'])('still reports a %s as an error', async (statusText) => {
+      const logError = vi.spyOn(Logger, 'error').mockImplementation(() => {});
+      mocks.fakeViewer.submitProofBundle.mockRejectedValueOnce(
+        new Error(`Lock Server viewer request failed with ${statusText}`),
+      );
+
+      const error = await LocksService.submitProof(bundle).catch((caught: unknown) => caught);
+
+      expect(isAppError(error)).toBe(true);
+      expect(logError).toHaveBeenCalled();
+      logError.mockRestore();
+    });
   });
 
   it('lookupPaykitConnectionState returns the state the server reports', async () => {

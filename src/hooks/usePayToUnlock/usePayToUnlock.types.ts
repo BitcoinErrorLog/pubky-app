@@ -7,9 +7,20 @@ import type { LockFile, TPaykitConnectionState, TUnlockedContent } from '@/servi
  * could mean paying twice, so it is not offered. `unopened` is its own stage because the payment
  * succeeded there and only the content download failed: the reader must never be told to go pay.
  * `finishing` acknowledges that payment while the credential and content are being fetched.
+ * `region-blocked` is the Lock Server's HTTP 451: paid unlocks are not offered in the reader's region.
+ * Nothing was created and trying again cannot help, so it offers no retry and has nothing to do with Bitkit.
  */
 export type TPayToUnlockStage =
-  'checking' | 'retry' | 'expired' | 'install' | 'waiting' | 'finishing' | 'paid' | 'unopened' | 'blocked';
+  | 'checking'
+  | 'retry'
+  | 'expired'
+  | 'install'
+  | 'waiting'
+  | 'finishing'
+  | 'paid'
+  | 'unopened'
+  | 'blocked'
+  | 'region-blocked';
 
 export interface UsePayToUnlockParams {
   /** The modal's open state; closed keeps the hook idle (no requests, no polling). */

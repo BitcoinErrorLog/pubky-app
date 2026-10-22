@@ -352,7 +352,14 @@ export function usePayToUnlock({
         if (fromInstall) setStage('checking');
       }
 
-      const { bundleId, status } = await LocksController.startPayment({ lockFile, lockUrl, readerPubky, isRetry });
+      const started = await LocksController.startPayment({ lockFile, lockUrl, readerPubky, isRetry });
+      if (started.regionBlocked) {
+        // An expected refusal, not a failure: no toast, no retry, and the lock is not marked purchased
+        // (that would start the background finish for a payment that was never created).
+        if (generation.current === gen) setStage('region-blocked');
+        return;
+      }
+      const { bundleId, status } = started;
       const lockId = LockContentParser.lockIdFromUrl(lockUrl);
       if (lockId) onPurchased(lockId);
       if (generation.current !== gen) return;
