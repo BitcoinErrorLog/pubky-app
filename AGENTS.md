@@ -125,6 +125,13 @@ Commits and branches: `type(scope): description` (imperative, lower-case, no per
 `<type>/<issue>-<kebab-description>` cut from `dev`; PRs target `dev`, draft unless asked, one change per PR. Cypress specs
 are owned by QA: flag an invalidated spec, do not edit or run e2e yourself. `docs/commit-message.md`
 
+## People and names
+
+- In code, comments, docs, fixtures, commit messages and PR text, refer to people only by GitHub handle. Never use real names.
+- Do not attribute opinions, decisions or personal matters to people.
+- Test fixtures use clearly fictional names (`Alice Example`, `Bob Example`).
+- This is a public repo and history is kept forever: a scrubbed name stays in earlier commits, so get it right the first time.
+
 ## Common failure modes
 
 - IO in a component, hook or pipe; a service called from a controller; application called from a coordinator.
