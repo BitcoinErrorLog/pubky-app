@@ -48,6 +48,7 @@ const stallNotBeforeFor = (admissionDeadlineAt: string | null): number => {
  */
 export function usePayToUnlock({
   open,
+  paymentAvailability = 'available',
   lockUrl,
   lockFile,
   onCompleted,
@@ -78,6 +79,11 @@ export function usePayToUnlock({
   // One generation per modal opening: every async continuation checks it, so a closed (or
   // reopened) modal can't apply stale results or keep polling.
   const generation = useRef(0);
+  // A button handler retained from an earlier render must use the latest advisory too.
+  const currentPaymentAvailability = useRef(paymentAvailability);
+  useEffect(() => {
+    currentPaymentAvailability.current = paymentAvailability;
+  }, [paymentAvailability]);
   // The active poll loop's teardown (timers + return listeners) — replaced on every loop start,
   // called on close/unmount. The generation makes a leaked loop inert; this makes it absent.
   const stopPolling = useRef<(() => void) | null>(null);
@@ -136,6 +142,13 @@ export function usePayToUnlock({
     setStage('paid');
   };
 
+  const holdNewPayment = () => {
+    const availability = currentPaymentAvailability.current;
+    if (availability === 'available') return false;
+    setStage(availability === 'blocked' ? 'region-blocked' : 'checking');
+    return true;
+  };
+
   const applyStatus = (gen: number, bundleId: string, status: TVerificationStatus): boolean => {
     if (status === 'completed') {
       setConnectionState(null);
@@ -144,6 +157,7 @@ export function usePayToUnlock({
       return false;
     }
     if (status === 'failed' || status === 'expired') {
+      if (holdNewPayment()) return false;
       // Unretryable: Try again mints a fresh id, unless another device has since saved one that can still pay.
       checkWalletOnRetry.current = status === 'failed';
       setConnectionState(null);
@@ -335,7 +349,10 @@ export function usePayToUnlock({
   // two per reader and lock, so the second one replays the saved id instead of minting another, or
   // reports its end if the reader rejected it meanwhile (`isRetry` is false here).
   const attemptPayment = async (gen: number, fromInstall: boolean, isRetry: boolean) => {
-    if (!lockFile || !readerPubky || !session || submittingGeneration.current === gen) return;
+    if (!lockFile || !readerPubky || !session || generation.current !== gen || submittingGeneration.current === gen)
+      return;
+    const currentReader = useAuthStore.getState();
+    if (currentReader.currentUserPubky !== readerPubky || currentReader.session !== session || holdNewPayment()) return;
     submittingGeneration.current = gen;
     setIsSubmitting(true);
 
@@ -352,7 +369,16 @@ export function usePayToUnlock({
         if (fromInstall) setStage('checking');
       }
 
-      const { bundleId, status } = await LocksController.startPayment({ lockFile, lockUrl, readerPubky, isRetry });
+      // A wallet check can outlive a country/session change. Its old opening must never submit.
+      if (generation.current !== gen || holdNewPayment()) return;
+      const started = await LocksController.startPayment({ lockFile, lockUrl, readerPubky, isRetry });
+      if (started.regionBlocked) {
+        // An expected refusal, not a failure: no toast, no retry, and the lock is not marked purchased
+        // (that would start the background finish for a payment that was never created).
+        if (generation.current === gen) setStage('region-blocked');
+        return;
+      }
+      const { bundleId, status } = started;
       const lockId = LockContentParser.lockIdFromUrl(lockUrl);
       if (lockId) onPurchased(lockId);
       if (generation.current !== gen) return;
@@ -415,6 +441,9 @@ export function usePayToUnlock({
           }
           return;
         }
+        // Recovery is read-only up to this point. No task means new commerce, even when a
+        // bundle file survived a refused or interrupted submission. Keep that file for later.
+        if (holdNewPayment()) return;
         if (!resolved) {
           const hasWallet = await LocksController.hasPaykitReceiver(readerPubky);
           if (generation.current !== gen) return;
@@ -446,7 +475,7 @@ export function usePayToUnlock({
     // attemptPayment and the helpers it calls are stable for one opening; re-running on their
     // identity would restart the purchase.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, lockUrl, lockFile, readerPubky, session]);
+  }, [open, lockUrl, lockFile, readerPubky, session, paymentAvailability]);
 
   // Every step needs the session; without this the modal would sit on a step that can no longer move.
   useEffect(() => {

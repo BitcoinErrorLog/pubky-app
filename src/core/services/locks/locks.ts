@@ -30,7 +30,7 @@ import type {
   TPaykitSetupStatus,
   TRegisterGuardedResourceParams,
   TRegisterGuardedResourceResult,
-  TSubmitProofResult,
+  TSubmitProofOutcome,
   TSubmittedProofBundle,
   TVerificationTask,
 } from './locks.types';
@@ -47,6 +47,7 @@ import {
   getLockSession,
   getPaykitServerOrigin,
   initLockClient,
+  isLockServerRegionBlocked,
   toLocksError,
 } from './locks.utils';
 
@@ -148,7 +149,8 @@ export class LocksService {
   }
 
   // Reader calls are public (no session) → `toAppError`, not `toLocksError` (a 401 isn't an expired session).
-  static async submitProof(bundle: TSubmittedProofBundle): Promise<TSubmitProofResult> {
+  // A 451 is the Lock Server saying paid unlocks are not offered in this region: returned, never thrown.
+  static async submitProof(bundle: TSubmittedProofBundle): Promise<TSubmitProofOutcome> {
     try {
       const viewer = await this.getViewer();
       const result = submitProofResultSchema.safeParse(await viewer.submitProofBundle(bundle));
@@ -161,6 +163,7 @@ export class LocksService {
       }
       return result.data;
     } catch (error) {
+      if (isLockServerRegionBlocked(error)) return { regionBlocked: true };
       throw toAppError(error, ErrorService.Locks, 'LocksService.submitProof');
     }
   }

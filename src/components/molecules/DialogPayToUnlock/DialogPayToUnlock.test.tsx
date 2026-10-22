@@ -136,6 +136,27 @@ describe('DialogPayToUnlock', () => {
     expect(screen.getByRole('link', { name: 'Google Play' })).toBeInTheDocument();
   });
 
+  // The Lock Server's 451: nothing to retry and nothing to install, so the screen only says why.
+  it('region-blocked: says paid unlocks are not available here, with no retry and no Bitkit', () => {
+    const onOpenChange = vi.fn();
+    renderDialog('region-blocked', { onOpenChange });
+
+    expect(screen.getByRole('status')).toHaveTextContent("Paid unlocks aren't available in your region yet.");
+    expect(screen.getByRole('button', { name: 'About this limit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pay-to-unlock-retry')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'App Store' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Google Play' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Bitkit/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Loading' })).not.toBeInTheDocument();
+    expect(screen.queryByText('PAYMENT RECEIVED')).not.toBeInTheDocument();
+
+    const close = document.querySelector('[data-cy="pay-to-unlock-cancel"]') as HTMLElement;
+    expect(close).toHaveTextContent('Close');
+    fireEvent.click(close);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it('retry: shows the Bitkit instruction and the Try again button', () => {
     const onRetry = vi.fn();
     renderDialog('retry', { onRetry });
