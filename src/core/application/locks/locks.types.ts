@@ -31,11 +31,13 @@ export type TResolvedPurchase =
   | { kind: 'reusable'; bundleId: string; task: TVerificationTask | null }
   | { kind: 'terminal'; bundleId: string; status: 'failed' | 'expired' };
 
-/** The bundle id and lifecycle status returned by proof submission, or the ended one an automatic start found. */
-export type TStartPaymentResult = {
-  bundleId: string;
-  status: TVerificationStatus;
-};
+/**
+ * The bundle id and lifecycle status returned by proof submission, or the ended one an automatic start
+ * found. `regionBlocked` means the Lock Server refused the submission (HTTP 451) because paid unlocks are
+ * not available in the reader's region: no payment was created, and the saved bundle id stays reusable.
+ */
+export type TStartPaymentResult =
+  { bundleId: string; status: TVerificationStatus; regionBlocked?: false } | { bundleId: string; regionBlocked: true };
 
 /** A submitted payment: the lock file and the bundle id the proof was submitted with. */
 export type TPaymentBundleParams = {

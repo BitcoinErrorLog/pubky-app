@@ -597,6 +597,29 @@ describe('LocksApplication (payment unlock)', () => {
       });
     });
 
+    // The Lock Server's 451 (paid unlocks not offered in the reader's region) is an answer, not a failure.
+    it('returns regionBlocked with the saved bundle id when the Lock Server refuses the region', async () => {
+      mocks.submitProof.mockResolvedValue({ regionBlocked: true });
+
+      await expect(LocksApplication.startPayment(params)).resolves.toEqual({
+        bundleId: 'fresh-1',
+        regionBlocked: true,
+      });
+      // The id stays saved: from a supported region the same unlock replays it and creates one payment.
+      expect(mocks.putBlob).toHaveBeenCalledTimes(1);
+    });
+
+    it('submits a saved id with no task again after a region refusal, and mints nothing new', async () => {
+      mocks.listAll.mockResolvedValue([purchaseFile(BUNDLE_A)]);
+      lookups({ [BUNDLE_A]: null });
+      mocks.submitProof.mockResolvedValueOnce({ regionBlocked: true }).mockResolvedValueOnce({ status: 'pending' });
+
+      await expect(LocksApplication.startPayment(params)).resolves.toEqual({ bundleId: BUNDLE_A, regionBlocked: true });
+      await expect(LocksApplication.startPayment(params)).resolves.toEqual({ bundleId: BUNDLE_A, status: 'pending' });
+      expect(mocks.generateBundleId).not.toHaveBeenCalled();
+      expect(mocks.putBlob).not.toHaveBeenCalled();
+    });
+
     // Another tab (or an earlier press) already saved an id: submit with THAT one. Minting again
     // would orphan its purchase and pay a second time.
     it('reuses a saved bundle id that is still paying, without minting or writing', async () => {
@@ -894,60 +917,6 @@ describe('LocksApplication (payment unlock)', () => {
       await expect(LocksApplication.fetchPaymentStatus({ lockFile, bundleId: 'bundle-1' })).rejects.toMatchObject({
         code: ServerErrorCode.SERVICE_UNAVAILABLE,
       });
-    });
-  });
-
-  describe('fetchPaidContentIfCompleted', () => {
-    const params = { lockFile: withPrimary(), lockUrl, readerPubky: 'reader1' };
-    const paidBytes = new TextEncoder().encode('{"content":"paid","kind":"short","attachments":null}');
-
-    it('returns null when the reader has no saved bundle id', async () => {
-      await expect(LocksApplication.fetchPaidContentIfCompleted(params)).resolves.toBeNull();
-      expect(mocks.lookupVerificationTask).not.toHaveBeenCalled();
-    });
-
-    // A null here would read as "never paid" and hide a purchase whose id was lost.
-    it('propagates an unreadable saved id instead of returning null', async () => {
-      mocks.getBytesIfExists.mockResolvedValue(purchaseBytes('garbage'));
-
-      await expect(LocksApplication.fetchPaidContentIfCompleted(params)).rejects.toMatchObject({
-        code: ValidationErrorCode.INVALID_INPUT,
-      });
-      expect(mocks.lookupVerificationTask).not.toHaveBeenCalled();
-    });
-
-    it('returns null when the server has no task for the saved id', async () => {
-      mocks.listAll.mockResolvedValue([purchaseFile(BUNDLE_A)]);
-
-      await expect(LocksApplication.fetchPaidContentIfCompleted(params)).resolves.toBeNull();
-      expect(mocks.issueAccessCredential).not.toHaveBeenCalled();
-      expect(mocks.generateBundleId).not.toHaveBeenCalled();
-      expect(mocks.putBlob).not.toHaveBeenCalled();
-      expect(mocks.submitProof).not.toHaveBeenCalled();
-    });
-
-    // Not completed (still paying, or ended): there is no content to recover.
-    it.each(['pending', 'failed'])('returns null while the payment is %s', async (status) => {
-      mocks.listAll.mockResolvedValue([purchaseFile(BUNDLE_A)]);
-      lookups({ [BUNDLE_A]: task(status) });
-
-      await expect(LocksApplication.fetchPaidContentIfCompleted(params)).resolves.toBeNull();
-      expect(mocks.issueAccessCredential).not.toHaveBeenCalled();
-    });
-
-    it('reads the paid content with the completed id, whichever device minted it', async () => {
-      mocks.listAll.mockResolvedValue([purchaseFile(BUNDLE_A), purchaseFile(BUNDLE_B)]);
-      lookups({ [BUNDLE_A]: task('pending'), [BUNDLE_B]: task('completed') });
-      mocks.issueAccessCredential.mockResolvedValue({ credential: 'cred-abc', expires_at: 'e' });
-      mocks.proxyReadGuardedResource.mockResolvedValue(paidBytes);
-
-      const content = await LocksApplication.fetchPaidContentIfCompleted(params);
-      expect(content?.post.content).toBe('paid');
-      expect(mocks.issueAccessCredential).toHaveBeenCalledWith('pubkybob', BUNDLE_B);
-      // Recovery reads; it never buys.
-      expect(mocks.generateBundleId).not.toHaveBeenCalled();
-      expect(mocks.putBlob).not.toHaveBeenCalled();
-      expect(mocks.submitProof).not.toHaveBeenCalled();
     });
   });
 });

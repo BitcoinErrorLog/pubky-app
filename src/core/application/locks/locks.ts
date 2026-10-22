@@ -160,7 +160,8 @@ export class LocksApplication {
    * the proof to the Lock Server, which creates the verification task (or returns the existing one
    * on a replay of the same id) and afterwards has Paykit deliver the payment request to the
    * reader's wallet. When every saved id ended and `isRetry` is false, nothing is minted or
-   * submitted: the ended status is returned for the modal to show.
+   * submitted: the ended status is returned for the modal to show. A Lock Server that refuses the
+   * submission for the reader's region (HTTP 451) yields `regionBlocked`, not an error.
    */
   static async startPayment({
     lockFile,
@@ -194,8 +195,9 @@ export class LocksApplication {
       // write: the session that started this must still be current before anything is submitted.
       fence.assertCurrent();
       const bundle = LockProofBundler.buildPayment(lockFile, lockUrl, bundleId, readerPubky);
-      const task = await LocksService.submitProof(bundle);
-      return { bundleId, status: task.status };
+      const outcome = await LocksService.submitProof(bundle);
+      if (outcome.regionBlocked) return { bundleId, regionBlocked: true };
+      return { bundleId, status: outcome.status };
     };
     // Every browser Next.js supports has Web Locks; only an insecure context (plain-http dev) lacks it.
     // TODO:[Locks] The Web Lock covers one browser, so two devices that open at once can each mint an
@@ -252,17 +254,6 @@ export class LocksApplication {
   static async fetchPaidContent({ lockFile, bundleId }: TPaymentBundleParams): Promise<TUnlockedContent> {
     const { credential } = await LocksService.issueAccessCredential(lockFile.creator, bundleId);
     return this.fetchUnlockedContent({ lockFile, credential });
-  }
-
-  /**
-   * `fetchPaidContent` for a caller that knows neither the bundle id nor whether the payment went
-   * through: resolves the saved ids and downloads only when one is `completed`; null otherwise.
-   * Read-only; never mints an id or submits a proof.
-   */
-  static async fetchPaidContentIfCompleted(params: TPaymentLockParams): Promise<TUnlockedContent | null> {
-    const resolved = await this.fetchResolvedPurchase(params);
-    if (resolved?.kind !== 'reusable' || resolved.task?.status !== 'completed') return null;
-    return this.fetchPaidContent({ lockFile: params.lockFile, bundleId: resolved.bundleId });
   }
 
   /** `pubky://…/<lock_id>.json` → `<lock_id>`, or a typed error for a malformed lock URL. */
