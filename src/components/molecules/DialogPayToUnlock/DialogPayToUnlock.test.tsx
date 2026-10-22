@@ -15,7 +15,7 @@ vi.mock('@/libs/utils/utils', async (importOriginal) => {
 });
 vi.mock('@/molecules/Toaster/toast', () => ({ toast: (args: unknown) => mocks.toast(args) }));
 vi.mock('@/hooks/useUserProfile/useUserProfile', () => ({
-  useUserProfile: () => ({ profile: { name: 'John Carvalho', avatarUrl: undefined }, isLoading: false }),
+  useUserProfile: () => ({ profile: { name: 'Jane Whitlock', avatarUrl: undefined }, isLoading: false }),
 }));
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (s: { currentUserPubky: string | null }) => unknown) =>
