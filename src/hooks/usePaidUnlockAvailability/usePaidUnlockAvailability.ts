@@ -12,8 +12,8 @@ import {
 import { useClientRegionStore } from '@/stores/clientRegion/clientRegion.store';
 
 /**
- * Whether paid unlocks are offered where the viewer is, for the pay action, so a blocked viewer hears it
- * before trying instead of at the payment step.
+ * Whether paid unlocks are offered where the viewer is, for the pay action and the composer's lock switch, so a
+ * blocked viewer hears it before trying instead of at the payment step.
  *
  * It asks the Shop's region route once per page load, and only when the deployment lists a region
  * (`PUBKY_RUNTIME_REGION_MODES`). With none listed it is `available` and makes no request, so free content

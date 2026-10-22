@@ -37,6 +37,30 @@ describe('LocksRegionNotice', () => {
     expect(screen.queryByText(/bitkit/i)).not.toBeInTheDocument();
   });
 
+  describe('icon variant, for the composer toolbar', () => {
+    it('shows only the info icon, and puts the line and the why into what it opens', () => {
+      render(<LocksRegionNotice variant="icon" />);
+
+      expect(screen.queryByText("Paid unlocks aren't available in your region yet.")).not.toBeInTheDocument();
+      const icon = screen.getByRole('button', { name: "Paid unlocks aren't available in your region yet." });
+
+      fireEvent.click(icon);
+
+      expect(screen.getByText("Paid unlocks aren't available in your region yet.")).toBeInTheDocument();
+      expect(screen.getByTestId('locks-region-info')).toHaveTextContent(
+        'Free posts, content you already unlocked and everything else in Pubky work as usual.',
+      );
+    });
+
+    it('names the unreadable location in its label', () => {
+      render(<LocksRegionNotice variant="icon" cause="unknown" />);
+
+      expect(
+        screen.getByRole('button', { name: "We can't tell where you are, so paid unlocks are paused." }),
+      ).toBeInTheDocument();
+    });
+  });
+
   // In a feed the notice sits inside the post card, which navigates to the post on any click.
   it('does not let a click reach the surrounding post card', () => {
     const onCardClick = vi.fn();
