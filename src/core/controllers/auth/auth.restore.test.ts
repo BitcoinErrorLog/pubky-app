@@ -1,5 +1,6 @@
 import type { LastReadResult } from 'pubky-app-specs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthApplication } from '@/application/auth/auth';
 import { BootstrapApplication } from '@/application/bootstrap/bootstrap';
 import { UserApplication } from '@/application/user/user';
 import { SettingsController } from '@/controllers/settings/settings';
@@ -8,6 +9,7 @@ import { AuthErrorCode, ClientErrorCode, ServerErrorCode } from '@/libs/error/er
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
+import { Identity } from '@/libs/identity/identity';
 import * as utils from '@/libs/utils/utils';
 import { NotificationNormalizer } from '@/pipes/notification/notification.normalizer';
 import { HomeserverService } from '@/services/homeserver/homeserver';
@@ -88,6 +90,19 @@ async function replaceAccount() {
   // A different tab has restored B. Use a distinct generation, as durable adoption does.
   useAuthStore.getState().init({ session: sessionB, currentUserPubky: pubkyB, hasProfile: false });
   persistState();
+}
+
+/** A fresh browser signing in interactively: no saved account, so the sign-in runs the full bootstrap. */
+function startFreshRecoveryLogin() {
+  localStorage.clear();
+  useAuthStore.setState({ ...authInitialState, hasHydrated: true });
+  vi.spyOn(Identity, 'keypairFromMnemonic').mockReturnValue(asOpaque({}));
+  vi.spyOn(AuthApplication, 'signIn').mockResolvedValue({ session: sessionA });
+  vi.spyOn(AuthApplication, 'saveSession').mockResolvedValue(mockGrantReference());
+  vi.spyOn(HomeserverService, 'request')
+    .mockResolvedValueOnce({ name: 'Account A' })
+    .mockResolvedValueOnce(savedSettings);
+  return AuthController.loginWithMnemonic({ mnemonic: 'recovery phrase' });
 }
 
 describe('AuthController restored session lifecycle', () => {
@@ -348,5 +363,40 @@ describe('AuthController restored session lifecycle', () => {
       restoreStatus: 'temporary-error',
     });
     expect(databaseHelpers.clearDatabase).not.toHaveBeenCalled();
+  });
+
+  it('offers the sign-in choices again when an interactive sign-in bootstrap fails', async () => {
+    const error = profileError();
+    vi.mocked(BootstrapApplication.initialize).mockRejectedValue(error);
+
+    await expect(startFreshRecoveryLogin()).rejects.toBe(error);
+
+    expect(useAuthStore.getState()).toMatchObject({
+      session: sessionA,
+      currentUserPubky: pubkyA,
+      hasProfile: null,
+      restoreStatus: 'temporary-error',
+    });
+    // /sign-in must offer the sign-in choices again, not the primed progress steps.
+    expect(useSignInStore.getState()).toMatchObject(signInInitialState);
+  });
+
+  it('ignores an interactive bootstrap failure after account replacement', async () => {
+    const bootstrap = deferred<typeof notificationInitialState>();
+    vi.mocked(BootstrapApplication.initialize).mockReturnValue(bootstrap.promise);
+    const login = startFreshRecoveryLogin();
+    await vi.waitFor(() => expect(BootstrapApplication.initialize).toHaveBeenCalledOnce());
+
+    await replaceAccount();
+    const replacement = useAuthStore.getState();
+    // The newer flow owns the sign-in progress now; the superseded sign-in must not reset it.
+    useSignInStore.setState(completedSignIn);
+    const replacementSignIn = useSignInStore.getState();
+    const error = profileError();
+    bootstrap.reject(error);
+
+    await expect(login).rejects.toBe(error);
+    expect(useAuthStore.getState()).toBe(replacement);
+    expect(useSignInStore.getState()).toBe(replacementSignIn);
   });
 });
