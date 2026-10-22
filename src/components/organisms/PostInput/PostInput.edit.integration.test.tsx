@@ -33,7 +33,6 @@ const mocks = vi.hoisted(() => ({
     change: (markdown: string) => void;
     upload: (file: File) => Promise<string>;
   } | null,
-  editorMounts: 0,
 }));
 
 const AUTHOR = mocks.author;
@@ -127,7 +126,7 @@ vi.mock('@/hooks/usePostInputAuthHandlers/usePostInputAuthHandlers', () => ({
 // The editor cannot run in jsdom. The stand-in hands the test what the real one hands the composer:
 // a change report, which rich text and markdown mode share, and the upload of an inserted image. Like
 // the real wrapper it swaps the editor for a skeleton while the inline attachments load, so a composer
-// that re-reads the row shows up as a second mount.
+// that re-reads the row shows up as a new editor node.
 vi.mock('@/molecules/MarkdownEditor/MarkdownEditor', async () => {
   const { useEffect } = await import('react');
   type EditorProps = {
@@ -142,12 +141,12 @@ vi.mock('@/molecules/MarkdownEditor/MarkdownEditor', async () => {
       change: (markdown) => props.onChange(markdown, false),
       upload: props.inlineMedia.upload,
     };
-    useEffect(() => {
-      mocks.editorMounts += 1;
-      return () => {
+    useEffect(
+      () => () => {
         mocks.editor = null;
-      };
-    }, []);
+      },
+      [],
+    );
     return <div data-testid="editor">{props.markdown}</div>;
   };
   return {
@@ -202,13 +201,15 @@ const save = async (calls: number) => {
 };
 
 describe('PostInput - editing while the post row changes under the dialog (integration)', () => {
+  const originalCreateObjectURL = global.URL.createObjectURL;
+  const originalRevokeObjectURL = global.URL.revokeObjectURL;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     global.URL.createObjectURL = vi.fn(() => 'blob:preview');
     global.URL.revokeObjectURL = vi.fn();
     mocks.editor = null;
-    mocks.editorMounts = 0;
     // A row read for the new file would be a fresh key, which the real hook reports as loading
     mocks.useAttachmentsMetadata.mockImplementation(({ fileUris }) => ({
       files: [],
@@ -219,6 +220,8 @@ describe('PostInput - editing while the post row changes under the dialog (integ
 
   afterEach(() => {
     vi.useRealTimers();
+    global.URL.createObjectURL = originalCreateObjectURL;
+    global.URL.revokeObjectURL = originalRevokeObjectURL;
   });
 
   it('keeps a text edit through a refused save and sends it again on the retry', async () => {
@@ -241,6 +244,7 @@ describe('PostInput - editing while the post row changes under the dialog (integ
 
   it('keeps an inserted article image through a refused save, without remounting the editor', async () => {
     const { rerender } = render(editArticle(PUBLISHED_ARTICLE, [COVER_URI, CLIP_URI]));
+    const editorNode = screen.getByTestId('editor');
     expect(mocks.editor?.markdown).toBe(EDITOR_BODY);
     expect(mocks.useAttachmentsMetadata).toHaveBeenLastCalledWith({ fileUris: [CLIP_URI] });
 
@@ -261,7 +265,8 @@ describe('PostInput - editing while the post row changes under the dialog (integ
     rerender(editArticle(PUBLISHED_ARTICLE, [COVER_URI, CLIP_URI]));
 
     expect(mocks.editor?.markdown).toBe(editedBody);
-    expect(mocks.editorMounts).toBe(1);
+    // The same editor node: the composer was never swapped for the loading skeleton and back
+    expect(screen.getByTestId('editor')).toBe(editorNode);
     // The inline slots the editor waits on are the mount-time ones: the row round trip never asks for the new file
     expect(mocks.useAttachmentsMetadata).toHaveBeenLastCalledWith({ fileUris: [CLIP_URI] });
     expect(mocks.useAttachmentsMetadata).not.toHaveBeenCalledWith({ fileUris: expect.arrayContaining([NEW_URI]) });
