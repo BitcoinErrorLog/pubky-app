@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocksController } from '@/controllers/locks/locks';
 import { useLockFile } from '@/hooks/useLockFile/useLockFile';
+import type { PaidUnlockAvailability } from '@/libs/region/paidUnlockAvailability';
 import { PostPreviewNestingProvider } from '@/molecules/PostPreviewCard/PostPreviewNestingContext';
 import type {
   LockFile,
@@ -131,8 +132,14 @@ const sessionNeedsUpgrade = vi.hoisted(() => ({ value: false }));
 vi.mock('@/hooks/useSessionNeedsUpgrade/useSessionNeedsUpgrade', () => ({
   useSessionNeedsUpgrade: () => sessionNeedsUpgrade.value,
 }));
+// The availability hook has its own tests; here only what the card does with each answer matters.
+const paidUnlocks = vi.hoisted(() => ({ value: { status: 'available' } as PaidUnlockAvailability }));
+vi.mock('@/hooks/usePaidUnlockAvailability/usePaidUnlockAvailability', () => ({
+  usePaidUnlockAvailability: () => paidUnlocks.value,
+}));
 afterEach(() => {
   sessionNeedsUpgrade.value = false;
+  paidUnlocks.value = { status: 'available' };
 });
 // One state object, as in the real store: a fresh `session` per render would re-run every effect that
 // depends on it.
@@ -647,6 +654,120 @@ describe('LockedPostContent', () => {
       expect(await screen.findByTestId('locks-permission-notice')).toBeInTheDocument();
       expect(container.querySelector('[data-slot="skeleton"]')).toBeNull();
       expect(screen.getByRole('button', { name: 'Unlock' })).toBeDisabled();
+    });
+  });
+
+  describe("paid unlocks held for the reader's region", () => {
+    const paymentData = () =>
+      mockLockData({
+        lockFile: asOpaque<LockFile>({ creator: 'pubkybob' }),
+        price: { amount: '1000', asset: 'BTC' as const },
+      });
+    const renderReader = () => render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
+
+    beforeEach(() => {
+      // A reader who has not started this payment: the `lock1` default would count as in flight.
+      purchasedMocks.hasPurchase.mockReturnValue(false);
+    });
+
+    it('says so up front and disables Unlock, so the reader never reaches the pay dialog', () => {
+      paidUnlocks.value = { status: 'blocked', cause: 'region' };
+      paymentData();
+      renderReader();
+
+      expect(screen.getByTestId('locks-region-notice')).toHaveTextContent(
+        "Paid unlocks aren't available in your region yet.",
+      );
+      expect(screen.getByRole('button', { name: 'Unlock' })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+      expect(authMocks.waitForAuth).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('pay-dialog')).not.toBeInTheDocument();
+      // The price and the teaser stay visible: nothing is hidden, only the action is held.
+      expect(screen.getByText('₿1,000')).toBeInTheDocument();
+      expect(screen.getByText('A teaser')).toBeInTheDocument();
+    });
+
+    it('says it cannot tell where the reader is when the region is unreadable and unknown readers are held', () => {
+      paidUnlocks.value = { status: 'blocked', cause: 'unknown' };
+      paymentData();
+      renderReader();
+
+      expect(screen.getByTestId('locks-region-notice')).toHaveTextContent(
+        "We can't tell where you are, so paid unlocks are paused.",
+      );
+      expect(screen.getByRole('button', { name: 'Unlock' })).toBeDisabled();
+    });
+
+    it('holds Unlock behind the card spinner, with no notice, while the region is still being read', () => {
+      paidUnlocks.value = { status: 'checking' };
+      paymentData();
+      renderReader();
+
+      expect(screen.getByTestId('spinner')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Unlock' })).toBeDisabled();
+      expect(screen.queryByTestId('locks-region-notice')).not.toBeInTheDocument();
+    });
+
+    it('changes nothing for a reader whose region is available', async () => {
+      paymentData();
+      renderReader();
+
+      expect(screen.queryByTestId('locks-region-notice')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+      expect(await screen.findByTestId('pay-dialog')).toBeInTheDocument();
+    });
+
+    // A block stops new commerce, not an order already in flight: that reader opens the dialog to finish it.
+    it('leaves Unlock live for a reader who already started this payment', async () => {
+      paidUnlocks.value = { status: 'blocked', cause: 'region' };
+      purchasedMocks.hasPurchase.mockImplementation((lockId) => lockId === 'lock1');
+      paymentData();
+      renderReader();
+
+      expect(screen.queryByTestId('locks-region-notice')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+      expect(await screen.findByTestId('pay-dialog')).toBeInTheDocument();
+    });
+
+    it("does not hold the creator's own lock, which never offers Unlock", async () => {
+      paidUnlocks.value = { status: 'blocked', cause: 'region' };
+      mockLockData({
+        lockFile: asOpaque<LockFile>({ creator: 'pubkypubkyreader' }),
+        price: { amount: '1000', asset: 'BTC' },
+      });
+      vi.mocked(LocksController.fetchOwnContent).mockResolvedValue({
+        post: { content: 'my own locked content', kind: 'short', attachments: null },
+        attachments: [],
+      });
+      render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkyreader:POST1" />);
+
+      expect(await screen.findByText('my own locked content')).toBeInTheDocument();
+      expect(screen.queryByTestId('locks-region-notice')).not.toBeInTheDocument();
+      expect(screen.getByText('My locked content')).toBeInTheDocument();
+    });
+
+    it('does not touch content the reader already unlocked', async () => {
+      paidUnlocks.value = { status: 'blocked', cause: 'region' };
+      mockLockData({ lockFile: asOpaque<LockFile>({ creator: 'pubkybob' }), price: { amount: '1000', asset: 'BTC' } });
+      vi.mocked(LocksController.getUnlockedPost).mockResolvedValue({
+        content: 'already unlocked',
+        kind: 'short',
+        attachments: null,
+      });
+      renderReader();
+
+      expect(await screen.findByText('already unlocked')).toBeInTheDocument();
+      expect(screen.queryByTestId('locks-region-notice')).not.toBeInTheDocument();
+    });
+
+    it('keeps the permission notice too, since a reader who unlocked elsewhere still needs it to read', () => {
+      sessionNeedsUpgrade.value = true;
+      paidUnlocks.value = { status: 'blocked', cause: 'region' };
+      paymentData();
+      renderReader();
+
+      expect(screen.getByTestId('locks-permission-notice')).toBeInTheDocument();
+      expect(screen.getByTestId('locks-region-notice')).toBeInTheDocument();
     });
   });
 

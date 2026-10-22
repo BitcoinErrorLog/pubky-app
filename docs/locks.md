@@ -419,6 +419,15 @@ Notes:
   logs + reports to Sentry once). Hooks catch and degrade to the lock card.
 - **Read path.** This is a read flow; there is no local-first `commit*` write.
 
+## Region check
+
+Paid unlocks are held in some regions (at launch the EU, the UK and the US), and the Lock Server answers HTTP 451 to a proof submission from one. The reader should hear that before the payment step, so `LockedPostContent` asks `usePaidUnlockAvailability`:
+
+- It is off unless `PUBKY_RUNTIME_REGION_MODES` lists a region ([environment.md](environment.md)). Then free content and every other feature never read the viewer's region, and no request is made.
+- With a region listed it reads the viewer's country once per page load from the Shop's same-origin `/shop-embed/api/marketplace/client-region` route (`ClientRegionService`, through the application and controller into `useClientRegionStore`) and evaluates it with the Shop's rules (`@/libs/region/regionModes`, the same `SELECTOR=MODE` grammar).
+- A blocked reader sees "Paid unlocks aren't available in your region yet." with an info icon above the lock card, and Unlock is disabled. While the country is being read the card shows its spinner. A reader who already started this lock's payment keeps Unlock, so an order in flight can finish. The creator's own lock and content already unlocked are untouched.
+- A country the edge cannot tell is held like the Shop holds it; a Shop route that cannot answer holds nobody. The check is advisory, and the 451 handling above covers whatever it misses.
+
 ## The Unlocked screen
 
 `/profile/unlocked` lists everything the signed-in reader has unlocked, newest first. Own

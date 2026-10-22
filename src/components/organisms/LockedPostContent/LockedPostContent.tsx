@@ -7,6 +7,7 @@ import { matchPostRoute } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
 import { LocksController } from '@/controllers/locks/locks';
 import { useLockFile } from '@/hooks/useLockFile/useLockFile';
+import { usePaidUnlockAvailability } from '@/hooks/usePaidUnlockAvailability/usePaidUnlockAvailability';
 import { usePayToUnlock } from '@/hooks/usePayToUnlock/usePayToUnlock';
 import { usePurchasedLocks } from '@/hooks/usePurchasedLocks/usePurchasedLocks';
 import { usePurchaseResume } from '@/hooks/usePurchaseResume/usePurchaseResume';
@@ -19,6 +20,7 @@ import { parseCompositeId } from '@/models/models.utils';
 import type { PostDetailsModel } from '@/models/post/details/postDetails';
 import { DialogPayToUnlock } from '@/molecules/DialogPayToUnlock/DialogPayToUnlock';
 import { LockedPostCard } from '@/molecules/LockedPostCard/LockedPostCard';
+import { LocksRegionNotice } from '@/molecules/LocksRegionNotice/LocksRegionNotice';
 import { useIsNestedPostPreview } from '@/molecules/PostPreviewCard/PostPreviewNestingContext';
 import { LocksPermissionNotice } from '@/organisms/LocksPermissionNotice/LocksPermissionNotice';
 import type { AttachmentConstructed } from '@/organisms/PostAttachments/PostAttachments.types';
@@ -104,6 +106,15 @@ export function LockedPostContent({
     onResumed: showUnlockedContent,
   });
 
+  // Paying is where a blocked region would otherwise only surface, as the Lock Server's 451 inside the pay
+  // dialog. Only a reader who could start a payment is held: the creator's own lock never offers Unlock, and
+  // a reader who already started this payment keeps it, because a block stops new commerce, not an order
+  // already in flight.
+  const paidUnlocks = usePaidUnlockAvailability();
+  const canStartPayment = Boolean(price) && !isOwnLock && !hasPurchase(lockId);
+  const regionBlock = canStartPayment && paidUnlocks.status === 'blocked' ? paidUnlocks : null;
+  const isRegionChecking = canStartPayment && paidUnlocks.status === 'checking';
+
   const {
     stage,
     isStalled,
@@ -130,7 +141,7 @@ export function LockedPostContent({
   // reader gets the sign-in dialog instead. Unsupported legacy locks have no unlock handler, and
   // neither does the creator's own lock: it stays inert even if reading the original failed.
   const handleUnlock =
-    price && !showPermissionNotice && !isOwnLock
+    price && !showPermissionNotice && !isOwnLock && !regionBlock && !isRegionChecking
       ? async () => {
           if (await waitForAuth()) setIsPayOpen(true);
         }
@@ -187,10 +198,11 @@ export function LockedPostContent({
       ) : (
         <>
           {showPermissionNotice && <LocksPermissionNotice />}
+          {regionBlock && <LocksRegionNotice cause={regionBlock.cause} />}
           <LockedPostCard
             title={lockContent.lock_title}
             price={price}
-            isLoading={isLockFileLoading}
+            isLoading={isLockFileLoading || isRegionChecking}
             unlockOpen={isPayOpen}
             onUnlock={handleUnlock}
             // A signed-out reader gets the sign-in dialog instead of the pay modal, and only a modal
