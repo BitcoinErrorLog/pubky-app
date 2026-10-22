@@ -255,10 +255,12 @@ vi.mock('@/hooks/useShopEmbed/useShopEmbed', () => ({
 }));
 async function renderShop(
   viewport: { width: number; height: number },
-  unavailable = false,
-  upgradeOpen = false,
-  signedIn = true,
-  loading = false,
+  {
+    unavailable = false,
+    upgradeOpen = false,
+    signedIn = true,
+    loading = false,
+  }: { unavailable?: boolean; upgradeOpen?: boolean; signedIn?: boolean; loading?: boolean } = {},
 ) {
   routeState.unavailable = unavailable;
   routeState.upgradeOpen = upgradeOpen;
@@ -358,7 +360,7 @@ describe('embedded Shop shell — visual regression', () => {
     { name: 'short desktop', viewport: { width: 1024, height: 600 }, signedIn: true },
     { name: 'guest short desktop', viewport: { width: 1024, height: 600 }, signedIn: false },
   ])('keeps one reachable Shop scroll area in $name', async ({ viewport, signedIn }) => {
-    const screen = await renderShop(viewport, false, false, signedIn);
+    const screen = await renderShop(viewport, { signedIn });
     const root = screen.getByTestId(VRT_ROOT_TESTID).element();
     const frame = screen.getByTitle('Pubky Shop').element() as HTMLIFrameElement;
     await withUnclippedDocument(root, async () => {
@@ -393,7 +395,7 @@ describe('embedded Shop shell — visual regression', () => {
     { name: 'portrait', viewport: VRT_VIEWPORT_MOBILE, signedIn: true },
     { name: 'guest landscape', viewport: { width: 844, height: 390 }, signedIn: false },
   ])('fills the available Shop viewport while loading in $name', async ({ viewport, signedIn }) => {
-    const screen = await renderShop(viewport, false, false, signedIn, true);
+    const screen = await renderShop(viewport, { signedIn, loading: true });
     const root = screen.getByTestId(VRT_ROOT_TESTID).element();
     const skeleton = screen.getByTestId('shop-shell').element().querySelector<HTMLElement>('[data-slot="skeleton"]')!;
     await withUnclippedDocument(root, async () => {
@@ -427,17 +429,17 @@ describe('embedded Shop shell — visual regression', () => {
     });
   });
   it('renders the unavailable Shop in the desktop App shell', async () => {
-    const screen = await renderShop(VRT_VIEWPORT_DESKTOP, true);
+    const screen = await renderShop(VRT_VIEWPORT_DESKTOP, { unavailable: true });
     await expect.element(screen.getByRole('heading', { name: 'Shop unavailable' })).toBeVisible();
     await matchVrtFrameScreenshot('shop-unavailable-desktop');
   });
   it('renders the unavailable Shop in the mobile App shell', async () => {
-    const screen = await renderShop(VRT_VIEWPORT_MOBILE, true);
+    const screen = await renderShop(VRT_VIEWPORT_MOBILE, { unavailable: true });
     await expect.element(screen.getByRole('heading', { name: 'Shop unavailable' })).toBeVisible();
     await matchVrtFrameScreenshot('shop-unavailable-mobile');
   });
   it('renders the Enable Shop dialog in the desktop App shell', async () => {
-    await renderShop(VRT_VIEWPORT_DESKTOP, false, true);
+    await renderShop(VRT_VIEWPORT_DESKTOP, { upgradeOpen: true });
     await expect.element(page.getByRole('dialog', { name: 'Enable Shop' })).toBeVisible();
     await expect.element(page.getByTestId('session-upgrade-qr')).toBeVisible();
     await expect
@@ -462,7 +464,7 @@ describe('embedded Shop shell — visual regression', () => {
       try {
         await session.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
         await expect.poll(() => window.matchMedia('(pointer: coarse)').matches).toBe(true);
-        await renderShop(VRT_VIEWPORT_MOBILE, false, true);
+        await renderShop(VRT_VIEWPORT_MOBILE, { upgradeOpen: true });
         await expect.element(page.getByRole('dialog', { name: 'Enable Shop' })).toBeVisible();
         await expect.element(page.getByRole('button', { name: 'Continue with Pubky Ring' })).toBeVisible();
         await expect.element(page.getByRole('button', { name: 'Continue with Bitkit' })).toBeVisible();
