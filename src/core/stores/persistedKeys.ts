@@ -1,4 +1,10 @@
-export const AUTH_PERSIST_KEY = 'auth-store';
+export const AUTH_PERSIST_KEY = 'auth-store-v3';
+export const AUTH_STORE_VERSION = 3;
+export const PREVIOUS_AUTH_PERSIST_KEY = 'auth-store-v2';
+export const PREVIOUS_AUTH_MIGRATION_KEY = 'auth-store-v2-migrated';
+export const LEGACY_AUTH_PERSIST_KEY = 'auth-store';
+// Deliberately survives the logout sweep: an old tab must never revive legacy auth.
+export const AUTH_MIGRATION_KEY = 'auth-store-v3-migrated';
 export const ONBOARDING_PERSIST_KEY = 'onboarding-storage';
 export const NOTIFICATION_PERSIST_KEY = 'notification-store';
 export const SEARCH_PERSIST_KEY = 'search-store';
@@ -6,6 +12,7 @@ export const HOME_PERSIST_KEY = 'home-store';
 export const HOT_PERSIST_KEY = 'hot-store';
 export const SETTINGS_PERSIST_KEY = 'settings-storage';
 export const MIGRATION_STORE_KEY = 'migration-store';
+export const LOCKS_AUTH_PERSIST_KEY = 'locks-auth-store';
 
 // List of all persisted store keys (Local storage keys)
 // EX: MIGRATION_STORE_KEY won't be included in this list because it's not a persisted store key.
@@ -17,4 +24,5 @@ export const PERSISTED_STORE_KEYS = [
   HOME_PERSIST_KEY,
   HOT_PERSIST_KEY,
   SETTINGS_PERSIST_KEY,
+  LOCKS_AUTH_PERSIST_KEY,
 ] as const;

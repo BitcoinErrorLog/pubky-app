@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   escapeForInlineScript,
+  getAuthClientId,
+  getProfileLocalEditTtlMs,
+  getPulseClientKey,
+  getPulseEndpoint,
   getRuntimeConfig,
   getSentryDsn,
   getSentryEnvironment,
@@ -86,6 +90,37 @@ describe('runtime-config resolver', () => {
     delete window[RUNTIME_CONFIG_WINDOW_KEY];
   });
 
+  it('keeps Pulse opt-in and resolves its public settings lazily', () => {
+    expect(getPulseClientKey()).toBeUndefined();
+    expect(getPulseEndpoint()).toBeUndefined();
+    resetRuntimeConfigForTests();
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pulseClientKey] = 'pulse_client_local_test_only';
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pulseEndpoint] = 'http://127.0.0.1:4007';
+    expect(getPulseClientKey()).toBe('pulse_client_local_test_only');
+    expect(getPulseEndpoint()).toBe('http://127.0.0.1:4007');
+    expect(serializeRuntimeConfig()).toContain('"pulseEndpoint":"http://127.0.0.1:4007"');
+  });
+
+  it.each([undefined, '', '   '])('accepts client-key-only Pulse configuration with endpoint %j', (endpoint) => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pulseClientKey] = 'pulse_client_local_test_only';
+    if (endpoint !== undefined) process.env[PUBKY_RUNTIME_ENV_NAMES.pulseEndpoint] = endpoint;
+    expect(getPulseClientKey()).toBe('pulse_client_local_test_only');
+    expect(getPulseEndpoint()).toBeUndefined();
+  });
+
+  it.each(['', '   '])('treats a blank Pulse client key as disabled: %j', (blank) => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES.pulseClientKey] = blank;
+    expect(getPulseClientKey()).toBeUndefined();
+  });
+
+  it.each([
+    ['pulseClientKey', 'admin-key-is-not-a-client-key'],
+    ['pulseEndpoint', 'not-a-url'],
+  ] as const)('rejects malformed public Pulse setting %s', (key, value) => {
+    process.env[PUBKY_RUNTIME_ENV_NAMES[key]] = value;
+    expect(readServerConfig).toThrow();
+  });
+
   afterEach(() => {
     resetRuntimeConfigForTests();
     clearAllRuntimeEnv();
@@ -98,6 +133,39 @@ describe('runtime-config resolver', () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('VITEST', '');
   }
+
+  describe('profile indexing protection', () => {
+    it('is optional in a deployed config and defaults to five minutes', () => {
+      simulateDeployedEnv();
+      setNetworkRuntimeEnv();
+      expect(readServerConfig().profileLocalEditTtlMs).toBe(300_000);
+    });
+
+    it('uses the configured window in deployed mode and in the injected client config', () => {
+      simulateDeployedEnv();
+      setNetworkRuntimeEnv();
+      process.env[PUBKY_RUNTIME_ENV_NAMES.profileLocalEditTtlMs] = '1800000';
+      process.env[PUBKY_RUNTIME_ENV_NAMES.ttlUserMs] = '60000';
+      const serverConfig = readServerConfig();
+      expect(serverConfig.profileLocalEditTtlMs).toBe(1_800_000);
+      window[RUNTIME_CONFIG_WINDOW_KEY] = serverConfig;
+      expect(getProfileLocalEditTtlMs()).toBe(1_800_000);
+      expect(serializeRuntimeConfig()).toContain('"profileLocalEditTtlMs":1800000');
+    });
+
+    it.each(['0', '-1', '1.5', 'invalid'])('rejects an invalid configured window: %s', (value) => {
+      process.env[PUBKY_RUNTIME_ENV_NAMES.profileLocalEditTtlMs] = value;
+      expect(() => readServerConfig()).toThrow();
+      simulateDeployedEnv();
+      setNetworkRuntimeEnv();
+      expect(() => readServerConfig()).toThrow();
+    });
+
+    it('rejects an invalid injected window', () => {
+      window[RUNTIME_CONFIG_WINDOW_KEY] = { ...readServerConfig(), profileLocalEditTtlMs: 0 };
+      expect(() => readClientConfig()).toThrow();
+    });
+  });
 
   describe('server', () => {
     it('parses PUBKY_RUNTIME_* when present', () => {
@@ -259,6 +327,25 @@ describe('runtime-config resolver', () => {
       expect(serialized).not.toContain('sentryEnvironment');
       // Defaulted rates are always present so the client never re-derives them.
       expect(serialized).toContain('sentryTracesSampleRate');
+    });
+  });
+
+  describe('grant client identity', () => {
+    it.each([
+      ['production', 'pubky.app'],
+      ['staging', 'staging.pubky.app'],
+    ] as const)('uses a stable %s identity', (environment, clientId) => {
+      setAllRuntimeEnv();
+      process.env.PUBKY_RUNTIME_ENV = environment;
+      resetRuntimeConfigForTests();
+      expect(getAuthClientId()).toBe(clientId);
+    });
+    it('supports an explicit custom deployment identity', () => {
+      setAllRuntimeEnv();
+      process.env.PUBKY_RUNTIME_AUTH_CLIENT_ID = 'custom.example';
+      resetRuntimeConfigForTests();
+      expect(getAuthClientId()).toBe('custom.example');
+      expect(readServerConfig().authClientId).toBe('custom.example');
     });
   });
 

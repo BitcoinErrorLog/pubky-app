@@ -1,4 +1,5 @@
 import { Session } from '@synonymdev/pubky';
+import type { SessionReference, SessionRestoreStatus } from '@/libs/auth/session.types';
 import type { Pubky } from '@/models/models.types';
 
 export interface AuthInitParams {
@@ -6,10 +7,21 @@ export interface AuthInitParams {
   session: Session | null;
   /** null = unknown/undetermined, false = no profile, true = has profile */
   hasProfile: boolean | null;
+  sessionReference?: SessionReference | null;
+  generation?: string;
+  shopCleanupEpoch?: string;
+  retiringSession?: SessionReference | null;
+  pendingRetirements?: SessionReference[];
+  restoreStatus?: SessionRestoreStatus;
 }
 
 export interface AuthState extends AuthInitParams {
-  sessionExport: string | null;
+  sessionReference: SessionReference | null;
+  generation: string;
+  retiringSession: SessionReference | null;
+  restoreStatus: SessionRestoreStatus;
+  /** This tab changed accounts and must bootstrap before exposing the new session. */
+  needsAccountSync: boolean;
   hasHydrated: boolean;
   isRestoringSession: boolean;
   /** Whether the sign-in dialog is open (for unauthenticated users) */
@@ -23,6 +35,9 @@ export interface AuthActions {
   init: (params: AuthInitParams) => void;
   setCurrentUserPubky: (pubky: Pubky | null) => void;
   setSession: (session: Session | null) => void;
+  setNeedsAccountSync: (needed: boolean) => void;
+  setRestoreStatus: (status: SessionRestoreStatus) => void;
+  setRetiringSession: (reference: SessionReference | null) => void;
   setIsRestoringSession: (isRestoringSession: boolean) => void;
   setHasProfile: (hasProfile: boolean) => void;
   setHasHydrated: (hasHydrated: boolean) => void;
@@ -43,7 +58,13 @@ export type AuthStore = AuthState & AuthActions & AuthSelectors;
 export const authInitialState: AuthState = {
   currentUserPubky: null,
   session: null,
-  sessionExport: null,
+  sessionReference: null,
+  generation: '',
+  shopCleanupEpoch: '',
+  retiringSession: null,
+  pendingRetirements: [],
+  restoreStatus: 'idle',
+  needsAccountSync: false,
   hasProfile: null,
   hasHydrated: false,
   isRestoringSession: false,

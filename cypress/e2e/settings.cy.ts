@@ -1,6 +1,7 @@
 import { latestPostInFeedContentEq, createQuickPost, waitForFeedToLoad } from '../support/posts';
 import { searchForProfileByPubky } from '../support/contacts';
 import { goToHomePage } from '../support/header';
+import { confirmLogoutBackupBeforeNavigation } from '../support/logout';
 import { slowCypressDown } from 'cypress-slow-down';
 import 'cypress-slow-down/commands';
 import { BackupType, CheckForNewPosts, HasBackedUp } from '../support/types/enums';
@@ -20,6 +21,8 @@ describe('settings', () => {
     const profileName = 'MrAccountSettings';
 
     const signInFromLogoutWithRecoveryPhrase = () => {
+      // Sign back in stays hidden while this browser still holds the onboarding key.
+      confirmLogoutBackupBeforeNavigation(HasBackedUp.Yes, '#logout-navigation-continue-btn');
       cy.get('#logout-navigation-continue-btn').should('be.visible').click();
       cy.location('pathname').should('eq', '/sign-in');
       cy.get('#restore-recovery-phrase-btn').click();
@@ -72,8 +75,6 @@ describe('settings', () => {
     cy.location('pathname').should('eq', '/onboarding/tags');
     cy.get('[data-testid="tags-of-interest-form"]').should('be.visible');
   });
-
-  it.skip('Privacy and Safety settings is displayed correctly', () => {});
 
   it('Muted users settings displays muted users and hides posts in feed', () => {
     // Create user 1
@@ -224,10 +225,4 @@ describe('settings', () => {
     cy.get('#notification-switch-reply').then(checkNotificationIsDisabled);
     cy.get('#notification-switch-postEdited').then(checkNotificationIsDisabled);
   });
-
-  it.skip('Help: FAQ is displayed correctly', () => {});
-
-  it.skip('Help: User Guide can be navigated to', () => {});
-
-  it.skip('Help: Support link can be used', () => {});
 });

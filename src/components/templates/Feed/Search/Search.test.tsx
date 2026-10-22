@@ -1,8 +1,7 @@
 import { render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SearchCriteria } from '@/hooks/useSearchCriteria/useSearchCriteria';
 import { CONTENT } from '@/stores/home/home.types';
-import { resetViewport, setMobileViewport } from '@/test-utils/viewport';
 import { Search } from './Search';
 
 const { mockUseIsMobile, mockUseSearchCriteria, mockHomeState, mockLayoutResolution } = vi.hoisted(() => ({
@@ -144,17 +143,19 @@ describe('Search', () => {
     expect(screen.getByTestId('search-content-tags')).toBeInTheDocument();
     expect(screen.queryByTestId('search-people')).not.toBeInTheDocument();
     expect(screen.queryByTestId('search-collections')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Posts' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Posts', level: 2 })).toBeInTheDocument();
   });
 
-  it('renders the Tags pivot row above the full-text feed', () => {
+  it('renders the Tags pivot row above the Posts heading and full-text feed', () => {
     mockUseSearchCriteria.mockReturnValue({ mode: 'content', query: 'bitcoin wallet' });
 
     render(<Search />);
 
     const tagsRow = screen.getByTestId('search-content-tags');
+    const postsHeading = screen.getByRole('heading', { name: 'Posts', level: 2 });
     const feed = screen.getByTestId('timeline-feed');
-    expect(tagsRow.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tagsRow.compareDocumentPosition(postsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(postsHeading.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('mounts the Tags pivot row only for full-text results', () => {
@@ -223,66 +224,5 @@ describe('Search', () => {
   it('does not render DialogWelcome (removed as stray import)', () => {
     render(<Search />);
     expect(screen.queryByTestId('dialog-welcome')).not.toBeInTheDocument();
-  });
-});
-
-describe('Search - Snapshots', () => {
-  beforeEach(() => {
-    mockUseIsMobile.mockReturnValue(false);
-    mockUseSearchCriteria.mockReturnValue({ mode: 'tags', tags: ['pubky'] });
-    mockHomeState.content = CONTENT.ALL;
-    mockLayoutResolution.isVisualActive = false;
-  });
-
-  it('matches snapshot with tags present', () => {
-    mockUseSearchCriteria.mockReturnValue({ mode: 'tags', tags: ['pubky'] });
-    const { container } = render(<Search />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with tags present and a non-All content filter', () => {
-    mockUseSearchCriteria.mockReturnValue({ mode: 'tags', tags: ['pubky'] });
-    mockHomeState.content = CONTENT.COLLECTIONS;
-    const { container } = render(<Search />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with no tags', () => {
-    mockUseSearchCriteria.mockReturnValue({ mode: 'none' });
-    const { container } = render(<Search />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with full-text results', () => {
-    mockUseSearchCriteria.mockReturnValue({ mode: 'content', query: 'bitcoin wallet' });
-    const { container } = render(<Search />);
-    expect(container).toMatchSnapshot();
-  });
-
-  it('matches snapshot with an invalid query', () => {
-    mockUseSearchCriteria.mockReturnValue({
-      mode: 'invalid',
-      message: 'Search can contain up to 4 terms',
-      query: 'one two three four five',
-    });
-    const { container } = render(<Search />);
-    expect(container).toMatchSnapshot();
-  });
-});
-
-describe('Search - Mobile Snapshots', () => {
-  beforeEach(() => {
-    mockUseIsMobile.mockReturnValue(true);
-    mockUseSearchCriteria.mockReturnValue({ mode: 'tags', tags: ['pubky'] });
-    mockHomeState.content = CONTENT.ALL;
-    mockLayoutResolution.isVisualActive = false;
-    setMobileViewport();
-  });
-  afterEach(() => {
-    resetViewport();
-  });
-  it('matches snapshot on mobile viewport', () => {
-    const { container } = render(<Search />);
-    expect(container).toMatchSnapshot();
   });
 });

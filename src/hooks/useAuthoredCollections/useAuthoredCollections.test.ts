@@ -1,6 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useAuthoredCollections } from './useAuthoredCollections';
+import { COLLECTIONS_SECTION_PAGE_SIZE } from '@/config/collections';
+import { useAuthoredCollections, useAuthoredCollectionsPagination } from './useAuthoredCollections';
 
 type LocalFirstParams = {
   queryFn: () => Promise<unknown>;
@@ -18,6 +19,14 @@ const mocks = vi.hoisted(() => ({
   },
   getAuthoredCollections: vi.fn(),
   fetchAuthoredCollections: vi.fn(),
+  loadMore: vi.fn(),
+  paginationParams: null as {
+    streamId?: string;
+    limit?: number;
+    onError?: (error: unknown) => void;
+    preserveCachedStream?: boolean;
+  } | null,
+  paginationResult: { hasMore: false, loading: false, loadingMore: false },
 }));
 
 const authoredCollections = [
@@ -50,6 +59,23 @@ vi.mock('@/stores/auth/auth.store', () => ({
     selector({ currentUserPubky: mocks.currentUserPubky }),
 }));
 
+vi.mock('@/hooks/useStreamPagination/useStreamPagination', () => ({
+  useStreamPagination: (params: {
+    streamId?: string;
+    limit?: number;
+    onError?: (error: unknown) => void;
+    preserveCachedStream?: boolean;
+  }) => {
+    mocks.paginationParams = params;
+    return {
+      hasMore: mocks.paginationResult.hasMore,
+      loading: mocks.paginationResult.loading,
+      loadingMore: mocks.paginationResult.loadingMore,
+      loadMore: mocks.loadMore,
+    };
+  },
+}));
+
 describe('useAuthoredCollections', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,11 +96,29 @@ describe('useAuthoredCollections', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
+  it('keeps rows during a completion read without leaking them to another viewer', () => {
+    const { result, rerender } = renderHook(({ version }) => useAuthoredCollections(true, version), {
+      initialProps: { version: 0 },
+    });
+    mocks.localFirstResult = { data: undefined, isLoading: true };
+    rerender({ version: 1 });
+    expect(result.current.collections).toEqual(authoredCollections);
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.readVersion).toBe(0);
+    mocks.localFirstResult = { data: [...authoredCollections], isLoading: false };
+    rerender({ version: 1 });
+    expect(result.current.readVersion).toBe(1);
+    mocks.localFirstResult = { data: undefined, isLoading: true };
+    mocks.currentUserPubky = 'other-user';
+    rerender({ version: 1 });
+    expect(result.current.collections).toEqual([]);
+  });
+
   it('wires local and network collection reads to the current user', async () => {
     renderHook(() => useAuthoredCollections());
 
     expect(mocks.capturedParams).toMatchObject({
-      deps: ['current-user'],
+      deps: ['current-user', 0],
       enabled: true,
     });
 
@@ -100,7 +144,7 @@ describe('useAuthoredCollections', () => {
     expect(result.current.collections).toEqual([]);
     expect(result.current.isLoading).toBe(false);
     expect(mocks.capturedParams).toMatchObject({
-      deps: [null],
+      deps: [null, 0],
       enabled: false,
     });
   });
@@ -109,8 +153,50 @@ describe('useAuthoredCollections', () => {
     renderHook(() => useAuthoredCollections(false));
 
     expect(mocks.capturedParams).toMatchObject({
-      deps: ['current-user'],
+      deps: ['current-user', 0],
       enabled: false,
     });
+  });
+});
+
+describe('useAuthoredCollectionsPagination', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.currentUserPubky = 'current-user';
+    mocks.paginationParams = null;
+    mocks.paginationResult = { hasMore: true, loading: false, loadingMore: false };
+  });
+
+  it('paginates the current user authored-collections stream at the collections page size', () => {
+    const { result } = renderHook(() => useAuthoredCollectionsPagination({ enabled: true }));
+
+    expect(mocks.paginationParams?.streamId).toContain('current-user');
+    expect(mocks.paginationParams?.streamId).toContain(':author:collection');
+    expect(mocks.paginationParams?.limit).toBe(COLLECTIONS_SECTION_PAGE_SIZE);
+    // The shared authored stream is read local-first by the picker: its initial load must
+    // not reset (delete) the cached row before a replacement page arrives.
+    expect(mocks.paginationParams?.preserveCachedStream).toBe(true);
+    expect(result.current).toMatchObject({ hasMore: true, isLoading: false, isLoadingMore: false });
+    expect(result.current.loadMore).toBe(mocks.loadMore);
+  });
+
+  it('stays inert while disabled, without a stream to paginate', () => {
+    renderHook(() => useAuthoredCollectionsPagination({ enabled: false }));
+
+    expect(mocks.paginationParams?.streamId).toBeUndefined();
+  });
+
+  it('stays inert for a signed-out user even when enabled', () => {
+    mocks.currentUserPubky = null;
+    renderHook(() => useAuthoredCollectionsPagination({ enabled: true }));
+
+    expect(mocks.paginationParams?.streamId).toBeUndefined();
+  });
+
+  it('forwards the page-load error handler to the pagination hook', () => {
+    const onError = vi.fn();
+    renderHook(() => useAuthoredCollectionsPagination({ enabled: true, onError }));
+
+    expect(mocks.paginationParams?.onError).toBe(onError);
   });
 });

@@ -12,6 +12,13 @@ How to make a change to this repo that a maintainer would write: right layer, ri
 6. Verify at the right level (see [Verification](#verification)), then read your own diff for drift: a stray `useMemo`, a hex colour, a new `index.ts`, an unrelated rename, a raw `Error`, a direct `process.env` read.
 7. If the change alters a UI surface with a VRT baseline, say so; if it needs an ADR-worthy decision, mention it rather than silently inventing a pattern.
 
+## People and names
+
+- In code, comments, docs, fixtures, commit messages and PR text, refer to people only by GitHub handle. Never use real names.
+- Do not attribute opinions, decisions or personal matters to people.
+- Test fixtures use clearly fictional names (`Alice Example`, `Bob Example`).
+- This is a public repo and history is kept forever: a scrubbed name stays in earlier commits, so get it right the first time.
+
 ## Worked Example: Create a Collection
 
 `src/hooks/useCreateCollection/useCreateCollection.ts` → `src/core/controllers/post/post.ts` (`commitCreateCollection`) → `src/core/application/post/post.ts` (`commitCreate`):
@@ -52,7 +59,7 @@ Styling, tokens, z-index, atomic tiers, file layout and Figma parity are in `com
 - **Streams and TTL:** streams are caches (ADR-0003) with TTL-driven staleness (ADR-0005); local services update `*_ttl.lastUpdatedAt` on every write, and forgetting it leaves a cache that never refreshes. TTL values are runtime-configurable (`PUBKY_RUNTIME_TTL_*`) via `src/config/sync.ts`. Persist dependencies before dependents (author, then post, then tags). Deferred stream invalidation goes through `postStreamDirtyRegistry` (`local-first.md`).
 - **State:** Zustand stores in `src/core/stores/<domain>/*.store.ts` with `*.selectors.ts` companions hold global UI state; local component state stays local. Stores hold no business logic and are read by controllers and coordinators (`useAuthStore.getState().selectCurrentUserPubky()`). A new **persisted** store key must be registered in `src/core/stores/persistedKeys.ts`: `PERSISTED_STORE_KEYS` drives the logout/clear sweep.
 - **Server data:** TanStack Query (`src/libs/query-client`) for query-shaped fetches, with retry decisions derived from `AppError.category`; Dexie `useLiveQuery` for local reads.
-- **HTTP:** never raw `fetch` with ad-hoc error handling. Browser → `/api/*` calls use `src/libs/api/client-request.ts` (see `useFeedback`, `useReportPost`); service calls use the service's own `*.utils.ts` over `safeFetch`.
+- **HTTP:** never raw `fetch` with ad-hoc error handling. Browser → `/api/*` calls use `src/libs/api/client-request.ts` (see `useFeedback`, `useReportPost`); service calls use the service's own `*.utils.ts` over `safeFetch`. The optional `ClientRegionService.fetchCountry` probe has a narrow non-reporting exception in [error handling](error-handling.md#non-reporting-availability-probes).
 - **Identities:** pubky public keys are normalized (`stripPubkyPrefix`); session/auth lives in `src/core/services/homeserver` + `useAuthStore`; unauthenticated browsing uses the explore routes and `useRequireAuth().requireAuth()` for gated actions (`components.md`, _Explore mode_).
 
 ## Services Map
@@ -76,9 +83,8 @@ npm run lint           # eslint
 npm run typecheck      # tsc --noEmit (includes tests)
 npm test               # vitest --project unit (jsdom); ~13k tests, several minutes
 npm test -- src/components/atoms/Button/Button.test.tsx   # one file
-npm test -- -t "snapshot"                                 # one name pattern
-npm run test:update-snapshots
-npm run test:vrt                       # vitest --project vrt (chromium+firefox+webkit; needs npm run test:vrt:setup once)
+npm test -- -t "handles click events"                     # one name pattern
+npm run test:vrt                       # vitest --project vrt (chromium+firefox, plus webkit on macOS; needs npm run test:vrt:setup once)
 npm run test:vrt:check-baselines       # every __screenshots__ folder has a sibling test
 npm run build                          # next build --webpack (CI also smoke-tests `next start`)
 npm run start:e2e                      # cypress open, interactive
@@ -94,7 +100,7 @@ Right-sized verification:
 - Run the full `npm test` before handing off a cross-cutting change; `npm run build` when the change is route- or config-wide.
 - Cypress e2e needs the full pubky-stack (private `pubky/pubky-stack`) and runs on push to `master`/`dev` in CI. Do not attempt it from a bare checkout, and do not report an e2e result you did not obtain.
 
-Test conventions (full rules: `component-testing.md`): colocated `*.test.tsx`; `describe('<Component>')` plus a separate `describe('<Component> - Snapshots')` with exactly one `expect().toMatchSnapshot()` per test; mobile blocks (`- Mobile Snapshots`) for organisms/templates that use `useIsMobile` directly or through a child, via `setMobileViewport()` / `resetViewport()` from `@/test-utils/viewport`. Mock only network/fs/time/boundaries, keep real implementations of pure helpers, keep Lucide, `@/icons`, `DynamicLucideIcon` and Radix components real, use fake timers for relative time. `as any` and `as unknown as T` are ESLint-banned in tests: use `asInvalid`, `asOpaque`, `mockAuthStore`, `mockSession`, `mockResponse`, `mockKeyboardEvent` from `src/test-utils`.
+Test conventions (full rules: `component-testing.md`): colocated `*.test.tsx`; assert props, variants, and interactions in unit tests; visual appearance via VRT (`visual-regression-testing.md`); no snapshot tests. For mobile layout branches driven by `useIsMobile`, use `setMobileViewport()` / `resetViewport()` from `@/test-utils/viewport`. Mock only network/fs/time/boundaries, keep real implementations of pure helpers, keep Lucide, `@/icons`, `DynamicLucideIcon` and Radix components real, use fake timers for relative time. `as any` and `as unknown as T` are ESLint-banned in tests: use `asInvalid`, `asOpaque`, `mockAuthStore`, `mockSession`, `mockResponse`, `mockKeyboardEvent` from `src/test-utils`.
 
 Manual checks for UI work: desktop and narrow viewport, loading/empty/error states, hover/focus/disabled states, dark-on-brand contrast, and the mobile path where a Sheet replaces a Popover.
 
@@ -131,7 +137,7 @@ These apply to every diff and are what a reviewer (human or Greptile) checks fir
 - Putting IO (fetch, Dexie) in a component, hook or pipe; calling a service from a controller; calling application from a coordinator.
 - Creating a new store, a second data-fetching mechanism, or a parallel error type instead of using Zustand / TanStack / `Err.*`.
 - Writing a new button/dialog/input/empty-state/skeleton instead of reusing or extending the atom, molecule or Shadcn primitive that already exists.
-- Hardcoded colours, arbitrary Tailwind values, off-scale z-index, new shadow/radius tokens.
+- Hardcoded colours, fixed-length arbitrary Tailwind values (`p-[13px]`), off-scale z-index, new shadow/radius tokens.
 - Adding `useMemo` / `useCallback` (the compiler handles it) or a `useEffect` where `useLocalFirstQuery` belongs.
 - Interpolating user text into toast copy; styling toasts by `className`.
 - Editing generated files, `package-lock.json`, or CI workflows outside a CI task.
@@ -165,7 +171,7 @@ These apply to every diff and are what a reviewer (human or Greptile) checks fir
 - [ ] Local-first consequences considered: cache hits, tombstones and missing rows handled on reads; affected rows marked fresh on writes; no second freshness mechanism.
 - [ ] No existing visible behaviour silently reduced, and no `src/config/*` limit tuned for a local fix.
 - [ ] Imports are concrete alias paths; no barrel files added.
-- [ ] Tests at the right level updated/added, including mobile snapshots for viewport-aware organisms.
+- [ ] Tests at the right level updated/added, including mobile layout branches for viewport-aware organisms.
 - [ ] `npm run lint`, `npm run typecheck`, targeted tests pass; `npm run build` when the change is route/config wide.
 - [ ] VRT baseline impact flagged to the user; ADR, `DB_VERSION` or config-limit changes called out in the PR.
 - [ ] Commit messages and branch name follow `commit-message.md`; the diff contains no unrelated cleanup and reads like the surrounding code.

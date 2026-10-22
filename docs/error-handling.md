@@ -38,7 +38,7 @@ throw 'Something went wrong';
 
 - `Err.*` factories currently **log automatically** (`src/libs/error/error.factories.ts`).
 - Legacy `AppError.type/statusCode/details` still exist in some paths (Phase 2 migration).
-- Sentry capture is implemented in the factories (`captureAppError`, once per error chain, with expected-error drop rules — see `docs/sentry.md`). traceId inheritance and local-log de-duplication are still planned (see ADR-0015 Future Work).
+- Capture is implemented in the factories (`captureAppError` for Sentry, then `Pulse.captureException` for the optional browser Pulse sink; once per error chain, with expected-error drop rules that both sinks share — see `docs/sentry.md`). traceId inheritance and local-log de-duplication are still planned (see ADR-0015 Future Work).
 
 ## Layer-Specific Patterns
 
@@ -80,6 +80,33 @@ class HomegateService {
 Differentiate transient errors (`SERVICE_UNAVAILABLE`, `NETWORK_ERROR`) from fatal ones for smarter retries.
 
 Pubky SDK (`@synonymdev/pubky`) errors are mapped by their `name` in `src/core/services/homeserver/error.utils.ts`: `InvalidInput` → Validation, `AuthenticationError` (or HTTP 401) → Auth `SESSION_EXPIRED`, `PkarrError` (PKARR lookup failed, absence not proven) → Network `CONNECTION_FAILED` (retryable). Anything else falls through to `httpStatusCodeToError`.
+
+#### Non-reporting availability probes
+
+`ClientRegionService.fetchCountry` is a narrow exception to `safeFetch`: it reads the optional same-origin
+`/shop-embed/api/marketplace/client-region` route with raw `fetch`. Its advisory contract in
+[Shop embedding](shop-embedding.md#region-check) treats every failure as `{ status: 'unavailable' }`: a missing
+Shop mount, non-2xx response, redirect, non-JSON or invalid body, network failure and timeout never throw, log or
+report. An unavailable probe leaves the decision to the Lock Server. A successful response with a null country
+still follows the configured unknown-country policy. `safeFetch` would construct and report an
+`AppError` on transport failure before this fallback, violating that contract. Keep the existing request timeout
+and response validation. This is an availability boundary, like the existing boolean `LocksService.isServerReady`
+probe; it does not permit raw `fetch` or silent failures in ordinary data reads or writes.
+
+#### Homeserver write retries
+
+Every homeserver PUT and DELETE goes through `HomeserverService` (`request`, `putBlob`, `delete`), which runs it in `retryHomeserverWrite` (`src/core/services/homeserver/write-retry.ts`); `write-call-sites.gate.test.ts` fails on a write that bypasses it. The policy makes up to three attempts with jittered exponential backoff (a 429's `Retry-After` when the response carries one) for:
+
+- 429, 500 and 503;
+- the publish conflict of a homeserver on GCS (0.16.2+): a 409 whose body is exactly `The file changed before the change was published; read it again and retry`. Nothing landed, so the same write is replayed.
+
+Any other 409 (a path collision, an unknown lock token, a 409 without that body), 412 and 423 are real conflicts and are never retried. A retry never runs after logout begins or the session or account changes; it fails with `SESSION_EXPIRED` instead.
+
+A write whose body is built from a read of the same data (a read-check-write) must not replay that body: by the time a retry runs, another client may have changed the data. It takes a fence from `HomeserverService.createWriteFence()`, wraps the read and the write in `retryHomeserverWriteAfterReread(fence, …)`, and passes the `fence` to the write. A fenced write makes one attempt; the loop retries every status the policy retries (429, 500, 503 and the publish conflict) from the read, with the same backoff and cap. Every pass after the first stops with `SESSION_EXPIRED` once logout begins or the session or account changes, before its read and again before its write. In a file that uses the loop, the gate test fails on a write without a fence unless it is listed with its reason. The profile merge, both settings syncs, the missing `last_read` creation, notifications' `last_read` and the lock purchase-file mint do this. A caller with its own retry loop (`deleteIdempotent`, account deletion) passes `singleAttempt` so the attempts don't multiply.
+
+Owned writes to the same file run one after another, retries included, so an older write's retry never lands after a newer one: a tag removed while its add waits out a 429 stays removed. A write with nothing ahead of it starts in the caller's tick; one that waited checks the session it was queued under first and throws `SESSION_EXPIRED` if it ended.
+
+Notifications' `last_read` only moves forward. `NotificationApplication.markAllAsRead` runs one write at a time per account; every pass reads the published value first and keeps it when it is not older, so neither a retry nor a queued mark writes an older timestamp. Its fence is taken when the mark is called with `guardFirstPass`, so a mark still queued or reading when logout begins sends nothing. The controller stores the larger of the published and local values. A lock payment whose retry reuses a saved bundle checks the fence before submitting the proof.
 
 When a specific HTTP status is an expected domain state, handle it before calling `httpResponseToError`.
 For example, a geoblocked availability endpoint can return `{ available: false }` for `403`. Keep these cases
@@ -163,7 +190,7 @@ Because `Err.*` factories **log automatically today**:
 - **If you caught an `AppError`**: re-throw it unchanged (`throw error`). Do **not** call `Err.*` again for the same failure.
 - **If you caught an unknown error**: normalize once with `toAppError(error, service, operation)` and throw that.
 - **If you truly need additional context**: prefer adding it at the origin (service/model) where the error is created, not by re-wrapping higher up.
-- **If you do wrap** (`Err.*` with `cause: <AppError>`): the wrapper is logged locally but **not** sent to Sentry — the root was already captured (once-per-chain, see `docs/sentry.md`). Expected errors are kept out of Sentry only by handling them before `Err.*` or by a drop rule in `src/libs/observability/sentry.utils.ts`; changing log levels or categories downstream has no effect on Sentry volume.
+- **If you do wrap** (`Err.*` with `cause: <AppError>`): the wrapper is logged locally but **not** sent to either error sink — the root was already captured (once-per-chain, see `docs/sentry.md`). Expected errors are kept out of Sentry only by handling them before `Err.*` or by a drop rule in `src/libs/observability/sentry.utils.ts`; changing log levels or categories downstream has no effect on Sentry volume.
 
 ```typescript
 // BAD: Logging in catch + throwing Err.* (double logs)
@@ -203,3 +230,63 @@ When handling errors:
 - [ ] Using `safeFetch` for HTTP requests?
 - [ ] Checking `category`/`code` instead of parsing messages?
 - [ ] Using decision helpers (`isRetryable`, `requiresLogin`, `isNotFound`)?
+
+### SDK 0.16 session-store classification exception
+
+`HomeserverService.isMissingSessionRecord` is a narrow boundary exception to message-free error classification. The pinned Pubky SDK exposes both missing records and IndexedDB failures as `ClientStateError`, without a structured reason. Its exact `Stored Pubky session not found: <id>` message is emitted only after a successful read finds no record. `browserSessionStore.list()` cannot establish absence: it catches storage failures and returns an empty list.
+
+Keep this check restricted to the SDK boundary, match the full message and requested ID, and retain the real-SDK contract tests in `session-store.contract.test.ts` when updating the SDK. Replace it with a structured discriminator when the SDK provides one. Downstream code continues to use `AppError` code/context (`SESSION_EXPIRED` with `missing_local_grant`). Unrecognized `ClientStateError` values during restore map to `Database/QUERY_FAILED` and preserve credentials; this does not imply the underlying condition is transient. Database errors do not enter the automatic network-retry loop.
+
+SDK 0.16 also uses exact terminal messages `Browser session was signed out.` (restore completed pending logout) and
+`Browser session is no longer valid.` (failed revalidation). The homeserver adapter maps these to `SESSION_EXPIRED`
+with public reason codes. Keep message matching at this pinned SDK boundary, alongside focused tests; do not map
+all `ClientStateError` values to reauthorization or use `list()` to infer missing credentials.
+
+The same boundary recognizes `Delegated grant key not found: <keyId>` only for `ClientStateError`. SDK 0.16 emits
+this after successfully reading a delegated session whose signing-key record is absent. It maps to
+`missing_local_grant`, requiring sign-in again. The key ID is SDK-owned and differs from the session
+record ID; do not expose it in app errors. `GrantFlowService` uses the same SDK error name and anchored message pattern
+when a pending delegated approval can no longer resume, so it can start a fresh approval. Other storage failures preserve
+the pending flow. Keep the real-SDK missing-key test alongside the pending-flow regression tests.
+
+SDK 0.16 `Unsupported stored session version.` is terminal for restoration by this build; map it to
+`unsupported_stored_session` without deleting or regenerating the record. Legacy cookie revocation separately
+recognizes the exact `AuthenticationError` message `Authentication error: The provided auth request has expired or
+was cancelled.` from `restoreSession(export)`. This means no live cookie was found; it is not a generic network-error
+exception. Keep both contracts covered by the real-SDK tests in `session-store.contract.test.ts` on SDK updates.
+
+### Locks SDK 0.1.0 region classification exception
+
+`isLockServerRegionBlocked` in `src/core/services/locks/locks.utils.ts` is a second narrow exception to message-free
+classification. The pinned `@synonymdev/locks-sdk` 0.1.0 browser/WASM binding exposes HTTP viewer failures as an
+`Error` named `InvalidInput`, with no structured status field. Only the exact message
+`Lock Server viewer request failed with HTTP 451` identifies the region restriction on proof submission.
+`LocksService.submitProof` converts that raw SDK error to `{ regionBlocked: true }` before constructing any
+`Err.*`, so this expected result produces no logging, Sentry or Pulse capture. Existing `AppError` instances
+remain unchanged, even if their name or message resembles the SDK contract.
+
+Match the error instance, name and full message only at this boundary. Bare strings, other names or statuses,
+transport errors and parsing failures containing `HTTP 451` are not region restrictions; normalize them through
+the ordinary `AppError` path. Retain `locks.region.contract.test.ts` when updating the SDK: it runs the installed
+WASM, signed PKARR resolution and service with stubbed HTTP responses, checking 451, ordinary failures and success
+as well as the observability calls. Replace the message check with a structured discriminator when the SDK provides one.
+
+### Grant failures during use and sign-in
+
+After SDK refresh/retry has finished, terminal failures from active, owned homeserver storage requests notify
+AuthCoordinator through the controller/application subscription. AuthController requires sign-in again only if the
+captured session and generation still match the active account. The original request error still reaches its caller
+so local-first rollback can run. Network failures, server errors and permission denials do not invalidate the session.
+Public fetches and the separate Lock Server authentication flow do not enter this subscription.
+
+Encrypted-file sign-in distinguishes decryption errors from storage and transport errors by `AppError` metadata.
+`ClientStateError` from the SDK `browserSessionStore.save()` call maps to `Database/WRITE_FAILED`; storage availability
+and app-reference writes keep their own database errors. Report a browser-storage problem for those failures, not an
+invalid password or damaged backup. Unknown errors use a generic sign-in failure message.
+
+### Expected auth control flow
+
+`auth-flow-canceled.ts` is the narrow exception for non-reporting control-flow sentinels: `AuthFlowCanceled` for
+superseded work and `AuthApprovalMismatch` for an approval using the wrong account or capabilities. These are expected
+user choices, not faults to capture with `Err.*`. Use their shared predicates; show actionable UI feedback for a
+mismatch and remain quiet for supersession. Storage, transport and unexpected failures still use the normal factories.

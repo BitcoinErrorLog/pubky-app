@@ -18,7 +18,7 @@ import { useRemoveDeletedPost } from '@/hooks/useRemoveDeletedPost/useRemoveDele
 import { useTtlSubscription } from '@/hooks/useTtlSubscription/useTtlSubscription';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { useViewportObserver } from '@/hooks/useViewportObserver/useViewportObserver';
-import { cn } from '@/libs/utils/utils';
+import { cn, resolveUserDisplayName } from '@/libs/utils/utils';
 import { parseCompositeId } from '@/models/models.utils';
 import { PostHeaderTimestamp } from '@/molecules/PostHeaderTimestamp/PostHeaderTimestamp';
 import { PostHeaderUserInfo } from '@/molecules/PostHeaderUserInfo/PostHeaderUserInfo';
@@ -27,6 +27,7 @@ import { truncateAtWordBoundary } from '@/molecules/PostText/PostText.utils';
 import { PostUnavailable } from '@/molecules/PostUnavailable/PostUnavailable';
 import { TimelineEndMessage } from '@/molecules/Timeline/TimelineEndMessage';
 import { TimelineError } from '@/molecules/Timeline/TimelineError';
+import { TimelineErrorState } from '@/molecules/Timeline/TimelineErrorState';
 import { TimelineLoadMore } from '@/molecules/Timeline/TimelineLoadMore';
 import { TimelineStateWrapper } from '@/molecules/Timeline/TimelineStateWrapper/TimelineStateWrapper';
 import { ClickableTagsList } from '../../../ClickableTagsList/ClickableTagsList';
@@ -74,7 +75,7 @@ function VisualTileVideo({ tile }: VisualTileVideoProps) {
     });
   }, [isVisible]);
 
-  const handleTimeUpdate = React.useCallback(() => {
+  const handleTimeUpdate = () => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
@@ -84,7 +85,7 @@ function VisualTileVideo({ tile }: VisualTileVideoProps) {
         // Ignore autoplay restarts that are blocked by the browser.
       });
     }
-  }, []);
+  };
 
   return (
     <Container ref={ref} overrideDefaults className="absolute inset-0">
@@ -113,36 +114,29 @@ function VisualTileImage({ tile }: VisualTileImageProps) {
     hasFallenBackToMainRef.current = tile.previewSrc === tile.mainSrc;
   }, [tile.mainSrc, tile.previewSrc]);
 
-  const handleError = React.useCallback(() => {
+  const handleError = () => {
     if (hasFallenBackToMainRef.current || tile.previewSrc === tile.mainSrc) {
       return;
     }
 
     hasFallenBackToMainRef.current = true;
     setCurrentSrc(tile.mainSrc);
-  }, [tile.mainSrc, tile.previewSrc]);
+  };
 
   return <Image src={currentSrc} alt={tile.attachmentName} fill className="object-cover" onError={handleError} />;
 }
 
 function VisualTimelineTileOverlay({ tile, size, onReplyClick, onRepostClick }: VisualTimelineTileOverlayProps) {
-  const userId = React.useMemo(() => parseCompositeId(tile.postId).pubky, [tile.postId]);
+  const userId = parseCompositeId(tile.postId).pubky;
   const { userDetails } = useUserDetails(userId);
   const avatarUrl = useAvatarUrl(userDetails);
   const { formatRelativeTime } = useRelativeTime();
   const indexedAt = new Date(tile.indexedAt);
   const [tagsExpanded, setTagsExpanded] = React.useState(false);
   const isCompact = size === 'square';
-  const truncatedContent = React.useMemo(() => {
-    const trimmedContent = tile.content.trim();
-
-    if (!trimmedContent) {
-      return trimmedContent;
-    }
-
-    const limit = isCompact ? 120 : size === 'wide' ? 260 : 180;
-    return truncateAtWordBoundary(trimmedContent, limit);
-  }, [isCompact, size, tile.content]);
+  const trimmedContent = tile.content.trim();
+  const limit = isCompact ? 120 : size === 'wide' ? 260 : 180;
+  const truncatedContent = trimmedContent ? truncateAtWordBoundary(trimmedContent, limit) : trimmedContent;
 
   return (
     <Container
@@ -166,7 +160,7 @@ function VisualTimelineTileOverlay({ tile, size, onReplyClick, onRepostClick }: 
               {userDetails ? (
                 <PostHeaderUserInfo
                   userId={userId}
-                  userName={userDetails.name || ''}
+                  userName={resolveUserDisplayName(userDetails)}
                   status={userDetails.status}
                   avatarUrl={avatarUrl}
                 />
@@ -235,21 +229,17 @@ function VisualTimelineTile({ tile, size, onNavigate }: VisualTimelineTileProps)
   const isTouchDevice = useIsTouchDevice();
   const { openReplyDialog, openRepostDialog, dialogs } = usePostReplyRepostDialogs(tile.postId);
 
-  const handleNavigate = React.useCallback(() => {
+  const handleNavigate = () => {
     onNavigate(tile.postId);
-  }, [onNavigate, tile.postId]);
+  };
 
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.target !== event.currentTarget) return;
-
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        handleNavigate();
-      }
-    },
-    [handleNavigate],
-  );
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleNavigate();
+    }
+  };
 
   return (
     <>
@@ -450,7 +440,11 @@ export function VisualTimelinePosts({
   const displayRows = trailingSlot != null ? appendVisualTrailingCell(rows) : rows;
   const showHiddenNotice = hiddenItemsNotice != null && hiddenPostCount > 0;
   const hasExtras = trailingSlot != null || showHiddenNotice;
-  const showEmptyStateWithTrailingSlot = postIds.length === 0 && trailingSlot != null && emptyState != null;
+  // Beside a trailing slot an empty mosaic still renders, so a failed load is
+  // reported there instead of the empty state.
+  const trailingSlotError = postIds.length === 0 && trailingSlot != null ? error : null;
+  const showEmptyStateWithTrailingSlot =
+    postIds.length === 0 && trailingSlot != null && emptyState != null && !trailingSlotError;
 
   return (
     <TimelineStateWrapper
@@ -469,6 +463,7 @@ export function VisualTimelinePosts({
             className="mx-auto flex w-full flex-col gap-6"
             style={{ maxWidth: `${VISUAL_GRID_MAX_WIDTH_PX}px` }}
           >
+            {trailingSlotError ? <TimelineErrorState message={trailingSlotError} /> : null}
             {showEmptyStateWithTrailingSlot ? emptyState : null}
 
             {showHiddenNotice ? hiddenItemsNotice : null}
@@ -494,7 +489,7 @@ export function VisualTimelinePosts({
 
             {/* Infinite-scroll sentinel — only mounted (and given height) while there are
                 more posts to observe for and auto-loading is not stalled, mirroring
-                TimelineGridPosts. Once the feed is fully loaded the observer detaches, so
+                TimelineCardsPosts. Once the feed is fully loaded the observer detaches, so
                 rendering it would just leave dead space below the mosaic. */}
             {hasMore && !isStalled && <Container overrideDefaults className="h-5" ref={sentinelRef} />}
           </Container>

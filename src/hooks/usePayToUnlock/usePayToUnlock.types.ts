@@ -1,0 +1,66 @@
+import type { PaidUnlockAvailability } from '@/libs/region/paidUnlockAvailability';
+import type { LockFile, TPaykitConnectionState, TUnlockedContent } from '@/services/locks/locks.types';
+
+/**
+ * What the Pay to Unlock modal shows. Two of these exist for safety rather than display:
+ * `checking` renders no button until the saved bundle id is resolved, so one already in flight
+ * can never look payable again, and `blocked` is where an unreadable saved bundle id lands — paying again
+ * could mean paying twice, so it is not offered. `unopened` is its own stage because the payment
+ * succeeded there and only the content download failed: the reader must never be told to go pay.
+ * `finishing` acknowledges that payment while the credential and content are being fetched.
+ * `region-blocked` is the Lock Server's HTTP 451: paid unlocks are not offered in the reader's region.
+ * Nothing was created and trying again cannot help, so it offers no retry and has nothing to do with Bitkit.
+ */
+export type TPayToUnlockStage =
+  | 'checking'
+  | 'retry'
+  | 'expired'
+  | 'install'
+  | 'waiting'
+  | 'finishing'
+  | 'paid'
+  | 'unopened'
+  | 'blocked'
+  | 'region-blocked';
+
+export interface UsePayToUnlockParams {
+  /** The modal's open state; closed keeps the hook idle (no requests, no polling). */
+  open: boolean;
+  /** Advisory guard for new submissions/retries; existing server tasks can still finish. */
+  paymentAvailability?: PaidUnlockAvailability['status'];
+  /** The post's public `lock.json` URL. */
+  lockUrl: string;
+  /** The fetched lock file; null keeps the hook idle. */
+  lockFile: LockFile | null;
+  /** Called when the reader chooses View Content after the paid content has been read. */
+  onCompleted: (content: TUnlockedContent) => void;
+  /** Called with the lock id as soon as a purchase is stored, so other cards see it this session. */
+  onPurchased: (lockId: string) => void;
+  /** Called after the session-expired toast: the homeserver rejected the session, and no step works without one. */
+  onSessionExpired: () => void;
+}
+
+export interface UsePayToUnlockResult {
+  stage: TPayToUnlockStage;
+  /** The wait gave up on its own; only `recheck` moves it forward from here. */
+  isStalled: boolean;
+  /** The lock creator's pubky to hand to Bitkit, until the reader's Paykit link with them is `connected`. */
+  handshakePubky: string | null;
+  /** Last observed creator-side link state, not an acknowledgement of a scan or payment-request delivery. */
+  connectionState: TPaykitConnectionState | null;
+  /** True until the first link read answers — the wait then says it is checking, not that Bitkit needs a confirm. */
+  isConnectionPending: boolean;
+  /** The server is waiting for the reader to finish setting up their wallet — shown as a notice instead of the QR. */
+  walletSetupNeeded: boolean;
+  /** True while a wallet check started from a button or the proof submission is in flight. */
+  isSubmitting: boolean;
+  /**
+   * Install screen: re-checks the wallet, then submits. Retry screen: submits again (a fresh id after a failed/expired
+   * payment), checking the wallet first after `failed`; with none, it moves to the install screen.
+   */
+  retry: () => void;
+  /** Resume a parked wait. The purchase was never abandoned, so this only restarts the polling. */
+  recheck: () => void;
+  /** Reveals content already downloaded for the paid confirmation screen. */
+  viewContent: () => void;
+}

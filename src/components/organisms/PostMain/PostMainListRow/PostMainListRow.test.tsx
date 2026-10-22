@@ -139,8 +139,8 @@ vi.mock('@/organisms/AvatarWithFallback/AvatarWithFallback', () => ({
 }));
 
 vi.mock('../../ClickableTagsList/ClickableTagsList', () => ({
-  ClickableTagsList: ({ taggedId }: { taggedId: string }) => (
-    <div data-testid="clickable-tags-list" data-tagged-id={taggedId} />
+  ClickableTagsList: ({ taggedId, mergeTaggedId }: { taggedId: string; mergeTaggedId?: string }) => (
+    <div data-testid="clickable-tags-list" data-tagged-id={taggedId} data-merge-tagged-id={mergeTaggedId} />
   ),
 }));
 
@@ -203,19 +203,27 @@ const { mockPanelFocus, mockPanelReveal } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../PostTagsPanel/PostTagsPanel', () => {
-  const PostTagsPanel = React.forwardRef<unknown, { postId: string }>(({ postId }, ref) => {
-    React.useImperativeHandle(ref, () => ({
-      focus: () => mockPanelFocus(),
-      reveal: () => mockPanelReveal(),
-    }));
-    return <div data-testid="post-tags-panel" data-post-id={postId} />;
-  });
+  const PostTagsPanel = React.forwardRef<unknown, { postId: string; mergePostId?: string }>(
+    ({ postId, mergePostId }, ref) => {
+      React.useImperativeHandle(ref, () => ({
+        focus: () => mockPanelFocus(),
+        reveal: () => mockPanelReveal(),
+      }));
+      return <div data-testid="post-tags-panel" data-post-id={postId} data-merge-post-id={mergePostId} />;
+    },
+  );
   PostTagsPanel.displayName = 'PostTagsPanel';
   return { PostTagsPanel };
 });
 
 describe('PostMainListRow', () => {
-  const createPostDetails = (postId: string, content: string, indexedAt = Date.now(), kind = 'short') => ({
+  const createPostDetails = (
+    postId: string,
+    content: string,
+    indexedAt = Date.now(),
+    kind = 'short',
+    lock: string | null = null,
+  ) => ({
     id: postId,
     indexed_at: indexedAt,
     kind,
@@ -224,9 +232,10 @@ describe('PostMainListRow', () => {
     attachments: [],
     is_moderated: false,
     is_blurred: false,
+    lock,
   });
 
-  const mockPostDetails = (content: string, kind = 'short') => {
+  const mockPostDetails = (content: string, kind = 'short', lock: string | null = null) => {
     vi.mocked(useAuthStore).mockImplementation(mockAuthStoreSelector(null));
     vi.mocked(useAvatarUrl).mockReturnValue('https://example.com/avatar.png');
     vi.mocked(useRelativeTime).mockReturnValue({ formatRelativeTime: () => '1m' });
@@ -252,7 +261,8 @@ describe('PostMainListRow', () => {
       isLoading: false,
     });
     vi.mocked(usePostDetails).mockImplementation((postId) => ({
-      postDetails: postId === 'author:post' ? createPostDetails('author:post', content, Date.now(), kind) : undefined,
+      postDetails:
+        postId === 'author:post' ? createPostDetails('author:post', content, Date.now(), kind, lock) : undefined,
       isLoading: false,
     }));
   };
@@ -339,6 +349,36 @@ describe('PostMainListRow', () => {
     expect(screen.getByText('Author').closest('a')).toHaveAttribute('href', '/profile');
   });
 
+  it('renders [DELETED] as the author name when Nexus flags the author as deleted', () => {
+    mockPostDetails('Some post content');
+    vi.mocked(useUserDetails).mockReturnValue({
+      userDetails: {
+        id: 'author',
+        name: '',
+        bio: '',
+        links: null,
+        status: null,
+        image: null,
+        indexed_at: Date.now(),
+        deleted: true,
+      },
+      isLoading: false,
+    });
+
+    render(
+      <PostMainListRow
+        postId="author:post"
+        showFullContent={false}
+        shouldShowPostHeader={true}
+        onReplyClick={vi.fn()}
+        onRepostClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('[DELETED]')).toBeInTheDocument();
+    expect(screen.getByTestId('user-info-popover')).toHaveAttribute('data-user-name', '[DELETED]');
+  });
+
   it('renders full post content below the header row when full content is enabled', () => {
     const longContent =
       'We did it! Pubky Hackathon Champions in Lugano! This is the main post text that should remain visible in full on the single post page list layout.';
@@ -362,6 +402,26 @@ describe('PostMainListRow', () => {
     );
     expect(screen.getByTestId('post-content')).toHaveAttribute('data-media-variant', 'list');
     expect(screen.queryByTestId('post-list-media-thumbnail')).not.toBeInTheDocument();
+  });
+
+  it('labels a lock announcement with its lock title instead of the teaser envelope', () => {
+    mockPostDetails(
+      JSON.stringify({ lock_title: 'BBC', teaser_description: 'A peek' }),
+      'short',
+      'pubky://hs/pub/app.locks/lock1.json',
+    );
+
+    render(
+      <PostMainListRow
+        postId="author:post"
+        showFullContent={false}
+        shouldShowPostHeader={true}
+        onReplyClick={vi.fn()}
+        onRepostClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('BBC')).toBeInTheDocument();
   });
 
   it('keeps compact list row content truncated', () => {
@@ -719,5 +779,50 @@ describe('PostMainListRow', () => {
     expect(screen.queryByText('Original Author')).not.toBeInTheDocument();
     expect(screen.getByTestId('post-actions-bar')).toHaveAttribute('data-post-id', 'author:post');
     expect(screen.getByTestId('post-list-media-thumbnail')).toHaveAttribute('data-post-id', 'author:post');
+  });
+
+  it('targets the original for tags, replies and reposts of a full-content contentless repost row', () => {
+    mockPostDetails('');
+    vi.mocked(useRepostInfo).mockReturnValue({
+      isRepost: true,
+      repostAuthorId: 'author',
+      isReply: false,
+      isCurrentUserRepost: false,
+      originalPostId: 'original-author:original-post',
+      isLoading: false,
+      hasError: false,
+    });
+    vi.mocked(usePostDetails).mockImplementation((postId) => ({
+      postDetails: createPostDetails(postId ?? '', postId === 'author:post' ? '' : 'Original'),
+      isLoading: false,
+    }));
+    const onReplyClick = vi.fn();
+    const onRepostClick = vi.fn();
+    render(
+      <PostMainListRow
+        postId="author:post"
+        showFullContent={true}
+        shouldShowPostHeader={true}
+        onReplyClick={onReplyClick}
+        onRepostClick={onRepostClick}
+      />,
+    );
+
+    // The row still renders the repost card; only the interaction target moves.
+    expect(screen.getByTestId('post-content')).toHaveAttribute('data-post-id', 'author:post');
+    expect(screen.getByTestId('post-actions-bar')).toHaveAttribute('data-post-id', 'original-author:original-post');
+    expect(screen.getByTestId('clickable-tags-list')).toHaveAttribute(
+      'data-tagged-id',
+      'original-author:original-post',
+    );
+    expect(screen.getByTestId('clickable-tags-list')).toHaveAttribute('data-merge-tagged-id', 'author:post');
+    fireEvent.click(screen.getByTestId('reply-button'));
+    fireEvent.click(screen.getByTestId('repost-button'));
+    fireEvent.click(screen.getByTestId('tag-button'));
+    expect(onReplyClick).toHaveBeenCalledWith('original-author:original-post');
+    expect(onRepostClick).toHaveBeenCalledWith('original-author:original-post');
+    const panel = screen.getByTestId('post-tags-panel');
+    expect(panel).toHaveAttribute('data-post-id', 'original-author:original-post');
+    expect(panel).toHaveAttribute('data-merge-post-id', 'author:post');
   });
 });

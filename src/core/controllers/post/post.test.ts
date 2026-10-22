@@ -251,6 +251,29 @@ describe('PostController', () => {
     });
   });
 
+  describe('getRelationshipsByIds', () => {
+    it('should return relationships aligned to input order with undefined for missing posts', async () => {
+      await setupExistingPost();
+      const { PostController } = await import('./post');
+
+      const result = await PostController.getRelationshipsByIds({
+        compositeIds: ['nonexistent:post', testData.fullPostId],
+      });
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toBeUndefined();
+      expect(result[1]?.id).toBe(testData.fullPostId);
+    });
+
+    it('should return an empty array when given no ids', async () => {
+      const { PostController } = await import('./post');
+
+      const result = await PostController.getRelationshipsByIds({ compositeIds: [] });
+
+      expect(result).toEqual([]);
+    });
+  });
+
   describe('getCounts', () => {
     it('should return post counts when they exist', async () => {
       await setupExistingPost();
@@ -1326,7 +1349,7 @@ describe('PostController', () => {
             name: 'Saved posts',
             description: '',
             items: [targetPostUri],
-            layout: COLLECTION_LAYOUT.GRID,
+            layout: COLLECTION_LAYOUT.CARDS,
           }),
           currentUserPubky: testData.authorPubky,
         });
@@ -1365,7 +1388,7 @@ describe('PostController', () => {
             name: 'Saved posts',
             description: '',
             items: [targetPostUri, existingItemUri],
-            layout: COLLECTION_LAYOUT.GRID,
+            layout: COLLECTION_LAYOUT.CARDS,
           }),
           currentUserPubky: testData.authorPubky,
         });
@@ -1397,7 +1420,7 @@ describe('PostController', () => {
             name: 'Saved posts',
             description: '',
             items: [],
-            layout: COLLECTION_LAYOUT.GRID,
+            layout: COLLECTION_LAYOUT.CARDS,
           }),
           currentUserPubky: testData.authorPubky,
         });
@@ -1555,7 +1578,7 @@ describe('PostController', () => {
             name: 'Saved posts',
             description: '',
             items: [uriC, uriA, uriB],
-            layout: COLLECTION_LAYOUT.GRID,
+            layout: COLLECTION_LAYOUT.CARDS,
           }),
           currentUserPubky: testData.authorPubky,
         });
@@ -1595,7 +1618,7 @@ describe('PostController', () => {
               name: 'Saved posts',
               description: '',
               items: [uriC, uriB, uriA],
-              layout: COLLECTION_LAYOUT.GRID,
+              layout: COLLECTION_LAYOUT.CARDS,
             }),
           }),
         );
@@ -1766,7 +1789,7 @@ describe('PostController', () => {
             description: 'Updated description',
             items: [existingItemUri],
             cover_image: 'pubky://author/pub/pubky.app/files/oldcover',
-            layout: COLLECTION_LAYOUT.GRID,
+            layout: COLLECTION_LAYOUT.CARDS,
           }),
           currentUserPubky: testData.authorPubky,
         });
@@ -1814,7 +1837,7 @@ describe('PostController', () => {
             description: 'Updated description',
             items: [existingItemUri],
             cover_image: 'pubky://author/pub/pubky.app/files/newcover',
-            layout: COLLECTION_LAYOUT.GRID,
+            layout: COLLECTION_LAYOUT.CARDS,
           }),
           currentUserPubky: testData.authorPubky,
         });

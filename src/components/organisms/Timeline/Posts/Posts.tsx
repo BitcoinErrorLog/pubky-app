@@ -8,6 +8,7 @@ import { usePostListKeyboard } from '@/hooks/usePostListKeyboard/usePostListKeyb
 import { usePostNavigation } from '@/hooks/usePostNavigation/usePostNavigation';
 import { TimelineEndMessage } from '@/molecules/Timeline/TimelineEndMessage';
 import { TimelineError } from '@/molecules/Timeline/TimelineError';
+import { TimelineErrorState } from '@/molecules/Timeline/TimelineErrorState';
 import { TimelineLoadingMore } from '@/molecules/Timeline/TimelineLoadingMore';
 import { TimelineLoadMore } from '@/molecules/Timeline/TimelineLoadMore';
 import { TimelineStateWrapper } from '@/molecules/Timeline/TimelineStateWrapper/TimelineStateWrapper';
@@ -61,7 +62,12 @@ export function TimelinePosts({
   const { handlePostKeyDown } = usePostNavigation();
   const { setCardRef, onListKeyDown } = usePostListKeyboard();
   const hasListContent = postIds.length > 0 || trailingSlot != null;
-  const showEmptyMessageWithTrailingSlot = postIds.length === 0 && trailingSlot != null && emptyState != null;
+  // Beside a trailing slot an empty list still renders, so a failed load is
+  // reported there instead of the empty state.
+  const trailingSlotError = postIds.length === 0 && trailingSlot != null ? error : null;
+  const showEmptyMessageWithTrailingSlot =
+    postIds.length === 0 && trailingSlot != null && emptyState != null && !trailingSlotError;
+  const showMessageWithTrailingSlot = showEmptyMessageWithTrailingSlot || Boolean(trailingSlotError);
 
   return (
     <TimelineStateWrapper
@@ -74,9 +80,10 @@ export function TimelinePosts({
     >
       <Container
         data-cy="timeline-container"
-        overrideDefaults={showEmptyMessageWithTrailingSlot}
-        className={showEmptyMessageWithTrailingSlot ? 'flex w-full flex-col gap-4' : undefined}
+        overrideDefaults={showMessageWithTrailingSlot}
+        className={showMessageWithTrailingSlot ? 'flex w-full flex-col gap-4' : undefined}
       >
+        {trailingSlotError ? <TimelineErrorState message={trailingSlotError} /> : null}
         {showEmptyMessageWithTrailingSlot ? emptyState : null}
         <Container
           data-cy="timeline-posts"
@@ -110,7 +117,7 @@ export function TimelinePosts({
 
           {/* Infinite-scroll sentinel — only mounted (and given height) while there are
               more posts to observe for and auto-loading is not stalled, mirroring
-              TimelineGridPosts. Once the feed is fully loaded the observer detaches, so
+              TimelineCardsPosts. Once the feed is fully loaded the observer detaches, so
               rendering it would just leave dead space below the list. */}
           {hasMore && !isStalled && <Container overrideDefaults className="h-5" ref={sentinelRef} />}
         </Container>

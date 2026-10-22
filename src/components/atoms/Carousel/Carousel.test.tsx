@@ -139,6 +139,32 @@ describe('Carousel', () => {
     expect(mockScrollPrev).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves native media arrow keys to the browser', () => {
+    render(
+      <Carousel>
+        <video controls aria-label="Video" />
+        <audio controls aria-label="Audio" />
+      </Carousel>,
+    );
+    for (const label of ['Video', 'Audio']) {
+      for (const key of ['ArrowLeft', 'ArrowRight']) {
+        expect(fireEvent.keyDown(screen.getByLabelText(label), { key })).toBe(true);
+      }
+    }
+    expect(mockScrollPrev).not.toHaveBeenCalled();
+    expect(mockScrollNext).not.toHaveBeenCalled();
+  });
+
+  it('keeps subscriptions stable through rerenders and cleans up both listeners', () => {
+    const { rerender, unmount } = render(<Carousel aria-label="Gallery" />);
+    const subscriptions = [...mockOn.mock.calls];
+    expect(subscriptions.map(([event]) => event)).toEqual(['reInit', 'select']);
+    rerender(<Carousel aria-label="Updated gallery" />);
+    expect(mockOn).toHaveBeenCalledTimes(2);
+    unmount();
+    expect(mockOff.mock.calls).toEqual(subscriptions);
+  });
+
   it('handles keyboard navigation with ArrowRight', () => {
     render(
       <Carousel>
@@ -290,202 +316,5 @@ describe('Carousel', () => {
     }).toThrow('useCarousel must be used within a <Carousel />');
 
     consoleSpy.mockRestore();
-  });
-});
-
-describe('Carousel - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockCanScrollPrev.mockReturnValue(true);
-    mockCanScrollNext.mockReturnValue(true);
-  });
-
-  it('matches snapshot with default props', () => {
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with multiple slides', () => {
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-          <CarouselItem>Slide 2</CarouselItem>
-          <CarouselItem>Slide 3</CarouselItem>
-        </CarouselContent>
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with navigation buttons', () => {
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-        <CarouselPrevious />
-        <CarouselNext />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for horizontal orientation', () => {
-    const { container } = render(
-      <Carousel orientation="horizontal">
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-        <CarouselPrevious />
-        <CarouselNext />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for vertical orientation', () => {
-    const { container } = render(
-      <Carousel orientation="vertical">
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-        <CarouselPrevious />
-        <CarouselNext />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with custom className on Carousel', () => {
-    const { container } = render(
-      <Carousel className="custom-carousel">
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with custom className on CarouselContent', () => {
-    const { container } = render(
-      <Carousel>
-        <CarouselContent className="custom-content">
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with custom className on CarouselItem', () => {
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem className="custom-item">Slide 1</CarouselItem>
-        </CarouselContent>
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with disabled previous button', () => {
-    mockCanScrollPrev.mockReturnValue(false);
-
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-        <CarouselPrevious />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with disabled next button', () => {
-    mockCanScrollNext.mockReturnValue(false);
-
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-        <CarouselNext />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with both navigation buttons disabled', () => {
-    mockCanScrollPrev.mockReturnValue(false);
-    mockCanScrollNext.mockReturnValue(false);
-
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-        <CarouselPrevious />
-        <CarouselNext />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with custom button variants', () => {
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-        <CarouselPrevious variant="outline" />
-        <CarouselNext variant="outline" />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with custom button sizes', () => {
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>Slide 1</CarouselItem>
-        </CarouselContent>
-        <CarouselPrevious size="sm" />
-        <CarouselNext size="sm" />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with complex slide content', () => {
-    const { container } = render(
-      <Carousel>
-        <CarouselContent>
-          <CarouselItem>
-            <div className="p-4">
-              <h3>Card Title</h3>
-              <p>Card description</p>
-            </div>
-          </CarouselItem>
-          <CarouselItem>
-            <div className="p-4">
-              <img src="image.jpg" alt="Image" />
-            </div>
-          </CarouselItem>
-        </CarouselContent>
-        <CarouselPrevious />
-        <CarouselNext />
-      </Carousel>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

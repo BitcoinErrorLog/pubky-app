@@ -236,10 +236,11 @@ vi.mock('@/stores/home/home.store', () => {
 
 vi.mock('@/stores/auth/auth.store', async () => {
   const f = await fixtures;
+  const { mockRingSession } = await import('@/test-utils/pubky');
   return {
     useAuthStore: createZustandLikeHook({
       currentUserPubky: f.viewerPubky,
-      session: { pubky: f.viewerPubky },
+      session: mockRingSession(['/:rw'], f.viewerPubky),
       sessionExport: null,
       hasProfile: true,
       hasHydrated: true,
@@ -299,6 +300,7 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({
     requireAuth: (action: () => void) => action(),
     isAuthenticated: true,
+    waitForAuth: async () => true,
   }),
 }));
 
@@ -438,20 +440,9 @@ vi.mock('@/hooks/useBookmark/useBookmark', () => {
   };
 });
 
-vi.mock('@/hooks/usePostSaveTargets/usePostSaveTargets', () => {
-  const noop = async () => {};
-  const result = {
-    isBookmarked: false,
-    isBookmarkLoading: false,
-    isBookmarkToggling: false,
-    collections: [],
-    isCollectionsLoading: false,
-    isCreatingCollection: false,
-    toggleBookmark: noop,
-    toggleCollection: noop,
-    createCollectionWithPost: noop,
-  };
-  return { usePostSaveTargets: () => result };
+vi.mock('@/hooks/usePostSaveTargets/usePostSaveTargets', async () => {
+  const { idlePostSaveTargets } = await import('@/test/mocks/usePostSaveTargets');
+  return { usePostSaveTargets: () => idlePostSaveTargets };
 });
 
 vi.mock('@/hooks/useUserDetails/useUserDetails', async () => {

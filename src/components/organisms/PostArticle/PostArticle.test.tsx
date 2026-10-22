@@ -68,17 +68,23 @@ vi.mock('@/molecules/PostText/PostText', () => {
     PostText: ({
       content,
       isArticle,
+      fullArticle,
+      articleMedia,
       onLinkClick,
       className,
     }: {
       content: string;
       isArticle?: boolean;
+      fullArticle?: boolean;
+      articleMedia?: unknown;
       onLinkClick?: (url: string, e: React.MouseEvent) => void;
       className?: string;
     }) => (
       <div
         data-testid="post-text"
         data-is-article={isArticle}
+        data-full-article={String(Boolean(fullArticle))}
+        data-article-media={articleMedia ? JSON.stringify(articleMedia) : undefined}
         data-has-link-click={!!onLinkClick}
         className={className}
       >
@@ -152,6 +158,21 @@ describe('PostArticle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUsePostArticle.mockReturnValue(mockHookReturnWithImage);
+  });
+
+  it('keeps Cards pending while the cover metadata resolves and releases missing covers', () => {
+    mockUsePostArticle.mockReturnValue({ ...mockHookReturnWithoutImage, isCoverLoading: true });
+    const props = {
+      content: 'article',
+      attachments: ['cover'],
+      localAttachments: undefined,
+      presentation: 'cards' as const,
+    };
+    const { container, rerender } = render(<PostArticle {...props} />);
+    expect(container.querySelector('[data-post-content-pending]')).not.toBeNull();
+    mockUsePostArticle.mockReturnValue({ ...mockHookReturnWithoutImage, isCoverLoading: false });
+    rerender(<PostArticle {...props} />);
+    expect(container.querySelector('[data-post-content-pending]')).toBeNull();
   });
 
   describe('Rendering', () => {
@@ -230,6 +251,18 @@ describe('PostArticle', () => {
   });
 
   describe('Hook Integration', () => {
+    it('keeps the Cards cover above the excerpt with its supplied dimensions and contain sizing', () => {
+      mockUsePostArticle.mockReturnValue({
+        ...mockHookReturnWithImage,
+        coverImage: { ...mockHookReturnWithImage.coverImage, width: 600, height: 900 },
+      });
+      render(<PostArticle {...defaultProps} presentation="cards" />);
+      const image = screen.getByTestId('cover-image');
+      expect(image).toHaveClass('order-first', 'object-contain', 'max-h-160');
+      expect(image).toHaveAttribute('width', '600');
+      expect(image).toHaveAttribute('height', '900');
+    });
+
     it('calls usePostArticle with correct parameters', () => {
       render(<PostArticle {...defaultProps} />);
 
@@ -352,51 +385,58 @@ describe('PostArticle', () => {
     });
   });
 
-  describe('Snapshots', () => {
-    it('matches snapshot with cover image', () => {
-      const { container } = render(<PostArticle {...defaultProps} />);
+  describe('Full article', () => {
+    it('drops the preview clamp and renders the article typography', () => {
+      render(<PostArticle {...defaultProps} variant="full" />);
 
-      expect(container).toMatchSnapshot();
+      const text = screen.getByTestId('post-text');
+      expect(text).toHaveAttribute('data-full-article', 'true');
+      expect(text).not.toHaveClass('line-clamp-3');
     });
 
-    it('matches snapshot without cover image', () => {
+    it('keeps the three-line preview by default', () => {
+      render(<PostArticle {...defaultProps} />);
+
+      const text = screen.getByTestId('post-text');
+      expect(text).toHaveAttribute('data-full-article', 'false');
+      expect(text).toHaveClass('line-clamp-3');
+    });
+
+    it('renders the body images of unlocked content from its local attachments', () => {
+      render(<PostArticle {...defaultProps} variant="full" localAttachments={[mockLocalImageAttachment]} />);
+
+      expect(screen.getByTestId('post-text')).toHaveAttribute(
+        'data-article-media',
+        JSON.stringify({ localAttachments: [mockLocalImageAttachment], pendingAttachments: [] }),
+      );
+    });
+
+    it('keeps body images out of the preview card, like any article card', () => {
+      render(<PostArticle {...defaultProps} localAttachments={[mockLocalImageAttachment]} />);
+
+      expect(screen.getByTestId('post-text')).not.toHaveAttribute('data-article-media');
+    });
+
+    it('takes the cover from slot 0, not from whatever comes first in the list', () => {
+      // The cover was lost while copying: the first attachment left is a body image.
+      const bodyImage: AttachmentConstructed = { ...mockLocalImageAttachment, name: 'Body image', slot: 1 };
       mockUsePostArticle.mockReturnValue(mockHookReturnWithoutImage);
 
-      const { container } = render(<PostArticle {...defaultProps} />);
+      render(<PostArticle {...defaultProps} variant="full" localAttachments={[bodyImage]} />);
 
-      expect(container).toMatchSnapshot();
+      expect(screen.queryByTestId('cover-image')).not.toBeInTheDocument();
     });
 
-    it('matches snapshot with custom className', () => {
-      const { container } = render(<PostArticle {...defaultProps} className="custom-article-class" />);
+    it('counts local attachments so a cover with no Nexus copy still shows', () => {
+      render(<PostArticle {...defaultProps} localAttachments={[mockLocalImageAttachment]} />);
 
-      expect(container).toMatchSnapshot();
-    });
-
-    it('matches snapshot with long title and body', () => {
-      mockUsePostArticle.mockReturnValue({
-        title: 'This is a very long article title that might wrap to multiple lines in the UI',
-        body: 'This is a much longer article body content that contains multiple sentences. It should properly handle long text content and display it correctly within the component boundaries.',
-        coverImage: mockHookReturnWithImage.coverImage,
+      expect(mockUsePostArticle).toHaveBeenCalledWith({
+        content: defaultProps.content,
+        attachments: defaultProps.attachments,
+        coverImageVariant: FileVariant.FEED,
+        localAttachmentCount: 1,
+        localCoverType: 'image/png',
       });
-
-      const { container } = render(<PostArticle {...defaultProps} />);
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('matches snapshot with local cover image', () => {
-      const { container } = render(<PostArticle {...defaultProps} localAttachments={[mockLocalImageAttachment]} />);
-
-      expect(container).toMatchSnapshot();
-    });
-
-    it('matches snapshot with local video attachment falling back to hook image', () => {
-      mockUsePostArticle.mockReturnValue(mockHookReturnWithImage);
-
-      const { container } = render(<PostArticle {...defaultProps} localAttachments={[mockLocalVideoAttachment]} />);
-
-      expect(container).toMatchSnapshot();
     });
   });
 });

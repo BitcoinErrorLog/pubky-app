@@ -8,15 +8,17 @@ import { USER_BIO_MAX_LENGTH, USER_NAME_MAX_LENGTH, USER_NAME_MIN_LENGTH } from 
 import { AuthController } from '@/controllers/auth/auth';
 import { FileController } from '@/controllers/file/file';
 import { ProfileController } from '@/controllers/profile/profile';
+import type { TCommitUpdateDetailsParams } from '@/controllers/profile/profile.types';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { AppError } from '@/libs/error/error';
 import { isAuthError, requiresLogin } from '@/libs/error/error.utils';
 import { getImageUploadSizeLimitToastMessage } from '@/libs/image/imageUploadSizeLimit';
 import { Logger } from '@/libs/logger/logger';
 import { normalizeProfileLinkUrl } from '@/libs/profile/profileLinks';
 import { safeExternalUrlSchema } from '@/libs/utils/safeExternalUrl';
-import { generateRandomUsername } from '@/libs/utils/utils';
+import { generateRandomUsername, isReservedUserName } from '@/libs/utils/utils';
 import { toast } from '@/molecules/Toaster/toast';
-import { UserValidator } from '@/pipes/user/user.validator';
+import { type UiUserSchema, UserValidator } from '@/pipes/user/user.validator';
 import type { NexusUserDetails } from '@/services/nexus/nexus.types';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import {
@@ -36,7 +38,10 @@ const nameSchema = z
   .string()
   .trim()
   .min(USER_NAME_MIN_LENGTH, `Name must be at least ${USER_NAME_MIN_LENGTH} characters`)
-  .max(USER_NAME_MAX_LENGTH, `Name must be no more than ${USER_NAME_MAX_LENGTH} characters`);
+  .max(USER_NAME_MAX_LENGTH, `Name must be no more than ${USER_NAME_MAX_LENGTH} characters`)
+  // `[DELETED]` is the label the app shows for a tombstoned user, so a live profile cannot take it.
+  // Mirrors `UserValidator` (the submit gate); both read the rule from `isReservedUserName`.
+  .refine((value) => !isReservedUserName(value), { message: 'This name is reserved' });
 const bioSchema = z
   .string()
   .trim()
@@ -55,6 +60,32 @@ function areProfileLinksEqual(left: ProfileLink[], right: ProfileLink[]): boolea
     left.length === right.length &&
     left.every((link, index) => link.label === right[index]?.label && link.url === right[index]?.url)
   );
+}
+
+/**
+ * The fields the user changed against the profile the form was filled from. An edit sends only
+ * these, so a field the user never touched can't republish a stale cached value.
+ */
+function getProfileChanges(
+  user: z.infer<typeof UiUserSchema>,
+  links: ProfileLink[],
+  userDetails: NexusUserDetails | null | undefined,
+): TCommitUpdateDetailsParams['changes'] {
+  const changes: TCommitUpdateDetailsParams['changes'] = {};
+  if (user.name !== (userDetails?.name || '').trim()) changes.name = user.name;
+  if ((user.bio ?? '') !== (userDetails?.bio || '').trim()) changes.bio = user.bio ?? '';
+  // Compare what would be published, excluding UI-only placeholders and URL whitespace.
+  // Keep invalid stored URLs as-is (including bare X handles) so correcting or removing
+  // one is still an edit; only new form input gets the X-handle rewrite.
+  const originalLinks = (userDetails?.links ?? []).map((link) => ({
+    label: link.title.toUpperCase(),
+    url: link.url.trim(),
+  }));
+  const rowsChanged = !areProfileLinksEqual(links, userDetails ? getProfileFormLinks(userDetails) : DEFAULT_LINKS);
+  if (rowsChanged && !areProfileLinksEqual(user.links ?? [], originalLinks)) {
+    changes.links = user.links ?? [];
+  }
+  return changes;
 }
 
 export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn {
@@ -79,6 +110,8 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const inFlight = useRef(false);
+  const { waitForAuth } = useRequireAuth();
   // The post-save redirect fetches its route on click (nothing prefetches it), so it runs as a
   // transition: the submit button keeps its loading state until the next screen renders instead
   // of dropping it the moment the save completes.
@@ -87,7 +120,6 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
   const [submitText, setSubmitText] = useState<SubmitText>(idleSubmitText);
 
   // Edit mode specific state
-  const [originalAvatarUrl, setOriginalAvatarUrl] = useState<string | null>(null);
   const [avatarChanged, setAvatarChanged] = useState(false);
 
   // Crop dialog state
@@ -120,7 +152,6 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
         // TODO: Has to be fixed with the ServiceWorker
         // Assign a random number (0-100000) as a query parameter to avatarUrl for cache busting
         avatarUrl = `${avatarUrl}${Math.floor(Math.random() * 100000)}`;
-        setOriginalAvatarUrl(avatarUrl);
         setAvatarPreview(avatarUrl);
       }
 
@@ -312,10 +343,16 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
       return;
     }
 
+    if (inFlight.current) return;
+    inFlight.current = true;
     setIsSaving(true);
     setSubmitText(PROFILE_SUBMIT_TEXT.saving);
 
     try {
+      if (!(await waitForAuth())) {
+        setSubmitText(idleSubmitText);
+        return;
+      }
       const user = validateUser();
       if (!user) {
         setSubmitText(idleSubmitText);
@@ -324,6 +361,9 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
 
       // Handle avatar upload
       let image: string | null = null;
+      // Edit mode sends only what changed; everything else keeps its published value
+      const changes: TCommitUpdateDetailsParams['changes'] =
+        mode === 'edit' ? getProfileChanges(user, links, userDetails) : {};
 
       if (mode === 'create') {
         if (avatarFile) {
@@ -334,22 +374,17 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
             return;
           }
         }
-      } else {
-        // Edit mode
-        image = originalAvatarUrl ? (userDetails?.image ?? null) : null;
-
-        if (avatarChanged) {
-          if (avatarFile) {
-            setSubmitText(PROFILE_SUBMIT_TEXT.uploadingAvatar);
-            const uploadedImage = await FileController.commitCreate({ file: avatarFile, pubky });
-            if (!uploadedImage) {
-              setSubmitText(PROFILE_SUBMIT_TEXT.tryAgain);
-              return;
-            }
-            image = uploadedImage;
-          } else {
-            image = null;
+      } else if (avatarChanged) {
+        if (avatarFile) {
+          setSubmitText(PROFILE_SUBMIT_TEXT.uploadingAvatar);
+          const uploadedImage = await FileController.commitCreate({ file: avatarFile, pubky });
+          if (!uploadedImage) {
+            setSubmitText(PROFILE_SUBMIT_TEXT.tryAgain);
+            return;
           }
+          changes.image = uploadedImage;
+        } else {
+          changes.image = null;
         }
       }
 
@@ -369,13 +404,7 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
           router.push(ONBOARDING_ROUTES.TAGS);
         });
       } else {
-        await ProfileController.commitUpdate({
-          name: user.name,
-          bio: user.bio,
-          links: user.links,
-          image,
-          pubky,
-        });
+        await ProfileController.commitUpdate({ pubky, changes });
         // Update local avatar store: set NEW blob URL if new avatar, clear if deleted
         // We create a separate blob URL so the form's cleanup can safely revoke its own
         if (avatarChanged) {
@@ -435,15 +464,17 @@ export function useProfileForm(props: UseProfileFormProps): UseProfileFormReturn
         description: mode === 'create' ? 'Could not refresh profile' : 'Could not update profile',
       });
     } finally {
+      inFlight.current = false;
       setIsSaving(false);
     }
   }, [
+    waitForAuth,
     pubky,
     mode,
     validateUser,
+    links,
     avatarFile,
     avatarChanged,
-    originalAvatarUrl,
     userDetails,
     editRedirectTo,
     idleSubmitText,

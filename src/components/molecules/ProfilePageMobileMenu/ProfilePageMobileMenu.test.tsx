@@ -61,6 +61,7 @@ describe('ProfilePageMobileMenu', () => {
       'Friends',
       'Tagged',
       'Collections',
+      'Unlocked',
     ]);
   });
 
@@ -129,14 +130,5 @@ describe('ProfilePageMobileMenu', () => {
 
     await user.click(screen.getByLabelText('Following'));
     expect(onPageChangeAction).toHaveBeenCalledWith(PROFILE_PAGE_TYPES.FOLLOWING);
-  });
-});
-
-describe('ProfilePageMobileMenu - Snapshots', () => {
-  it('matches snapshot with default props', () => {
-    const { container } = render(
-      <ProfilePageMobileMenu activePage={PROFILE_PAGE_TYPES.NOTIFICATIONS} onPageChangeAction={() => {}} />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

@@ -122,7 +122,11 @@ vi.mock('@/atoms/Container/Container', () => {
 
 vi.mock('@/atoms/FooterLinks/FooterLinks', () => {
   return {
-    FooterLinks: ({ children }: { children: React.ReactNode }) => <div data-testid="footer-links">{children}</div>,
+    FooterLinks: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+      <div data-testid="footer-links" className={className}>
+        {children}
+      </div>
+    ),
   };
 });
 
@@ -281,7 +285,7 @@ describe('HomeFooter', () => {
   it('renders copyright', () => {
     render(<HomeFooter />);
 
-    expect(screen.getByText(/Synonym Software, S\.A\. DE C\.V\./)).toBeInTheDocument();
+    expect(screen.getByText(/Synonym Software, S\.A\. de C\.V\./)).toBeInTheDocument();
   });
 
   it('renders terms, privacy and age agreement text', () => {
@@ -290,6 +294,16 @@ describe('HomeFooter', () => {
     expect(screen.getByTestId('dialog-terms')).toBeInTheDocument();
     expect(screen.getByTestId('dialog-privacy')).toBeInTheDocument();
     expect(screen.getByTestId('dialog-age')).toBeInTheDocument();
+  });
+
+  it('renders the Pubky Protocol link inside the legal line', () => {
+    render(<HomeFooter />);
+
+    const link = screen.getByRole('link', { name: 'Pubky Protocol' });
+    expect(link).toHaveAttribute('href', 'https://github.com/pubky/pubky-core');
+    expect(link).toHaveClass('font-semibold');
+    expect(link.closest('[data-testid="footer-links"]')).toBeInTheDocument();
+    expect(screen.getByTestId('footer-links')).toHaveClass('[&_a]:no-underline');
   });
 
   it('renders Synonym and Tether branding below the agreement text', () => {
@@ -339,32 +353,5 @@ describe('HomePageHeading', () => {
     render(<HomePageHeading />);
 
     expect(screen.getByTestId('heading-1')).toBeInTheDocument();
-  });
-});
-
-describe('Home - Snapshots', () => {
-  it('matches snapshot for HomeActions with default props', () => {
-    const { container } = render(<HomeActions />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for HomeFooter with default props', () => {
-    const { container } = render(<HomeFooter />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for HomeBrandFooter with default props', () => {
-    const { container } = render(<HomeBrandFooter />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for HomeSectionTitle with default props', () => {
-    const { container } = render(<HomeSectionTitle />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for HomePageHeading with default props', () => {
-    const { container } = render(<HomePageHeading />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

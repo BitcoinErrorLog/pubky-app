@@ -14,7 +14,6 @@ Node 24 (`.nvmrc`), dependencies via `npm ci`. The pre-commit hook runs `lint-st
 | Dev server (port 3000)  | `npm run dev` (staging defaults are built in, no `.env` needed)                                |
 | Format, lint, types     | `npm run format:check`, `npm run lint`, `npm run typecheck`                                    |
 | Unit tests (jsdom)      | `npm test` (~13k tests, minutes); one file `npm test -- <path>`; one name `npm test -- -t "x"` |
-| Snapshots               | `npm run test:update-snapshots`                                                                |
 | Visual regression (VRT) | `npm run test:vrt` (`npm run test:vrt:setup` once); baselines are CI-owned, never commit local |
 | Production build        | `npm run build` (`next build --webpack`)                                                       |
 | E2E (Cypress)           | `npm run test:e2e`; needs the full pubky-stack, not runnable from a bare checkout              |
@@ -32,6 +31,9 @@ Hard constraints (review-enforced, not compiler-enforced; `docs/architecture.md`
 - Controllers NEVER call Services directly and never do IO; they go through Application.
 - Coordinators NEVER call Application; they go through Controllers.
 - Application NEVER accesses Stores and never calls Controllers; only Controllers manage stores.
+- Services NEVER access Stores, except session reads in `HomeserverService` / `LocksService` via `getState()`
+  (ADR-0004/0024), including auth failure metadata and the Locks creator-owner check against the current app account;
+  reads only, never writes.
 - Pipes are pure: NO IO, NO side effects. Services never call up. Models touch Dexie only.
 - Cross-Application calls (ADR-0009): only PostApplication, NotificationApplication, BootstrapApplication, MigrationApplication,
   HotApplication, PostStreamApplication and TtlApplication may call other Applications; acyclic; depth 1, with one depth-2
@@ -48,13 +50,21 @@ Controller naming encodes IO: `fetch*` network only, `get*` local only, `getMany
 ## Non-negotiables
 
 - Errors: `Err.*` factories (`src/libs/error/error.factories.ts`), never raw `Error`. Factories log and capture, so never
-  log-then-throw. `docs/error-handling.md`
+  log-then-throw. Only the documented pinned SDK boundary checks may classify by message, including Locks SDK 0.1.0
+  `InvalidInput` + exact viewer HTTP 451; the optional `ClientRegionService.fetchCountry` availability probe uses
+  non-reporting raw `fetch`. Keep these exceptions narrow and contract-tested. `docs/error-handling.md`
 - Local-first reads in hooks: `useLocalFirstQuery` (`@/hooks/useLocalFirstQuery/useLocalFirstQuery`). Never network, TanStack
   or retry logic inside `useLiveQuery`; no hand-rolled `useEffect` + `useLiveQuery`. A cache hit is never refreshed by it,
   a tombstone counts as data, a settled `null` means missing. `docs/local-first.md`
 - Local-first writes: Dexie first, homeserver sync after, roll back on failure, refresh every affected `*_ttl` row, persist
   dependencies before dependents; stream cursors only from Nexus, never `indexed_at`. `docs/local-first.md`, `docs/data-patterns.md`
+- Homeserver writes only through `HomeserverService`, which retries 429/500/503 and the GCS publish-conflict 409 (gate
+  test enforced). A write built from a read of the same data passes the
+  `HomeserverService.createWriteFence()` fence inside `retryHomeserverWriteAfterReread(fence, …)`: it makes one attempt,
+  every retry runs the read again, and no later pass outlives the session. `docs/error-handling.md`
 - Composite post ids `author:postId` via `buildCompositeId` / `parseCompositeId`. `docs/data-patterns.md`
+- Article bodies embed every media kind as `![alt](attachment:{n})`; the kind comes from file metadata, never the
+  markdown, and the cover stays image-only. `docs/data-patterns.md`, ADR-0023
 - Shadcn first and design tokens only (`bg-primary`, not `bg-[#1a1a1a]` or `p-[13px]`); atomic tiers atoms → molecules →
   organisms → templates; z-index only `-z-10, z-10, z-30, z-40, z-50, z-60`. `docs/components.md`, `docs/z-index.md`
 - No `useCallback` / `useMemo` / `React.memo`: the React Compiler handles it. Add one only with profiler evidence.
@@ -73,10 +83,11 @@ Controller naming encodes IO: `fetch*` network only, `get*` local only, `getMany
   CI workflows change only in a CI task.
 - Env: only `src/libs/env/env.ts` and `src/libs/runtime-config/**` read `process.env.NEXT_PUBLIC_*` / `PUBKY_RUNTIME_*`
   (ESLint-enforced); deploy-time values are `PUBKY_RUNTIME_*` getters, never secrets. `docs/environment.md`
-- Sentry: throw via `Err.*`; `Sentry.captureException` is called only in `app/error.tsx` and `app/global-error.tsx`, for
-  non-`AppError` values; no raw user data in error context. `docs/sentry.md`
-- Tests: colocated `*.test.tsx`, one snapshot per test, mobile snapshot blocks for viewport-aware organisms; no `as any` or
-  `as unknown as T` (use the `src/test-utils` helpers). `docs/component-testing.md`
+- Observability: throw via `Err.*`; they capture to Sentry and, in a consenting browser, Pulse. No other direct
+  `captureException` except `app/error.tsx` / `app/global-error.tsx`, for non-`AppError` values; no raw user data. `docs/sentry.md`
+- Tests: colocated `*.test.tsx`; assert props, variants, and interactions in unit tests; visual appearance via VRT; no
+  snapshot tests (removed for VRT, must not return); no `as any` or `as unknown as T` (use the `src/test-utils`
+  helpers). `docs/component-testing.md`
 
 ## Before you edit, read
 
@@ -109,13 +120,17 @@ Controller naming encodes IO: `fetch*` network only, `get*` local only, `getMany
 
 Definition of done: correct layer only; naming conventions; existing primitives reused and no new dependency without a
 reason; `Err.*` everywhere and nothing double-logs; no new colours, spacing, z-index or memo; read pitfalls and TTL refresh
-considered; no visible behaviour reduced; concrete imports and no barrels; tests at the right level including mobile
-snapshots; `lint`, `typecheck` and targeted tests pass; VRT, ADR, `DB_VERSION` and config changes called out; the diff
-reads like the surrounding code.
+considered; no visible behaviour reduced; concrete imports and no barrels; tests at the right level; `lint`, `typecheck`
+and targeted tests pass; VRT, ADR, `DB_VERSION` and config changes called out; the diff reads like the surrounding code.
 
 Commits and branches: `type(scope): description` (imperative, lower-case, no period, ≤72 chars); branches
 `<type>/<issue>-<kebab-description>` cut from `dev`; PRs target `dev`, draft unless asked, one change per PR. Cypress specs
 are owned by QA: flag an invalidated spec, do not edit or run e2e yourself. `docs/commit-message.md`
+
+## People and names
+
+Use GitHub handles for real people and fictional names in tests. Do not attribute opinions, decisions or personal matters
+to people. See [People and names](docs/development-workflow.md#people-and-names) for the full policy.
 
 ## Common failure modes
 
@@ -139,10 +154,12 @@ are owned by QA: flag an invalidated spec, do not edit or run e2e yourself. `doc
 
 ## Tooling map
 
-- `CLAUDE.md` imports this file for Claude Code; Codex and Cursor read it directly. Keep it within 150 lines; details go
-  in `docs/`.
-- `.cursor/rules/*.mdc` and `.claude/rules/*.md` attach the matching doc when a file under their glob is edited; their
-  bodies only point at `docs/`.
+- `CLAUDE.md` imports this file for Claude Code; Codex and Cursor read it directly. Keep it short; details go in `docs/`.
+- `next dev` would append its own agent-rules block here; `agentRules` is off in `next.config.ts` so it never does. The
+  installed Next.js version's docs are in `node_modules/next/dist/docs/`; read the relevant page before using a Next API.
+- `.cursor/rules/*.mdc` and `.claude/rules/*.md` load when a file under their glob is read or edited; their bodies only
+  point at `docs/`. Claude rules name the doc in plain text and never `@`-import it: Claude Code expands such an import
+  at session start regardless of `paths:`.
 - Skills live in `.agents/skills/<name>/` (read natively by Codex and Cursor, symlinked from `.claude/skills/` for Claude
   Code): `pubky-code-review`, `pubky-staging-invite`, `sentry-nextjs-sdk`.
 - Greptile reads `.greptile/config.json` (rules) and `.greptile/files.json` (which docs to attach per path), nothing else.

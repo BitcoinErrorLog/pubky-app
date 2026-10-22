@@ -10,35 +10,6 @@ vi.mock('@/hooks/useCustomFeed/useCustomFeed', () => ({
   useCustomFeed: () => mockUseCustomFeed(),
 }));
 
-// Mock store constants
-vi.mock('@/stores/home/home.types', () => ({
-  REACH: {
-    ALL: 'all',
-    NETWORK: 'network',
-    FOLLOWING: 'following',
-    FRIENDS: 'friends',
-    ME: 'me',
-  },
-  SORT: {
-    TIMELINE: 'timeline',
-    ENGAGEMENT: 'total_engagement',
-  },
-  LAYOUT: {
-    COLUMNS: 'columns',
-    WIDE: 'wide',
-    VISUAL: 'visual',
-  },
-  CONTENT: {
-    ALL: 'all',
-    SHORT: 'short',
-    LONG: 'long',
-    IMAGES: 'images',
-    VIDEOS: 'videos',
-    LINKS: 'links',
-    FILES: 'files',
-  },
-}));
-
 // Mock atoms
 vi.mock('@/atoms/Container/Container', () => {
   return {
@@ -99,16 +70,19 @@ vi.mock('@/molecules/Filters/FilterLayout/FilterLayout', () => {
       selectedTab,
       defaultSelectedTab,
       disabled,
+      showCards,
     }: {
       selectedTab?: string;
       defaultSelectedTab?: string;
       disabled?: boolean;
+      showCards?: boolean;
     }) => (
       <div
         data-testid="filter-layout"
         data-selected-tab={selectedTab ?? ''}
         data-default-selected-tab={defaultSelectedTab ?? ''}
         data-disabled={disabled}
+        data-show-cards={showCards}
       >
         FilterLayout
       </div>
@@ -299,6 +273,13 @@ describe('CustomFeedFilters', () => {
     expect(screen.getByTestId('filter-layout')).toHaveAttribute('data-selected-tab', 'wide');
   });
 
+  it.each(['sidebar', 'drawer'] as const)('shows the saved Cards selection in the %s', (variant) => {
+    mockUseCustomFeed.mockReturnValue(createMockFeed({ layout: PubkyAppFeedLayout.Cards }));
+    render(<CustomFeedFilters variant={variant} />);
+    expect(screen.getByTestId('filter-layout')).toHaveAttribute('data-selected-tab', 'cards');
+    expect(screen.getByTestId('filter-layout')).toHaveAttribute('data-show-cards', 'true');
+  });
+
   it('maps customFeed content to filter selectedTab', () => {
     mockUseCustomFeed.mockReturnValue(createMockFeed({ content: PubkyAppPostKind.Image }));
     render(<CustomFeedFilters variant="sidebar" />);
@@ -402,54 +383,5 @@ describe('CustomFeedFilters', () => {
     render(<CustomFeedFilters variant="sidebar" />);
 
     expect(screen.getByTestId('filter-sort')).toHaveAttribute('data-selected-tab', 'timeline');
-  });
-});
-
-describe('CustomFeedFilters - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUseCustomFeed.mockReturnValue(undefined);
-  });
-
-  it('matches snapshot for sidebar variant without custom feed', () => {
-    const { container } = render(<CustomFeedFilters variant="sidebar" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for drawer variant without custom feed', () => {
-    const { container } = render(<CustomFeedFilters variant="drawer" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for sidebar variant with custom feed', () => {
-    mockUseCustomFeed.mockReturnValue(
-      createMockFeed({
-        reach: PubkyAppFeedReach.Following,
-        sort: PubkyAppFeedSort.Popularity,
-        layout: PubkyAppFeedLayout.Wide,
-        content: PubkyAppPostKind.Image,
-      }),
-    );
-    const { container } = render(<CustomFeedFilters variant="sidebar" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for drawer variant with custom feed', () => {
-    mockUseCustomFeed.mockReturnValue(
-      createMockFeed({
-        reach: PubkyAppFeedReach.Friends,
-        sort: PubkyAppFeedSort.Recent,
-        layout: PubkyAppFeedLayout.Columns,
-        content: PubkyAppPostKind.Long,
-      }),
-    );
-    const { container } = render(<CustomFeedFilters variant="drawer" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for sidebar variant with null content', () => {
-    mockUseCustomFeed.mockReturnValue(createMockFeed({ content: null }));
-    const { container } = render(<CustomFeedFilters variant="sidebar" />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

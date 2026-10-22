@@ -168,7 +168,17 @@ export const getPkarrRelays = (): string[] => getRuntimeConfig().pkarrRelays;
 export const getTestnet = (): boolean => getRuntimeConfig().testnet;
 export const getDeployEnv = (): DeployEnv => getRuntimeConfig().deployEnv;
 
+// Optional Lock Server pubky the composer's lock flow signs into (undefined = Locks disabled).
+export const getLockServer = (): string | undefined => getRuntimeConfig().lockServer;
+
+// Optional Paykit Server address for the creator's payout setup (undefined = Locks disabled).
+export const getPaykitServerUrl = (): string | undefined => getRuntimeConfig().paykitServerUrl;
+/** The `SELECTOR=MODE` list of regions where paid unlocks are held; `undefined` = no region check. */
+export const getRegionModes = (): string | undefined => getRuntimeConfig().regionModes;
+
 // Optional observability tier (absent DSN = Sentry disabled; rates fall back to schema defaults).
+export const getPulseClientKey = (): string | undefined => getRuntimeConfig().pulseClientKey;
+export const getPulseEndpoint = (): string | undefined => getRuntimeConfig().pulseEndpoint;
 export const getSentryDsn = (): string | undefined => getRuntimeConfig().sentryDsn;
 export const getSentryEnvironment = (): string | undefined => getRuntimeConfig().sentryEnvironment;
 export const getSentryTracesSampleRate = (): number => getRuntimeConfig().sentryTracesSampleRate;
@@ -189,6 +199,8 @@ export const getTtlBatchIntervalMs = (): number => getRuntimeConfig().ttlBatchIn
 export const getTtlPostMaxBatchSize = (): number => getRuntimeConfig().ttlPostMaxBatchSize;
 export const getTtlUserMaxBatchSize = (): number => getRuntimeConfig().ttlUserMaxBatchSize;
 export const getTtlRetryDelayMs = (): number => getRuntimeConfig().ttlRetryDelayMs;
+/** Indexing protection after a local profile write, independent of the normal refresh TTL. */
+export const getProfileLocalEditTtlMs = (): number => getRuntimeConfig().profileLocalEditTtlMs;
 export const getModerationId = (): string | undefined => getRuntimeConfig().moderationId;
 export const getModeratedTags = (): string[] => getRuntimeConfig().moderatedTags;
 export const getExchangeRateApi = (): string => getRuntimeConfig().exchangeRateApi;
@@ -216,3 +228,9 @@ export const getGithubUrl = (): string => getRuntimeConfig().githubUrl;
 export const getEmail = (): string => getRuntimeConfig().email;
 export const getAppStoreUrl = (): string => getRuntimeConfig().appStoreUrl;
 export const getPlayStoreUrl = (): string => getRuntimeConfig().playStoreUrl;
+
+/** Stable signer-facing app identity; never derived from a preview hostname. */
+export const getAuthClientId = (): string => {
+  const config = getRuntimeConfig();
+  return config.authClientId ?? (config.deployEnv === 'production' ? 'pubky.app' : 'staging.pubky.app');
+};

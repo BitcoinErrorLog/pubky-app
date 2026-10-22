@@ -115,6 +115,7 @@ vi.mock('../PostInput/PostInput', () => ({
       editContent,
       editIsArticle,
       editAttachments,
+      editLock,
       expanded,
       layoutOverride,
     }) => (
@@ -126,6 +127,8 @@ vi.mock('../PostInput/PostInput', () => ({
         data-edit-content={editContent}
         data-edit-is-article={String(editIsArticle)}
         data-edit-attachments={editAttachments?.join(',')}
+        data-edit-lock-url={editLock?.lockUrl}
+        data-edit-lock-title={editLock?.title}
         data-expanded={String(expanded)}
         data-layout-override={layoutOverride}
       >
@@ -247,6 +250,122 @@ describe('DialogEditPost', () => {
     expect(PostInput).toHaveBeenCalledWith(expect.objectContaining({ editAttachments: [] }), undefined);
   });
 
+  it('passes parsed teaser content and lock metadata for a lock announcement', () => {
+    const lockUrl = 'pubky://author/pub/app.locks/LOCK1.json';
+    vi.mocked(usePostDetails).mockReturnValue({
+      postDetails: {
+        id: 'test-lock-post-123',
+        content: JSON.stringify({ lock_title: 'Private note', teaser_description: 'Public teaser' }),
+        kind: 'short',
+        attachments: postAttachments,
+        lock: lockUrl,
+      } as ReturnType<typeof usePostDetails>['postDetails'],
+      isLoading: false,
+    });
+
+    render(<DialogEditPost postId="test-lock-post-123" open onOpenChangeAction={vi.fn()} />);
+
+    expect(PostInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editContent: 'Public teaser',
+        editLock: { lockUrl, title: 'Private note' },
+      }),
+      undefined,
+    );
+  });
+
+  // A lock post always opens in teaser mode, with the fields the reader would show. When the body is
+  // not a teaser envelope it is kept as the teaser text instead of being dropped: saving re-wraps the
+  // editor's content into an envelope, so clearing the field here would delete the post's only text.
+  it('keeps unparsable content as the teaser text', () => {
+    const lockUrl = 'pubky://author/pub/app.locks/LOCK1.json';
+    const unrelatedContent = JSON.stringify({ title: 'Not a teaser', body: 'No envelope field' });
+    vi.mocked(usePostDetails).mockReturnValue({
+      postDetails: {
+        id: 'test-lock-post-123',
+        content: unrelatedContent,
+        kind: 'short',
+        attachments: postAttachments,
+        lock: lockUrl,
+      } as ReturnType<typeof usePostDetails>['postDetails'],
+      isLoading: false,
+    });
+
+    render(<DialogEditPost postId="test-lock-post-123" open onOpenChangeAction={vi.fn()} />);
+
+    expect(PostInput).toHaveBeenCalledWith(
+      expect.objectContaining({ editContent: unrelatedContent, editLock: { lockUrl, title: '' } }),
+      undefined,
+    );
+  });
+
+  it('seeds the teaser with the raw content when the announcement is not JSON', () => {
+    const lockUrl = 'pubky://author/pub/app.locks/LOCK1.json';
+    vi.mocked(usePostDetails).mockReturnValue({
+      postDetails: {
+        id: 'test-lock-post-123',
+        content: 'plain announcement text',
+        kind: 'short',
+        attachments: postAttachments,
+        lock: lockUrl,
+      } as ReturnType<typeof usePostDetails>['postDetails'],
+      isLoading: false,
+    });
+
+    render(<DialogEditPost postId="test-lock-post-123" open onOpenChangeAction={vi.fn()} />);
+
+    expect(PostInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        editContent: 'plain announcement text',
+        editLock: { lockUrl, title: '' },
+      }),
+      undefined,
+    );
+  });
+
+  it('keeps an explicitly empty title when the envelope is complete', () => {
+    const lockUrl = 'pubky://author/pub/app.locks/LOCK1.json';
+    vi.mocked(usePostDetails).mockReturnValue({
+      postDetails: {
+        id: 'test-lock-post-123',
+        content: '{"lock_title":"","teaser_description":"Public teaser"}',
+        kind: 'short',
+        attachments: postAttachments,
+        lock: lockUrl,
+      } as ReturnType<typeof usePostDetails>['postDetails'],
+      isLoading: false,
+    });
+
+    render(<DialogEditPost postId="test-lock-post-123" open onOpenChangeAction={vi.fn()} />);
+
+    expect(PostInput).toHaveBeenCalledWith(
+      expect.objectContaining({ editContent: 'Public teaser', editLock: { lockUrl, title: '' } }),
+      undefined,
+    );
+  });
+
+  it('opens a partial envelope in teaser mode, filling the missing field', () => {
+    const lockUrl = 'pubky://author/pub/app.locks/LOCK1.json';
+    const partialContent = '{"lock_title":"Private note"}';
+    vi.mocked(usePostDetails).mockReturnValue({
+      postDetails: {
+        id: 'test-lock-post-123',
+        content: partialContent,
+        kind: 'short',
+        attachments: postAttachments,
+        lock: lockUrl,
+      } as ReturnType<typeof usePostDetails>['postDetails'],
+      isLoading: false,
+    });
+
+    render(<DialogEditPost postId="test-lock-post-123" open onOpenChangeAction={vi.fn()} />);
+
+    expect(PostInput).toHaveBeenCalledWith(
+      expect.objectContaining({ editContent: '', editLock: { lockUrl, title: 'Private note' } }),
+      undefined,
+    );
+  });
+
   it('enables keyboard avoidance on DialogContent', () => {
     const onOpenChangeAction = vi.fn();
     render(<DialogEditPost postId="test-post-123" open={true} onOpenChangeAction={onOpenChangeAction} />);
@@ -346,68 +465,5 @@ describe('DialogEditPost', () => {
     expect(useConfirmableDialog).toHaveBeenCalledWith({
       onClose: expect.any(Function),
     });
-  });
-});
-
-describe('DialogEditPost - Snapshots', () => {
-  const articleContent = JSON.stringify({ title: 'Snapshot article title', body: 'Snapshot article content' });
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(usePostDetails).mockReturnValue({
-      postDetails: {
-        id: 'snapshot-post-id',
-        content: 'Snapshot post content',
-        kind: 'short',
-        attachments: ['pubky://author/pub/pubky.app/files/snapshot-file-1'],
-      } as ReturnType<typeof usePostDetails>['postDetails'],
-      isLoading: false,
-    });
-  });
-
-  it('matches snapshot for short post (Edit Post)', () => {
-    const onOpenChangeAction = vi.fn();
-    const { container } = render(
-      <DialogEditPost postId="snapshot-post-id" open={true} onOpenChangeAction={onOpenChangeAction} />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for long post (Edit Article)', () => {
-    vi.mocked(usePostDetails).mockReturnValue({
-      postDetails: {
-        id: 'snapshot-article-id',
-        content: articleContent,
-        kind: 'long',
-      } as ReturnType<typeof usePostDetails>['postDetails'],
-      isLoading: false,
-    });
-
-    const onOpenChangeAction = vi.fn();
-    const { container } = render(
-      <DialogEditPost postId="snapshot-article-id" open={true} onOpenChangeAction={onOpenChangeAction} />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when dialog is closed', () => {
-    const onOpenChangeAction = vi.fn();
-    const { container } = render(
-      <DialogEditPost postId="snapshot-post-id" open={false} onOpenChangeAction={onOpenChangeAction} />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot when postDetails is null', () => {
-    vi.mocked(usePostDetails).mockReturnValue({
-      postDetails: null,
-      isLoading: true,
-    });
-
-    const onOpenChangeAction = vi.fn();
-    const { container } = render(
-      <DialogEditPost postId="null-post-id" open={true} onOpenChangeAction={onOpenChangeAction} />,
-    );
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

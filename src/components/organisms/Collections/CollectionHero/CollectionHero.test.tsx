@@ -1,7 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
 import { TagKind } from '@/application/tag/tag.types';
+import { TooltipProvider } from '@/atoms/Tooltip/Tooltip';
 import { COLLECTION_LAYOUT } from '@/config/collections';
 import { getDefaultUrl } from '@/config/metadata';
 import { useBookmark } from '@/hooks/useBookmark/useBookmark';
@@ -11,6 +13,7 @@ import { useTtlSubscription } from '@/hooks/useTtlSubscription/useTtlSubscriptio
 import { useUserProfile } from '@/hooks/useUserProfile/useUserProfile';
 import { toast } from '@/molecules/Toaster/toast';
 import { asOpaque } from '@/test-utils/type-assertions';
+import { resetViewport, setMobileViewport } from '@/test-utils/viewport';
 import { CollectionHero } from './CollectionHero';
 import type { CollectionHeroProps } from './CollectionHero.types';
 
@@ -43,7 +46,8 @@ vi.mock('@/hooks/usePostReplyRepostDialogs/usePostReplyRepostDialogs', () => ({
   usePostReplyRepostDialogs: vi.fn(),
 }));
 
-const mockRequireAuth = vi.fn(<T,>(action: () => T) => action());
+let canMutate = true;
+const mockRequireAuth = vi.fn(<T,>(action: () => T) => (canMutate ? action() : undefined));
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
   useRequireAuth: () => ({ requireAuth: mockRequireAuth }),
 }));
@@ -54,7 +58,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 const mockDeleteState = vi.hoisted(() => ({
-  deletePost: vi.fn().mockResolvedValue(undefined),
+  deletePost: vi.fn().mockResolvedValue(true),
   isDeleting: false,
 }));
 const mockViewportState = vi.hoisted(() => ({
@@ -68,6 +72,10 @@ vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
   useIsMobile: () => mockViewportState.isMobile,
 }));
 
+const confirmDeleteProps = vi.hoisted(() => ({
+  onConfirm: null as null | (() => void | boolean | Promise<void | boolean>),
+}));
+
 vi.mock('@/molecules/DialogConfirmDelete/DialogConfirmDelete', () => ({
   DialogConfirmDelete: ({
     open,
@@ -77,17 +85,19 @@ vi.mock('@/molecules/DialogConfirmDelete/DialogConfirmDelete', () => ({
   }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onConfirm: () => void;
+    onConfirm: () => void | boolean | Promise<void | boolean>;
     title?: string;
     description?: string;
-  }) =>
-    open ? (
+  }) => {
+    confirmDeleteProps.onConfirm = onConfirm;
+    return open ? (
       <div data-testid="dialog-confirm-delete" data-title={title} data-description={description}>
         <button data-testid="dialog-confirm-delete-btn" onClick={onConfirm}>
           confirm delete
         </button>
       </div>
-    ) : null,
+    ) : null;
+  },
 }));
 
 const mockUnBlur = vi.fn();
@@ -276,7 +286,7 @@ function renderHero(overrides: Partial<CollectionHeroProps> = {}) {
     authorPubky: overrides.authorPubky ?? AUTHOR_PUBKY,
     postId: overrides.postId ?? POST_ID,
     postDetails: 'postDetails' in overrides ? overrides.postDetails : currentPostDetails,
-    layout: overrides.layout ?? COLLECTION_LAYOUT.GRID,
+    layout: overrides.layout ?? COLLECTION_LAYOUT.CARDS,
     onLayoutChange: overrides.onLayoutChange ?? vi.fn(),
   };
 
@@ -338,6 +348,7 @@ function setPostCounts(uniqueTags = 3) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  canMutate = true;
   mockDeleteState.isDeleting = false;
   mockViewportState.isMobile = false;
   for (const key of Object.keys(mockLocalCollections)) delete mockLocalCollections[key];
@@ -361,7 +372,7 @@ describe('CollectionHero', () => {
     expect(screen.getByText('A bit of Bitcoin purity amidst all of the madness.')).toBeInTheDocument();
     const countBadge = screen.getByLabelText('2 posts');
     expect(countBadge).toBeInTheDocument(); // compact-formatted item count
-    expect(within(countBadge).getByText('posts', { exact: false })).toHaveClass('inline');
+    expect(within(countBadge).getByText('posts', { exact: false })).toHaveClass('hidden', 'sm:inline');
     const avatar = screen.getByTestId('avatar-with-fallback');
     expect(avatar).toHaveAttribute('data-name', 'Bitcoin Wizard');
     expect(avatar).toHaveAttribute('data-avatar-url', 'https://example.com/avatar.png');
@@ -426,7 +437,7 @@ describe('CollectionHero', () => {
     const onLayoutChange = vi.fn();
     renderHero({ onLayoutChange });
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: /Layout: Grid/ }), {
+    fireEvent.pointerDown(screen.getByRole('button', { name: /Layout: Cards/ }), {
       button: 0,
       ctrlKey: false,
     });
@@ -436,20 +447,19 @@ describe('CollectionHero', () => {
     expect(onLayoutChange).toHaveBeenCalledWith(COLLECTION_LAYOUT.LIST);
   });
 
-  it('keeps the tag action last in the viewer action row', () => {
+  it('places the tag action last in the viewer action row', () => {
     renderHero();
 
-    const layoutButton = screen.getByRole('button', { name: /Layout: Grid/ });
     const tagButton = screen.getByLabelText('Tag post (3)');
-    expect(layoutButton.compareDocumentPosition(tagButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tagButton.parentElement?.lastElementChild).toBe(tagButton);
   });
 
-  it('hides the temporary layout override from the collection owner', () => {
+  it('shows the temporary layout override to the collection owner', () => {
     setAuthStore(AUTHOR_PUBKY);
 
     renderHero();
 
-    expect(screen.queryByRole('button', { name: /Layout: Grid/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Layout: Cards/ })).toBeInTheDocument();
   });
 
   it('shows a skeleton (not the raw pubky) for the owner name while the profile is null', () => {
@@ -529,13 +539,11 @@ describe('CollectionHero', () => {
       expect(screen.getByLabelText('Edit')).toBeInTheDocument();
       expect(screen.getByLabelText('Delete')).toBeInTheDocument();
       expect(screen.getByLabelText('Tag post (3)')).toBeInTheDocument();
-      expect(
-        screen.getByLabelText('Delete').compareDocumentPosition(screen.getByLabelText('Tag post (3)')) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
+      const tagButton = screen.getByLabelText('Tag post (3)');
+      expect(tagButton.parentElement?.lastElementChild).toBe(tagButton);
       expect(screen.getByText('Share', { selector: 'span' })).toHaveClass('hidden', 'lg:inline');
-      expect(screen.getByText('Edit', { selector: 'span' })).toHaveClass('hidden', 'lg:inline');
-      expect(screen.getByText('Delete', { selector: 'span' })).toHaveClass('hidden', 'lg:inline');
+      expect(screen.queryByText('Edit', { selector: 'span' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Delete', { selector: 'span' })).not.toBeInTheDocument();
       expect(screen.queryByLabelText('Follow')).not.toBeInTheDocument();
       expect(screen.queryByLabelText('Unfollow')).not.toBeInTheDocument();
     });
@@ -608,7 +616,47 @@ describe('CollectionHero', () => {
       expect(screen.getByTestId('repost-dialogs')).toBeInTheDocument();
     });
 
+    it('gates owner edit and delete controls while authorization needs recovery', () => {
+      setAuthStore(AUTHOR_PUBKY);
+      canMutate = false;
+      renderHero();
+      fireEvent.click(screen.getByLabelText('Edit'));
+      fireEvent.click(screen.getByLabelText('Delete'));
+      expect(screen.queryByTestId('edit-collection-dialog')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('dialog-confirm-delete')).not.toBeInTheDocument();
+      expect(mockRequireAuth).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not navigate when the delete hook cancels authorization', async () => {
+      setAuthStore(AUTHOR_PUBKY);
+      renderHero();
+      fireEvent.click(screen.getByLabelText('Delete'));
+      mockDeletePost.mockResolvedValueOnce(false);
+      await act(async () => fireEvent.click(screen.getByTestId('dialog-confirm-delete-btn')));
+      expect(mockDeletePost).toHaveBeenCalledWith(COMPOSITE_ID);
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+    });
+
     describe('delete flow', () => {
+      it.each([true, false])('passes the pending deletion result back to the dialog (%s)', async (success) => {
+        setAuthStore(AUTHOR_PUBKY);
+        const pending = Promise.withResolvers<boolean>();
+        mockDeletePost.mockReturnValueOnce(pending.promise);
+        renderHero();
+        fireEvent.click(screen.getByLabelText('Delete'));
+        let confirmation!: ReturnType<NonNullable<typeof confirmDeleteProps.onConfirm>>;
+        act(() => {
+          confirmation = confirmDeleteProps.onConfirm!();
+        });
+        expect(confirmation).toBeInstanceOf(Promise);
+        expect(mockRouterReplace).not.toHaveBeenCalled();
+        await act(async () => {
+          pending.resolve(success);
+          expect(await confirmation).toBe(success);
+        });
+        expect(mockRouterReplace).toHaveBeenCalledTimes(success ? 1 : 0);
+      });
+
       it('opens the confirmation dialog with the collection-specific i18n namespace on Delete click', () => {
         setAuthStore(AUTHOR_PUBKY);
         renderHero();
@@ -659,6 +707,22 @@ describe('CollectionHero', () => {
   });
 
   describe('CTA — reorder', () => {
+    it.each([
+      ['Copy link', 'Copy link'],
+      ['Reorder', 'Reorder'],
+      ['Edit', 'Edit'],
+      ['Delete', 'Delete'],
+      ['Layout: Cards', 'Change layout'],
+      ['Tag post (3)', 'Show tags'],
+    ])('shows a tooltip when %s receives keyboard focus', async (label, tooltip) => {
+      setAuthStore(AUTHOR_PUBKY);
+      renderHero({ reorder: buildReorderProps() });
+
+      fireEvent.focus(screen.getByRole('button', { name: label }));
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(tooltip);
+    });
+
     function buildReorderProps(overrides: Partial<NonNullable<CollectionHeroProps['reorder']>> = {}) {
       return {
         isActive: false,
@@ -824,19 +888,6 @@ describe('CollectionHero', () => {
       expect(openRepostDialog).toHaveBeenCalledTimes(1);
     });
 
-    it('prompts sign-in instead of toggling bookmark when a guest clicks Follow', () => {
-      setAuthStore(null);
-      const toggle = setBookmark({ isBookmarked: false });
-      mockRequireAuth.mockImplementation(<T,>(_action: () => T) => undefined as T);
-
-      renderHero();
-
-      fireEvent.click(screen.getByLabelText('Follow'));
-
-      expect(mockRequireAuth).toHaveBeenCalledTimes(1);
-      expect(toggle).not.toHaveBeenCalled();
-    });
-
     it('prompts sign-in instead of opening the share dialog when a guest clicks Share', () => {
       setAuthStore(null);
       const { openRepostDialog } = setRepostDialogs();
@@ -869,13 +920,14 @@ describe('CollectionHero', () => {
       Reflect.deleteProperty(window.navigator, 'canShare');
     });
 
-    it('sits right after Share for the owner and stays icon-only below lg', () => {
+    it('sits after Share for the owner and stays icon-only', () => {
       setAuthStore(AUTHOR_PUBKY);
 
       renderHero();
 
       const copyLink = screen.getByLabelText('Copy link');
-      expect(screen.getByText('Copy link', { selector: 'span' })).toHaveClass('hidden', 'lg:inline');
+      expect(copyLink).toHaveTextContent('');
+      expect(screen.queryByText('Copy link', { selector: 'span' })).not.toBeInTheDocument();
       expect(
         screen.getByLabelText('Share').compareDocumentPosition(copyLink) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
@@ -979,37 +1031,27 @@ describe('CollectionHero', () => {
     });
   });
 });
+function render(ui: ReactElement) {
+  return rtlRender(ui, { wrapper: TooltipProvider });
+}
 
-describe('CollectionHero - Snapshots', () => {
-  it('matches the snapshot for the owner state', () => {
+describe('CollectionHero - mobile layout preference', () => {
+  beforeEach(() => {
+    mockViewportState.isMobile = true;
+    setMobileViewport();
     setAuthStore(AUTHOR_PUBKY);
-
-    const { container } = renderHero();
-    expect(container.firstChild).toMatchSnapshot();
   });
 
-  it('matches the snapshot for the owner reorder-active state', () => {
-    setAuthStore(AUTHOR_PUBKY);
-
-    const { container } = renderHero({
-      reorder: { isActive: true, isSaving: false, onEnter: vi.fn(), onSave: vi.fn(), onCancel: vi.fn() },
-    });
-    expect(container.firstChild).toMatchSnapshot();
+  afterEach(() => {
+    mockViewportState.isMobile = false;
+    resetViewport();
   });
 
-  it('matches the snapshot for the non-owner Follow state', () => {
-    setAuthStore('viewer-pubky');
-    setBookmark({ isBookmarked: false });
-
-    const { container } = renderHero();
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the snapshot when no cover image and no description are set', () => {
-    setPostDetails(COLLECTION_CONTENT_NO_COVER);
-    setAuthStore('viewer-pubky');
-
-    const { container } = renderHero();
-    expect(container.firstChild).toMatchSnapshot();
+  it('shows Cards for a Visual preference without changing it', async () => {
+    const onLayoutChange = vi.fn();
+    renderHero({ layout: COLLECTION_LAYOUT.VISUAL, onLayoutChange });
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Layout: Cards' }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Cards' }));
+    expect(onLayoutChange).not.toHaveBeenCalled();
   });
 });

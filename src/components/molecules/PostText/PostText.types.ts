@@ -1,6 +1,7 @@
 import { AnchorHTMLAttributes, ButtonHTMLAttributes, ClassAttributes } from 'react';
 import type React from 'react';
 import { ExtraProps } from 'react-markdown';
+import type { ArticleMediaSource } from '@/molecules/ArticleInlineMedia/ArticleInlineMedia.types';
 
 export interface PostTextProps {
   content: string;
@@ -13,18 +14,12 @@ export interface PostTextProps {
    */
   fullArticle?: boolean;
   /**
-   * Enables inline article images (article detail page only). Without it,
-   * article image nodes are stripped before rendering — feed previews and
-   * embedded article cards never show body images.
+   * Enables inline article media — images, video, audio and PDF all use image syntax — on the
+   * surfaces that read an article in full (the detail page, unlocked content). Without it,
+   * article media nodes are stripped before rendering — feed previews and embedded article
+   * cards never show body media.
    */
-  articleImages?: {
-    /** The post's full attachment URI list (`attachment:{n}` slots) */
-    attachments: string[];
-    /** The article author's pubky (ownership check for attachment refs) */
-    authorId: string;
-    /** Composite post id (local files store key for same-session previews) */
-    postId: string;
-  };
+  articleMedia?: ArticleMediaSource;
   /** Compact visibly raw HTTP(S) URLs to their host. Disable for non-post text such as profile bios. */
   compactUrls?: boolean;
   onLinkClick?: (url: string, e: React.MouseEvent<HTMLAnchorElement>) => void;

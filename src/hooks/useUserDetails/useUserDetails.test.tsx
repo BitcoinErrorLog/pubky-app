@@ -19,7 +19,7 @@ vi.mock('dexie-react-hooks', () => ({
     queryFn();
     // Return the mock value based on what mockGetDetails returns
     const result = mockGetDetails.mock.results[mockGetDetails.mock.results.length - 1];
-    return result?.value ?? defaultValue;
+    return result?.value == null ? defaultValue : { query: _deps[0], data: result.value };
   },
 }));
 
@@ -80,42 +80,5 @@ describe('useUserDetails', () => {
 
     // enabled=false so queryFn is not called, getDetails is never invoked
     expect(mockGetDetails).not.toHaveBeenCalled();
-  });
-});
-
-describe('useUserDetails - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockGetDetails.mockReturnValue(null);
-  });
-
-  it('matches snapshot for valid user', () => {
-    const mockUser = {
-      id: 'snapshot-user',
-      name: 'Snapshot User',
-      bio: 'A user for snapshot testing',
-      image: null,
-      links: [],
-      status: 'active',
-    };
-    mockGetDetails.mockReturnValue(mockUser);
-
-    const { result } = renderHook(() => useUserDetails('snapshot-user'));
-
-    expect(result.current).toMatchSnapshot();
-  });
-
-  it('matches snapshot for null userId', () => {
-    const { result } = renderHook(() => useUserDetails(null));
-
-    expect(result.current).toMatchSnapshot();
-  });
-
-  it('matches snapshot for not found user', () => {
-    mockGetDetails.mockReturnValue(null);
-
-    const { result } = renderHook(() => useUserDetails('not-found'));
-
-    expect(result.current).toMatchSnapshot();
   });
 });

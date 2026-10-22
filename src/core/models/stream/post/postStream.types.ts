@@ -1,5 +1,7 @@
+import { toContentSearchKey } from '@/libs/search/contentSearch';
 import type { Pubky } from '@/models/models.types';
 import { StreamSorting } from '@/services/nexus/nexus.types';
+import { isNexusSearchReach, type NexusSearchReach } from '@/services/nexus/search/search.types';
 import { StreamKind, StreamSource } from '@/services/nexus/stream/posts/postStream.types';
 
 // Post Stream ID Pattern: sorting:source:kind
@@ -11,8 +13,9 @@ import { StreamKind, StreamSource } from '@/services/nexus/stream/posts/postStre
 // - compositePostId format: author:postId (e.g., "did:key:abc123:post456")
 // - Example: "postReplies:did:key:abc123:post456"
 //
-// Full-text Content Search Stream ID Pattern: content_search:q~<encodedQuery>:kind
-// - Example: "content_search:q~bitcoin%20wallets:all" (see buildContentSearchStreamId)
+// Full-text Content Search Stream ID Pattern: content_search:q~<encodedQuery>:kind[:<authorPubky>|:reach:<reach>]
+// - The query is lowercased: "Bitcoin Wallets" and "bitcoin wallets" share one stream
+// - Example: "content_search:q~bitcoin%20wallets:all:reach:wot" (see buildContentSearchStreamId)
 
 // Note: In some cases that we reference PostStreamTypes enum, we need to cast to PostStreamId to avoid type errors.
 // TypeScript's generic inference narrows PostStreamTypes enum to the enum type instead of widening to PostStreamId union.
@@ -130,19 +133,26 @@ export type SortedAuthorStreamCompositeId =
 //     `total_engagement:all:collection`
 // - Single-collection items (posts inside one collection):
 //     `collection:<authorPubky>:<postId>` (source-first composite, mirrors REPLIES).
+// - Collections containing one post (the save picker's "Also in collections" list):
+//     `post_collections:<authorPubky>:<postId>` (source-first composite, skip-paginated,
+//     served from Nexus's COLLECTED edges — pubky-nexus#1067).
 export type AuthorCollectionsStreamId = `${string}:${StreamSource.AUTHOR}:${StreamKind.COLLECTION}`;
 export type FollowedCollectionsStreamId =
   `${StreamSorting.TIMELINE}:${StreamSource.BOOKMARKS}:${StreamKind.COLLECTION}`;
 export type DiscoverCollectionsStreamId = `${StreamSorting.ENGAGEMENT}:${StreamSource.ALL}:${StreamKind.COLLECTION}`;
 export type CollectionItemsStreamCompositeId = `${StreamSource.COLLECTION}:${string}:${string}`;
+export type PostCollectionsStreamCompositeId = `${StreamSource.POST_COLLECTIONS}:${string}:${string}`;
 export const CONTENT_SEARCH_STREAM_PREFIX = 'content_search' as const;
 // The marker plus encodeURIComponent (which escapes ':') guarantees the query segment can never
 // satisfy any legacy segment-based classifier (reserved words like 'bookmarks'/'author'/'wot').
 const CONTENT_SEARCH_QUERY_MARKER = 'q~' as const;
-// Optional trailing author segment scopes the search to one profile's posts (profile "Filter
-// posts"): `content_search:q~<encodedQuery>:<kind>[:<authorPubky>]`. Pubkys contain no ':'.
+const CONTENT_SEARCH_REACH_MARKER = 'reach' as const;
+// Optional scope suffix: `:<authorPubky>` for profile "Filter posts", or
+// `:reach:<following|friends|wot>` for Search. Pubkys contain no ':'.
 export type ContentSearchStreamId =
   `${typeof CONTENT_SEARCH_STREAM_PREFIX}:${typeof CONTENT_SEARCH_QUERY_MARKER}${string}:${PostStreamKindSegment}${'' | `:${string}`}`;
+
+type ContentSearchScope = { type: 'author'; author: Pubky } | { type: 'reach'; reach: NexusSearchReach };
 
 export function buildPostReplyStreamId(compositePostId: string): ReplyStreamCompositeId {
   return `${StreamSource.REPLIES}:${compositePostId}`;
@@ -208,28 +218,34 @@ export function buildCollectionItemsStreamId(authorPubky: Pubky, postId: string)
   return `${StreamSource.COLLECTION}:${authorPubky}:${postId}`;
 }
 
+export function buildPostCollectionsStreamId(authorPubky: Pubky, postId: string): PostCollectionsStreamCompositeId {
+  return `${StreamSource.POST_COLLECTIONS}:${authorPubky}:${postId}`;
+}
+
 export function buildContentSearchStreamId(
   query: string,
   kind: PostStreamKindSegment = 'all',
-  author?: Pubky,
+  scope?: ContentSearchScope,
 ): ContentSearchStreamId {
+  // Keyed case-insensitively so casing never splits one search into separate stream caches.
   const base =
-    `${CONTENT_SEARCH_STREAM_PREFIX}:${CONTENT_SEARCH_QUERY_MARKER}${encodeURIComponent(query)}:${kind}` as const;
-  return author ? `${base}:${author}` : base;
+    `${CONTENT_SEARCH_STREAM_PREFIX}:${CONTENT_SEARCH_QUERY_MARKER}${encodeURIComponent(toContentSearchKey(query))}:${kind}` as const;
+  if (scope?.type === 'author') return `${base}:${scope.author}`;
+  if (scope?.type === 'reach') return `${base}:${CONTENT_SEARCH_REACH_MARKER}:${scope.reach}`;
+  return base;
 }
 
 export function parseContentSearchStreamId(
   streamId: string,
-): { query: string; kind: PostStreamKindSegment; author?: Pubky } | null {
-  const [prefix, markedQuery, kind, author, ...extra] = streamId.split(':');
+): { query: string; kind: PostStreamKindSegment; author?: Pubky; reach?: NexusSearchReach } | null {
+  const [prefix, markedQuery, kind, ...scope] = streamId.split(':');
   const parsedKind = toPostStreamKindSegment(kind);
   if (
     prefix !== CONTENT_SEARCH_STREAM_PREFIX ||
     !markedQuery?.startsWith(CONTENT_SEARCH_QUERY_MARKER) ||
     !parsedKind ||
-    extra.length > 0 ||
-    // A trailing ':' (empty author segment) is malformed, not an unscoped search.
-    author === ''
+    scope.length > 2 ||
+    scope.some((segment) => !segment)
   ) {
     return null;
   }
@@ -239,7 +255,14 @@ export function parseContentSearchStreamId(
     if (!query) {
       return null;
     }
-    return author ? { query, kind: parsedKind, author } : { query, kind: parsedKind };
+    const result = { query, kind: parsedKind };
+    if (scope.length === 0) return result;
+    const [scopeKey, scopeValue] = scope;
+    if (scope.length === 1 && scopeKey !== CONTENT_SEARCH_REACH_MARKER) return { ...result, author: scopeKey };
+    if (scopeKey === CONTENT_SEARCH_REACH_MARKER && isNexusSearchReach(scopeValue)) {
+      return { ...result, reach: scopeValue };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -265,6 +288,11 @@ export function isAuthorScopedContentSearchStream(streamId: string): boolean {
 
 export function isCollectionItemsStream(streamId: string): streamId is CollectionItemsStreamCompositeId {
   return streamId.startsWith(`${StreamSource.COLLECTION}:`);
+}
+
+/** Collections-containing-a-post streams (`post_collections:<author>:<postId>`); every post in them is a collection. */
+export function isPostCollectionsStream(streamId: string): streamId is PostCollectionsStreamCompositeId {
+  return streamId.startsWith(`${StreamSource.POST_COLLECTIONS}:`);
 }
 
 export function isWotDomainStream(streamId: string): streamId is WotDomainStreamCompositeId {
@@ -297,7 +325,8 @@ function toPostStreamKindSegment(segment: string | undefined): PostStreamKindSeg
 /**
  * Extracts the post kind segment from any known stream id shape, or `undefined`
  * for shapes that encode no kind (`author:<pubky>`, `author_replies:<pubky>`,
- * `post_replies:<pubky>:<postId>`, `collection:<pubky>:<postId>`).
+ * `post_replies:<pubky>:<postId>`, `collection:<pubky>:<postId>`,
+ * `post_collections:<pubky>:<postId>`).
  *
  * This is the canonical kind parser: consumers gating posts by kind (e.g.
  * `postKindBelongsToStream`) must use it instead of splitting the id themselves.
@@ -420,6 +449,7 @@ export type PostStreamId =
   | FollowedCollectionsStreamId
   | DiscoverCollectionsStreamId
   | CollectionItemsStreamCompositeId
+  | PostCollectionsStreamCompositeId
   | ContentSearchStreamId;
 
 /**
@@ -430,11 +460,18 @@ export type PostStreamId =
  * - Engagement streams (`total_engagement:…`) — popularity-ranked, no stable score cursor.
  * - Single-collection item streams (`collection:…`) — returned in the collection's own
  *   item order, paginated by index.
+ * - Post-collections streams (`post_collections:…`) — served from the graph, newest first,
+ *   paginated by `skip`/`limit` (pubky-nexus#1067).
  * - Full-text content search (`content_search:…`) — relevance-ranked and paginated by offset.
  */
 export function isSkipPaginatedStream(streamId: string): boolean {
   const head = streamId.split(':')[0];
-  return head === StreamSorting.ENGAGEMENT || isCollectionItemsStream(streamId) || isContentSearchStream(streamId);
+  return (
+    head === StreamSorting.ENGAGEMENT ||
+    isCollectionItemsStream(streamId) ||
+    isPostCollectionsStream(streamId) ||
+    isContentSearchStream(streamId)
+  );
 }
 
 /**

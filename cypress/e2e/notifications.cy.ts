@@ -88,10 +88,9 @@ describe('notifications', () => {
 
     cy.signInWithEncryptedFile(backupDownloadFilePath(profile2.username));
     verifyNotificationCounter(1);
-    cy.intercept({
-      method: 'PUT',
-      url: '/pub/pubky.app/last_read',
-    }).as('putLastRead');
+    // Match the homeserver transport URL the same way as the other writes.
+    // An exact `/pub/pubky.app/last_read` url does not.
+    cy.intercept('PUT', '**/pub/pubky.app/last_read*').as('putLastRead');
     goToProfilePageFromHeader();
     cy.wait('@putLastRead').should('have.property', 'response').its('statusCode').should('eq', 201);
     verifyNotificationCounter(0);
@@ -199,7 +198,10 @@ describe('notifications', () => {
     }
   });
 
-  it('can be notified for profile being mentioned in a post', () => {
+  // TODO: https://github.com/pubky/pubky-nexus/issues/1149. Nexus sometimes falsely queues the
+  // mention post as MissingDependency, and the retry's recovery path skips notifications, so the
+  // mention notification is never created. Re-enable this test once #1149 is fixed.
+  it.skip('can be notified for profile being mentioned in a post', () => {
     // * profile 1 creates a post mentioning profile 2 via @username lookup
     createQuickPostWithMention(profile2.username);
 

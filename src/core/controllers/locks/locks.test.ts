@@ -1,0 +1,833 @@
+import type { Session as LocksSdkSession } from '@synonymdev/locks-sdk';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LocksApplication } from '@/application/locks/locks';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
+import type { TUnlockedContent } from '@/services/locks/locks.types';
+import { useAuthStore } from '@/stores/auth/auth.store';
+import { useLocksAuthStore } from '@/stores/locksAuth/locksAuth.store';
+import { locksAuthInitialState } from '@/stores/locksAuth/locksAuth.types';
+import { MOCK_LOCK_AUTHOR_PUBKY, mockLockFile } from '@/test-utils/locks';
+import { asOpaque } from '@/test-utils/type-assertions';
+import { LocksController } from './locks';
+
+const mocks = vi.hoisted(() => ({
+  generateConnectUrl: vi.fn(),
+  isServerReady: vi.fn(),
+  exchangeSessionCode: vi.fn(),
+  restoreSession: vi.fn(),
+  signout: vi.fn(),
+  setLockServiceConfig: vi.fn(),
+  fetchPaykitSetupStatus: vi.fn(),
+  createLockContent: vi.fn(),
+  fetchLockFile: vi.fn(),
+  getOrFetchLockFile: vi.fn(),
+  hasPaykitReceiver: vi.fn(),
+  fetchResolvedPurchase: vi.fn(),
+  fetchPaidContent: vi.fn(),
+  startPayment: vi.fn(),
+  fetchPaykitConnectionState: vi.fn(),
+  fetchPurchasedLockIds: vi.fn(),
+  fetchPaymentStatus: vi.fn(),
+  replicateUnlockedContent: vi.fn(),
+  fetchReplicatedContent: vi.fn(),
+  fetchUnlockedList: vi.fn(),
+  fetchOwnContent: vi.fn(),
+}));
+
+vi.mock('@/application/locks/locks', () => ({
+  LocksApplication: {
+    generateConnectUrl: mocks.generateConnectUrl,
+    isServerReady: mocks.isServerReady,
+    exchangeSessionCode: mocks.exchangeSessionCode,
+    restoreSession: mocks.restoreSession,
+    signout: mocks.signout,
+    setLockServiceConfig: mocks.setLockServiceConfig,
+    fetchPaykitSetupStatus: mocks.fetchPaykitSetupStatus,
+    createLockContent: mocks.createLockContent,
+    fetchLockFile: mocks.fetchLockFile,
+    getOrFetchLockFile: mocks.getOrFetchLockFile,
+    hasPaykitReceiver: mocks.hasPaykitReceiver,
+    fetchResolvedPurchase: mocks.fetchResolvedPurchase,
+    fetchPaidContent: mocks.fetchPaidContent,
+    startPayment: mocks.startPayment,
+    fetchPaykitConnectionState: mocks.fetchPaykitConnectionState,
+    fetchPurchasedLockIds: mocks.fetchPurchasedLockIds,
+    fetchPaymentStatus: mocks.fetchPaymentStatus,
+    replicateUnlockedContent: mocks.replicateUnlockedContent,
+    fetchReplicatedContent: mocks.fetchReplicatedContent,
+    fetchUnlockedList: mocks.fetchUnlockedList,
+    fetchOwnContent: mocks.fetchOwnContent,
+  },
+}));
+
+const fakeSession = asOpaque<LocksSdkSession>({
+  id: 'locks-session',
+  creatorPubky: () => `pubky${MOCK_LOCK_AUTHOR_PUBKY}`,
+});
+
+describe('LocksController (auth)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.generateConnectUrl.mockResolvedValue('https://lock.server/connect');
+    mocks.isServerReady.mockResolvedValue(true);
+    mocks.exchangeSessionCode.mockResolvedValue({ session: fakeSession, secret: 'secret-abc' });
+    mocks.signout.mockResolvedValue(undefined);
+    mocks.setLockServiceConfig.mockResolvedValue(undefined);
+    useLocksAuthStore.setState(locksAuthInitialState);
+    useAuthStore.setState({ currentUserPubky: MOCK_LOCK_AUTHOR_PUBKY, generation: 'original-login' });
+  });
+
+  it('getConnectUrl derives returnTo from the app origin and forwards it', async () => {
+    const url = await LocksController.getConnectUrl({ state: 'opaque-state' });
+
+    expect(url).toBe('https://lock.server/connect');
+    expect(mocks.generateConnectUrl).toHaveBeenCalledWith({
+      returnTo: window.location.origin,
+      state: 'opaque-state',
+    });
+  });
+
+  it('isServerReachable probes readiness at the origin resolved from a throwaway connect URL', async () => {
+    await expect(LocksController.isServerReachable()).resolves.toBe(true);
+    expect(mocks.isServerReady).toHaveBeenCalledWith('https://lock.server');
+  });
+
+  it('isServerReachable returns false when the server is not ready', async () => {
+    mocks.isServerReady.mockResolvedValue(false);
+    await expect(LocksController.isServerReachable()).resolves.toBe(false);
+  });
+
+  it('completeAuthFromCallback exchanges the code and persists the session to the store', async () => {
+    const result = await LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+
+    expect(result?.session).toBe(fakeSession);
+    expect(mocks.exchangeSessionCode).toHaveBeenCalledWith({ code: 'CODE', state: 'STATE' });
+    const store = useLocksAuthStore.getState();
+    expect(store.selectIsLocksAuthenticated()).toBe(true);
+    expect(store.selectLocksSession()).toBe(fakeSession);
+    expect(store.selectLocksSessionSecret()).toBe('secret-abc');
+    expect(store.selectLocksCreatorPubky()).toBe(MOCK_LOCK_AUTHOR_PUBKY);
+  });
+
+  it('completeAuthFromCallback registers the lock-service config in the background after the session is stored', async () => {
+    // The service reads the session from the store, so the store must be populated by call time.
+    mocks.setLockServiceConfig.mockImplementation(async () => {
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+    });
+
+    await LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+    // Background write is fire-and-forget; let the microtask queue flush.
+    await Promise.resolve();
+
+    expect(mocks.setLockServiceConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('completeAuthFromCallback does not store a session whose exchange finishes after logout', async () => {
+    const exchange = Promise.withResolvers<{ session: LocksSdkSession; secret: string }>();
+    mocks.exchangeSessionCode.mockReturnValue(exchange.promise);
+
+    const pending = LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+    await LocksController.logout();
+    exchange.resolve({ session: fakeSession, secret: 'secret-abc' });
+    await expect(pending).resolves.toBeNull();
+
+    const store = useLocksAuthStore.getState();
+    expect(store.selectLocksSession()).toBeNull();
+    expect(store.selectLocksSessionSecret()).toBeNull();
+    expect(mocks.setLockServiceConfig).not.toHaveBeenCalled();
+    expect(mocks.signout).toHaveBeenCalledWith(fakeSession);
+  });
+
+  it('completeAuthFromCallback keeps the later sign-in when an earlier one finishes first', async () => {
+    const laterSession = asOpaque<LocksSdkSession>({
+      id: 'later-session',
+      creatorPubky: () => `pubky${MOCK_LOCK_AUTHOR_PUBKY}`,
+    });
+    const earlier = Promise.withResolvers<{ session: LocksSdkSession; secret: string }>();
+    const later = Promise.withResolvers<{ session: LocksSdkSession; secret: string }>();
+    mocks.exchangeSessionCode.mockReturnValueOnce(earlier.promise).mockReturnValueOnce(later.promise);
+
+    const pendingEarlier = LocksController.completeAuthFromCallback({ code: 'CODE-1', state: 'STATE-1' });
+    const pendingLater = LocksController.completeAuthFromCallback({ code: 'CODE-2', state: 'STATE-2' });
+    earlier.resolve({ session: fakeSession, secret: 'secret-1' });
+    await expect(pendingEarlier).resolves.toBeNull();
+    later.resolve({ session: laterSession, secret: 'secret-2' });
+    await pendingLater;
+
+    const store = useLocksAuthStore.getState();
+    expect(store.selectLocksSession()).toBe(laterSession);
+    expect(store.selectLocksSessionSecret()).toBe('secret-2');
+  });
+
+  it('completeAuthFromCallback keeps the session when the background config write fails', async () => {
+    mocks.setLockServiceConfig.mockRejectedValue(new Error('config write failed'));
+
+    const result = await LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+    await Promise.resolve();
+
+    expect(result?.session).toBe(fakeSession);
+    expect(mocks.setLockServiceConfig).toHaveBeenCalledTimes(1);
+    expect(useLocksAuthStore.getState().selectIsLocksAuthenticated()).toBe(true);
+  });
+
+  describe('logout', () => {
+    it('signs out the live session on the Lock Server and clears the store', async () => {
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+
+      await LocksController.logout();
+
+      expect(mocks.signout).toHaveBeenCalledTimes(1);
+      const store = useLocksAuthStore.getState();
+      expect(store.selectIsLocksAuthenticated()).toBe(false);
+      expect(store.selectLocksSessionSecret()).toBeNull();
+    });
+
+    it('clears the store even when the Lock Server signout fails', async () => {
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      mocks.signout.mockRejectedValue(new Error('network down'));
+
+      await LocksController.logout();
+
+      expect(mocks.signout).toHaveBeenCalledTimes(1);
+      expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBeNull();
+    });
+
+    // A server that connects but never answers must not hold the device in a half-logged-out state.
+    it('clears the store without waiting for a signout that never answers', async () => {
+      vi.useFakeTimers();
+      try {
+        useLocksAuthStore
+          .getState()
+          .init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+        mocks.signout.mockReturnValue(new Promise(() => {})); // never settles
+
+        const done = LocksController.logout();
+        await vi.advanceTimersByTimeAsync(60_000); // well past the signout timeout
+        await done;
+
+        expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not keep a sign-in that started while the Lock Server signout was pending', async () => {
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      const signout = Promise.withResolvers<void>();
+      mocks.signout.mockReturnValue(signout.promise);
+      const exchange = Promise.withResolvers<{ session: LocksSdkSession; secret: string }>();
+      mocks.exchangeSessionCode.mockReturnValue(exchange.promise);
+
+      const pendingLogout = LocksController.logout();
+      const pendingSignIn = LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+      signout.resolve();
+      await pendingLogout;
+      exchange.resolve({ session: fakeSession, secret: 'secret-new' });
+      await pendingSignIn;
+
+      const store = useLocksAuthStore.getState();
+      expect(store.selectLocksSession()).toBeNull();
+      expect(store.selectLocksSessionSecret()).toBeNull();
+    });
+
+    it('preserves a newer app login while the previous Lock Server signout is pending', async () => {
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'secret-old', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      const signout = Promise.withResolvers<void>();
+      mocks.signout.mockReturnValueOnce(signout.promise);
+      const pendingLogout = LocksController.logout();
+
+      useAuthStore.setState({ generation: 'new-app-login' });
+      mocks.exchangeSessionCode.mockResolvedValueOnce({ session: fakeSession, secret: 'secret-new' });
+      await LocksController.completeAuthFromCallback({ code: 'NEW-CODE', state: 'NEW-STATE' });
+      signout.resolve();
+      await pendingLogout;
+
+      expect(mocks.signout).toHaveBeenCalledWith(fakeSession);
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+      expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBe('secret-new');
+    });
+
+    it('clears the persisted secret without a network call when no live session exists', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+
+      await LocksController.logout();
+
+      expect(mocks.signout).not.toHaveBeenCalled();
+      expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBeNull();
+    });
+  });
+
+  it('does not persist a session when the callback exchange fails', async () => {
+    mocks.exchangeSessionCode.mockRejectedValueOnce(new Error('exchange failed'));
+
+    await expect(LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' })).rejects.toThrow(
+      'exchange failed',
+    );
+
+    const store = useLocksAuthStore.getState();
+    expect(store.selectIsLocksAuthenticated()).toBe(false);
+    expect(store.selectLocksSession()).toBeNull();
+    expect(store.selectLocksSessionSecret()).toBeNull();
+  });
+
+  it('rejects a session for an account other than the signed-in one, signs it out and does not persist it', async () => {
+    const otherSession = asOpaque<LocksSdkSession>({ creatorPubky: () => 'pubkyotheraccount' });
+    mocks.exchangeSessionCode.mockResolvedValueOnce({ session: otherSession, secret: 'secret-other' });
+
+    await expect(LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' })).rejects.toMatchObject({
+      code: AuthErrorCode.FORBIDDEN,
+    });
+
+    expect(mocks.signout).toHaveBeenCalledTimes(1);
+    expect(mocks.signout).toHaveBeenCalledWith(otherSession);
+    expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBeNull();
+    expect(mocks.setLockServiceConfig).not.toHaveBeenCalled();
+  });
+
+  it('rejects the session when the pubky.app session is gone', async () => {
+    useAuthStore.setState({ currentUserPubky: null });
+
+    await expect(LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' })).rejects.toMatchObject({
+      code: AuthErrorCode.FORBIDDEN,
+    });
+
+    expect(mocks.signout).toHaveBeenCalledWith(fakeSession);
+    expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBeNull();
+  });
+
+  describe('restorePersistedLocksSession', () => {
+    it('rebuilds the session, validates it against the server, and keeps it on success', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      // Like the SDK's `restoreSession`, the rebuilt session has no creator pubky (#2856).
+      const restoredSession = asOpaque<LocksSdkSession>({ id: 'restored-session', creatorPubky: () => undefined });
+      mocks.restoreSession.mockReturnValue(restoredSession);
+
+      await LocksController.restorePersistedLocksSession();
+
+      expect(mocks.restoreSession).toHaveBeenCalledTimes(1);
+      expect(mocks.setLockServiceConfig).toHaveBeenCalledTimes(1); // validity probe
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(restoredSession);
+    });
+
+    it('clears the session when the server rejects the restored secret as expired (401 → Auth)', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      mocks.restoreSession.mockReturnValue(fakeSession);
+      mocks.setLockServiceConfig.mockRejectedValue(
+        Err.auth(AuthErrorCode.SESSION_EXPIRED, 'rejected', { service: ErrorService.Locks, operation: 'test' }),
+      );
+
+      await LocksController.restorePersistedLocksSession();
+
+      const store = useLocksAuthStore.getState();
+      expect(store.selectIsLocksAuthenticated()).toBe(false);
+      expect(store.selectLocksSessionSecret()).toBeNull();
+    });
+
+    it('keeps the session when the validation write fails for a non-auth reason', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      mocks.restoreSession.mockReturnValue(fakeSession);
+      mocks.setLockServiceConfig.mockRejectedValue(new Error('network down'));
+
+      await LocksController.restorePersistedLocksSession();
+
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+    });
+
+    it('does not bring the session back when the restore finishes after logout', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      const restore = Promise.withResolvers<LocksSdkSession>();
+      mocks.restoreSession.mockReturnValue(restore.promise);
+
+      const pending = LocksController.restorePersistedLocksSession();
+      await LocksController.logout();
+      restore.resolve(fakeSession);
+      await pending;
+
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBeNull();
+      expect(mocks.setLockServiceConfig).not.toHaveBeenCalled();
+    });
+
+    it('keeps a newer sign-in when the restored session is rejected after it', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'secret-old', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      mocks.restoreSession.mockReturnValue(
+        asOpaque<LocksSdkSession>({ id: 'restored-session', creatorPubky: () => `pubky${MOCK_LOCK_AUTHOR_PUBKY}` }),
+      );
+      const configWrite = Promise.withResolvers<void>();
+      mocks.setLockServiceConfig.mockReturnValueOnce(configWrite.promise);
+
+      const pending = LocksController.restorePersistedLocksSession();
+      await vi.waitFor(() => expect(mocks.setLockServiceConfig).toHaveBeenCalled());
+      await LocksController.logout();
+      await LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+      configWrite.reject(
+        Err.auth(AuthErrorCode.SESSION_EXPIRED, 'rejected', { service: ErrorService.Locks, operation: 'test' }),
+      );
+      await pending;
+
+      const store = useLocksAuthStore.getState();
+      expect(store.selectLocksSession()).toBe(fakeSession);
+      expect(store.selectLocksSessionSecret()).toBe('secret-abc');
+    });
+
+    it('no-ops when there is no persisted secret', async () => {
+      await LocksController.restorePersistedLocksSession();
+      expect(mocks.restoreSession).not.toHaveBeenCalled();
+    });
+
+    it('no-ops when a live session already exists', async () => {
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      await LocksController.restorePersistedLocksSession();
+      expect(mocks.restoreSession).not.toHaveBeenCalled();
+    });
+
+    it('clears the store when restore throws (malformed/stale secret)', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'bad-secret', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      mocks.restoreSession.mockImplementation(() => {
+        throw new Error('invalid secret');
+      });
+
+      await LocksController.restorePersistedLocksSession();
+
+      const store = useLocksAuthStore.getState();
+      expect(store.selectIsLocksAuthenticated()).toBe(false);
+      expect(store.selectLocksSessionSecret()).toBeNull();
+    });
+  });
+
+  describe('account changes during Locks operations', () => {
+    it('does not reinstall a restored session after logout', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'old-secret', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      const pending = Promise.withResolvers<LocksSdkSession>();
+      mocks.restoreSession.mockReturnValueOnce(pending.promise);
+      const restore = LocksController.restorePersistedLocksSession();
+      await LocksController.logout();
+      pending.resolve(fakeSession);
+      await restore;
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBeNull();
+      expect(mocks.setLockServiceConfig).not.toHaveBeenCalled();
+    });
+
+    it('keeps a newer secret when an old restore fails', async () => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'old-secret', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      const pending = Promise.withResolvers<LocksSdkSession>();
+      mocks.restoreSession.mockReturnValueOnce(pending.promise);
+      const restore = LocksController.restorePersistedLocksSession();
+      useAuthStore.setState({ generation: 'new-account-generation' });
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'new-secret', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      pending.reject(new Error('old restore failed'));
+      await restore;
+      expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBe('new-secret');
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+    });
+
+    // null: a secret saved before its creator pubky was persisted.
+    it.each(['otheraccount', null])('does not restore a saved secret whose creator is %s', async (creatorPubky) => {
+      useLocksAuthStore.getState().init({ session: null, secret: 'other-secret', creatorPubky });
+      await LocksController.restorePersistedLocksSession();
+      expect(mocks.restoreSession).not.toHaveBeenCalled();
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBeNull();
+      expect(mocks.setLockServiceConfig).not.toHaveBeenCalled();
+    });
+
+    it('rejects a callback completed after a same-account logout and new login', async () => {
+      const pending = Promise.withResolvers<{ session: LocksSdkSession; secret: string }>();
+      mocks.exchangeSessionCode.mockReturnValueOnce(pending.promise);
+      const outcome = LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+      const discarded = expect(outcome).resolves.toBeNull();
+      useAuthStore.setState({ generation: 'later-login' });
+      pending.resolve({ session: fakeSession, secret: 'old-secret' });
+      await discarded;
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBeNull();
+      expect(mocks.signout).toHaveBeenCalledWith(fakeSession);
+    });
+  });
+
+  describe('fetchPaykitSetupStatus', () => {
+    beforeEach(() => {
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+    });
+
+    it('clears cached readiness when the current check requires setup', async () => {
+      LocksController.markPaykitConnected();
+      mocks.fetchPaykitSetupStatus.mockResolvedValueOnce('setup_required');
+
+      await expect(LocksController.fetchPaykitSetupStatus('USD')).resolves.toBe('setup_required');
+
+      expect(useLocksAuthStore.getState().selectIsPaykitConnected()).toBe(false);
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+    });
+
+    it('keeps the session when a superseded setup check is rejected after a successful check', async () => {
+      const previousCheck = Promise.withResolvers<never>();
+      mocks.fetchPaykitSetupStatus.mockReturnValueOnce(previousCheck.promise).mockResolvedValueOnce('ready');
+      const rejected = Err.auth(AuthErrorCode.SESSION_EXPIRED, 'rejected', {
+        service: ErrorService.Locks,
+        operation: 'test',
+      });
+      const checked = expect(LocksController.fetchPaykitSetupStatus('BTC')).rejects.toBe(rejected);
+
+      await expect(LocksController.fetchPaykitSetupStatus('USD')).resolves.toBe('ready');
+      LocksController.markPaykitConnected();
+      previousCheck.reject(rejected);
+      await checked;
+
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+      expect(useLocksAuthStore.getState().selectIsPaykitConnected()).toBe(true);
+    });
+
+    it('clears the session when the Lock Server rejects it (401 → Auth)', async () => {
+      const rejected = Err.auth(AuthErrorCode.SESSION_EXPIRED, 'rejected', {
+        service: ErrorService.Locks,
+        operation: 'test',
+      });
+      mocks.fetchPaykitSetupStatus.mockRejectedValue(rejected);
+
+      await expect(LocksController.fetchPaykitSetupStatus('BTC')).rejects.toBe(rejected);
+
+      const store = useLocksAuthStore.getState();
+      expect(store.selectIsLocksAuthenticated()).toBe(false);
+      expect(store.selectLocksSessionSecret()).toBeNull();
+    });
+
+    it('discards readiness for a session that changed during the check', async () => {
+      mocks.fetchPaykitSetupStatus.mockImplementationOnce(async () => {
+        useLocksAuthStore.getState().init({
+          session: asOpaque<LocksSdkSession>({ id: 'other' }),
+          secret: 'other',
+          creatorPubky: MOCK_LOCK_AUTHOR_PUBKY,
+        });
+        return 'ready';
+      });
+      await expect(LocksController.fetchPaykitSetupStatus('USD')).resolves.toBe('unavailable');
+      expect(mocks.fetchPaykitSetupStatus).toHaveBeenCalledWith('USD');
+    });
+
+    it('does not clear a new session when the old readiness check is rejected', async () => {
+      mocks.fetchPaykitSetupStatus.mockImplementationOnce(async () => {
+        useLocksAuthStore.getState().init({
+          session: asOpaque<LocksSdkSession>({ id: 'other' }),
+          secret: 'other',
+          creatorPubky: MOCK_LOCK_AUTHOR_PUBKY,
+        });
+        throw Err.auth(AuthErrorCode.SESSION_EXPIRED, 'rejected', { service: ErrorService.Locks, operation: 'test' });
+      });
+      await expect(LocksController.fetchPaykitSetupStatus('USD')).rejects.toThrow('rejected');
+      expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBe('other');
+    });
+
+    it.each(['ready', 'setup_required'] as const)(
+      'discards %s from an earlier app login without changing current readiness',
+      async (status) => {
+        LocksController.markPaykitConnected();
+        const check = Promise.withResolvers<typeof status>();
+        mocks.fetchPaykitSetupStatus.mockReturnValueOnce(check.promise);
+        const checked = LocksController.fetchPaykitSetupStatus('USD');
+
+        useAuthStore.setState({ generation: 'new-app-login' });
+        check.resolve(status);
+
+        await expect(checked).resolves.toBe('unavailable');
+        expect(useLocksAuthStore.getState().selectIsPaykitConnected()).toBe(true);
+        expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+      },
+    );
+
+    it('keeps current credentials when an earlier app login setup check rejects', async () => {
+      LocksController.markPaykitConnected();
+      const check = Promise.withResolvers<never>();
+      mocks.fetchPaykitSetupStatus.mockReturnValueOnce(check.promise);
+      const rejected = Err.auth(AuthErrorCode.SESSION_EXPIRED, 'old session rejected', {
+        service: ErrorService.Locks,
+        operation: 'test',
+      });
+      const checked = expect(LocksController.fetchPaykitSetupStatus('USD')).rejects.toBe(rejected);
+
+      useAuthStore.setState({ generation: 'new-app-login' });
+      check.reject(rejected);
+      await checked;
+
+      expect(useLocksAuthStore.getState().selectIsPaykitConnected()).toBe(true);
+      expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBe('secret-abc');
+    });
+
+    it('keeps the session when the check fails for a non-auth reason', async () => {
+      mocks.fetchPaykitSetupStatus.mockRejectedValue(new Error('network down'));
+
+      await expect(LocksController.fetchPaykitSetupStatus('BTC')).rejects.toThrow('network down');
+
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+    });
+
+    it('keeps the adopted session when a check started during its exchange rejects later', async () => {
+      const exchange = Promise.withResolvers<{ session: LocksSdkSession; secret: string }>();
+      const check = Promise.withResolvers<never>();
+      mocks.exchangeSessionCode.mockReturnValueOnce(exchange.promise);
+      mocks.fetchPaykitSetupStatus.mockReturnValueOnce(check.promise);
+      const rejected = Err.auth(AuthErrorCode.SESSION_EXPIRED, 'old session rejected', {
+        service: ErrorService.Locks,
+        operation: 'test',
+      });
+
+      const signingIn = LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+      const checked = expect(LocksController.fetchPaykitSetupStatus('BTC')).rejects.toBe(rejected);
+      exchange.resolve({ session: fakeSession, secret: 'new-secret' });
+      await signingIn;
+      check.reject(rejected);
+      await checked;
+
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+      expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBe('new-secret');
+    });
+
+    it.each(['before', 'after'] as const)(
+      'keeps a newer sign-in when an old setup check rejects %s its exchange resolves',
+      async (rejectionTiming) => {
+        const check = Promise.withResolvers<never>();
+        const exchange = Promise.withResolvers<{ session: LocksSdkSession; secret: string }>();
+        mocks.fetchPaykitSetupStatus.mockReturnValueOnce(check.promise);
+        mocks.exchangeSessionCode.mockReturnValueOnce(exchange.promise);
+        const rejected = Err.auth(AuthErrorCode.SESSION_EXPIRED, 'rejected', {
+          service: ErrorService.Locks,
+          operation: 'test',
+        });
+        const checked = expect(LocksController.fetchPaykitSetupStatus('BTC')).rejects.toBe(rejected);
+        const signingIn = LocksController.completeAuthFromCallback({ code: 'CODE', state: 'STATE' });
+        if (rejectionTiming === 'after') {
+          exchange.resolve({ session: fakeSession, secret: 'new-secret' });
+          await signingIn;
+        }
+
+        check.reject(rejected);
+        await checked;
+        exchange.resolve({ session: fakeSession, secret: 'new-secret' });
+        await expect(signingIn).resolves.toEqual({ session: fakeSession, secret: 'new-secret' });
+
+        expect(useLocksAuthStore.getState().selectLocksSession()).toBe(fakeSession);
+        expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBe('new-secret');
+      },
+    );
+  });
+});
+
+describe('LocksController (content)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('createLockContent delegates to the application workflow', async () => {
+    const lock = { lock_id: 'LOCK1', content_lock_path: '/pub/app.locks/LOCK1.json', creator: 'pubkybob' };
+    mocks.createLockContent.mockResolvedValue(lock);
+    const params = {
+      attachments: [],
+      buildPost: () => ({ contentType: 'application/json', bytes: new Uint8Array() }),
+      lockConfig: { amount: '1000', asset: 'BTC' as const },
+    };
+
+    await expect(LocksController.createLockContent(params)).resolves.toBe(lock);
+    expect(mocks.createLockContent).toHaveBeenCalledWith(params);
+  });
+
+  it.each([ErrorService.Locks, ErrorService.Homeserver])(
+    'only clears the current Locks session for a Locks auth error: %s',
+    async (service) => {
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      const rejected = Err.auth(AuthErrorCode.SESSION_EXPIRED, 'rejected', { service, operation: 'test' });
+      mocks.createLockContent.mockRejectedValueOnce(rejected);
+
+      await expect(
+        LocksController.createLockContent({
+          attachments: [],
+          buildPost: () => ({ contentType: 'application/json', bytes: new Uint8Array() }),
+          lockConfig: { amount: '1000', asset: 'BTC' as const },
+        }),
+      ).rejects.toBe(rejected);
+
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(
+        service === ErrorService.Locks ? null : fakeSession,
+      );
+    },
+  );
+});
+
+const MOCK_LOCK_FILE = mockLockFile();
+
+const VALID_LOCK_URL = `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/locks/lock.json`;
+
+describe('LocksController.fetchLockFile', () => {
+  beforeEach(() => {
+    vi.mocked(LocksApplication.fetchLockFile).mockResolvedValue(MOCK_LOCK_FILE);
+  });
+
+  it('delegates to the application and resolves the price', async () => {
+    await expect(LocksController.fetchLockFile({ lockUrl: VALID_LOCK_URL })).resolves.toEqual({
+      lockFile: MOCK_LOCK_FILE,
+      price: { amount: '1000', asset: 'BTC' as const },
+    });
+    expect(LocksApplication.fetchLockFile).toHaveBeenCalledWith({ lockUrl: VALID_LOCK_URL });
+  });
+
+  it('resolves a null price without a lock file', async () => {
+    vi.mocked(LocksApplication.fetchLockFile).mockResolvedValue(null);
+
+    await expect(LocksController.fetchLockFile({ lockUrl: VALID_LOCK_URL })).resolves.toEqual({
+      lockFile: null,
+      price: null,
+    });
+  });
+});
+
+describe('LocksController.getOrFetchLockFile', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getOrFetchLockFile.mockResolvedValue(MOCK_LOCK_FILE);
+  });
+
+  it.each(['BTC', 'USD'] as const)('delegates to the application and resolves the %s price', async (asset) => {
+    const lockFile = mockLockFile({
+      criteria: [{ criterion_id: 'criterion-1', verifier_type: 'paykit-payment', params: { amount: '1000', asset } }],
+    });
+    mocks.getOrFetchLockFile.mockResolvedValue(lockFile);
+    await expect(LocksController.getOrFetchLockFile({ lockUrl: VALID_LOCK_URL })).resolves.toEqual({
+      lockFile,
+      price: { amount: '1000', asset },
+    });
+    expect(mocks.getOrFetchLockFile).toHaveBeenCalledWith({ lockUrl: VALID_LOCK_URL });
+  });
+
+  it('resolves a null price without a lock file', async () => {
+    mocks.getOrFetchLockFile.mockResolvedValue(null);
+
+    await expect(LocksController.getOrFetchLockFile({ lockUrl: VALID_LOCK_URL })).resolves.toEqual({
+      lockFile: null,
+      price: null,
+    });
+  });
+});
+
+describe('LocksController.getLockContent', () => {
+  it('parses the announcement content of a lock post', () => {
+    const content = JSON.stringify({ lock_title: 't', teaser_description: 'd' });
+    expect(LocksController.getLockContent(content)?.lock_title).toBe('t');
+  });
+
+  it('returns null for non-lock content', () => {
+    expect(LocksController.getLockContent('not json')).toBeNull();
+  });
+});
+
+describe('LocksController.fetchReplicatedContent', () => {
+  it('delegates loading the reader-replicated content to the application', async () => {
+    const params = { lockUrl: VALID_LOCK_URL, readerPubky: 'pubkyreader' };
+    const content = { post: { content: 'secret', kind: 'short', attachments: null }, attachments: [] };
+    mocks.fetchReplicatedContent.mockResolvedValue(content);
+
+    await expect(LocksController.fetchReplicatedContent(params)).resolves.toEqual(content);
+    expect(mocks.fetchReplicatedContent).toHaveBeenCalledWith(params);
+  });
+});
+
+describe('LocksController.replicateUnlockedContent', () => {
+  it('records the announcement post as a pubky URI, which the composite id alone is not', async () => {
+    const content: TUnlockedContent = {
+      post: { content: 'secret', kind: 'short', attachments: null },
+      attachments: [],
+    };
+
+    await LocksController.replicateUnlockedContent({
+      lockUrl: VALID_LOCK_URL,
+      readerPubky: 'pubkyreader',
+      content,
+      postId: 'pubkyauthor:POST1',
+    });
+
+    expect(mocks.replicateUnlockedContent).toHaveBeenCalledWith({
+      lockUrl: VALID_LOCK_URL,
+      readerPubky: 'pubkyreader',
+      content,
+      announcementUri: 'pubky://pubkyauthor/pub/pubky.app/posts/POST1',
+    });
+  });
+});
+
+describe('LocksController.fetchUnlockedList', () => {
+  it('delegates listing the reader-unlocked content to the application', async () => {
+    const params = { readerPubky: 'pubkyreader' };
+    const items = [{ lockId: 'LOCK1', post: { content: 'a', kind: 'short', attachments: null }, unlockedAt: 1 }];
+    mocks.fetchUnlockedList.mockResolvedValue(items);
+
+    await expect(LocksController.fetchUnlockedList(params)).resolves.toEqual(items);
+    expect(mocks.fetchUnlockedList).toHaveBeenCalledWith(params);
+  });
+});
+
+describe('LocksController.fetchOwnContent', () => {
+  it("delegates loading the creator's own guarded content to the application", async () => {
+    const params = { lockUrl: VALID_LOCK_URL, lockFile: MOCK_LOCK_FILE };
+    const content = { post: { content: 'mine', kind: 'short', attachments: null }, attachments: [] };
+    mocks.fetchOwnContent.mockResolvedValue(content);
+
+    await expect(LocksController.fetchOwnContent(params)).resolves.toEqual(content);
+    expect(mocks.fetchOwnContent).toHaveBeenCalledWith(params);
+  });
+});
+
+describe('LocksController (payment delegation)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ['hasPaykitReceiver', 'hasPaykitReceiver', 'reader1', true],
+    ['fetchPurchasedLockIds', 'fetchPurchasedLockIds', { readerPubky: 'reader1' }, ['lock1']],
+    [
+      'fetchResolvedPurchase',
+      'fetchResolvedPurchase',
+      { lockFile: MOCK_LOCK_FILE, lockUrl: 'u', readerPubky: 'r' },
+      { kind: 'reusable', bundleId: 'b', task: null },
+    ],
+    [
+      'startPayment',
+      'startPayment',
+      { lockFile: MOCK_LOCK_FILE, lockUrl: 'u', readerPubky: 'r' },
+      { bundleId: 'b', status: 'pending' },
+    ],
+    [
+      'fetchPaykitConnectionState',
+      'fetchPaykitConnectionState',
+      { lockFile: MOCK_LOCK_FILE, bundleId: 'b' },
+      'handshake',
+    ],
+    ['fetchPaymentStatus', 'fetchPaymentStatus', { lockFile: MOCK_LOCK_FILE, bundleId: 'b' }, null],
+    [
+      'fetchPaidContent',
+      'fetchPaidContent',
+      { lockFile: MOCK_LOCK_FILE, bundleId: 'b' },
+      { post: {}, attachments: [] },
+    ],
+  ])('%s delegates to the application and returns its result', async (method, target, params, result) => {
+    const application = asOpaque<Record<string, ReturnType<typeof vi.fn>>>(LocksApplication);
+    application[target].mockResolvedValue(result);
+    const controller = asOpaque<Record<string, (arg?: unknown) => Promise<unknown>>>(LocksController);
+
+    await expect(controller[method](params)).resolves.toEqual(result);
+    expect(application[target]).toHaveBeenCalledWith(params);
+  });
+});

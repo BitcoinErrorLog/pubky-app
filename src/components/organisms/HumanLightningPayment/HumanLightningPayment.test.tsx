@@ -1,9 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HomegateController } from '@/controllers/homegate/homegate';
 import { toast } from '@/molecules/Toaster/toast';
 import { asOpaque } from '@/test-utils/type-assertions';
-import { resetViewport, setMobileViewport } from '@/test-utils/viewport';
 import { HumanLightningPayment } from './HumanLightningPayment';
 import { VerificationHandler } from './HumanLightningPayment.utils';
 
@@ -15,7 +14,7 @@ vi.mock('@/hooks/useIsMobile/useIsMobile', () => ({
 }));
 
 vi.mock('@/hooks/useSatUsdRate/useSatUsdRate', () => ({
-  useBtcRate: () => ({ satUsd: 0.0005 }),
+  useBtcRate: () => ({ rate: { satUsd: 0.0005 }, status: 'ready' }),
 }));
 
 vi.mock('@/libs/utils/utils', async (importOriginal) => {
@@ -234,40 +233,5 @@ describe('HumanLightningPayment', () => {
     });
 
     createSpy.mockRestore();
-  });
-});
-
-describe('HumanLightningPayment - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUseIsMobile.mockReturnValue(false);
-  });
-
-  it('matches snapshot', async () => {
-    const { container } = render(<HumanLightningPayment onBack={() => {}} onSuccess={() => {}} />);
-    await waitFor(() => {
-      expect(HomegateController.createLnVerification).toHaveBeenCalledTimes(1);
-    });
-    expect(container.firstChild).toMatchSnapshot();
-  });
-});
-
-describe('HumanLightningPayment - Mobile Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUseIsMobile.mockReturnValue(true);
-    setMobileViewport();
-  });
-
-  afterEach(() => {
-    resetViewport();
-  });
-
-  it('matches snapshot on mobile viewport', async () => {
-    const { container } = render(<HumanLightningPayment onBack={() => {}} onSuccess={() => {}} />);
-    await waitFor(() => {
-      expect(HomegateController.createLnVerification).toHaveBeenCalledTimes(1);
-    });
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

@@ -124,6 +124,11 @@ export type NexusUserDetails = {
   status: string | null;
   image: string | null;
   indexed_at: Timestamp;
+  /**
+   * `true` when the user is a tombstone (profile cleared, `name` empty). Absent on Nexus builds
+   * that predate the flag, which marked tombstones with the `[DELETED]` name instead.
+   */
+  deleted?: boolean;
 };
 
 /** Aggregate counts for a user's activity and social connections */
@@ -230,6 +235,13 @@ export type NexusPostDetails = {
   kind: string;
   uri: string;
   attachments: string[] | null;
+  /** URL of the post's public `lock.json`. Present = lock teaser; the sole lock-detection signal. */
+  lock?: string | null;
+  /**
+   * `true` when the post is a tombstone (content cleared). Absent on Nexus builds that predate
+   * the flag, which marked tombstones with the `[DELETED]` content instead.
+   */
+  deleted?: boolean;
 };
 
 /** Aggregate counts for post engagement */
@@ -238,6 +250,11 @@ export type NexusPostCounts = {
   unique_tags: number;
   replies: number;
   reposts: number;
+  /**
+   * Collections that curate this post (pubky-nexus#1067). Optional because rows
+   * persisted before the field existed carry no value; read it as `?? 0`.
+   */
+  collections?: number;
 };
 
 /** Post relationship data (replies, reposts, mentions) */

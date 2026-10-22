@@ -12,20 +12,25 @@ import { PostTagsPanel } from '../PostTagsPanel/PostTagsPanel';
 
 interface PostInlineTagsActionsProps {
   postId: string;
+  /** Second post whose tags the expanded panel merges in (read-only) */
+  tagsMergePostId?: string;
   savePostId?: string;
   onReplyClick: () => void;
   onRepostClick: () => void;
   className?: string;
+  presentation?: 'default' | 'cards';
   actionsClassName?: string;
 }
 
 export function PostInlineTagsActions({
   postId,
+  tagsMergePostId,
   savePostId = postId,
   onReplyClick,
   onRepostClick,
   className,
   actionsClassName,
+  presentation = 'default',
 }: PostInlineTagsActionsProps) {
   const [tagsExpanded, setTagsExpanded] = useState(false);
   // The tag button only reveals the tags. On mobile it must not focus the input and pop the soft
@@ -36,17 +41,21 @@ export function PostInlineTagsActions({
     <Container
       onClick={(event) => event.stopPropagation()}
       className={cn(
-        'flex-col items-start gap-3 md:flex-row md:justify-between md:gap-4',
+        presentation === 'cards'
+          ? 'flex-col items-start gap-3'
+          : 'flex-col items-start gap-3 md:flex-row md:justify-between md:gap-4',
         // Grid-scoped (decision D4): inside a narrow grid cell keep tags + actions
         // stacked. `!` beats the still-active viewport `md:` row classes; inert off-grid.
-        '@max-xl/grid:mt-auto @max-xl/grid:flex-col! @max-xl/grid:items-start! @max-xl/grid:gap-3!',
-        tagsExpanded ? 'md:items-end' : 'md:items-start',
+        presentation !== 'cards' &&
+          '@max-xl/grid:mt-auto @max-xl/grid:flex-col! @max-xl/grid:items-start! @max-xl/grid:gap-3!',
+        presentation !== 'cards' && (tagsExpanded ? 'md:items-end' : 'md:items-start'),
         className,
       )}
     >
       {tagsExpanded ? (
         <PostTagsPanel
           postId={postId}
+          mergePostId={tagsMergePostId}
           widthMode="fit"
           autoFocusInput={!isMobile}
           enableLoadingSkeleton={false}
@@ -55,12 +64,13 @@ export function PostInlineTagsActions({
       ) : (
         <ClickableTagsList
           taggedId={postId}
+          mergeTaggedId={tagsMergePostId}
           taggedKind={TagKind.POST}
           maxTagLength={POST_TAGS_MAX_LENGTH}
           maxTotalChars={POST_TAGS_MAX_TOTAL_CHARS}
           showCount={true}
           showInput={false}
-          showAddButton={true}
+          showAddButton={presentation !== 'cards'}
           addMode={true}
         />
       )}

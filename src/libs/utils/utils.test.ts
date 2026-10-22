@@ -9,7 +9,6 @@ import { asInvalid } from '@/test-utils/type-assertions';
 import {
   canonicalizeTagLabel,
   canSubmitPost,
-  clearCookies,
   cn,
   copyToClipboard,
   daysAgo,
@@ -28,68 +27,24 @@ import {
   hoursAgo,
   isPostDeleted,
   isPubkyIdentifier,
+  isReservedUserName,
   isSameDomain,
   isStarterPackReservedTag,
+  isUserDeleted,
   isValidPostCompositeId,
   isValidTagLabel,
   minutesAgo,
-  radixIdSerializer,
   readFromClipboard,
   resolveDisplayName,
+  resolveUserDisplayName,
   sanitizeTagInput,
   shouldBypassLinkConfirmation,
   stripPubkyPrefix,
   truncateString,
 } from './utils';
-import { HASHTAG_IN_TEXT_REGEX, RADIX_ID_REGEX, RADIX_ID_TEST_REGEX, TAG_BANNED_CHARS } from './utils.constants';
+import { HASHTAG_IN_TEXT_REGEX, TAG_BANNED_CHARS } from './utils.constants';
 
 describe('Utils', () => {
-  describe('radixIdSerializer', () => {
-    describe('regex patterns', () => {
-      it('RADIX_ID_TEST_REGEX matches Radix IDs', () => {
-        expect(RADIX_ID_TEST_REGEX.test('radix-_r_12345')).toBe(true);
-        expect(RADIX_ID_TEST_REGEX.test('_r_12345')).toBe(true);
-        expect(RADIX_ID_TEST_REGEX.test('class="radix-_r_12345"')).toBe(true);
-      });
-
-      it('RADIX_ID_TEST_REGEX does not match other strings', () => {
-        expect(RADIX_ID_TEST_REGEX.test('normal-id')).toBe(false);
-        expect(RADIX_ID_TEST_REGEX.test('radical')).toBe(false);
-      });
-
-      it('RADIX_ID_REGEX matches all occurrences globally', () => {
-        const input = 'id="radix-_r_1" and id="radix-_r_2"';
-        const matches = input.match(RADIX_ID_REGEX);
-        expect(matches).toHaveLength(2);
-        expect(matches).toEqual(['radix-_r_1', 'radix-_r_2']);
-      });
-    });
-
-    describe('test function', () => {
-      it('returns true for strings containing Radix IDs', () => {
-        expect(radixIdSerializer.test('some content with radix-_r_12345 inside')).toBe(true);
-      });
-
-      it('returns false for strings without Radix IDs', () => {
-        expect(radixIdSerializer.test('some content without special ids')).toBe(false);
-      });
-
-      it('returns false for non-string values', () => {
-        expect(radixIdSerializer.test(123)).toBe(false);
-        expect(radixIdSerializer.test(null)).toBe(false);
-        expect(radixIdSerializer.test({})).toBe(false);
-      });
-
-      it('does not have stateful issues with multiple calls (g flag check)', () => {
-        const input = 'radix-_r_123';
-        // If the regex had 'g' flag and was reused, subsequent calls might fail
-        expect(radixIdSerializer.test(input)).toBe(true);
-        expect(radixIdSerializer.test(input)).toBe(true);
-        expect(radixIdSerializer.test(input)).toBe(true);
-      });
-    });
-  });
-
   describe('cn', () => {
     it('should combine multiple class names', () => {
       const result = cn('class1', 'class2', 'class3');
@@ -241,6 +196,30 @@ describe('Utils', () => {
       expect(result).toBe(formatPublicKey({ key: PUBKY }));
       expect(result).toContain('...');
       expect(result).not.toBe(PUBKY);
+    });
+
+    it('returns [DELETED] instead of the public key fallback for a deleted user', () => {
+      expect(resolveDisplayName({ name: '', id: PUBKY, deleted: true })).toBe('[DELETED]');
+    });
+  });
+
+  describe('resolveUserDisplayName', () => {
+    it('returns the name when present', () => {
+      expect(resolveUserDisplayName({ name: 'Alice' })).toBe('Alice');
+    });
+
+    it('returns an empty string when a live user has no name, so the caller keeps its fallback', () => {
+      expect(resolveUserDisplayName({ name: '' })).toBe('');
+      expect(resolveUserDisplayName({ name: null })).toBe('');
+      expect(resolveUserDisplayName(undefined)).toBe('');
+    });
+
+    it('returns [DELETED] for a flagged tombstone, never the empty fallback', () => {
+      expect(resolveUserDisplayName({ name: '', deleted: true })).toBe('[DELETED]');
+    });
+
+    it('returns [DELETED] for the legacy sentinel name', () => {
+      expect(resolveUserDisplayName({ name: '[DELETED]' })).toBe('[DELETED]');
     });
   });
 
@@ -457,73 +436,6 @@ describe('Utils', () => {
     });
   });
 
-  describe('clearCookies', () => {
-    let originalCookie: string;
-
-    beforeEach(() => {
-      originalCookie = document.cookie;
-      // Clear any existing cookies
-      document.cookie.split(';').forEach((c) => {
-        const eqPos = c.indexOf('=');
-        const name = eqPos > -1 ? c.substr(0, eqPos) : c;
-        document.cookie = `${name.trim()}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-      });
-    });
-
-    afterEach(() => {
-      // Restore original cookies if any
-      if (originalCookie) {
-        document.cookie = originalCookie;
-      }
-    });
-
-    it('should clear all cookies', () => {
-      // Set some test cookies
-      document.cookie = 'testCookie1=value1; path=/';
-      document.cookie = 'testCookie2=value2; path=/';
-      document.cookie = 'testCookie3=value3; path=/';
-
-      // Verify cookies are set
-      expect(document.cookie).toContain('testCookie1');
-      expect(document.cookie).toContain('testCookie2');
-      expect(document.cookie).toContain('testCookie3');
-
-      // Clear cookies
-      clearCookies();
-
-      // Note: In test environment, we can't actually verify cookies are cleared
-      // because document.cookie behavior is limited in jsdom
-      // We can only test that the function runs without errors
-      expect(() => clearCookies()).not.toThrow();
-    });
-
-    it('should handle empty cookies gracefully', () => {
-      // Ensure no cookies exist
-      expect(document.cookie).toBe('');
-
-      // Should not throw error
-      expect(() => clearCookies()).not.toThrow();
-    });
-
-    it('should handle cookies with spaces', () => {
-      // Set cookies with various formats
-      document.cookie = ' testCookie1 = value1 ; path=/';
-      document.cookie = '  testCookie2=value2; path=/';
-
-      // Should not throw error
-      expect(() => clearCookies()).not.toThrow();
-    });
-
-    it('should handle cookies with special characters in names', () => {
-      // Set cookies with special characters (that are valid)
-      document.cookie = 'test_cookie-1=value1; path=/';
-      document.cookie = 'test.cookie.2=value2; path=/';
-
-      // Should not throw error
-      expect(() => clearCookies()).not.toThrow();
-    });
-  });
-
   describe('generateRandomColor', () => {
     it('should return custom colors for specific names', () => {
       expect(generateRandomColor('bitcoin')).toBe('#FF9900');
@@ -540,10 +452,51 @@ describe('Utils', () => {
       expect(generateRandomColor('BiTcOiN')).toBe('#FF9900');
     });
 
-    it('should generate consistent colors for the same input', () => {
-      const color1 = generateRandomColor('test');
-      const color2 = generateRandomColor('test');
+    it.each(['test', 'ai', 'lol'])('should generate consistent colors for %s', (tag) => {
+      const color1 = generateRandomColor(tag);
+      const color2 = generateRandomColor(tag);
       expect(color1).toBe(color2);
+    });
+
+    it.each(['ai', 'AI', 'Ai'])('uses the fixed cyan background for %s', (tag) => {
+      expect(generateRandomColor(tag)).toBe('#00C8FF');
+      expect(hexToRgba(generateRandomColor(tag), 0.3)).toBe('rgba(0, 200, 255, 0.3)');
+    });
+
+    it('remaps deep blue and blue-violet to distinct cyan and teal colors', () => {
+      expect(generateRandomColor('topic-101')).toBe('#00FFc0');
+      expect(generateRandomColor('lol')).toBe('#00c8FF');
+    });
+
+    it.each([
+      ['topic-839', '#00FFff'], // Pure blue (240 degrees).
+      ['topic-101', '#00FFc0'], // Just inside the lower hue boundary.
+      ['topic-223', '#00bfFF'], // At the upper hue boundary (260 degrees).
+    ])('remaps %s at the edges of the excluded range', (tag, color) => {
+      expect(generateRandomColor(tag)).toBe(color);
+    });
+
+    it('excludes the blue-heavy range across generated tag colors', () => {
+      for (let index = 0; index < 2048; index++) {
+        const color = generateRandomColor(`topic-${index}`);
+        const red = parseInt(color.slice(1, 3), 16);
+        const green = parseInt(color.slice(3, 5), 16);
+        const blue = parseInt(color.slice(5, 7), 16);
+        // At full blue, both other channels <= 85 cover the excluded 220–260° range.
+        expect(blue === 255 && red <= 85 && green <= 85, color).toBe(false);
+      }
+    });
+
+    it.each([
+      ['music', '#00FF25'],
+      ['this', '#9eFF00'],
+      ['nice', '#FF5d00'],
+      ['welcome', '#FF0062'],
+      ['pubky-feedback', '#00FFe7'],
+      ['topic-224', '#0056FF'], // Just below 220 degrees.
+      ['topic-346', '#5700FF'], // Just above 260 degrees.
+    ])('preserves the existing color of %s outside the excluded range', (tag, color) => {
+      expect(generateRandomColor(tag)).toBe(color);
     });
 
     it('should generate different colors for different inputs', () => {
@@ -655,7 +608,7 @@ describe('Utils', () => {
   describe('truncateString', () => {
     it('should truncate strings longer than maxLength', () => {
       expect(truncateString('VeryLongUserName', 10)).toBe('VeryLongUs...');
-      expect(truncateString('Miguel Medeiros', 10)).toBe('Miguel Med...');
+      expect(truncateString('Jane Doe Example', 10)).toBe('Jane Doe E...');
     });
 
     it('should not truncate strings shorter than maxLength', () => {
@@ -860,32 +813,84 @@ describe('Utils', () => {
   });
 
   describe('isPostDeleted', () => {
-    it('should return true for "[DELETED]" content', () => {
-      expect(isPostDeleted('[DELETED]')).toBe(true);
+    it('returns true for the legacy [DELETED] content sentinel', () => {
+      expect(isPostDeleted({ content: '[DELETED]' })).toBe(true);
+    });
+
+    it('returns true when Nexus flags the post as deleted', () => {
+      expect(isPostDeleted({ content: '', deleted: true })).toBe(true);
+    });
+
+    it('returns true for a flagged tombstone that still carries the sentinel', () => {
+      expect(isPostDeleted({ content: '[DELETED]', deleted: true })).toBe(true);
     });
 
     it('should return false for regular content', () => {
-      expect(isPostDeleted('Hello world')).toBe(false);
+      expect(isPostDeleted({ content: 'Hello world' })).toBe(false);
     });
 
-    it('should return false for empty string', () => {
-      expect(isPostDeleted('')).toBe(false);
+    it('should return false for empty content without the flag', () => {
+      expect(isPostDeleted({ content: '' })).toBe(false);
+      expect(isPostDeleted({ content: '', deleted: false })).toBe(false);
     });
 
-    it('should return false for undefined', () => {
+    it('should return false for undefined or null details', () => {
       expect(isPostDeleted(undefined)).toBe(false);
+      expect(isPostDeleted(null)).toBe(false);
     });
 
     it('should return false for similar but not exact match', () => {
-      expect(isPostDeleted('[deleted]')).toBe(false);
-      expect(isPostDeleted('DELETED')).toBe(false);
-      expect(isPostDeleted('[DELETED] ')).toBe(false);
-      expect(isPostDeleted(' [DELETED]')).toBe(false);
+      expect(isPostDeleted({ content: '[deleted]' })).toBe(false);
+      expect(isPostDeleted({ content: 'DELETED' })).toBe(false);
+      expect(isPostDeleted({ content: '[DELETED] ' })).toBe(false);
+      expect(isPostDeleted({ content: ' [DELETED]' })).toBe(false);
     });
 
     it('should return false for content containing "[DELETED]"', () => {
-      expect(isPostDeleted('This post is [DELETED]')).toBe(false);
-      expect(isPostDeleted('[DELETED] post')).toBe(false);
+      expect(isPostDeleted({ content: 'This post is [DELETED]' })).toBe(false);
+      expect(isPostDeleted({ content: '[DELETED] post' })).toBe(false);
+    });
+  });
+
+  describe('isUserDeleted', () => {
+    it('returns true when Nexus flags the user as deleted', () => {
+      expect(isUserDeleted({ name: '', deleted: true })).toBe(true);
+    });
+
+    it('returns true for the legacy [DELETED] name sentinel without the flag', () => {
+      expect(isUserDeleted({ name: '[DELETED]' })).toBe(true);
+    });
+
+    it('returns false for a live user', () => {
+      expect(isUserDeleted({ name: 'Alice' })).toBe(false);
+      expect(isUserDeleted({ name: 'Alice', deleted: false })).toBe(false);
+    });
+
+    it('returns false for an empty name without the flag', () => {
+      expect(isUserDeleted({ name: '' })).toBe(false);
+    });
+
+    it('returns false for missing details', () => {
+      expect(isUserDeleted(null)).toBe(false);
+      expect(isUserDeleted(undefined)).toBe(false);
+    });
+
+    it('requires an exact sentinel match', () => {
+      expect(isUserDeleted({ name: '[deleted]' })).toBe(false);
+      expect(isUserDeleted({ name: 'Alice [DELETED]' })).toBe(false);
+    });
+  });
+
+  describe('isReservedUserName', () => {
+    it('reserves the tombstone label, with or without surrounding whitespace', () => {
+      expect(isReservedUserName('[DELETED]')).toBe(true);
+      expect(isReservedUserName('  [DELETED]  ')).toBe(true);
+    });
+
+    it('leaves a live name alone', () => {
+      expect(isReservedUserName('Alice')).toBe(false);
+      expect(isReservedUserName('[deleted]')).toBe(false);
+      expect(isReservedUserName('Alice [DELETED]')).toBe(false);
     });
   });
 

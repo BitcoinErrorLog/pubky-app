@@ -1,4 +1,6 @@
 import type { Keypair, Session } from '@synonymdev/pubky';
+import { getAuthClientId } from '@/config/auth';
+import type { SessionReference } from '@/libs/auth/session.types';
 import type { Pubky } from '@/models/models.types';
 import { asOpaque } from './type-assertions';
 
@@ -15,9 +17,15 @@ export const mockSession = (partial: Partial<Session> = {}): Session =>
       publicKey: {
         z32: () => 'mock-session-pubky',
       },
+      // Root, like a keypair sign-in: a test that wants a narrow Ring session overrides `info`.
+      capabilities: ['/:rw'],
     },
     ...partial,
   });
+
+/** A Pubky Ring session double granted exactly `capabilities` (a keypair session is root, see above). */
+export const mockRingSession = (capabilities: string[], pubky = 'mock-session-pubky'): Session =>
+  mockSession({ info: asOpaque({ publicKey: { z32: () => pubky }, capabilities }) });
 
 /**
  * Minimal `@synonymdev/pubky` `Keypair` double.
@@ -44,3 +52,13 @@ export const PUBKY_INVALID_TOO_LONG = `${PUBKY_52_STAGING_FIXTURE}x`;
 
 /** 52 chars but invalid (uppercase breaks pubky identifier rules) */
 export const PUBKY_INVALID_BAD_CHAR = `${PUBKY_52_STAGING_FIXTURE.slice(0, 51)}O`;
+
+/** Public metadata for a durable app grant; contains no signing material. */
+export const mockGrantReference = (id = 'test-grant'): SessionReference => ({
+  kind: 'grant',
+  sessionStoreId: id,
+  grantId: id,
+  clientId: getAuthClientId(),
+  grantExpiresAt: 3_000_000_000,
+  tokenExpiresAt: 2_000_000_000,
+});

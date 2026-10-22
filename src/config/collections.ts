@@ -11,20 +11,28 @@ import type { PubkyAppCollectionLayout } from 'pubky-app-specs';
 // layouts remain unsupported until their rendering and controls are added.
 export type CollectionLayout = Extract<PubkyAppCollectionLayout, 'grid' | 'list' | 'visual'>;
 
-export const COLLECTION_LAYOUT: Record<'GRID' | 'LIST' | 'VISUAL', CollectionLayout> = {
-  GRID: 'grid',
+export const COLLECTION_LAYOUT: Record<'CARDS' | 'LIST' | 'VISUAL', CollectionLayout> = {
+  // Keep the v0 wire value; Cards replaces the former Grid presentation.
+  CARDS: 'grid',
   LIST: 'list',
   VISUAL: 'visual',
 };
 
-export const DEFAULT_COLLECTION_LAYOUT: CollectionLayout = COLLECTION_LAYOUT.GRID;
+export const DEFAULT_COLLECTION_LAYOUT: CollectionLayout = COLLECTION_LAYOUT.CARDS;
 
 export function isCollectionLayout(value: unknown): value is CollectionLayout {
-  return value === COLLECTION_LAYOUT.GRID || value === COLLECTION_LAYOUT.LIST || value === COLLECTION_LAYOUT.VISUAL;
+  return value === COLLECTION_LAYOUT.CARDS || value === COLLECTION_LAYOUT.LIST || value === COLLECTION_LAYOUT.VISUAL;
 }
 
 /** Page size for each of the three sections (My / Followed / Discover). */
 export const COLLECTIONS_SECTION_PAGE_SIZE = 20;
+
+/**
+ * Protection while a local change to a post's `collections` count (the viewer added the post
+ * to, or removed it from, one of their collections) is waiting for Nexus indexing. Same window
+ * as `BOOKMARK_REMOVAL_PROTECTION_MS`.
+ */
+export const COLLECTIONS_COUNT_PROTECTION_MS = 300_000;
 
 /**
  * Cards shown in the collapsed `/search` Collections preview — two full rows

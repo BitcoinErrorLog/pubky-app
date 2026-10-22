@@ -1,24 +1,6 @@
 import validationLimits from 'pubky-app-specs/validationLimits.json';
 
 /**
- * Regex pattern to match Radix UI generated IDs globally.
- * Used for replacing all occurrences in snapshot serialization.
- *
- * Matches patterns like: "radix-_r_12345", "_r_abc123"
- *
- * @see https://github.com/pubky/pubky-app/issues/1101
- */
-export const RADIX_ID_REGEX = /\b(radix-)?_r_[\da-z]+_?\b/gi;
-
-/**
- * Regex pattern to test if a string contains a Radix UI generated ID.
- * Does NOT have the global flag to avoid stateful lastIndex issues with .test().
- *
- * @see https://github.com/pubky/pubky-app/issues/1101
- */
-export const RADIX_ID_TEST_REGEX = /\b(radix-)?_r_[\da-z]+_?\b/i;
-
-/**
  * Regex pattern for parsing H:M:S timestamp format.
  * Matches formats: "1h2m3s", "5m30s", "45s", "30" (plain seconds)
  *
@@ -62,3 +44,9 @@ export const TAG_BANNED_CHARS = new RegExp(`[${TAG_INVALID_CHARS_FOR_REGEX}]`, '
  * Use with isValidTagLabel before converting to a link.
  */
 export const HASHTAG_IN_TEXT_REGEX = new RegExp(`(^|\\s)(#[a-zA-Z0-9][^${TAG_INVALID_CHARS_FOR_REGEX}]*)`, 'g');
+
+/**
+ * Name shown for a deleted user. Also the legacy Nexus tombstone sentinel: builds without the
+ * `deleted` flag overwrite the user's `name` with it.
+ */
+export const DELETED_USER_NAME = '[DELETED]';

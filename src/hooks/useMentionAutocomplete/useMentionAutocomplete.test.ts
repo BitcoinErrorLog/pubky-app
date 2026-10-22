@@ -124,6 +124,33 @@ describe('useMentionAutocomplete', () => {
     );
   });
 
+  it.each([
+    '🚀Alice',
+    'Rocket🚀',
+    '👩🏽‍💻 Alice',
+    '🇷🇸 Alice',
+    '✌️ Alice',
+    '#️⃣Alice',
+    '*️⃣Alice',
+    '🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f} Alice',
+  ])('searches the emoji display name %s', async (name) => {
+    const content = `Hello @${name}`;
+    renderHook(() => useMentionAutocomplete({ content, caret: content.length }));
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(mockGetUsersByName).toHaveBeenCalledWith(expect.objectContaining({ prefix: name }));
+  });
+
+  it('preserves repeated internal spaces in the name search prefix', async () => {
+    const content = 'Hello @Jane  Whitlock ';
+    renderHook(() => useMentionAutocomplete({ content, caret: content.length }));
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(mockGetUsersByName).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'Jane  Whitlock' }));
+  });
+
   it('triggers search when pk: pattern is detected at end of content (legacy)', async () => {
     renderHook(() => useMentionAutocomplete({ content: 'Hello pk:abc', caret: 12 }));
 
@@ -252,6 +279,28 @@ describe('useMentionAutocomplete', () => {
 
       expect(handled).toBe(false);
     });
+
+    it('closes the popover on Escape while a multiword query is open', async () => {
+      // A suggestion has to be on screen for the key handler to act on Escape
+      setMockUserDetailsMap(new Map([['user1', { id: 'user1', name: 'User One', image: null } as NexusUserDetails]]));
+
+      const { result } = renderHook(() => useMentionAutocomplete({ content: 'Hello @Jane Whitlock', caret: 20 }));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(result.current.isOpen).toBe(true);
+
+      const event = mockKeyboardEvent({ key: 'Escape', preventDefault: vi.fn() });
+      let handled = false;
+      act(() => {
+        handled = result.current.handleKeyDown(event);
+      });
+
+      expect(handled).toBe(true);
+      expect(result.current.isOpen).toBe(false);
+    });
   });
   describe('caret-anchored detection', () => {
     it('triggers search when the caret sits in an @ pattern with text after it', async () => {
@@ -283,9 +332,67 @@ describe('useMentionAutocomplete', () => {
       );
     });
 
+    it('searches the multiword name up to the caret', async () => {
+      // 'Hello @Jane Whit|lock' - the words typed so far are one query (#1638)
+      renderHook(() => useMentionAutocomplete({ content: 'Hello @Jane Whitlock', caret: 16 }));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(mockGetUsersByName).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prefix: 'Jane Whit',
+        }),
+      );
+    });
+
+    it('keeps searching when the caret sits just past the space of a name', async () => {
+      // 'Hello @Jane |Whitlock' - the space does not close the popover
+      const { result } = renderHook(() => useMentionAutocomplete({ content: 'Hello @Jane Whitlock', caret: 12 }));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(mockGetUsersByName).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prefix: 'Jane',
+        }),
+      );
+      expect(result.current.isOpen).toBe(true);
+    });
+
+    it('closes the popover when the name run grows into prose nobody matches', async () => {
+      const { result, rerender } = renderHook(({ content, caret }) => useMentionAutocomplete({ content, caret }), {
+        initialProps: { content: 'Hello @Jane Whitlock', caret: 20 },
+      });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(result.current.isOpen).toBe(true);
+
+      // 'Hello @Jane Whitlock thanks' - no display name starts with the whole run
+      mockGetUsersByName.mockResolvedValue([]);
+      rerender({ content: 'Hello @Jane Whitlock thanks', caret: 27 });
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(mockGetUsersByName).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          prefix: 'Jane Whitlock thanks',
+        }),
+      );
+      expect(result.current.isOpen).toBe(false);
+    });
+
     it('does not search when the caret sits outside the pattern', async () => {
-      // 'Hello @jo |world' - the caret moved past the pattern's trailing space
-      renderHook(() => useMentionAutocomplete({ content: 'Hello @jo world', caret: 10 }));
+      // 'Hello @jo,| world' - the comma ended the mention
+      renderHook(() => useMentionAutocomplete({ content: 'Hello @jo, world', caret: 10 }));
 
       await act(async () => {
         await vi.runAllTimersAsync();

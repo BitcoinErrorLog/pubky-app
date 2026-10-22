@@ -70,13 +70,47 @@ const debugMode = Env.NEXT_PUBLIC_DEBUG_MODE; // boolean
 
 All **environment-specific and deployer-facing public values** are configured at **runtime**, not build time, so a single Docker image can be promoted across staging / prod / testnet — and deployed by third parties against their own infrastructure — without rebuilding. See [ADR 0017](adr/0017-runtime-config-injection.md) and [ADR 0018](adr/0018-runtime-sentry-and-decoupled-source-maps.md).
 
-The contract has three tiers:
+The contract has these tiers:
 
-- **Required (9 network values)**: `nexusUrl`, `cdnUrl`, `homeserver`, `homeserverUrl`, `homegateUrl`, `defaultHttpRelay`, `pkarrRelays`, `testnet`, `deployEnv`. (`deployEnv` — `PUBKY_RUNTIME_ENV`, `"production"` or `"staging"` — is the deploy's declared identity; it drives the staging homeserver sign-in guard (`isStagingHomeserverDeploy` in `@/config/network`), which is declared explicitly instead of inferred from network values so config drift can never silently disable it.) (`homeserverUrl` is the homeserver's HTTP base URL, used for invite-code verification — the homeserver pubkey has no resolvable HTTPS endpoint, see [pubky-core#410](https://github.com/pubky/pubky-core/issues/410).)
+- **Required (9 network values)**: `nexusUrl`, `cdnUrl`, `homeserver`, `homeserverUrl`, `homegateUrl`, `defaultHttpRelay`, `pkarrRelays`, `testnet`, `deployEnv`. (`deployEnv` — `PUBKY_RUNTIME_ENV`, `"production"` or `"staging"` — is the deploy's declared identity; it drives the staging homeserver sign-in guard (`isStagingHomeserverDeploy` in `@/config/network`) and the Bitkit Android package the sign-in buttons open (`to.bitkit.dev`, the regtest build, on staging; `to.bitkit` in production; `@/libs/deeplink/deeplink`). It is declared explicitly instead of inferred from network values so config drift can never silently disable the guard.) (`homeserverUrl` is the homeserver's HTTP base URL, used for invite-code verification — the homeserver pubkey has no resolvable HTTPS endpoint, see [pubky-core#410](https://github.com/pubky/pubky-core/issues/410).)
+- **Embedded Shop**: Shop navigation always opens `/shop`, which embeds the separately deployed Shop at `/shop-embed`. There is no enable flag or external fallback. See [Embedded Shop](#embedded-shop) for deployment requirements.
 - **Optional (5 Sentry values)**: `sentryDsn` (absent/empty disables Sentry entirely), `sentryEnvironment` (absent falls back to `NODE_ENV`), `sentryTracesSampleRate` / `sentryReplaysSessionSampleRate` / `sentryReplaysOnErrorSampleRate` (defaults `0.1` / `0.0` / `1.0`). A malformed value (bad DSN URL, rate outside `[0,1]`) fails loudly.
+- **Optional (2 Pulse values)**: `pulseClientKey` (absent/empty disables Pulse entirely; a provided value must start with `pulse_client_`) and `pulseEndpoint` (absent uses the SDK's hosted ingest host). See the Pulse paragraph below.
 - **Optional moderation identity**: `moderationId` must be a raw 52-character z-base-32 Pubky when set. In deployed environments, leaving it unset disables moderation-tag matching and the one-time default follow.
 - **Optional/defaulted public values**: operational polling and TTL settings, moderated tags, exchange-rate API, Prelude, Plausible, metadata/branding defaults, and external links. Missing values use the defaults in `src/libs/runtime-config/runtime-config.schema.ts`; malformed provided values still fail loudly.
+- **Optional paid-unlock regions**: `regionModes` (`PUBKY_RUNTIME_REGION_MODES`) lists the regions where paid unlocks are held, in the grammar the Shop reads from the same-named variable and the transaction service from `REGION_MODES` (`EU=blocked,GB=blocked,US=blocked` at launch; selectors are an ISO country code, `EU` or `UNKNOWN`, modes `open`, `nuanced`, `blocked`; `none` opens everything). Unset means no region check and no request. A malformed list fails startup. When set, `usePaidUnlockAvailability` reads the viewer's country once per page load from the Shop's `/shop-embed/api/marketplace/client-region` route (same origin, see [Shop inside Pubky App](shop-embedding.md)) and holds Unlock and the composer's lock switch in a listed region, so the viewer hears it before the payment step. A viewer whose country the edge cannot tell is held like the Shop holds them (`UNKNOWN` defaults to the strictest listed mode; set `UNKNOWN=open` to let them through). A Shop route that cannot answer (no Shop mounted, an outage) never blocks anyone: the check is advisory and the Lock Server's HTTP 451 still lands on its own state in the pay dialog. Keep the value equal to the Shop's and the Lock Server's list, and change all three together.
 - **Optional Pubky Passport origin**: `passportUrl` (`PUBKY_RUNTIME_PASSPORT_URL`) is the Passport signer used by every "Continue with Google" entry point (landing hero, `/sign-in`, `/onboarding/join`). In deployed mode it has **no default**: unset disables the feature, so production stays off until a real Google sign-up and sign-in have been verified against the intended Passport + Homegate deployment. Local dev defaults to `https://passport.staging.pubky.app`; an explicit blank value disables it. Passport only accepts HTTPS callbacks, so the buttons are shown only when the page itself is served over HTTPS (`isPassportConfigured()` in `@/config/network` is the pure server-safe check; `usePassportEligibility` resolves the browser-side HTTPS check after mount). Plain `npm run dev` (HTTP) hides the buttons, redirects `/onboarding/join` to `/onboarding/human`, and logs a one-time warning; use `npm run dev:https` to exercise Passport locally. Passport's fallback callback is the static `public/passport/return.html` (path in `src/config/passport.ts`), not a Next route: a route under the root layout would boot the session restore inside the popup (same rule as the offline page, see `docs/pwa.md`).
+
+Pulse browser telemetry is opt-in: set the public, write-only `PUBKY_RUNTIME_PULSE_CLIENT_KEY`
+(`pulse_client_…`, never an admin key); omit it for zero Pulse tracking. `PUBKY_RUNTIME_PULSE_ENDPOINT`
+optionally overrides the SDK's hosted ingest host (`https://ingest.pubkypulse.com`); that fallback is silent,
+so a deployer running their own Pulse must set it or their users' events go to Pubky's host.
+Pulse collects anonymous sessions, route templates, the
+browser and operating-system versions the SDK parses from the user agent, and errors scrubbed by the same
+redaction/drop policy as Sentry; never the browser language (`deviceInfo.language` is off), bodies, replay, raw error context, request timings or identified users. Network failures arrive as application errors through that same
+policy — the SDK's fetch-level network tracking is off, because its events bypass the drop rules.
+
+With a client key configured, an analytics banner asks each browser for consent before Pulse
+initializes or stores an identifier. Accept/decline is stored separately as `pubky-pulse-consent-v1`,
+and accepting also stores the acceptance time as `pubky-pulse-consent-v1-granted-at`, which each tab
+mirrors in a `sessionStorage` marker naming the consent its own Pulse state started under. Neither is
+an identifier and neither is sent; they only let a tab that was suspended or away during a withdrawal
+notice it on its next run and clean up then. A withdrawal deletes the browser-wide state, so accepting
+again starts a new anonymous browser in every tab; the stale tab deletes its own client and session
+alone, because the anonymous ID and queued events it finds now belong to the current consent and other
+tabs are still using them. One limit sits in the SDK: it cannot tell whose events are in the shared
+queue, and replayed events are not filtered again. So an event a suspended tab re-queues after another
+tab's withdrawal already ran (a failed retry, or an unload) can still be sent by whichever tab flushes
+next. Users can withdraw in **Settings → Privacy and Safety** or the **Pulse analytics** button (also
+available to guests). Withdrawal stops collection without flushing and deletes the anonymous ID,
+session and any queued events from this browser; it does not delete data the server already received.
+Without a key — or on a testnet deploy (`PUBKY_RUNTIME_TESTNET=true`), which disables Pulse exactly as it
+disables Sentry — neither the banner nor analytics controls appear, and nothing is collected.
+Only consented visits are measured, so analytics are a partial, self-selected view of usage.
+This consent covers Pulse only, which is why the banner scopes its promise to Pubky Pulse rather than to
+analytics in general: the optional Plausible script (`PUBKY_RUNTIME_PLAUSIBLE_DOMAIN` /
+`PUBKY_RUNTIME_PLAUSIBLE_SCRIPT_URL`) is cookieless, stores no identifier, and is configured and served
+independently of it.
 
 ### Why a separate mechanism
 
@@ -100,7 +134,7 @@ const url = getNexusUrl(); // resolved at call time
 
 ### Strict (deployed) vs lenient (dev/test)
 
-- **Deployed (`NODE_ENV=production`, including staging), or `PUBKY_RUNTIME_CONFIG_REQUIRED=true`**: the nine required network `PUBKY_RUNTIME_*` values must ALL be set. Missing/invalid config throws **at boot** (no silent fallback to staging defaults).
+- **Deployed (`NODE_ENV=production`, including staging), or `PUBKY_RUNTIME_CONFIG_REQUIRED=true`**: all nine network values must be set. Missing/invalid config throws **at boot** (no silent fallback to staging defaults).
 - **Local dev / tests**: the SAME `PUBKY_RUNTIME_*` names are read leniently — unset values resolve to the staging defaults in `runtime-config.schema.ts` (including `deployEnv: staging`, so the staging sign-in guard is active in plain local dev; set `PUBKY_RUNTIME_ENV=production` in `.env.local` to turn it off), including the staging moderation identity. Partial overrides (e.g. only `PUBKY_RUNTIME_NEXUS_URL=http://localhost:8080` in `.env.local`) layer over those defaults.
 - **Optional/defaulted tiers**: `PUBKY_RUNTIME_SENTRY_*` and the other deployer-facing public values can be set independently in any mode; malformed provided values fail loudly.
 
@@ -110,33 +144,45 @@ const url = getNexusUrl(); // resolved at call time
 
 ### These are PUBLIC values
 
-`PUBKY_RUNTIME_*` are public (URLs, the homeserver public key, relay lists, the Sentry DSN) — they are exposed to the browser by design. They are **not secrets**; deployment tooling should not treat them as sensitive.
+`PUBKY_RUNTIME_*` are public (URLs, the homeserver public key, relay lists, the Sentry DSN, the write-only Pulse client key) — they are exposed to the browser by design. They are **not secrets**; deployment tooling should not treat them as sensitive.
 
 ### Running the public image (`docker run`)
 
-Copy-paste starting point for any deployer — nine required values plus the optional Sentry tier:
+Starting point for any deployer — nine required values plus the optional Sentry and Pulse tiers. Replace the example hosts and angle-bracket placeholders with your deployment's values:
 
 ```bash
 docker run -p 3000:3000 \
   -e PUBKY_RUNTIME_NEXUS_URL=https://nexus.example.com \
   -e PUBKY_RUNTIME_CDN_URL=https://nexus.example.com/static \
-  -e PUBKY_RUNTIME_HOMESERVER=<homeserver-pubkey> \
+  -e PUBKY_RUNTIME_HOMESERVER='<homeserver-pubkey>' \
   -e PUBKY_RUNTIME_HOMESERVER_URL=https://homeserver.example.com \
   -e PUBKY_RUNTIME_HOMEGATE_URL=https://homegate.example.com \
   -e PUBKY_RUNTIME_DEFAULT_HTTP_RELAY=https://httprelay.example.com/inbox \
   -e PUBKY_RUNTIME_PKARR_RELAYS='["https://pkarr.example.com"]' \
   -e PUBKY_RUNTIME_TESTNET=false \
   -e PUBKY_RUNTIME_ENV=production \
-  -e PUBKY_RUNTIME_SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project> \
+  -e PUBKY_RUNTIME_SENTRY_DSN='https://<key>@<org>.ingest.sentry.io/<project>' \
   -e PUBKY_RUNTIME_SENTRY_ENVIRONMENT=production \
+  -e PUBKY_RUNTIME_PULSE_CLIENT_KEY='pulse_client_<your-client-key>' \
+  -e PUBKY_RUNTIME_PULSE_ENDPOINT=https://ingest.example.com \
   pubky-app
 ```
 
-Omit the `PUBKY_RUNTIME_SENTRY_*` lines to run without Sentry. Other public runtime values are optional/defaulted; set them only when you need to tune polling/TTL behavior, branding/metadata, analytics, moderation, Prelude, exchange rates, or external links. Note for Sentry users: the image ships without browser source maps (Debug IDs only) — see the source-maps section of [docs/sentry.md](sentry.md).
+Omit the `PUBKY_RUNTIME_SENTRY_*` lines to run without Sentry, and the `PUBKY_RUNTIME_PULSE_*` lines to run without Pulse (no consent banner, no analytics controls). Set both Pulse values together: a client key with no endpoint sends to Pubky's hosted ingest host. Other public runtime values are optional/defaulted; set them only when you need to tune polling/TTL behavior, branding/metadata, analytics, moderation, Prelude, exchange rates, or external links. Note for Sentry users: the image ships without browser source maps (Debug IDs only) — see the source-maps section of [docs/sentry.md](sentry.md).
+
+### Profile indexing protection
+
+`PUBKY_RUNTIME_PROFILE_LOCAL_EDIT_TTL_MS` is an optional positive integer in milliseconds
+(default `300000`). It protects a locally saved profile while Nexus catches up. Five minutes
+matches the existing tag-mutation grace period; it is not a measured indexing SLA. The window
+is independent of `PUBKY_RUNTIME_TTL_USER_MS`, so a deployer can extend it without changing the
+normal refresh frequency. Rejected refreshes during that window use `PUBKY_RUNTIME_TTL_RETRY_DELAY_MS`.
+A longer window also delays accepting conflicting edits from another device. Matching, newer
+Nexus data requested after the local edit can confirm it early; expiry alone does not prove indexing.
 
 ### Homeserver mute list sync
 
-Cross-session mute alignment uses the `@synonymdev/pubky` homeserver **event stream** (SSE). Debouncing uses a fixed delay in [`src/config/mute-sync.ts`](src/config/mute-sync.ts) (`MUTE_SYNC_DEBOUNCE_MS`), not an environment variable.
+Cross-session mute alignment uses the `@synonymdev/pubky` homeserver **event stream** (SSE). Debouncing uses a fixed delay in [`src/config/mute-sync.ts`](../src/config/mute-sync.ts) (`MUTE_SYNC_DEBOUNCE_MS`), not an environment variable.
 
 ## Setting Variables
 
@@ -153,4 +199,17 @@ If build-time environment validation fails, you'll see detailed error messages:
   - NEXT_PUBLIC_DB_VERSION: Expected number, received string
 ```
 
-If deployed runtime config is missing or invalid, the server exits at boot with the full list of required `PUBKY_RUNTIME_*` network variables.
+If deployed runtime config is missing or invalid, the server exits at boot with the full list of required `PUBKY_RUNTIME_*` variables.
+
+### Grant authentication identity
+
+`PUBKY_RUNTIME_AUTH_CLIENT_ID` overrides the stable application identity shown to signers.
+It defaults to `pubky.app` for `PUBKY_RUNTIME_ENV=production` and `staging.pubky.app` for staging.
+Preview hostnames do not change this identity. The runtime schema injects the same value into the browser.
+Changing it requires new authorization for saved grants issued with the previous identity. Cookie users obtain a grant
+by signing in again. This public client ID identifies the app; requests prove possession of the grant's proof key.
+See [grant migration and Locks integration](migrations/2600-grant-auth-and-locks.md) for release checks.
+
+### Embedded Shop
+
+Shop navigation always opens the same-origin `/shop` shell and embeds Shop at `/shop-embed`. New Ring/Bitkit and Passport approvals include Shop/Chat storage scopes; recovery-key sign-in and browser signup obtain root storage grants. There is no enable flag or external Shop URL. Deploy compatible App and Shop builds, the proxy, and Shop's BFF together, and verify BFF readiness before promoting the deployment. A later BFF outage shows an unavailable state that retries automatically; see [Shop embedding](shop-embedding.md) and [ADR 0025](adr/0025-same-origin-shop-session.md). Local development can set `SHOP_EMBED_PROXY_ORIGIN=http://localhost:3001` for a prefix-preserving Next rewrite; this build-tool setting is ignored in production.

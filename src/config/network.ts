@@ -1,3 +1,5 @@
+import type { Capabilities } from '@synonymdev/pubky';
+import { APP_CAPABILITIES, LOCKS_CAPABILITIES, SHOP_CAPABILITIES } from '@/config/auth';
 import {
   getDefaultHttpRelay,
   getDeployEnv,
@@ -5,7 +7,9 @@ import {
   getHomegateUrl,
   getHomeserver,
   getHomeserverUrl,
+  getLockServer,
   getPassportUrl,
+  getPaykitServerUrl,
   getPkarrRelays,
   getTestnet,
 } from '@/libs/runtime-config/runtime-config';
@@ -19,7 +23,9 @@ export {
   getHomegateUrl,
   getHomeserver,
   getHomeserverUrl,
+  getLockServer,
   getPassportUrl,
+  getPaykitServerUrl,
   getPkarrRelays,
   getTestnet,
 };
@@ -49,4 +55,17 @@ export function isPassportConfigured(): boolean {
  */
 export function isStagingHomeserverDeploy(): boolean {
   return getDeployEnv() === 'staging';
+}
+
+// Requested from Pubky Ring at sign-in and fixed for the life of that session; keypair sign-in mints a
+// root (`/:rw`) session instead. A session from before an entry was added lacks it until the user
+// approves a new one (`docs/locks.md`, _Sessions from before locks_).
+// - /pub/pubky.app/:rw         — the app's public data
+// - /priv/social/:rw           — where unlocked lock content is copied (reader replication)
+// - /priv/app.locks/content/:r — read-only: a creator reads their OWN guarded original here (Ring sessions)
+export const HOMESERVER_CAPABILITIES = [APP_CAPABILITIES, ...LOCKS_CAPABILITIES].join(',') as Capabilities;
+
+/** One approval requests the App, Locks and embedded Shop storage scopes. */
+export function getHomeserverCapabilities(): Capabilities {
+  return [...new Set([APP_CAPABILITIES, ...LOCKS_CAPABILITIES, ...SHOP_CAPABILITIES])].join(',') as Capabilities;
 }

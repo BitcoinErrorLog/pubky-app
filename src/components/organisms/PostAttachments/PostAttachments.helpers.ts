@@ -1,14 +1,14 @@
 import { FileController } from '@/controllers/file/file';
 import { FileVariant } from '@/services/nexus/file/file.types';
-import type { AttachmentConstructed, CategorizedAttachments } from './PostAttachments.types';
+import type { CategorizedAttachments } from './PostAttachments.types';
 
 type FileMetadata = Awaited<ReturnType<typeof FileController.getMetadata>>[number];
 
-/** Split already-constructed attachments into media-type buckets. */
-export function categorizeAttachments(attachments: AttachmentConstructed[]): CategorizedAttachments {
-  const imagesAndVideos: AttachmentConstructed[] = [];
-  const audios: AttachmentConstructed[] = [];
-  const genericFiles: AttachmentConstructed[] = [];
+/** Split already-constructed attachments (or the pending stand-ins for them) into media-type buckets. */
+export function categorizeAttachments<T extends { type: string }>(attachments: T[]): CategorizedAttachments<T> {
+  const imagesAndVideos: T[] = [];
+  const audios: T[] = [];
+  const genericFiles: T[] = [];
 
   for (const attachment of attachments) {
     if (attachment.type.startsWith('image') || attachment.type.startsWith('video')) {
@@ -26,9 +26,15 @@ export function categorizeAttachments(attachments: AttachmentConstructed[]): Cat
 /** Build categorized AttachmentConstructed lists from remote file metadata. */
 export function splitAttachmentsByMediaType(metadata: FileMetadata[]): CategorizedAttachments {
   return categorizeAttachments(
-    metadata.map(({ content_type, name, id }) => ({
+    metadata.map(({ content_type, name, id, metadata }) => ({
       type: content_type,
       name,
+      ...(Number.isFinite(Number(metadata?.width)) &&
+      Number.isFinite(Number(metadata?.height)) &&
+      Number(metadata?.width) > 0 &&
+      Number(metadata?.height) > 0
+        ? { width: Number(metadata.width), height: Number(metadata.height) }
+        : {}),
       urls: {
         main: FileController.getFileUrl({ fileId: id, variant: FileVariant.MAIN }),
         feed: content_type.startsWith('image')

@@ -1,4 +1,4 @@
-import { ValidationErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { HttpMethod } from '@/libs/http/http.types';
@@ -6,12 +6,14 @@ import type { NexusPostsKeyStream, NexusPostWithAttachmentMetadata } from '@/ser
 import { queryNexus } from '@/services/nexus/nexus.utils';
 import { searchApi } from '@/services/nexus/search/search.api';
 import type { TContentSearchResult } from '@/services/nexus/search/search.types';
+import { toSearchReachParams } from '@/services/nexus/search/search.utils';
 import { postStreamApi } from '@/services/nexus/stream/posts/postStream.api';
 import {
   StreamSource,
   type TPostStreamFetchParams,
   type TStreamAuthorParams,
   type TStreamCollectionParams,
+  type TStreamPostCollectionsParams,
   type TStreamPostRepliesParams,
   type TStreamPostsByIdsParams,
 } from '@/services/nexus/stream/posts/postStream.types';
@@ -62,9 +64,12 @@ export class NexusPostStreamService {
       case StreamSource.WOT:
       case StreamSource.WOT_DOMAIN:
       case StreamSource.BOOKMARKS:
-        // TODO: from now, always is going to be
         if (!params.viewer_id) {
-          throw new Error(`Viewer ID is required for ${invokeEndpoint} stream`);
+          throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'Sign in to see this feed', {
+            service: ErrorService.Nexus,
+            operation: 'fetchPostStream',
+            context: { invokeEndpoint },
+          });
         }
         nexusEndpoint = postStreamApi[invokeEndpoint]({ ...params, observer_id: params.viewer_id });
         break;
@@ -81,6 +86,9 @@ export class NexusPostStreamService {
       case StreamSource.COLLECTION:
         nexusEndpoint = postStreamApi.collection({ ...params, ...extraParams } as TStreamCollectionParams);
         break;
+      case StreamSource.POST_COLLECTIONS:
+        nexusEndpoint = postStreamApi.post_collections({ ...params, ...extraParams } as TStreamPostCollectionsParams);
+        break;
       case StreamSource.CONTENT_SEARCH: {
         if (!extraParams.q) {
           throw Err.validation(ValidationErrorCode.INVALID_INPUT, CONTENT_SEARCH_QUERY_REQUIRED_MESSAGE, {
@@ -89,7 +97,9 @@ export class NexusPostStreamService {
             context: { invokeEndpoint },
           });
         }
+        // Nexus caps full-text reach at 1,000 authors, prioritizing prolific authors.
         const url = searchApi.byContent({
+          ...toSearchReachParams(extraParams.reach, params.viewer_id, 'fetchPostStream'),
           q: extraParams.q,
           // Present only for author-scoped searches (profile "Filter posts").
           author: extraParams.author_id,

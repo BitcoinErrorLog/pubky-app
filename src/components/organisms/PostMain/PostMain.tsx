@@ -11,7 +11,10 @@ import { useElementHeight } from '@/hooks/useElementHeight/useElementHeight';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
 import { usePostHeaderVisibility } from '@/hooks/usePostHeaderVisibility/usePostHeaderVisibility';
-import { getDisplayedPostId } from '@/hooks/usePostHeaderVisibility/usePostHeaderVisibility.utils';
+import {
+  getDisplayedPostId,
+  getInteractionPostId,
+} from '@/hooks/usePostHeaderVisibility/usePostHeaderVisibility.utils';
 import { usePostNavigation } from '@/hooks/usePostNavigation/usePostNavigation';
 import { usePostReplyRepostDialogs } from '@/hooks/usePostReplyRepostDialogs/usePostReplyRepostDialogs';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
@@ -98,18 +101,23 @@ function UndoableRepostHeader({
 
 export function PostMain({
   postId,
+  postDetails: providedPostDetails,
   className,
   isReply = false,
   isLastReply = false,
   pinActionsToBottom = false,
   isNavigable = true,
   showFullContentInListLayout = false,
+  presentation = 'default',
 }: PostMainProps) {
+  const isCards = presentation === 'cards';
   const effectiveTagsLayout = useEffectiveTagsLayout();
   const isWideLayout = effectiveTagsLayout === 'side';
   const isListLayout = effectiveTagsLayout === 'list';
-  const { postDetails, isLoading } = usePostDetails(postId);
-  const isDeleted = isPostDeleted(postDetails?.content);
+  const detailsQuery = usePostDetails(postId, { enabled: providedPostDetails === undefined });
+  const postDetails = providedPostDetails === undefined ? detailsQuery.postDetails : providedPostDetails;
+  const isLoading = providedPostDetails === undefined && detailsQuery.isLoading;
+  const isDeleted = isPostDeleted(postDetails);
   // A settled `null` (cache miss after the fetch resolved) means the post 404'd.
   // Without this branch the card below would skeleton forever (PostHeader /
   // PostContent each wait on `postDetails`). `undefined` is still loading.
@@ -117,21 +125,25 @@ export function PostMain({
 
   const { handlePostClick, handlePostAuxClick } = usePostNavigation();
 
-  const headerVisibility = usePostHeaderVisibility(postId);
+  const headerVisibility = usePostHeaderVisibility(postDetails ? postId : '');
   const { showRepostHeader, shouldShowPostHeader, originalPostId } = headerVisibility;
   // A contentless repost adds a bar above the original post, not another card
   // around it. Undo and saved membership retain the repost's identity.
   const repostedPostId = showRepostHeader ? originalPostId : null;
   const displayedPostId = getDisplayedPostId(postId, headerVisibility);
   const showDisplayedPostHeader = repostedPostId !== null || shouldShowPostHeader;
+  // Tags and replies of a contentless repost go to the original for every viewer; tags already
+  // stored on the repost id are merged into the panel so they stay visible.
+  const interactionPostId = getInteractionPostId(postId, headerVisibility);
+  const tagsMergePostId = interactionPostId !== postId ? postId : undefined;
   // Contentless collection shares get a distinct full-bleed treatment (#2121):
   // repost header + flush CollectionCard, no post chrome (header, actions, tags).
   // The original's details query stays disabled unless the header is showing.
   const { postDetails: originalPostDetails, isLoading: isOriginalLoading } = usePostDetails(repostedPostId);
   const isOriginalMissing = repostedPostId !== null && originalPostDetails === null && !isOriginalLoading;
-  const isOriginalDeleted = repostedPostId !== null && isPostDeleted(originalPostDetails?.content);
+  const isOriginalDeleted = repostedPostId !== null && isPostDeleted(originalPostDetails);
   const isCollectionShare = repostedPostId !== null && originalPostDetails?.kind === 'collection';
-  const { openReplyDialog, openRepostDialog, dialogs } = usePostReplyRepostDialogs(displayedPostId);
+  const { openReplyDialog, openRepostDialog, dialogs } = usePostReplyRepostDialogs(interactionPostId);
 
   const mobileTagsPanelRef = useRef<PostTagsPanelHandle>(null);
   const desktopTagsPanelRef = useRef<PostTagsPanelHandle>(null);
@@ -165,7 +177,12 @@ export function PostMain({
         overrideDefaults
         onClick={isNavigable ? (e) => handlePostClick(displayedPostId, e) : undefined}
         onAuxClick={isNavigable ? (e) => handlePostAuxClick(displayedPostId, e) : undefined}
-        className={cn('relative flex min-w-0 @max-xl/grid:h-full', isNavigable && 'cursor-pointer', isReply && 'pl-3')}
+        className={cn(
+          'relative flex min-w-0',
+          !isCards && '@max-xl/grid:h-full',
+          isNavigable && 'cursor-pointer',
+          isReply && 'pl-3',
+        )}
       >
         {isReply && (
           <Container overrideDefaults className="absolute top-0 bottom-0 left-0 w-3">
@@ -208,8 +225,9 @@ export function PostMain({
               ) : (
                 <CardContent
                   className={cn(
-                    'flex min-w-0 flex-col @max-xl/grid:flex-1',
-                    isWideLayout || isListLayout ? 'p-0' : 'gap-4 p-6',
+                    'flex min-w-0 flex-col',
+                    !isCards && '@max-xl/grid:flex-1',
+                    isWideLayout || isListLayout ? 'p-0' : isCards ? 'gap-6 p-6' : 'gap-4 p-6',
                   )}
                 >
                   {isListLayout ? (
@@ -237,12 +255,13 @@ export function PostMain({
                         >
                           <PostTagsPanel
                             ref={mobileTagsPanelRef}
-                            postId={displayedPostId}
+                            postId={interactionPostId}
+                            mergePostId={tagsMergePostId}
                             widthMode="full"
                             className="lg:hidden"
                           />
                           <PostActionsBar
-                            postId={displayedPostId}
+                            postId={interactionPostId}
                             savePostId={postId}
                             onTagClick={() => {
                               // The tag button only reveals the tags. On mobile that reveal must not
@@ -269,7 +288,8 @@ export function PostMain({
                       >
                         <PostTagsPanel
                           ref={desktopTagsPanelRef}
-                          postId={displayedPostId}
+                          postId={interactionPostId}
+                          mergePostId={tagsMergePostId}
                           widthMode="full"
                           className="w-full"
                         />
@@ -278,9 +298,11 @@ export function PostMain({
                   ) : (
                     <>
                       {showDisplayedPostHeader && <PostHeader postId={displayedPostId} />}
-                      <PostContent postId={displayedPostId} />
+                      <PostContent postId={displayedPostId} mediaVariant={isCards ? 'cards' : 'default'} />
                       <PostInlineTagsActions
-                        postId={displayedPostId}
+                        presentation={presentation}
+                        postId={interactionPostId}
+                        tagsMergePostId={tagsMergePostId}
                         savePostId={postId}
                         onReplyClick={openReplyDialog}
                         onRepostClick={openRepostDialog}

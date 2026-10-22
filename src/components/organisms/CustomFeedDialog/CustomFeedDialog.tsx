@@ -1,15 +1,17 @@
 'use client';
 
-import { type ComponentType, type ReactNode, useEffect } from 'react';
+import { type ComponentType, type ReactNode, useEffect, useState } from 'react';
 import {
   Check,
+  CircleHelp,
   CirclePlay,
   Columns3,
   Download,
   Flame,
+  Grid2X2,
   Image,
   Layers,
-  LayoutGrid,
+  LayoutDashboard,
   Library,
   Link,
   Newspaper,
@@ -28,6 +30,7 @@ import { DynamicLucideIcon } from '@/atoms/DynamicLucideIcon/DynamicLucideIcon';
 import { Input } from '@/atoms/Input/Input';
 import { Label } from '@/atoms/Label/Label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/atoms/Select/Select';
+import { Tooltip, TooltipContent, TooltipPortal, TooltipTrigger } from '@/atoms/Tooltip/Tooltip';
 import { Typography } from '@/atoms/Typography/Typography';
 import { TAGGED_AS_FILTER_KEY } from '@/config/feed';
 import { useControlledState } from '@/hooks/useControlledState/useControlledState';
@@ -78,6 +81,8 @@ function parseReachValue(value: string): CustomFeedFormReach {
 /** Shown for a stored reach/content this dialog cannot offer as a choice. */
 const UNSUPPORTED_OPTION_LABEL = 'Unsupported (set elsewhere)';
 
+const LAYOUT_HINT = 'Cards also applies on mobile. Other layouts use a single column on mobile.';
+
 const REACH_OPTION_VALUES: CustomFeedFormReach[] = [
   PubkyAppFeedReach.Wot,
   TAGGED_AS_FILTER_KEY,
@@ -94,6 +99,7 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
     defaultValue: false,
     onChange: props.onOpenChange,
   });
+  const [isLayoutTooltipOpen, setIsLayoutTooltipOpen] = useState(false);
   // Read `feed` off `props` rather than destructuring it: the props union ties
   // `feed` to `mode`, and destructuring erases that link for TS.
   const { form, loading, submit, deleteFeed } = useCustomFeedForm(
@@ -145,12 +151,17 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
     {
       value: PubkyAppFeedLayout.Visual,
       label: 'Visual',
-      icon: LayoutGrid,
+      icon: Grid2X2,
     },
     {
       value: PubkyAppFeedLayout.List,
       label: 'List',
       icon: Rows4,
+    },
+    {
+      value: PubkyAppFeedLayout.Cards,
+      label: 'Cards',
+      icon: LayoutDashboard,
     },
   ];
   const allContentFilters: Array<{
@@ -292,6 +303,7 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
         onCloseAutoFocus={(e) => e.preventDefault()}
         className="w-xl"
         data-testid="custom-feed-dialog-content"
+        data-cy="custom-feed-dialog"
       >
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'Create Feed' : 'Edit Feed'}</DialogTitle>
@@ -311,8 +323,9 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
                 onChange={field.onChange}
                 onBlur={field.onBlur}
                 disabled={loading}
-                className="h-14 border-dashed"
+                className="h-14 border-dashed bg-background/20"
                 data-testid="feed-name-input"
+                data-cy="custom-feed-name-input"
               />
             )}
           />
@@ -363,18 +376,18 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
                   disabled={loading}
                   data-testid="reach-select"
                 >
-                  <SelectTrigger className="w-full sm:w-fit">
+                  <SelectTrigger className="w-full sm:w-fit" data-cy="custom-feed-reach-select">
                     <SelectValue placeholder={'Select a reach'} />
                   </SelectTrigger>
 
-                  <SelectContent>
+                  <SelectContent data-cy="custom-feed-select-options">
                     {unsupportedReach !== null && (
                       <SelectItem disabled value={String(unsupportedReach)}>
                         {UNSUPPORTED_OPTION_LABEL}
                       </SelectItem>
                     )}
                     {reachFilters.map((r) => (
-                      <SelectItem key={r.value} value={String(r.value)}>
+                      <SelectItem key={r.value} value={String(r.value)} data-cy="custom-feed-select-option">
                         <r.icon /> {r.label}
                       </SelectItem>
                     ))}
@@ -397,13 +410,13 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
                   disabled={loading}
                   data-testid="sort-select"
                 >
-                  <SelectTrigger className="w-full sm:w-fit">
+                  <SelectTrigger className="w-full sm:w-fit" data-cy="custom-feed-sort-select">
                     <SelectValue placeholder={'Select a sort'} />
                   </SelectTrigger>
 
-                  <SelectContent>
+                  <SelectContent data-cy="custom-feed-select-options">
                     {sortFilters.map((r) => (
-                      <SelectItem key={r.value} value={String(r.value)}>
+                      <SelectItem key={r.value} value={String(r.value)} data-cy="custom-feed-select-option">
                         <r.icon /> {r.label}
                       </SelectItem>
                     ))}
@@ -414,7 +427,42 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
           </Container>
 
           <Container overrideDefaults className="flex flex-col gap-y-2" data-testid="layout-filter-section">
-            <Label className="text-xs tracking-wide text-muted-foreground uppercase">{'Layout'}</Label>
+            <Container overrideDefaults className="flex items-center gap-1">
+              <Label className="text-xs tracking-wide text-muted-foreground uppercase">{'Layout'}</Label>
+
+              {/*
+                Radix opens a tooltip on hover and on focus. On touch the focus lands
+                after its pointer-down guard has cleared, so a tap toggles the hint
+                itself instead of leaving a touch user with no way to read it.
+              */}
+              <Tooltip open={isLayoutTooltipOpen} onOpenChange={setIsLayoutTooltipOpen}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={'About layout settings'}
+                    className="shrink-0 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    data-testid="layout-tooltip-trigger"
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+
+                      if (event.pointerType !== 'touch') return;
+
+                      event.preventDefault();
+                      setIsLayoutTooltipOpen((tooltipOpen) => !tooltipOpen);
+                    }}
+                    // A touch tap can emit a click after pointer-up. Keep Radix from
+                    // closing the hint that the pointer-down handler just opened.
+                    onClick={(event) => event.preventDefault()}
+                  >
+                    <CircleHelp className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+
+                <TooltipPortal>
+                  <TooltipContent>{LAYOUT_HINT}</TooltipContent>
+                </TooltipPortal>
+              </Tooltip>
+            </Container>
 
             <Controller
               name={CUSTOM_FEED_FORM_FIELDS.LAYOUT}
@@ -426,13 +474,13 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
                   disabled={loading}
                   data-testid="layout-select"
                 >
-                  <SelectTrigger className="w-full sm:w-fit">
+                  <SelectTrigger className="w-full sm:w-fit" data-cy="custom-feed-layout-select">
                     <SelectValue placeholder={'Select a layout'} />
                   </SelectTrigger>
 
-                  <SelectContent>
+                  <SelectContent data-cy="custom-feed-select-options">
                     {layoutFilters.map((r) => (
-                      <SelectItem key={r.value} value={String(r.value)}>
+                      <SelectItem key={r.value} value={String(r.value)} data-cy="custom-feed-select-option">
                         <r.icon /> {r.label}
                       </SelectItem>
                     ))}
@@ -455,18 +503,18 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
                   disabled={loading}
                   data-testid="content-select"
                 >
-                  <SelectTrigger className="w-full sm:w-fit">
+                  <SelectTrigger className="w-full sm:w-fit" data-cy="custom-feed-content-select">
                     <SelectValue placeholder={'Select content'} />
                   </SelectTrigger>
 
-                  <SelectContent>
+                  <SelectContent data-cy="custom-feed-select-options">
                     {unsupportedContent !== null && (
                       <SelectItem disabled value={String(unsupportedContent)}>
                         {UNSUPPORTED_OPTION_LABEL}
                       </SelectItem>
                     )}
                     {contentFilters.map((r) => (
-                      <SelectItem key={r.value} value={String(r.value)}>
+                      <SelectItem key={r.value} value={String(r.value)} data-cy="custom-feed-select-option">
                         <r.icon /> {r.label}
                       </SelectItem>
                     ))}
@@ -579,6 +627,7 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
               disabled={loading}
               className="h-15 w-full"
               data-testid="delete-feed-button"
+              data-cy="custom-feed-delete-btn"
             >
               <Trash2 className="size-4" />
               {'Delete Feed'}
@@ -592,6 +641,7 @@ export const CustomFeedDialog = (props: CustomFeedDialogProps) => {
             disabled={loading || !form.formState.isValid}
             className="h-15 w-full"
             data-testid="save-feed-button"
+            data-cy="custom-feed-save-btn"
           >
             <Check className="size-4" />
             {'Save Feed'}

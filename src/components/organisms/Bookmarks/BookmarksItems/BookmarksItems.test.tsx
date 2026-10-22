@@ -12,11 +12,13 @@ vi.mock('@/organisms/Collections/DialogAddContent/DialogAddContent', () => ({
 vi.mock('@/organisms/Timeline/Feed/TimelineFeed/TimelineFeed', () => ({
   TimelineFeed: ({
     variant,
+    requestedLayout,
     children,
     emptyState,
     trailingSlot,
   }: {
     variant: string;
+    requestedLayout: string;
     children?: ReactNode;
     emptyState?: ReactNode;
     trailingSlot?: ReactNode;
@@ -24,6 +26,7 @@ vi.mock('@/organisms/Timeline/Feed/TimelineFeed/TimelineFeed', () => ({
     <div
       data-testid="timeline-feed"
       data-variant={variant}
+      data-layout={requestedLayout}
       data-has-empty-state={String(Boolean(emptyState))}
       data-has-trailing-slot={String(Boolean(trailingSlot))}
     >
@@ -39,18 +42,11 @@ describe('BookmarksItems', () => {
 
     const feed = screen.getByTestId('timeline-feed');
     expect(feed).toHaveAttribute('data-variant', 'bookmarks');
+    expect(feed).toHaveAttribute('data-layout', 'cards');
     expect(feed).toHaveAttribute('data-has-empty-state', 'true');
     expect(feed).toHaveAttribute('data-has-trailing-slot', 'true');
     expect(screen.getByTestId('bookmarks-header')).toBeInTheDocument();
     expect(screen.getByTestId('add-content-dialog')).toHaveAttribute('data-cy', 'bookmarks-add-content-grid');
     expect(screen.getByTestId('add-content-dialog')).toHaveAttribute('data-trigger-variant', 'grid');
-  });
-});
-
-describe('BookmarksItems - Snapshots', () => {
-  it('matches the snapshot', () => {
-    const { container } = render(<BookmarksItems header={<div>Bookmarks header</div>} />);
-
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

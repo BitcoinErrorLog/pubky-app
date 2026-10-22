@@ -16,6 +16,8 @@ import { usePostInput } from '@/hooks/usePostInput/usePostInput';
 import { usePostInputAuthHandlers } from '@/hooks/usePostInputAuthHandlers/usePostInputAuthHandlers';
 import { canSubmitPost, cn, getEnforcedCharacterCount } from '@/libs/utils/utils';
 import { POST_INPUT_VARIANT } from '@/organisms/PostInput/PostInput.constants';
+import { selectDisplayUserPubky } from '@/stores/auth/auth.selectors';
+import { useAuthStore } from '@/stores/auth/auth.store';
 import { QUICK_REPLY_CONNECTOR_HEIGHT_OFFSET, QUICK_REPLY_PROMPTS } from './QuickReply.constants';
 import type { QuickReplyContentProps, QuickReplyProps } from './QuickReply.types';
 import { QuickReplyContent } from './QuickReplyContent';
@@ -38,7 +40,7 @@ export function QuickReply({
     setAttachments,
     isDragging,
     isExpanded,
-    isSubmitting,
+    isSubmitting: isWriting,
     showEmojiPicker,
     setShowEmojiPicker,
     displayPlaceholder,
@@ -73,6 +75,7 @@ export function QuickReply({
   });
 
   const {
+    isWaiting,
     isAuthenticated,
     handleExpandWithAuth,
     handleSubmitWithAuth,
@@ -96,6 +99,9 @@ export function QuickReply({
     handleEmojiSelect,
     handlePaste,
   });
+  const isSubmitting = isWriting || isWaiting;
+  const restoreStatus = useAuthStore((state) => state.restoreStatus);
+  const displayUserPubky = selectDisplayUserPubky({ currentUserPubky, restoreStatus });
 
   const { ref: cardRef, height: cardHeight } = useElementHeight();
   const shouldReduceMotion = useReducedMotion();
@@ -126,7 +132,7 @@ export function QuickReply({
   useCharacterLimitWarning(characterLimit);
 
   const contentProps: QuickReplyContentProps = {
-    currentUserPubky,
+    currentUserPubky: displayUserPubky,
     currentUserDetails,
     textareaRef,
     content,
@@ -160,7 +166,13 @@ export function QuickReply({
   };
 
   return (
-    <Container overrideDefaults className="relative flex" data-testid="quick-reply" aria-busy={isSubmitting}>
+    <Container
+      overrideDefaults
+      className="relative flex"
+      data-testid="quick-reply"
+      data-cy="quick-reply"
+      aria-busy={isSubmitting}
+    >
       <Container overrideDefaults className="relative w-3 shrink-0" data-testid="quick-reply-connector-column">
         <Container overrideDefaults className="absolute -inset-y-px left-0">
           <PostThreadConnector

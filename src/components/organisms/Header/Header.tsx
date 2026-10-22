@@ -14,12 +14,13 @@ import {
 import { HeaderHome } from '@/molecules/HeaderHome/HeaderHome';
 import { HeaderSignIn } from '@/molecules/HeaderSignIn/HeaderSignIn';
 import { Logo } from '@/molecules/Logo/Logo';
+import { selectDisplayUserPubky } from '@/stores/auth/auth.selectors';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { pathToStepConfig } from './Header.constants';
 
 export function Header() {
   const pathname = usePathname();
-  const isAuthenticated = useAuthStore((state) => Boolean(state.currentUserPubky));
+  const isAuthenticated = useAuthStore((state) => Boolean(selectDisplayUserPubky(state)));
   const { isCoreExploreRoute, isDynamicPublicRoute } = usePublicRoute();
 
   const isOnboarding = pathname?.startsWith('/onboarding') ?? false;
@@ -48,12 +49,6 @@ export function Header() {
   // signed-out users.
   const shouldShowTitle = currentTitle && (isOnboarding || !isAuthenticated);
 
-  // App-shell layout: authenticated app pages and Explore mode (unauthenticated on a
-  // public route, e.g. feed/post/profile) both render the feed + sidebars, so the header
-  // must align with the content gutter. Onboarding and the landing page keep the default
-  // centered padding instead.
-  const isAppShellLayout = !isOnboarding && (isAuthenticated || isDynamicPublicRoute || isCoreExploreRoute);
-  const classNameNav = isAppShellLayout ? ' xl:px-0' : '';
   // Determine which header content to show:
   // - Onboarding: HeaderOnboarding
   // - Authenticated: HeaderSignIn (navigation + avatar)
@@ -73,11 +68,9 @@ export function Header() {
   };
 
   // Copyright page shows only logo (minimal header).
-  // Pass the same classNameNav as other routes so the logo doesn't shift
-  // horizontally when navigating between the app and /copyright.
   if (isCopyrightPage) {
     return (
-      <HeaderContainer classNameNav={classNameNav}>
+      <HeaderContainer>
         <Logo />
       </HeaderContainer>
     );
@@ -91,10 +84,7 @@ export function Header() {
   };
 
   return (
-    <HeaderContainer
-      classNameNav={classNameNav}
-      className={cn(isLandingPage && 'p-0 sm:py-6', shouldHideHeaderOnMobile && 'hidden lg:block')}
-    >
+    <HeaderContainer className={cn(shouldHideHeaderOnMobile && 'hidden lg:block')}>
       <Logo noLink={isPostAuthOnboardingStep} onClick={handleLandingLogoClick} />
       {shouldShowTitle && <HeaderTitle currentTitle={currentTitle} />}
       {renderHeaderContent()}

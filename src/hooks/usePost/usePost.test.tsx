@@ -9,7 +9,7 @@ import { STORAGE_QUOTA_REACHED_MESSAGE } from '@/libs/storage/storageQuota';
 import { toast } from '@/molecules/Toaster/toast';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import { usePost } from './usePost';
-import type { ExistingAttachment } from './usePost.types';
+import type { ExistingAttachment, UsePostOptions } from './usePost.types';
 
 const mockExistingAttachment = (uri: string): ExistingAttachment => ({
   uri,
@@ -94,6 +94,7 @@ describe('usePost', () => {
       expect(result.current.existingAttachments).toEqual([]);
       expect(result.current.isArticle).toBe(false);
       expect(result.current.articleTitle).toBe('');
+      expect(result.current.lockTitle).toBe('');
       expect(result.current.isSubmitting).toBe(false);
       expect(typeof result.current.setContent).toBe('function');
       expect(typeof result.current.setExistingAttachments).toBe('function');
@@ -101,6 +102,7 @@ describe('usePost', () => {
       expect(typeof result.current.setAttachments).toBe('function');
       expect(typeof result.current.setIsArticle).toBe('function');
       expect(typeof result.current.setArticleTitle).toBe('function');
+      expect(typeof result.current.setLockTitle).toBe('function');
       expect(typeof result.current.reply).toBe('function');
       expect(typeof result.current.post).toBe('function');
       expect(typeof result.current.repost).toBe('function');
@@ -206,6 +208,80 @@ describe('usePost', () => {
         variant: 'warning',
         title: 'Articles support one cover image',
       });
+    });
+
+    it('keeps the cover when a captured article draft is restored whole (abandoned lock)', () => {
+      const { result } = renderHook(() => usePost());
+      const cover = new File(['test'], 'cover.png', { type: 'image/png' });
+      vi.mocked(toast).mockClear();
+
+      act(() => {
+        result.current.restoreComposerDraft({
+          content: 'Body',
+          attachments: [cover],
+          isArticle: true,
+          articleTitle: 'Essay',
+        });
+      });
+
+      expect(result.current.isArticle).toBe(true);
+      expect(result.current.attachments).toEqual([cover]);
+      expect(result.current.content).toBe('Body');
+      expect(result.current.articleTitle).toBe('Essay');
+      expect(vi.mocked(toast)).not.toHaveBeenCalled();
+    });
+
+    it('still clears attachments on the next user switch into article mode after a restore', () => {
+      const { result } = renderHook(() => usePost());
+      const cover = new File(['test'], 'cover.png', { type: 'image/png' });
+
+      act(() => {
+        result.current.restoreComposerDraft({
+          content: 'Body',
+          attachments: [cover],
+          isArticle: true,
+          articleTitle: 'T',
+        });
+      });
+      act(() => {
+        result.current.setIsArticle(false);
+      });
+      act(() => {
+        result.current.setIsArticle(true);
+      });
+
+      expect(result.current.attachments).toEqual([]);
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({ variant: 'warning', title: 'Articles support one cover image' });
+    });
+
+    it('does not latch the restore guard when the draft lands on a composer already in article mode', () => {
+      const { result } = renderHook(() => usePost());
+      const cover = new File(['test'], 'cover.png', { type: 'image/png' });
+      act(() => {
+        result.current.setIsArticle(true);
+      });
+      vi.mocked(toast).mockClear();
+
+      // The lock was dismissed before it applied: the composer was never cleared
+      act(() => {
+        result.current.restoreComposerDraft({
+          content: 'Body',
+          attachments: [cover],
+          isArticle: true,
+          articleTitle: 'T',
+        });
+      });
+      expect(result.current.attachments).toEqual([cover]);
+
+      act(() => {
+        result.current.setIsArticle(false);
+      });
+      act(() => {
+        result.current.setIsArticle(true);
+      });
+
+      expect(result.current.attachments).toEqual([]);
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({ variant: 'warning', title: 'Articles support one cover image' });
     });
 
     // Note: This scenario doesn't occur in the actual UI (the form resets entirely),
@@ -1551,6 +1627,28 @@ describe('usePost', () => {
         });
       });
 
+      it('serializes edited lock title and teaser into the announcement envelope', async () => {
+        const { result } = renderHook(() => usePost());
+
+        act(() => {
+          result.current.setContent('  Updated teaser  ');
+          result.current.setLockTitle('  Updated title  ');
+        });
+
+        await act(async () => {
+          await result.current.edit({ editPostId: 'test-post-123', isLockAnnouncement: true });
+        });
+
+        // Literal, not `buildLockTeaserContent(...)`: computing the expectation with the production
+        // helper would keep passing if the envelope gained a field or changed key order. Whitespace is
+        // kept on purpose — the lock path writes untrimmed, matching the create path.
+        expect(mockPostControllerEdit).toHaveBeenCalledWith({
+          compositePostId: 'test-post-123',
+          content: '{"lock_title":"  Updated title  ","teaser_description":"  Updated teaser  "}',
+        });
+        expect(result.current.lockTitle).toBe('');
+      });
+
       it('should commit content-only (no attachments payload) when the attachment set is unchanged', async () => {
         const { result } = renderHook(() => usePost());
         const existing = mockExistingAttachment('pubky://user/pub/pubky.app/files/F1');
@@ -2144,7 +2242,7 @@ describe('usePost — article inline images', () => {
   const uploadViaSession = async (result: { current: ReturnType<typeof usePost> }, uri: string, name = 'img.png') => {
     vi.mocked(FileController.commitCreate).mockResolvedValueOnce(uri);
     await act(async () => {
-      await result.current.inlineImages.upload(new File(['x'], name, { type: 'image/png' }));
+      await result.current.inlineMedia.upload(new File(['x'], name, { type: 'image/png' }));
     });
   };
 
@@ -2192,6 +2290,40 @@ describe('usePost — article inline images', () => {
       );
     });
 
+    it('publishes the body and title passed as `article`, not the debounced state', async () => {
+      // The composer hands over what the editor holds; `content` still trails by the debounce and
+      // does not reference the freshly inserted image
+      mockPostControllerCreate.mockResolvedValue(`${AUTHOR}:post1`);
+      const result = await setupArticle('Intro');
+      await uploadViaSession(result, fileUri('img1'));
+
+      await act(async () => {
+        await result.current.post({ article: { title: 'Fresh title', body: `Intro\n\n![A](${fileUri('img1')})` } });
+      });
+
+      expect(mockPostControllerCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: JSON.stringify({ title: 'Fresh title', body: 'Intro\n\n![A](attachment:0)' }),
+          attachmentUris: [fileUri('img1')],
+        }),
+      );
+      // The image is referenced, so the publish sweep keeps its upload
+      expect(vi.mocked(FileController.commitDelete)).not.toHaveBeenCalled();
+    });
+
+    it('publishes an article whose body the debounced state has not received yet', async () => {
+      mockPostControllerCreate.mockResolvedValue(`${AUTHOR}:post1`);
+      const result = await setupArticle('');
+
+      await act(async () => {
+        await result.current.post({ article: { title: 'My Article', body: 'Typed just now' } });
+      });
+
+      expect(mockPostControllerCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ content: JSON.stringify({ title: 'My Article', body: 'Typed just now' }) }),
+      );
+    });
+
     it('blocks publishing when the body contains hand-typed attachment references', async () => {
       const result = await setupArticle('![A](attachment:1)');
 
@@ -2223,6 +2355,118 @@ describe('usePost — article inline images', () => {
         }),
       );
       expect(result.current.isSubmitting).toBe(false);
+    });
+  });
+
+  describe('lock capture', () => {
+    const uploadFile = async (result: { current: ReturnType<typeof usePost> }, uri: string, file: File) => {
+      vi.mocked(FileController.commitCreate).mockResolvedValueOnce(uri);
+      await act(async () => {
+        await result.current.inlineMedia.upload(file);
+      });
+    };
+    const fileA = new File(['a'], 'a.png', { type: 'image/png' });
+    const fileB = new File(['b'], 'b.png', { type: 'image/png' });
+
+    it('serializes the body for a lock and returns its images in slot order, after the cover', async () => {
+      const result = await setupArticle('draft', { cover: new File(['x'], 'cover.png', { type: 'image/png' }) });
+      await uploadFile(result, fileUri('a'), fileA);
+      await uploadFile(result, fileUri('b'), fileB);
+
+      const serialized = result.current.serializeArticleForLock(`![B](${fileUri('b')})\n\n![A](${fileUri('a')})`);
+
+      expect(serialized).toEqual({ body: '![B](attachment:1)\n\n![A](attachment:2)', inlineFiles: [fileB, fileA] });
+      expect(vi.mocked(toast)).not.toHaveBeenCalled();
+    });
+
+    it('starts at slot 0 when the article has no cover', async () => {
+      const result = await setupArticle('draft');
+      await uploadFile(result, fileUri('a'), fileA);
+
+      expect(result.current.serializeArticleForLock(`![A](${fileUri('a')})`)?.body).toBe('![A](attachment:0)');
+    });
+
+    it('refuses, with the publish toast, a body a normal publish refuses', async () => {
+      const result = await setupArticle('draft');
+
+      expect(result.current.serializeArticleForLock('![A](attachment:1)')).toBeNull();
+      expect(vi.mocked(toast)).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'error', description: expect.stringContaining('attachment references') }),
+      );
+    });
+
+    it('refuses an image that was not uploaded this session: the lock has no bytes for it', async () => {
+      const result = await setupArticle('draft');
+
+      expect(result.current.serializeArticleForLock(`![A](${fileUri('from-another-post')})`)).toBeNull();
+      expect(vi.mocked(toast)).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'error', description: expect.stringContaining('outside this article') }),
+      );
+    });
+  });
+
+  describe('a captured lock draft', () => {
+    const BODY = `Intro\n\n![A](${fileUri('img1')})`;
+
+    const setupCapturedArticle = async () => {
+      const view = renderHook((props: UsePostOptions) => usePost(props), { initialProps: {} });
+      act(() => {
+        view.result.current.setIsArticle(true);
+        view.result.current.setArticleTitle('My Article');
+        view.result.current.setContent('draft');
+      });
+      await uploadViaSession(view.result, fileUri('img1'));
+      act(() => view.result.current.setContent(BODY));
+
+      // The switch captures the draft first; applying the lock then empties the composer.
+      view.rerender({ keepInlineMedia: true });
+      await act(async () => {
+        view.result.current.setContent('');
+        view.result.current.setArticleTitle('');
+        view.result.current.setIsArticle(false);
+      });
+      return view;
+    };
+
+    it('keeps the public uploads while the emptied composer writes the announcement', async () => {
+      await setupCapturedArticle();
+
+      expect(FileController.commitDelete).not.toHaveBeenCalled();
+    });
+
+    it('deletes the public uploads once the published lock lets go of them', async () => {
+      const { rerender } = await setupCapturedArticle();
+
+      rerender({ keepInlineMedia: false });
+
+      await waitFor(() => {
+        expect(FileController.commitDelete).toHaveBeenCalledWith({ fileUris: [fileUri('img1')] });
+      });
+    });
+
+    it('publishes normally, with the images it uploaded, after the lock is abandoned', async () => {
+      mockPostControllerCreate.mockResolvedValue(`${AUTHOR}:post1`);
+      const { result, rerender } = await setupCapturedArticle();
+
+      // Abandoning puts the draft back and drops it in the same update.
+      act(() => {
+        result.current.setContent(BODY);
+        result.current.setArticleTitle('My Article');
+        result.current.setIsArticle(true);
+      });
+      rerender({ keepInlineMedia: false });
+      await act(async () => {
+        await result.current.post({});
+      });
+
+      expect(mockPostControllerCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: JSON.stringify({ title: 'My Article', body: 'Intro\n\n![A](attachment:0)' }),
+          attachmentUris: [fileUri('img1')],
+        }),
+      );
+      expect(vi.mocked(toast)).not.toHaveBeenCalledWith(expect.objectContaining({ variant: 'error' }));
+      expect(FileController.commitDelete).not.toHaveBeenCalled();
     });
   });
 
@@ -2333,7 +2577,11 @@ describe('usePost — article inline images', () => {
         {
           type: 'image/png',
           name: 'kept.png',
-          urls: { main: `cdn://${AUTHOR}:kept-inline?v=main`, feed: `cdn://${AUTHOR}:kept-inline?v=feed` },
+          urls: {
+            main: `cdn://${AUTHOR}:kept-inline?v=main`,
+            feed: `cdn://${AUTHOR}:kept-inline?v=feed`,
+            large: `cdn://${AUTHOR}:kept-inline?v=large`,
+          },
         },
       ]);
     });
@@ -2352,7 +2600,7 @@ describe('usePost — article inline images', () => {
 
       // newC is uploaded through this composer session
       await act(async () => {
-        await result.current.inlineImages.upload(new File(['x'], 'newC.png', { type: 'image/png' }));
+        await result.current.inlineMedia.upload(new File(['x'], 'newC.png', { type: 'image/png' }));
       });
       act(() => {
         result.current.setContent(`![A](${oldA})\n\n![C](${newC})`);
@@ -2377,7 +2625,11 @@ describe('usePost — article inline images', () => {
       expect(useLocalFilesStore.getState().posts[`${AUTHOR}:post1`]).toEqual([
         expect.objectContaining({
           name: 'oldA.png',
-          urls: { main: `cdn://${AUTHOR}:oldA?v=main`, feed: `cdn://${AUTHOR}:oldA?v=feed` },
+          urls: {
+            main: `cdn://${AUTHOR}:oldA?v=main`,
+            feed: `cdn://${AUTHOR}:oldA?v=feed`,
+            large: `cdn://${AUTHOR}:oldA?v=large`,
+          },
         }),
         expect.objectContaining({ name: 'newC.png', urls: { main: 'blob:mock-url', feed: 'blob:mock-url' } }),
       ]);
@@ -2464,3 +2716,8 @@ describe('usePost — article inline images', () => {
     });
   });
 });
+
+// These tests exercise the mutation after auth readiness; restore races use the real store in auth-wait tests.
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({ waitForAuth: async () => true }),
+}));

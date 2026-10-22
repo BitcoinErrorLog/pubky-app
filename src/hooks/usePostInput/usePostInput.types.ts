@@ -1,11 +1,12 @@
 import { type MDXEditorMethods, type MDXEditorProps } from '@mdxeditor/editor';
 import type { RefObject } from 'react';
-import type { ExistingAttachment } from '@/hooks/usePost/usePost.types';
+import type { ComposerDraft, ExistingAttachment, UsePostReturn } from '@/hooks/usePost/usePost.types';
 import type { AutocompleteUserData } from '@/hooks/useUserDetailsFromIds/useUserDetailsFromIds.types';
-import type { PostInputVariant } from '@/organisms/PostInput/PostInput.types';
+import type { EditLock, PostInputVariant } from '@/organisms/PostInput/PostInput.types';
 import type { NexusUserDetails } from '@/services/nexus/nexus.types';
 
 export interface UsePostInputOptions {
+  active?: boolean;
   /** Variant determines if this is a reply, repost, or a new post */
   variant: PostInputVariant;
   /** Optional parent post ID (required if variant is 'reply') */
@@ -14,6 +15,8 @@ export interface UsePostInputOptions {
   originalPostId?: string;
   /** Optional edit post ID (required if variant is 'edit') */
   editPostId?: string;
+  /** Existing lock announcement metadata (edit variant only). */
+  editLock?: EditLock;
   /** The post's current attachment URIs (edit variant only) */
   editAttachmentUris?: string[];
   /** The post's current content (edit variant only) — used to derive the article cover slot */
@@ -46,6 +49,9 @@ export interface UsePostInputOptions {
   ) => void;
   /** Callback when article mode changes */
   onArticleModeChange?: (isArticle: boolean) => void;
+  /** Optional external work-in-progress check, added to the tracked fields before collapsing */
+  hasExternalContent?: () => boolean;
+  keepInlineMedia?: boolean;
 }
 
 export interface UsePostInputReturn {
@@ -68,15 +74,35 @@ export interface UsePostInputReturn {
   setIsArticle: React.Dispatch<React.SetStateAction<boolean>>;
   articleTitle: string;
   setArticleTitle: React.Dispatch<React.SetStateAction<string>>;
+  lockTitle: string;
+  setLockTitle: React.Dispatch<React.SetStateAction<string>>;
+  /** Restores a captured draft as one commit, cover included (an abandoned lock). */
+  restoreComposerDraft: (draft: ComposerDraft) => void;
   isDragging: boolean;
   isExpanded: boolean;
   isSubmitting: boolean;
   showEmojiPicker: boolean;
   setShowEmojiPicker: (show: boolean) => void;
-  /** Article inline-image editor surface for the MarkdownEditor */
-  inlineImages: { upload: (file: File) => Promise<string>; getPreviewUrl: (src: string) => string | null };
-  /** Inline image uploads in flight; submit stays disabled while > 0 */
+  /** Article inline media editor surface for the MarkdownEditor */
+  inlineMedia: {
+    upload: (file: File) => Promise<string>;
+    getPreviewUrl: (src: string) => string | null;
+    /** MIME type of a file URI from this session or the edited post's attachments; null otherwise */
+    getMediaType: (uri: string) => string | null;
+    /** File name of a URI the composer knows: uploaded this session, or an attachment of the edited post */
+    getMediaName: (uri: string) => string | null;
+  };
+  /**
+   * True while the file rows of an edited article's inline attachments are still resolving, for a
+   * bounded time. The editor imports markdown once, so it waits: a video it cannot yet tell from an
+   * image would mount as a broken picture. Always false outside article edits.
+   */
+  isEditInlineMediaLoading: boolean;
+  /** Inline media uploads in flight; submit stays disabled while > 0 */
   uploadingCount: number;
+  serializeArticleForLock: UsePostReturn['serializeArticleForLock'];
+  /** The article as the inputs hold it now. `articleTitle` and `content` trail them by the debounce. */
+  getLatestArticle: () => { title: string; body: string };
 
   // Mention autocomplete state
   mentionUsers: AutocompleteUserData[];

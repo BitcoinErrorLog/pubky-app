@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { PostController } from '@/controllers/post/post';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { Logger } from '@/libs/logger/logger';
 import { isPostDeleted } from '@/libs/utils/utils';
 import type { PostDetailsModelSchema } from '@/models/post/details/postDetails.schema';
@@ -32,7 +33,9 @@ import type { UseDeletePostOptions, UseDeletePostResult } from './useDeletePost.
  */
 export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResult {
   const [isDeleting, setIsDeleting] = useState(false);
+  const inFlight = useRef(false);
   const timelineFeed = useTimelineFeedContext();
+  const { waitForAuth } = useRequireAuth(options?.active ?? true, { outlivesOwner: options?.outlivesOwner });
 
   // Resolve toast copy with caller overrides so callers like CollectionCard /
   // CollectionHero can swap in collection-specific copy without forking the hook.
@@ -41,9 +44,9 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
   const deleteFailedDesc = options?.toastMessages?.deleteFailed ?? 'Could not delete post. Try again.';
 
   const deletePost = async (postId: string) => {
-    if (isDeleting) {
+    if (inFlight.current) {
       Logger.warn('[useDeletePost] Delete already in progress, ignoring request', { postId });
-      return;
+      return false;
     }
 
     if (!postId || !postId.trim()) {
@@ -52,10 +55,16 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
         variant: 'error',
         description: 'Invalid post. Try again.',
       });
-      return;
+      return false;
     }
 
+    inFlight.current = true;
     setIsDeleting(true);
+    if (!(await waitForAuth())) {
+      inFlight.current = false;
+      setIsDeleting(false);
+      return false;
+    }
 
     // Optimistically remove the post as a transaction: the commit path also decrements
     // skip-stream offsets (content search, engagement, collections), so the next page
@@ -77,6 +86,7 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
         title: deletedTitle,
         dismissButton: true,
       });
+      return true;
     } catch (error) {
       Logger.error('[useDeletePost] Failed to delete post', {
         postId,
@@ -86,10 +96,11 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
 
       // Decide whether to restore the optimistic removal. After the
       // `LocalPostService.delete` tombstone refactor, a successful local-first
-      // write leaves a row with `content === '[DELETED]'` rather than removing
-      // the row, so an existence check alone can no longer distinguish
-      // "local-first succeeded, homeserver sync failed" from "local-first
-      // never committed." We have to look at the content too:
+      // write leaves a tombstoned row (the `deleted` flag, or the legacy
+      // `content === '[DELETED]'`) rather than removing the row, so an
+      // existence check alone can no longer distinguish "local-first
+      // succeeded, homeserver sync failed" from "local-first never
+      // committed." We have to look at the row's deleted state too:
       //   - row gone (null)           → local hard-delete committed (legacy)  → don't restore
       //   - row exists, tombstoned    → local soft-delete committed           → don't restore
       //   - row exists, live content  → local-first never committed           → restore
@@ -103,7 +114,7 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
         Logger.debug('[useDeletePost] Post existence check completed', {
           postId,
           exists: postStillExists !== null,
-          tombstoned: postStillExists !== null && isPostDeleted(postStillExists.content),
+          tombstoned: postStillExists !== null && isPostDeleted(postStillExists),
         });
       } catch (detailsError) {
         Logger.warn('[useDeletePost] Failed to verify post existence after delete failure', {
@@ -115,7 +126,7 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
       }
 
       const localWriteCommitted =
-        postStillExists === null || (postStillExists !== 'unknown' && isPostDeleted(postStillExists.content));
+        postStillExists === null || (postStillExists !== 'unknown' && isPostDeleted(postStillExists));
 
       if (localWriteCommitted) {
         // Local-first write succeeded (row gone or tombstoned). Keep the removal —
@@ -148,7 +159,9 @@ export function useDeletePost(options?: UseDeletePostOptions): UseDeletePostResu
         variant: 'error',
         description: deleteFailedDesc,
       });
+      return false;
     } finally {
+      inFlight.current = false;
       setIsDeleting(false);
     }
   };

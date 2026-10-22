@@ -5,7 +5,10 @@ import { ImageOff } from 'lucide-react';
 import { cn } from '@/libs/utils/utils';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import type { ArticleInlineImageProps } from './ArticleInlineImage.types';
-import { resolveArticleImageSrc } from './ArticleInlineImage.utils';
+import { resolveArticleImageSrc, resolveUnlockedArticleImageSrc } from './ArticleInlineImage.utils';
+
+/** Reserves the image's space inside a markdown paragraph, so it is a span, not a block. */
+const LOADING_CLASS = 'my-4 block aspect-video w-full max-w-full animate-pulse rounded-md bg-muted';
 
 /**
  * Renders one inline image inside an article body.
@@ -19,25 +22,29 @@ import { resolveArticleImageSrc } from './ArticleInlineImage.utils';
  * Rendered inside markdown paragraphs, so both the image and the placeholder
  * are phrasing-safe (`img` / `span`) — no block elements.
  */
-export const ArticleInlineImage = ({ src, alt, attachments, authorId, postId }: ArticleInlineImageProps) => {
+export const ArticleInlineImage = ({ src, alt, ...source }: ArticleInlineImageProps) => {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const localAttachments = useLocalFilesStore((state) => state.posts[postId]);
+  const localAttachments = useLocalFilesStore((state) => ('postId' in source ? state.posts[source.postId] : undefined));
 
-  const resolved = resolveArticleImageSrc({ src, attachments, authorId });
+  const resolved =
+    'localAttachments' in source
+      ? resolveUnlockedArticleImageSrc({ src, ...source })
+      : resolveArticleImageSrc({ src, attachments: source.attachments, authorId: source.authorId });
 
   // Local entries are index-aligned with attachments; the store only holds
   // image object URLs for posts created/edited this session. The length guard
   // mirrors useEditAttachments: right after an edit the store already has the
   // NEW order while this render still shows the stale body — indexing across
   // that mismatch would serve the wrong image.
-  const alignedLocalAttachments = localAttachments?.length === attachments.length ? localAttachments : undefined;
+  const alignedLocalAttachments =
+    'attachments' in source && localAttachments?.length === source.attachments.length ? localAttachments : undefined;
   const localUrl =
     resolved.kind === 'attachment' && alignedLocalAttachments?.[resolved.index]?.type.startsWith('image')
       ? alignedLocalAttachments[resolved.index].urls.main
       : undefined;
 
-  const finalSrc = resolved.kind === 'invalid' ? null : (localUrl ?? resolved.url);
+  const finalSrc = 'url' in resolved ? (localUrl ?? resolved.url) : null;
 
   // A new source deserves a fresh attempt: without this, one failed load
   // (e.g. a CDN variant that wasn't ready) latches the placeholder even after
@@ -46,6 +53,11 @@ export const ArticleInlineImage = ({ src, alt, attachments, authorId, postId }: 
     setFailed(false);
     setLoaded(false);
   }, [finalSrc]);
+
+  // Unlocked bytes still downloading: hold the image's space rather than show it as lost.
+  if (resolved.kind === 'pending') {
+    return <span aria-hidden="true" data-testid="article-inline-image-loading" className={LOADING_CLASS} />;
+  }
 
   if (!finalSrc || failed) {
     return (
@@ -69,13 +81,7 @@ export const ArticleInlineImage = ({ src, alt, attachments, authorId, postId }: 
       {/* Reserves space and gives feedback while the image loads (slow CDN
           responses can hang for many seconds before settling or erroring).
           Span-based skeleton: this renders inside markdown paragraphs. */}
-      {!loaded && (
-        <span
-          aria-hidden="true"
-          data-testid="article-inline-image-loading"
-          className="my-4 block aspect-video w-full max-w-full animate-pulse rounded-md bg-muted"
-        />
-      )}
+      {!loaded && <span aria-hidden="true" data-testid="article-inline-image-loading" className={LOADING_CLASS} />}
       {/* Kept mounted (tiny, invisible) while loading so the fetch and
           lazy-loading intersection still run */}
       {/* eslint-disable-next-line @next/next/no-img-element -- needs onError fallback; the Image atom (next/image) has none */}

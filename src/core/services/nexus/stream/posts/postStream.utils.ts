@@ -42,21 +42,21 @@ export function createPostStreamParams({
   viewerId,
   order,
 }: TFetchStreamParams): TPostStreamFetchParams {
-  const { sorting, invokeEndpoint, authorId, kind, tags, wotDepth, domainTags, searchQuery } =
+  const { sorting, invokeEndpoint, authorId, kind, tags, wotDepth, domainTags, searchQuery, searchReach } =
     breakDownStreamId(streamId);
 
-  // Content search hits its own endpoint with a minimal param surface (q, author, kind, skip,
-  // limit): no viewer/sorting/order/tags, and no author_id fabrication via
-  // handleNotCommonStreamParams. `author_id` is set only for author-scoped searches.
+  // Content search carries either a profile author or a reach. Only reach searches need
+  // the viewer; sorting/order/tags never apply to relevance-ranked results.
   if (invokeEndpoint === StreamSource.CONTENT_SEARCH) {
     const params: TStreamBase = {};
+    if (searchReach) params.viewer_id = viewerId ?? undefined;
     const parsedKind = kind ? parseContent(kind) : undefined;
     if (parsedKind) {
       params.kind = parsedKind;
     }
     params.limit = limit;
     setStreamPagination({ params, streamTail, streamHead, invokeEndpoint });
-    return { params, invokeEndpoint, extraParams: { q: searchQuery, author_id: authorId } };
+    return { params, invokeEndpoint, extraParams: { q: searchQuery, author_id: authorId, reach: searchReach } };
   }
 
   const params: TStreamBase = {};
@@ -77,8 +77,8 @@ export function createPostStreamParams({
   if (invokeEndpoint === StreamSource.WOT) {
     params.depth = POST_STREAM_WOT_DEFAULT_DEPTH;
   }
-  // REPLIES and COLLECTION use the third segment for an entity id (postId), not a kind.
-  if (kind && invokeEndpoint !== StreamSource.REPLIES && invokeEndpoint !== StreamSource.COLLECTION) {
+  // REPLIES, COLLECTION and POST_COLLECTIONS use the third segment for an entity id (postId), not a kind.
+  if (kind && !isPostAnchoredSource(invokeEndpoint)) {
     params.kind = parseContent(kind);
   }
   params.limit = limit;
@@ -89,10 +89,20 @@ export function createPostStreamParams({
 }
 
 /**
+ * Sources anchored on one post: `post_replies`, `collection` and `post_collections` all encode
+ * `<source>:<authorPubky>:<postId>`, so their third stream-id segment is a post id, never a kind.
+ */
+function isPostAnchoredSource(source: string): boolean {
+  return (
+    source === StreamSource.REPLIES || source === StreamSource.COLLECTION || source === StreamSource.POST_COLLECTIONS
+  );
+}
+
+/**
  * Handles parameters specific to streams that don't follow the common TStreamBase pattern.
- * Only REPLIES and COLLECTION streams encode a `post_id` in the third stream-id segment;
- * for AUTHOR / AUTHOR_REPLIES the third segment (when present) is a `kind` filter and must
- * NOT be forwarded as `post_id`.
+ * Only REPLIES, COLLECTION and POST_COLLECTIONS streams encode a `post_id` in the third
+ * stream-id segment; for AUTHOR / AUTHOR_REPLIES the third segment (when present) is a `kind`
+ * filter and must NOT be forwarded as `post_id`.
  * @param authorId - The author identifier for the stream
  * @param postId - Optional post identifier for post-specific streams
  * @param invokeEndpoint - Resolved stream source (controls whether postId is forwarded)
@@ -106,7 +116,7 @@ function handleNotCommonStreamParams({
     author_id: authorId,
   };
 
-  if (postId && (invokeEndpoint === StreamSource.REPLIES || invokeEndpoint === StreamSource.COLLECTION)) {
+  if (postId && isPostAnchoredSource(invokeEndpoint)) {
     extraParams.post_id = postId;
   }
   return extraParams;
@@ -118,12 +128,14 @@ function handleNotCommonStreamParams({
  * @param streamTail - The pagination tail value (timestamp of last post in current page)
  */
 function setStreamPagination({ params, streamTail, streamHead, invokeEndpoint }: TSetStreamPaginationParams) {
-  // Engagement, single-collection item, and content-search streams paginate by offset (`skip`):
-  // Nexus returns no score/timestamp cursor for them, so `streamTail` carries the number of items
-  // already loaded.
+  // Engagement, single-collection item, post-collections and content-search streams paginate by
+  // offset (`skip`): Nexus returns no score/timestamp cursor for them (post-collections is served
+  // from the graph, `skip`/`limit` is its documented pagination), so `streamTail` carries the
+  // number of items already loaded.
   if (
     params.sorting === StreamSorting.ENGAGEMENT ||
     invokeEndpoint === StreamSource.COLLECTION ||
+    invokeEndpoint === StreamSource.POST_COLLECTIONS ||
     invokeEndpoint === StreamSource.CONTENT_SEARCH
   ) {
     params.skip = streamTail; // post amount of the stream, page number * limit
@@ -186,6 +198,7 @@ export function breakDownStreamId(streamId: PostStreamId): TStreamIdBreakdown {
       searchQuery: contentSearch?.query,
       // Author-scoped searches (profile "Filter posts") carry the profile pubky.
       authorId: contentSearch?.author,
+      searchReach: contentSearch?.reach,
     };
   }
 
@@ -218,10 +231,11 @@ export function breakDownStreamId(streamId: PostStreamId): TStreamIdBreakdown {
   }
 
   if (thirdSegment) {
-    if (sorting === StreamSource.REPLIES || sorting === StreamSource.COLLECTION) {
+    if (isPostAnchoredSource(sorting)) {
       // Source-first composite formats:
       // - post_replies:<pubky>:<postId>
       // - collection:<pubky>:<postId>
+      // - post_collections:<pubky>:<postId>
       return {
         sorting: invokeEndpoint,
         invokeEndpoint: toStreamSource({ value: sorting }),

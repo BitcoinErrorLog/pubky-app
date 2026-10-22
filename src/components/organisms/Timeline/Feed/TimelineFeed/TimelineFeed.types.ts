@@ -47,13 +47,13 @@ type BookmarksTimelineFeedProps = TimelineFeedPropsBase & {
   /** Add Content CTA rendered after bookmarked posts. */
   trailingSlot?: ReactNode;
   pullToRefreshContainerRef?: never;
-  requestedLayout?: never;
+  requestedLayout?: LayoutType;
   visualHiddenItemsNotice?: never;
 };
 
 type CollectionTimelineFeedProps = TimelineFeedPropsBase & {
   variant: typeof TIMELINE_FEED_VARIANT.COLLECTION;
-  /** Collection-scoped Grid/List/Visual choice; never sourced from the persisted home store. */
+  /** Collection-scoped Cards/List/Visual choice; never sourced from the persisted home store. */
   requestedLayout?: LayoutType;
   /**
    * Empty state for finite collection-like feeds.
@@ -90,6 +90,10 @@ export type TimelineFeedProps =
   HomeTimelineFeedProps | BookmarksTimelineFeedProps | CollectionTimelineFeedProps | StandardTimelineFeedProps;
 
 export interface TimelineFeedContextValue {
+  /** Retain a collection card for an open/pending save session; returns its release handle. */
+  retainPost?: (postId: string) => () => void;
+  /** Local membership observed by the feed, used to acknowledge a picker's completed save. */
+  collectionMembershipPostIds?: string[];
   /**
    * The variant of the feed providing this context. Lets descendants (e.g. the
    * save picker) tailor behavior to the feed they live in; for example,

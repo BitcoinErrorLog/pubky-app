@@ -19,24 +19,25 @@ describe('Tooltip', () => {
 
     expect(screen.getByRole('tooltip')).toHaveTextContent('Tooltip body');
   });
-});
 
-describe('Tooltip - Snapshots', () => {
-  it('matches snapshot when open with trigger and content', () => {
-    const { container } = render(
+  it('keeps a consumer className alongside the accent variant classes', () => {
+    render(
       <TooltipProvider delayDuration={0}>
         <Tooltip open>
           <TooltipTrigger asChild>
-            <button type="button">Trigger</button>
+            <button type="button">Hover me</button>
           </TooltipTrigger>
           <TooltipPortal>
-            <TooltipContent>Snapshot label</TooltipContent>
+            <TooltipContent variant="accent" className="wrap-anywhere">
+              Tooltip body
+            </TooltipContent>
           </TooltipPortal>
         </Tooltip>
       </TooltipProvider>,
     );
 
-    expect(container.firstChild).toMatchSnapshot();
-    expect(screen.getByRole('tooltip')).toMatchSnapshot();
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveClass('bg-accent', 'font-medium', 'text-foreground', 'wrap-anywhere');
+    expect(tooltip).not.toHaveClass('bg-primary', 'font-normal', 'text-primary-foreground');
   });
 });

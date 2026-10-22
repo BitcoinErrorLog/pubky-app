@@ -104,3 +104,58 @@ describe('ArticleInlineImage', () => {
     expect(screen.getByTestId('article-inline-image-fallback')).toBeInTheDocument();
   });
 });
+
+describe('ArticleInlineImage - unlocked content', () => {
+  const localAttachments = [
+    { type: 'image/png', name: 'attachment-0', urls: { main: 'blob:cover' }, slot: 0 },
+    { type: 'image/png', name: 'attachment-1', urls: { main: 'blob:second-image' }, slot: 2 },
+  ];
+
+  beforeEach(() => {
+    useLocalFilesStore.setState({ posts: {} });
+  });
+
+  it("renders an attachment reference from the reader's local copy", () => {
+    render(<ArticleInlineImage src="attachment:2" alt="Second" localAttachments={localAttachments} />);
+
+    const img = screen.getByTestId('article-inline-image');
+    expect(img).toHaveAttribute('src', 'blob:second-image');
+    expect(img).toHaveAttribute('alt', 'Second');
+  });
+
+  it('holds the space of an image slot whose bytes are still downloading, instead of the placeholder', () => {
+    render(
+      <ArticleInlineImage
+        src="attachment:1"
+        alt="Soon"
+        localAttachments={[]}
+        pendingAttachments={[{ slot: 1, type: 'image/png' }]}
+      />,
+    );
+
+    expect(screen.getByTestId('article-inline-image-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('article-inline-image-fallback')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('article-inline-image')).not.toBeInTheDocument();
+  });
+
+  it('renders the placeholder for a reference no pending slot will fill', () => {
+    render(
+      <ArticleInlineImage
+        src="attachment:5"
+        alt="Lost"
+        localAttachments={[]}
+        pendingAttachments={[{ slot: 1, type: 'image/png' }]}
+      />,
+    );
+
+    expect(screen.getByTestId('article-inline-image-fallback')).toHaveTextContent('Lost');
+    expect(screen.queryByTestId('article-inline-image-loading')).not.toBeInTheDocument();
+  });
+
+  it('renders the placeholder for a slot whose file was lost', () => {
+    render(<ArticleInlineImage src="attachment:1" alt="Lost" localAttachments={localAttachments} />);
+
+    expect(screen.getByTestId('article-inline-image-fallback')).toHaveTextContent('Lost');
+    expect(screen.queryByTestId('article-inline-image')).not.toBeInTheDocument();
+  });
+});

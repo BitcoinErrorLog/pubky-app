@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
 import { useIsMobile } from '@/hooks/useIsMobile/useIsMobile';
 import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
@@ -10,7 +10,6 @@ import type { TagWithAvatars } from '@/molecules/TaggedItem/TaggedItem.types';
 import { PostMainLayoutProvider } from '@/organisms/PostMain/PostMainLayoutContext';
 import type { NexusTag } from '@/services/nexus/nexus.types';
 import { asOpaque } from '@/test-utils/type-assertions';
-import { resetViewport, setMobileViewport } from '@/test-utils/viewport';
 import { CollectionCard } from './CollectionCard';
 
 // ---------------------------------------------------------------------------
@@ -70,6 +69,7 @@ vi.mock('@/hooks/useIsTouchDevice/useIsTouchDevice', () => ({
 }));
 
 vi.mock('next/navigation', () => ({
+  usePathname: () => '/test',
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -480,6 +480,13 @@ describe('CollectionCard', () => {
       expect(mockTtlRef).toHaveBeenCalledWith(container.querySelector('a[data-cy="collection-card"]'));
     });
 
+    it('keeps a blurred landing card subscribed while its envelope can still change', () => {
+      setPostDetails(COLLECTION_CONTENT, { isBlurred: true });
+      const { container } = render(<CollectionCard authorPubky={AUTHOR_PUBKY} postId={POST_ID} />);
+      expect(mockUseTtlSubscription).toHaveBeenCalledWith({ type: 'post', id: COMPOSITE_ID, enabled: true });
+      expect(mockTtlRef).toHaveBeenCalledWith(container.querySelector('button'));
+    });
+
     it('does not subscribe embed cards — the enclosing PostPreviewCard / PostMain owns the subscription', () => {
       // The enclosing surface already subscribes this id; a second observer
       // for the same post would be redundant.
@@ -492,7 +499,6 @@ describe('CollectionCard', () => {
       ['skeleton', () => mockUsePostDetails.mockReturnValue({ postDetails: undefined, isLoading: true })],
       ['missing', () => mockUsePostDetails.mockReturnValue({ postDetails: null, isLoading: false })],
       ['deleted', () => setPostDetails('[DELETED]')],
-      ['blurred', () => setPostDetails(COLLECTION_CONTENT, { isBlurred: true })],
     ])('keeps the viewport observer detached in the %s state', (_state, arrange) => {
       arrange();
 
@@ -576,44 +582,5 @@ describe('CollectionCard', () => {
       expect(getAddTagButton()).not.toBeInTheDocument();
       expect(screen.queryByLabelText(/^Tag post/)).not.toBeInTheDocument();
     });
-  });
-});
-
-describe('CollectionCard - Snapshots', () => {
-  it('matches the default card snapshot', () => {
-    const { container } = render(<CollectionCard authorPubky={AUTHOR_PUBKY} postId={POST_ID} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the snapshot when no cover image and no description are set', () => {
-    setPostDetails(COLLECTION_CONTENT_NO_COVER);
-
-    const { container } = render(<CollectionCard authorPubky={AUTHOR_PUBKY} postId={POST_ID} />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches the snapshot for the wide timeline layout', () => {
-    const { container } = render(
-      <PostMainLayoutProvider tagsLayout="side">
-        <CollectionCard authorPubky={AUTHOR_PUBKY} postId={POST_ID} />
-      </PostMainLayoutProvider>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-});
-
-describe('CollectionCard - Mobile Snapshots', () => {
-  beforeEach(() => {
-    vi.mocked(useIsMobile).mockReturnValue(true);
-    setMobileViewport();
-  });
-
-  afterEach(() => {
-    resetViewport();
-  });
-
-  it('matches the mobile snapshot with up to three visible tags', () => {
-    const { container } = render(<CollectionCard authorPubky={AUTHOR_PUBKY} postId={POST_ID} />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

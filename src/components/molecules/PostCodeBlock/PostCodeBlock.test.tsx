@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyToClipboard } from '@/libs/utils/utils';
 import { PostCodeBlock } from './PostCodeBlock';
@@ -10,6 +11,32 @@ vi.mock('@/libs/utils/utils', async () => {
   return {
     ...actual,
     copyToClipboard: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+// next/dynamic is mocked to hand back the real highlighter synchronously: the code split it
+// creates is a bundling concern, so the assertions below keep checking highlighted output while
+// the split itself is pinned by the recorded call. The record is a plain array because the call
+// happens at module import, before `vi.clearAllMocks()` runs in `beforeEach`.
+const { dynamicCalls, dynamicMode } = vi.hoisted(() => ({
+  dynamicCalls: [] as unknown[][],
+  dynamicMode: { current: 'ready' as 'ready' | 'pending' | 'failed' },
+}));
+
+vi.mock('next/dynamic', async () => {
+  const { PostCodeBlockHighlighter } = await import('./PostCodeBlockHighlighter');
+  return {
+    default: (...args: unknown[]) => {
+      dynamicCalls.push(args);
+      // `pending` throws a promise (suspends, as a chunk still in flight does) and `failed`
+      // throws an error (as a rejected chunk does), so a test can assert what the block shows
+      // while the chunk is missing.
+      return (props: ComponentProps<typeof PostCodeBlockHighlighter>) => {
+        if (dynamicMode.current === 'pending') throw new Promise(() => {});
+        if (dynamicMode.current === 'failed') throw new Error('highlighter chunk failed');
+        return <PostCodeBlockHighlighter {...props} />;
+      };
+    },
   };
 });
 
@@ -68,6 +95,7 @@ describe('PostCodeBlock', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    dynamicMode.current = 'ready';
   });
 
   afterEach(() => {
@@ -123,6 +151,37 @@ describe('PostCodeBlock', () => {
       expect(codeElement?.textContent).toContain('const');
       expect(codeElement?.textContent).toContain('x');
       expect(codeElement?.textContent).toContain('1');
+    });
+
+    it('loads the syntax highlighter on demand so a post without code never fetches it', async () => {
+      render(<PostCodeBlock className="language-javascript">const x = 1;</PostCodeBlock>);
+
+      // A loader function: the chunk is fetched when a fenced block actually renders, never
+      // as part of the route's initial bundle.
+      const [loader] = dynamicCalls[0] as [() => Promise<unknown>];
+      expect(loader).toBeTypeOf('function');
+
+      // The loader resolves to the real highlighter module, not a stub.
+      const loaded = await loader();
+      const { PostCodeBlockHighlighter } = await import('./PostCodeBlockHighlighter');
+      expect(loaded).toBe(PostCodeBlockHighlighter);
+    });
+
+    it('shows the plain code while the highlighter chunk is still loading', () => {
+      dynamicMode.current = 'pending';
+
+      const { container } = render(<PostCodeBlock className="language-javascript">const x = 1;</PostCodeBlock>);
+
+      expect(container.querySelector('pre')?.textContent).toBe('const x = 1;');
+    });
+
+    it('keeps the plain code and the copy button when the highlighter chunk fails', () => {
+      dynamicMode.current = 'failed';
+
+      const { container } = render(<PostCodeBlock className="language-javascript">const x = 1;</PostCodeBlock>);
+
+      expect(container.querySelector('pre')?.textContent).toBe('const x = 1;');
+      expect(screen.getByTestId('copy-button')).toBeInTheDocument();
     });
 
     it('renders code block with container wrapper', () => {
@@ -363,75 +422,5 @@ describe('PostCodeBlock', () => {
       expect(codeElement).toBeInTheDocument();
       expect(codeElement?.textContent).toContain('<div');
     });
-  });
-});
-
-describe('PostCodeBlock - Snapshots', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('matches snapshot for inline code', () => {
-    const { container } = render(<PostCodeBlock>const x = 1;</PostCodeBlock>);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for inline code with custom className', () => {
-    const { container } = render(<PostCodeBlock className="custom-inline">code</PostCodeBlock>);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for JavaScript code block', () => {
-    const { container } = render(
-      <PostCodeBlock className="language-javascript">{`const greeting = "Hello World";
-console.log(greeting);`}</PostCodeBlock>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for TypeScript code block', () => {
-    const { container } = render(
-      <PostCodeBlock className="language-typescript">{`interface User {
-  name: string;
-  age: number;
-}`}</PostCodeBlock>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for Python code block', () => {
-    const { container } = render(
-      <PostCodeBlock className="language-python">{`def hello():
-    print("Hello, World!")
-    return True`}</PostCodeBlock>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for code block with single line', () => {
-    const { container } = render(<PostCodeBlock className="language-rust">fn main() {}</PostCodeBlock>);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for code block with trailing newline stripped', () => {
-    const { container } = render(<PostCodeBlock className="language-go">{'package main\n'}</PostCodeBlock>);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for empty code block', () => {
-    const { container } = render(<PostCodeBlock className="language-javascript">{''}</PostCodeBlock>);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for code with special characters', () => {
-    const { container } = render(
-      <PostCodeBlock className="language-html">{'<div class="container">&nbsp;</div>'}</PostCodeBlock>,
-    );
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for inline code with empty content', () => {
-    const { container } = render(<PostCodeBlock>{''}</PostCodeBlock>);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

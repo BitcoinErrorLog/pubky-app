@@ -13,9 +13,10 @@ vi.mock('next/navigation', () => ({
 
 // Mock auth store - use selector pattern (component calls useAuthStore with selector function)
 let mockCurrentUserPubky: string | null = null;
+let mockRestoreStatus = 'ready';
 // Mock dexie-react-hooks
 vi.mock('dexie-react-hooks', () => ({
-  useLiveQuery: vi.fn(() => ({ name: 'Test User', image: 'test-image.jpg' })),
+  useLiveQuery: vi.fn((_queryFn, deps) => ({ query: deps[0], data: { name: 'Test User', image: 'test-image.jpg' } })),
 }));
 
 // Mock atoms, libs, config, and app
@@ -92,8 +93,8 @@ vi.mock('@/app/routes', async (importOriginal) => {
 });
 
 vi.mock('@/stores/auth/auth.store', () => ({
-  useAuthStore: (selector: (state: { currentUserPubky: string | null }) => unknown) =>
-    selector({ currentUserPubky: mockCurrentUserPubky }),
+  useAuthStore: (selector: (state: { currentUserPubky: string | null; restoreStatus: string }) => unknown) =>
+    selector({ currentUserPubky: mockCurrentUserPubky, restoreStatus: mockRestoreStatus }),
 }));
 vi.mock('@/stores/notification/notification.store', () => ({
   useNotificationStore: () => ({ selectUnread: () => 0 }),
@@ -119,16 +120,8 @@ vi.mock('@/database/franky/franky', () => ({
 // Mock molecules
 vi.mock('@/molecules/Header/Header', () => {
   return {
-    HeaderContainer: ({
-      children,
-      className,
-      classNameNav,
-    }: {
-      children: React.ReactNode;
-      className?: string;
-      classNameNav?: string;
-    }) => (
-      <div data-testid="header-container" data-class-name={className} data-class-name-nav={classNameNav}>
+    HeaderContainer: ({ children, className }: { children: React.ReactNode; className?: string }) => (
+      <div data-testid="header-container" data-class-name={className}>
         {children}
       </div>
     ),
@@ -210,10 +203,31 @@ describe('Header', () => {
     vi.clearAllMocks();
     // Default mock return values
     mockCurrentUserPubky = null; // Not authenticated by default
+    mockRestoreStatus = 'ready';
     mockUsePathname.mockReturnValue(ROOT_ROUTES);
     mockUseRouter.mockReturnValue({ push: vi.fn() });
     mockIsPublicRoute.mockReturnValue(false);
     mockIsCoreExploreRoute.mockReturnValue(false);
+  });
+
+  it.each(['reauth-required', 'temporary-error'])(
+    'shows the landing sign-in navigation on mobile and desktop after %s',
+    (restoreStatus) => {
+      mockCurrentUserPubky = 'retained-account';
+      mockRestoreStatus = restoreStatus;
+      render(<Header />);
+      expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+      expect(screen.queryByTestId('header-sign-in')).not.toBeInTheDocument();
+      expect(screen.getByTestId('header-container')).not.toHaveAttribute('data-class-name', 'hidden lg:block');
+    },
+  );
+
+  it('keeps account navigation visible while restoring', () => {
+    mockCurrentUserPubky = 'retained-account';
+    mockRestoreStatus = 'restoring';
+    render(<Header />);
+    expect(screen.getByTestId('header-sign-in')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
   });
 
   it('renders header container with logo and home header', () => {
@@ -783,17 +797,6 @@ describe('Header', () => {
       expect(screen.getByTestId('header-explore-navigation-buttons')).toBeInTheDocument();
       expect(screen.queryByTestId('header-home')).not.toBeInTheDocument();
       expect(screen.queryByTestId('header-sign-in')).not.toBeInTheDocument();
-    });
-
-    it('uses app-shell gutter alignment when unauthenticated on a core explore route', () => {
-      mockCurrentUserPubky = null;
-      mockIsPublicRoute.mockReturnValue(false);
-      mockIsCoreExploreRoute.mockReturnValue(true);
-      mockUsePathname.mockReturnValue(HOME_ROUTES.HOME);
-
-      render(<Header />);
-
-      expect(screen.getByTestId('header-container')).toHaveAttribute('data-class-name-nav', ' xl:px-0');
     });
 
     it('renders HeaderSignIn when authenticated regardless of public route', () => {

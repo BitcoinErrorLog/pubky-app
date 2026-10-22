@@ -8,9 +8,8 @@ import { Container } from '@/atoms/Container/Container';
 import { Link } from '@/atoms/Link/Link';
 import { Typography } from '@/atoms/Typography/Typography';
 import { USER_LIST_TAG_MAX_LENGTH, USER_LIST_TAGS_MAX_TOTAL_CHARS } from '@/config/tags';
-import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { useTtlSubscription } from '@/hooks/useTtlSubscription/useTtlSubscription';
-import { cn, formatPublicKey } from '@/libs/utils/utils';
+import { cn, formatPublicKey, resolveUserDisplayName } from '@/libs/utils/utils';
 import { FollowButton } from '@/molecules/FollowButton/FollowButton';
 import { UserStats } from '@/molecules/UserStats/UserStats';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -132,6 +131,7 @@ function CompactVariant({
       overrideDefaults
       className={cn('flex w-full items-center gap-2 pr-1', className)}
       data-testid={dataTestId || `user-list-item-${user.id}`}
+      data-cy="user-list-item"
     >
       {/* Clickable user area */}
       <Button
@@ -211,6 +211,7 @@ function FullVariant({
       ref={ttlRef}
       className={cn('gap-3 rounded-md bg-card p-6 lg:bg-transparent lg:p-0', className)}
       data-testid={dataTestId || `user-list-item-${user.id}`}
+      data-cy="user-list-item"
     >
       {/* Main row */}
       <Container overrideDefaults className="flex flex-wrap items-center justify-between gap-6 lg:flex-nowrap">
@@ -308,6 +309,7 @@ function CardVariant({
       aria-label={displayName}
       className={cn('flex w-full flex-col gap-3 rounded-md bg-card p-4', className)}
       data-testid={dataTestId || `user-list-item-${user.id}`}
+      data-cy="user-list-item"
     >
       <Container overrideDefaults className="flex items-center justify-between gap-3">
         <Container overrideDefaults className="flex min-w-0 flex-1 items-center gap-2">
@@ -379,7 +381,6 @@ export function UserListItem({
   'data-testid': dataTestId,
 }: UserListItemProps) {
   // Auth requirement for follow action
-  const { requireAuth } = useRequireAuth();
 
   // Subscribe to TTL coordinator based on viewport visibility
   const { ref: ttlRef } = useTtlSubscription({
@@ -390,7 +391,7 @@ export function UserListItem({
   // Normalize user data
   const avatarUrl = user.avatarUrl || user.image || undefined;
   const displayName =
-    user.name ||
+    resolveUserDisplayName(user) ||
     formatPublicKey({
       key: user.id,
     });
@@ -412,7 +413,7 @@ export function UserListItem({
   const handleFollowClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    requireAuth(() => onFollowClick?.(user.id, isFollowing));
+    void onFollowClick?.(user.id, isFollowing);
   };
   const commonProps: VariantProps = {
     user,

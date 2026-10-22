@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import type { LocksRegionNoticeProps } from '@/molecules/LocksRegionNotice/LocksRegionNotice.types';
 import type { PostInputVariant } from '../PostInput/PostInput.types';
 
 export type PostInputActionSubmitMode = PostInputVariant;
@@ -15,4 +16,16 @@ export interface PostInputActionBarProps {
   postButtonIcon?: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   hideArticleButton: boolean;
   isArticle?: boolean;
+  /** Creator-only "lock content" toggle. Rendered only when provided. */
+  lockSwitch?: {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+    disabled?: boolean;
+    /** Paid unlocks are not offered where the creator is: the switch stays off and an info icon says why. */
+    regionNotice?: LocksRegionNoticeProps['cause'];
+  };
+  /** Rendered before the action buttons (the article composer puts the author's avatar here). */
+  leadingContent?: React.ReactNode;
+  /** Browser fullscreen toggle. Rendered only when provided (articles, where the API is available). */
+  fullscreen?: { isFullscreen: boolean; onToggle: () => void };
 }

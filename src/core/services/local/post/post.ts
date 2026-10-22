@@ -4,9 +4,12 @@ import { db } from '@/database/franky/franky';
 import { DatabaseErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { isAppError } from '@/libs/error/error.utils';
 import { HttpMethod } from '@/libs/http/http.types';
 import { Logger } from '@/libs/logger/logger';
+import { parseCollectionContent } from '@/libs/post/collectionContent';
 import { getTtlPostMs } from '@/libs/runtime-config/runtime-config';
+import { isPostDeleted } from '@/libs/utils/utils';
 import { CompositeIdDomain } from '@/models/models.types';
 import { buildCompositeIdFromPubkyUri, parseCompositeId } from '@/models/models.utils';
 import { PostCountsModel } from '@/models/post/counts/postCounts';
@@ -30,6 +33,12 @@ import { UnreadPostStreamModel } from '@/models/stream/post/tables/postStream.un
 import { UserCountsModel } from '@/models/user/counts/userCounts';
 import { PostNormalizer } from '@/pipes/post/post.normalizer';
 import type { TLocalSavePostParams, TLocalUpdatePostStreamParams } from '@/services/local/post/post.types';
+import {
+  type CollectionCountWrite,
+  recentCollectionCounts,
+  recentCollectionEnvelopes,
+  type RecentCollectionWrites,
+} from '@/services/local/post/recentCollectionCounts';
 
 export class LocalPostService {
   private constructor() {}
@@ -180,8 +189,14 @@ export class LocalPostService {
     attachments?: string[] | null;
     kind?: string;
   }) {
+    // Set once the transaction announces its curated-count writes; runs if it does not commit.
+    let restoreMarks: (() => void) | undefined;
     try {
-      const changes: Partial<PostDetailsModelSchema> = { content };
+      // `deleted: false` clears the tombstone flag on any write that restores
+      // live content: `commitEdit` (and its rollback after a failed PUT) reuse
+      // this method, and a row left flagged deleted would keep rendering as a
+      // tombstone even though its content is back.
+      const changes: Partial<PostDetailsModelSchema> = { content, deleted: false };
       if (attachments !== undefined) {
         changes.attachments = attachments;
       }
@@ -189,14 +204,35 @@ export class LocalPostService {
         changes.kind = kind;
       }
 
-      await db.transaction('rw', [PostDetailsModel.table, PostTtlModel.table], async () => {
+      await db.transaction('rw', [PostDetailsModel.table, PostCountsModel.table, PostTtlModel.table], async () => {
+        // Read before the write: the curated-item diff below needs the pre-edit envelope.
+        const existing = await PostDetailsModel.findById(compositePostId);
+        const now = Date.now();
+        const nextKind = kind ?? existing?.kind;
+        if (nextKind === 'collection') {
+          changes.localUpdatedAt = now;
+        }
         await PostDetailsModel.update(compositePostId, changes);
         // Touch TTL so the coordinator considers the edited post fresh and
         // doesn't overwrite the local edit with stale (pre-edit) Nexus data
-        await PostTtlModel.upsert({ id: compositePostId, lastUpdatedAt: Date.now() });
+        await PostTtlModel.upsert({ id: compositePostId, lastUpdatedAt: now });
+
+        // A collection edit (item added/removed, or a kind flip in either direction)
+        // moves the curated posts' `collections` count, like Nexus's COLLECTED edges.
+        const curated = this.updateCuratedPostCounts(
+          this.curatedItemIds(existing?.kind, existing?.content),
+          this.curatedItemIds(nextKind, content),
+          existing?.kind === 'collection' || nextKind === 'collection' ? compositePostId : undefined,
+        );
+        restoreMarks = curated.restoreMarks;
+        await Promise.all(curated.ops);
       });
       Logger.debug('Post edited successfully', { compositePostId });
     } catch (error) {
+      restoreMarks?.();
+      // A model failure is already an AppError with its own code and context:
+      // rethrow it unchanged (docs/error-handling.md); wrap only raw failures.
+      if (isAppError(error)) throw error;
       throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to edit post', {
         service: ErrorService.Local,
         operation: 'edit',
@@ -265,12 +301,14 @@ export class LocalPostService {
    * @throws {DatabaseError} When database operations fail
    */
   static async create({ compositePostId, post }: TLocalSavePostParams) {
-    const { content, kind, parent: parentUri, attachments, embed } = post;
+    const { content, kind, parent: parentUri, attachments, embed, lock } = post;
 
     const repostedUri = embed?.uri ?? null;
     const normalizedKind = PostNormalizer.postKindToLowerCase(kind);
 
     const { pubky: authorId, id: postId } = parseCompositeId(compositePostId);
+    // Set once the transaction announces its curated-count writes; runs if it does not commit.
+    let restoreMarks: (() => void) | undefined;
 
     try {
       const postDetails: PostDetailsModelSchema = {
@@ -280,7 +318,11 @@ export class LocalPostService {
         kind: normalizedKind,
         uri: postUriBuilder(authorId, postId),
         attachments: attachments ?? null,
+        lock: lock ?? null,
       };
+      if (normalizedKind === 'collection') {
+        postDetails.localUpdatedAt = postDetails.indexed_at;
+      }
 
       const postRelationships: PostRelationshipsModelSchema = {
         id: compositePostId,
@@ -295,6 +337,7 @@ export class LocalPostService {
         unique_tags: 0,
         replies: 0,
         reposts: 0,
+        collections: 0,
       };
 
       await db.transaction(
@@ -351,8 +394,19 @@ export class LocalPostService {
             }
           }
 
+          // A new collection curates its items from the start: bump their `collections` count.
+          const curated = this.updateCuratedPostCounts(
+            new Set(),
+            this.curatedItemIds(normalizedKind, content),
+            normalizedKind === 'collection' ? compositePostId : undefined,
+          );
+          restoreMarks = curated.restoreMarks;
+          ops.push(...curated.ops);
+
           // Touch TTL for the new post
-          ops.push(PostTtlModel.upsert({ id: compositePostId, lastUpdatedAt: Date.now() }));
+          ops.push(
+            PostTtlModel.upsert({ id: compositePostId, lastUpdatedAt: postDetails.localUpdatedAt ?? Date.now() }),
+          );
 
           // Update author's user counts in a single operation.
           // A collection is a collection-kind post, so it bumps both the total
@@ -381,6 +435,10 @@ export class LocalPostService {
         },
       );
     } catch (error) {
+      restoreMarks?.();
+      // A model failure is already an AppError with its own code and context:
+      // rethrow it unchanged (docs/error-handling.md); wrap only raw failures.
+      if (isAppError(error)) throw error;
       throw Err.database(DatabaseErrorCode.WRITE_FAILED, 'Failed to save post', {
         service: ErrorService.Local,
         operation: 'create',
@@ -403,37 +461,64 @@ export class LocalPostService {
   static async delete({ compositePostId }: TDeletePostParams): Promise<boolean> {
     const { pubky: authorId } = parseCompositeId(compositePostId);
 
-    // Idempotency guard: if the post is already tombstoned (`content ===
-    // DELETED`), short-circuit. Otherwise a stray re-delete would re-run the
-    // hard-delete transaction's `UserCountsModel.updateCounts({ posts: -1 })`
-    // and drift the author's post count. In normal UX this is unreachable —
-    // every render path for a tombstoned post shows the deleted-state
-    // component with no delete button — but the guard keeps the function
-    // idempotent against races and stale clients.
+    // Idempotency guard: if the post is already tombstoned (the `deleted` flag,
+    // or the legacy `content === DELETED` sentinel), short-circuit. Otherwise a
+    // stray re-delete would re-run the hard-delete transaction's
+    // `UserCountsModel.updateCounts({ posts: -1 })` and drift the author's post
+    // count. In normal UX this is unreachable — every render path for a
+    // tombstoned post shows the deleted-state component with no delete button —
+    // but the guard keeps the function idempotent against races and stale clients.
     const existing = await PostDetailsModel.findById(compositePostId);
-    if (existing?.content === DELETED) {
+    if (isPostDeleted(existing)) {
       Logger.warn('[LocalPostService.delete] post already tombstoned, skipping', { compositePostId });
       return false;
     }
 
     // TODO: There is an edge case where the post counts are not found, but the post is linked. This should be handled.
     const postCounts = await PostCountsModel.findById(compositePostId);
-    // If counts exist and post is linked → soft delete (mark as DELETED, keep records)
+    // Set once a transaction announces its curated-count writes; runs if it does not commit.
+    let restoreMarks: (() => void) | undefined;
+    // If counts exist and post is linked → soft delete (tombstone, keep records)
     if (postCounts && this.isPostLinked(postCounts)) {
-      await PostDetailsModel.update(compositePostId, { content: DELETED });
+      try {
+        await db.transaction('rw', [PostDetailsModel.table, PostCountsModel.table, PostTtlModel.table], async () => {
+          // Re-read inside the transaction: the guard above ran outside it, so a
+          // concurrent delete (a second tab) may have tombstoned the row and
+          // released its curated memberships already. Diffing from that stale
+          // `existing` would take the items' `collections` count below the truth.
+          const current = await PostDetailsModel.findById(compositePostId);
+          if (!current || isPostDeleted(current)) {
+            Logger.warn('[LocalPostService.delete] post tombstoned by a concurrent delete, skipping', {
+              compositePostId,
+            });
+            return;
+          }
+          await PostDetailsModel.update(compositePostId, { content: DELETED, deleted: true });
+          // A tombstoned collection curates nothing any more (Nexus drops its COLLECTED edges too).
+          const curated = this.updateCuratedPostCounts(this.curatedItemIds(current.kind, current.content), new Set());
+          restoreMarks = curated.restoreMarks;
+          await Promise.all([
+            // The tombstone is a local write like any other: stamp its TTL.
+            PostTtlModel.upsert({ id: compositePostId, lastUpdatedAt: Date.now() }),
+            ...curated.ops,
+          ]);
+        });
+      } catch (error) {
+        restoreMarks?.();
+        // A model failure is already an AppError with its own code and context:
+        // rethrow it unchanged (docs/error-handling.md); wrap only raw failures.
+        if (isAppError(error)) throw error;
+        throw Err.database(DatabaseErrorCode.DELETE_FAILED, 'Failed to delete post', {
+          service: ErrorService.Local,
+          operation: 'delete',
+          context: { compositePostId },
+          cause: error,
+        });
+      }
       return true;
     }
 
     // Hard delete - proceed even if postCounts missing (treat as not linked)
-    const postRelationships = await PostRelationshipsModel.findById(compositePostId);
-
-    const parentUri = postRelationships?.replied ?? undefined;
-    const repostedUri = postRelationships?.reposted ?? undefined;
-
-    // Fetch post details and relationships to get metadata
-    const postDetails = await PostDetailsModel.findById(compositePostId);
-    const kind = postDetails?.kind ?? 'short';
-
     try {
       await db.transaction(
         'rw',
@@ -448,6 +533,20 @@ export class LocalPostService {
           PostTtlModel.table,
         ],
         async () => {
+          // Re-read inside the transaction (see the soft-delete branch): a concurrent
+          // delete that tombstoned the row first already ran every decrement below.
+          const postDetails = await PostDetailsModel.findById(compositePostId);
+          if (isPostDeleted(postDetails)) {
+            Logger.warn('[LocalPostService.delete] post tombstoned by a concurrent delete, skipping', {
+              compositePostId,
+            });
+            return;
+          }
+          const postRelationships = await PostRelationshipsModel.findById(compositePostId);
+          const parentUri = postRelationships?.replied ?? undefined;
+          const repostedUri = postRelationships?.reposted ?? undefined;
+          const kind = postDetails?.kind ?? 'short';
+
           await Promise.all([
             // Tombstone, not delete. The hard-delete branch used to drop
             // `PostDetails` entirely, but that left `useLocalFirstQuery`
@@ -461,7 +560,7 @@ export class LocalPostService {
             // stays deleted. Auxiliary records (relationships, counts,
             // tags) still get fully removed below — only the details row
             // sticks around as a tombstone.
-            PostDetailsModel.update(compositePostId, { content: DELETED }),
+            PostDetailsModel.update(compositePostId, { content: DELETED, deleted: true }),
             PostRelationshipsModel.deleteById(compositePostId),
             PostCountsModel.deleteById(compositePostId),
             PostTagsModel.deleteById(compositePostId),
@@ -495,6 +594,14 @@ export class LocalPostService {
             }
           }
 
+          // The tombstone left behind is a local write like any other: stamp its TTL.
+          ops.push(PostTtlModel.upsert({ id: compositePostId, lastUpdatedAt: Date.now() }));
+
+          // A deleted collection curates nothing any more: its items lose one `collections` count.
+          const curated = this.updateCuratedPostCounts(this.curatedItemIds(kind, postDetails?.content), new Set());
+          restoreMarks = curated.restoreMarks;
+          ops.push(...curated.ops);
+
           // Update author's user counts in a single operation. Mirror the create
           // path: a collection-kind post decrements both `posts` and `collections`.
           ops.push(
@@ -514,9 +621,12 @@ export class LocalPostService {
           await Promise.all(ops);
         },
       );
-
       return false;
     } catch (error) {
+      restoreMarks?.();
+      // A model failure is already an AppError with its own code and context:
+      // rethrow it unchanged (docs/error-handling.md); wrap only raw failures.
+      if (isAppError(error)) throw error;
       throw Err.database(DatabaseErrorCode.DELETE_FAILED, 'Failed to delete post', {
         service: ErrorService.Local,
         operation: 'delete',
@@ -587,6 +697,66 @@ export class LocalPostService {
 
   private static isPostLinked(postCounts: PostCountsModelSchema): boolean {
     return postCounts.replies > 0 || postCounts.reposts > 0 || postCounts.tags > 0;
+  }
+
+  /**
+   * Composite ids of the posts a collection envelope curates; empty for any other kind and for
+   * envelopes that do not parse (a tombstone, malformed content). Diffing on ids rather than
+   * raw URIs keeps two spellings of one post from counting twice, and drops non-post URIs the
+   * way Nexus does (it only links items that are posts).
+   */
+  private static curatedItemIds(kind: string | undefined, content: string | null | undefined): Set<string> {
+    if (kind !== 'collection') return new Set();
+    const itemIds = (parseCollectionContent(content)?.items ?? [])
+      .map((uri) => buildCompositeIdFromPubkyUri({ uri, domain: CompositeIdDomain.POSTS }))
+      .filter((itemId): itemId is string => itemId !== null);
+    return new Set(itemIds);
+  }
+
+  /**
+   * Local counterpart of Nexus's COLLECTED edges (pubky-nexus#1067): every post the collection
+   * gained gets `collections + 1`, every post it dropped `collections - 1`. Each touched post is
+   * marked in `recentCollectionCounts` before the write, like `recentUnbookmarks`, so a Nexus
+   * count fetched before the edit is indexed does not undo the change (`persistPosts`), and its
+   * TTL is stamped so the coordinator does not schedule a refresh for it right away (the
+   * reply/repost count pattern above). With `envelopeId`, the collection being written is
+   * marked in `recentCollectionEnvelopes` as well: its local envelope is the baseline the next
+   * diff reads, and a copy fetched before this write is indexed would otherwise replace it,
+   * uncheck the picker, and let the next save count the same membership a second time.
+   * Returns the pending writes for the caller's transaction and `restoreMarks`, which the
+   * caller runs if that transaction does not commit: the marks then go back to what they
+   * were, so a rolled-back write never freezes a count or an envelope.
+   */
+  private static updateCuratedPostCounts(
+    previousItemIds: Set<string>,
+    nextItemIds: Set<string>,
+    envelopeId?: string,
+  ): { ops: Promise<unknown>[]; restoreMarks: () => void } {
+    const ops: Promise<unknown>[] = [];
+    const replacedMarks: Array<[RecentCollectionWrites, string, CollectionCountWrite | undefined]> = [];
+    const bump = (postCompositeId: string, collections: number) => {
+      replacedMarks.push([
+        recentCollectionCounts,
+        postCompositeId,
+        recentCollectionCounts.markWritten(postCompositeId),
+      ]);
+      ops.push(PostCountsModel.updateCounts({ postCompositeId, countChanges: { collections } }));
+      ops.push(PostTtlModel.upsert({ id: postCompositeId, lastUpdatedAt: Date.now() }));
+    };
+
+    for (const itemId of nextItemIds) {
+      if (!previousItemIds.has(itemId)) bump(itemId, 1);
+    }
+    for (const itemId of previousItemIds) {
+      if (!nextItemIds.has(itemId)) bump(itemId, -1);
+    }
+    if (envelopeId !== undefined) {
+      replacedMarks.push([recentCollectionEnvelopes, envelopeId, recentCollectionEnvelopes.markWritten(envelopeId)]);
+    }
+    const restoreMarks = () => {
+      for (const [registry, postCompositeId, previous] of replacedMarks) registry.restore(postCompositeId, previous);
+    };
+    return { ops, restoreMarks };
   }
 
   /**

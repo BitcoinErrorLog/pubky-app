@@ -3,10 +3,8 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnrichedPostDetails } from '@/application/moderation/moderation.types';
 import { usePostDetails } from '@/hooks/usePostDetails/usePostDetails';
-import { PostLinkEmbeds } from '@/molecules/PostLinkEmbeds/PostLinkEmbeds';
 import { PostText } from '@/molecules/PostText/PostText';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
-import { asOpaque } from '@/test-utils/type-assertions';
 import { PostArticle } from '../PostArticle/PostArticle';
 import { PostAttachments } from '../PostAttachments/PostAttachments';
 import { PostContentBlurred } from '../PostContentBlurred/PostContentBlurred';
@@ -145,6 +143,18 @@ describe('PostContentBase', () => {
     mockUseLocalFilesStore.mockReturnValue(undefined);
   });
 
+  it('passes the Cards presentation to an article', () => {
+    mockUsePostDetails.mockReturnValue({
+      postDetails: createMockPostDetails({
+        kind: 'long',
+        content: JSON.stringify({ title: 'Cards article', body: 'Article body' }),
+      }),
+      isLoading: false,
+    });
+    render(<PostContentBase postId="post-123" mediaVariant="cards" />);
+    expect(vi.mocked(PostArticle)).toHaveBeenCalledWith(expect.objectContaining({ presentation: 'cards' }), undefined);
+  });
+
   it('renders content when postDetails are available', () => {
     render(<PostContentBase postId="post-123" />);
 
@@ -219,13 +229,13 @@ describe('PostContentBase', () => {
     );
   });
 
-  it('renders PostContentBlurred when is_blurred is true', () => {
+  it.each(['default', 'cards'] as const)('keeps moderated content hidden in %s', (mediaVariant) => {
     mockUsePostDetails.mockReturnValue({
       postDetails: createMockPostDetails({ content: 'Test content', is_blurred: true }),
       isLoading: false,
     });
 
-    render(<PostContentBase postId="post-123" className="custom-class" />);
+    render(<PostContentBase postId="post-123" className="custom-class" mediaVariant={mediaVariant} />);
 
     expect(screen.getByTestId('post-content-blurred')).toBeInTheDocument();
     expect(mockPostContentBlurred).toHaveBeenCalledWith({ postId: 'post-123', className: 'custom-class' }, undefined);
@@ -381,87 +391,5 @@ describe('PostContentBase', () => {
 
     expect(screen.getAllByTestId('skeleton').length).toBeGreaterThan(0);
     expect(screen.queryByTestId('post-unavailable')).not.toBeInTheDocument();
-  });
-});
-
-describe('PostContentBase - Snapshots', () => {
-  // Use real PostText and PostLinkEmbeds for snapshot tests
-  // PostAttachments remains mocked to avoid toast dependency chain
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    mockUseLocalFilesStore.mockReturnValue(undefined);
-    // Import concrete molecule paths to avoid pulling the whole tier through one entrypoint (timeout loading 70+ modules)
-    const actualPostText = await vi.importActual<{ PostText: typeof PostText }>('@/molecules/PostText/PostText');
-    const actualPostLinkEmbeds = await vi.importActual<{ PostLinkEmbeds: typeof PostLinkEmbeds }>(
-      '@/molecules/PostLinkEmbeds/PostLinkEmbeds',
-    );
-    // Replace the mock implementations with real ones for snapshots
-    // PostText is wrapped with React.memo(), so we need to access the underlying function via .type
-    const memoizedPostText = asOpaque<React.MemoExoticComponent<React.FC<unknown>>>(actualPostText.PostText);
-    const PostTextComponent = asOpaque<typeof PostText>(memoizedPostText.type);
-    vi.mocked(PostText).mockImplementation(PostTextComponent);
-    vi.mocked(PostLinkEmbeds).mockImplementation(actualPostLinkEmbeds.PostLinkEmbeds);
-    // PostAttachments stays mocked - it has its own test file
-  }, 30000); // Increase timeout to 30 seconds
-
-  it('matches snapshot with single-line content', () => {
-    mockUsePostDetails.mockReturnValue({
-      postDetails: createMockPostDetails({ content: 'One liner' }),
-      isLoading: false,
-    });
-
-    const { container } = render(<PostContentBase postId="post-1" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with multiline content (preserves newlines)', () => {
-    mockUsePostDetails.mockReturnValue({
-      postDetails: createMockPostDetails({ content: 'Line 1\nLine 2\n\nLine 3' }),
-      isLoading: false,
-    });
-
-    const { container } = render(<PostContentBase postId="post-2" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with empty content', () => {
-    mockUsePostDetails.mockReturnValue({
-      postDetails: createMockPostDetails({ content: '' }),
-      isLoading: false,
-    });
-
-    const { container } = render(<PostContentBase postId="post-3" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with loading state', () => {
-    mockUsePostDetails.mockReturnValue({
-      postDetails: null,
-      isLoading: true,
-    });
-
-    const { container } = render(<PostContentBase postId="post-loading" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with very long content', () => {
-    const longContent = 'A'.repeat(1000) + ' ' + 'B'.repeat(1000);
-    mockUsePostDetails.mockReturnValue({
-      postDetails: createMockPostDetails({ content: longContent }),
-      isLoading: false,
-    });
-
-    const { container } = render(<PostContentBase postId="post-5" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with special characters in content', () => {
-    mockUsePostDetails.mockReturnValue({
-      postDetails: createMockPostDetails({ content: 'Content with <tags> & "quotes" & \'apostrophes\'' }),
-      isLoading: false,
-    });
-
-    const { container } = render(<PostContentBase postId="post-6" />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

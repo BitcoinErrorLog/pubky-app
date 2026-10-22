@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, test, vi } from 'vitest';
 import { AppError } from '@/libs/error/error';
+import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory } from '@/libs/error/error.types';
 import type { Pubky } from '@/models/models.types';
 import { buildContentSearchStreamId, type PostStreamId, PostStreamTypes } from '@/models/stream/post/postStream.types';
 import { type NexusPost, type NexusPostsKeyStream, StreamSorting } from '@/services/nexus/nexus.types';
@@ -11,6 +13,7 @@ import {
   type TStreamAuthorParams,
   type TStreamAuthorRepliesParams,
   type TStreamCollectionParams,
+  type TStreamPostCollectionsParams,
   type TStreamPostRepliesParams,
   type TStreamPostsByIdsParams,
   type TStreamQueryParams,
@@ -61,6 +64,8 @@ function callStreamEndpoint(
       return postStreamApi.author_replies(params as TStreamAuthorRepliesParams);
     case 'collection':
       return postStreamApi.collection(params as TStreamCollectionParams);
+    case 'post_collections':
+      return postStreamApi.post_collections(params as TStreamPostCollectionsParams);
     case 'postsByIds':
       return postStreamApi.postsByIds(params as TStreamPostsByIdsParams);
     default:
@@ -718,7 +723,7 @@ describe('createPostStreamParams', () => {
       it('should carry the author scope through extraParams (profile "Filter posts")', () => {
         const authorPubky = 'profile-author-pubky' as Pubky;
         const result = createPostStreamParams({
-          streamId: buildContentSearchStreamId('bitcoin wallet', 'all', authorPubky),
+          streamId: buildContentSearchStreamId('bitcoin wallet', 'all', { type: 'author', author: authorPubky }),
           streamTail: 10,
           streamHead: 0,
           limit: 2,
@@ -910,6 +915,40 @@ describe('createPostStreamParams', () => {
       expect(result.params.viewer_id).toBe(mockViewerId);
       expect(result.extraParams.author_id).toBe('pubky');
       expect(result.extraParams.post_id).toBe('post123');
+    });
+
+    it('builds params for post_collections:<pubky>:<postId> (collections containing a post)', () => {
+      const result = createPostStreamParams({
+        streamId: 'post_collections:pubky:post123' as PostStreamId,
+        streamHead: 0,
+        streamTail: 0,
+        limit: 20,
+        viewerId: mockViewerId,
+      });
+
+      expect(result.invokeEndpoint).toBe(StreamSource.POST_COLLECTIONS);
+      // Nexus rejects `kind` for this source, and the 3rd segment is the anchored post id anyway.
+      expect(result.params.kind).toBeUndefined();
+      expect(result.params.viewer_id).toBe(mockViewerId);
+      expect(result.extraParams.author_id).toBe('pubky');
+      expect(result.extraParams.post_id).toBe('post123');
+      // Skip-paginated: the offset is the number of collections already loaded.
+      expect(result.params.skip).toBe(0);
+      expect(result.params.start).toBeUndefined();
+    });
+
+    it('pages post_collections streams by skip offset', () => {
+      const result = createPostStreamParams({
+        streamId: 'post_collections:pubky:post123' as PostStreamId,
+        streamHead: 0,
+        streamTail: 20,
+        limit: 20,
+        viewerId: mockViewerId,
+      });
+
+      expect(result.params.skip).toBe(20);
+      expect(result.params.start).toBeUndefined();
+      expect(result.params.end).toBeUndefined();
     });
   });
 });
@@ -1118,6 +1157,16 @@ describe('breakDownStreamId', () => {
       });
     });
 
+    it('should parse post_collections:<pubky>:<postId> (collections containing a post, source-first composite)', () => {
+      const result = breakDownStreamId('post_collections:pubky:post123' as PostStreamId);
+      expect(result).toEqual({
+        sorting: 'pubky',
+        invokeEndpoint: StreamSource.POST_COLLECTIONS,
+        kind: 'post123',
+        tags: undefined,
+      });
+    });
+
     it('should parse collection:<pubky>:<postId> with tags', () => {
       const result = breakDownStreamId('collection:pubky:post123:tag1,tag2' as PostStreamId);
       expect(result).toEqual({
@@ -1189,7 +1238,9 @@ describe('breakDownStreamId', () => {
 
     it('should surface the author scope for author-scoped ids (profile "Filter posts")', () => {
       const authorPubky = 'profile-author-pubky' as Pubky;
-      const result = breakDownStreamId(buildContentSearchStreamId('bitcoin wallet', 'all', authorPubky));
+      const result = breakDownStreamId(
+        buildContentSearchStreamId('bitcoin wallet', 'all', { type: 'author', author: authorPubky }),
+      );
       expect(result.invokeEndpoint).toBe(StreamSource.CONTENT_SEARCH);
       expect(result.searchQuery).toBe('bitcoin wallet');
       expect(result.authorId).toBe(authorPubky);
@@ -1277,6 +1328,19 @@ describe('NexusPostStreamService', () => {
           `viewer_id=${mockViewerId}`,
         ],
       },
+      {
+        name: 'POST_COLLECTIONS',
+        invokeEndpoint: StreamSource.POST_COLLECTIONS,
+        params: { limit: 20, skip: 20, viewer_id: mockViewerId },
+        extraParams: { author_id: mockAuthorId, post_id: mockPostId },
+        expectedInUrl: [
+          'source=post_collections',
+          'author_id=author-pubky-id',
+          'post_id=post-pubky-id',
+          'skip=20',
+          `viewer_id=${mockViewerId}`,
+        ],
+      },
     ])('routes $name stream correctly', async ({ invokeEndpoint, params, extraParams, expectedInUrl }) => {
       const mockResponse: NexusPostsKeyStream = {
         post_keys: [],
@@ -1302,6 +1366,41 @@ describe('NexusPostStreamService', () => {
   });
 
   describe('fetch - Content search routing', () => {
+    it.each(['following', 'friends', 'wot'] as const)('scopes %s search through the stream pipeline', async (reach) => {
+      mockQueryNexus.mockResolvedValue([{ post_key: 'author:post', score: 1 }]);
+      const request = createPostStreamParams({
+        streamId: buildContentSearchStreamId('bitcoin: wallets', StreamKind.COLLECTION, { type: 'reach', reach }),
+        viewerId: mockViewerId,
+        streamTail: 20,
+        streamHead: 0,
+        limit: 10,
+      });
+      const result = await NexusPostStreamService.fetch(request);
+      const url = new URL(mockQueryNexus.mock.calls[0][0].url);
+      expect(url.pathname).toBe('/v0/search/posts/by_content');
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        q: 'bitcoin: wallets',
+        kind: 'collection',
+        skip: '20',
+        limit: '10',
+        reach,
+        user_id: mockViewerId,
+      });
+      expect(result).toEqual({ post_keys: ['author:post'], last_post_score: null });
+    });
+
+    it('rejects a scoped full-text search without a viewer instead of searching All', async () => {
+      const request = createPostStreamParams({
+        streamId: buildContentSearchStreamId('bitcoin', 'all', { type: 'reach', reach: 'friends' }),
+        viewerId: null,
+        streamHead: 0,
+        streamTail: 0,
+        limit: 10,
+      });
+      await expect(NexusPostStreamService.fetch(request)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+      expect(mockQueryNexus).not.toHaveBeenCalled();
+    });
+
     it('routes CONTENT_SEARCH to by_content and normalizes results into a key stream', async () => {
       const queryNexusSpy = mockQueryNexus.mockResolvedValue([
         { post_key: 'a:p2', score: 4.2 },
@@ -1373,35 +1472,45 @@ describe('NexusPostStreamService', () => {
         invokeEndpoint: StreamSource.FOLLOWING,
         params: { limit: 10 }, // Missing viewer_id
         extraParams: {},
-        expectedError: 'Viewer ID is required',
+        expectedError: 'Sign in to see this feed',
+        expectedCategory: ErrorCategory.Auth,
+        expectedCode: AuthErrorCode.UNAUTHORIZED,
       },
       {
         name: 'FRIENDS requires viewer_id',
         invokeEndpoint: StreamSource.FRIENDS,
         params: { limit: 10 }, // Missing viewer_id
         extraParams: {},
-        expectedError: 'Viewer ID is required',
+        expectedError: 'Sign in to see this feed',
+        expectedCategory: ErrorCategory.Auth,
+        expectedCode: AuthErrorCode.UNAUTHORIZED,
       },
       {
         name: 'BOOKMARKS requires viewer_id',
         invokeEndpoint: StreamSource.BOOKMARKS,
         params: { limit: 10 }, // Missing viewer_id
         extraParams: {},
-        expectedError: 'Viewer ID is required',
+        expectedError: 'Sign in to see this feed',
+        expectedCategory: ErrorCategory.Auth,
+        expectedCode: AuthErrorCode.UNAUTHORIZED,
       },
       {
         name: 'WOT requires viewer_id',
         invokeEndpoint: StreamSource.WOT,
         params: { limit: 10 }, // Missing viewer_id
         extraParams: {},
-        expectedError: 'Viewer ID is required',
+        expectedError: 'Sign in to see this feed',
+        expectedCategory: ErrorCategory.Auth,
+        expectedCode: AuthErrorCode.UNAUTHORIZED,
       },
       {
         name: 'WOT_DOMAIN requires viewer_id',
         invokeEndpoint: StreamSource.WOT_DOMAIN,
         params: { limit: 10 }, // Missing viewer_id
         extraParams: {},
-        expectedError: 'Viewer ID is required',
+        expectedError: 'Sign in to see this feed',
+        expectedCategory: ErrorCategory.Auth,
+        expectedCode: AuthErrorCode.UNAUTHORIZED,
       },
       {
         name: 'CONTENT_SEARCH requires a search query',
@@ -1409,8 +1518,10 @@ describe('NexusPostStreamService', () => {
         params: { limit: 10 },
         extraParams: {}, // Missing q
         expectedError: 'Search query is required for content_search stream',
+        expectedCategory: ErrorCategory.Validation,
+        expectedCode: ValidationErrorCode.INVALID_INPUT,
       },
-    ])('$name', async ({ invokeEndpoint, params, extraParams, expectedError }) => {
+    ])('$name', async ({ invokeEndpoint, params, extraParams, expectedError, expectedCategory, expectedCode }) => {
       const fetchParams: TPostStreamFetchParams = {
         params,
         invokeEndpoint,
@@ -1418,6 +1529,12 @@ describe('NexusPostStreamService', () => {
       };
 
       await expect(NexusPostStreamService.fetch(fetchParams)).rejects.toThrow(expectedError);
+      await expect(NexusPostStreamService.fetch(fetchParams)).rejects.toBeInstanceOf(AppError);
+      await expect(NexusPostStreamService.fetch(fetchParams)).rejects.toMatchObject({
+        category: expectedCategory,
+        code: expectedCode,
+      });
+      expect(mockQueryNexus).not.toHaveBeenCalled();
     });
 
     it('throws an AppError validation error when CONTENT_SEARCH is missing a query', async () => {

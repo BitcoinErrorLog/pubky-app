@@ -60,7 +60,7 @@ describe('useCreateCollection', () => {
     expect(result.current.form.getValues()).toEqual({
       [CREATE_COLLECTION_FORM_FIELDS.NAME]: '',
       [CREATE_COLLECTION_FORM_FIELDS.DESCRIPTION]: '',
-      [CREATE_COLLECTION_FORM_FIELDS.LAYOUT]: COLLECTION_LAYOUT.GRID,
+      [CREATE_COLLECTION_FORM_FIELDS.LAYOUT]: COLLECTION_LAYOUT.CARDS,
     });
     expect(result.current.cover.file).toBeNull();
     expect(result.current.form.formState.isSubmitting).toBe(false);
@@ -304,8 +304,13 @@ describe('useCreateCollection', () => {
     expect(result.current.form.getValues()).toEqual({
       [CREATE_COLLECTION_FORM_FIELDS.NAME]: '',
       [CREATE_COLLECTION_FORM_FIELDS.DESCRIPTION]: '',
-      [CREATE_COLLECTION_FORM_FIELDS.LAYOUT]: COLLECTION_LAYOUT.GRID,
+      [CREATE_COLLECTION_FORM_FIELDS.LAYOUT]: COLLECTION_LAYOUT.CARDS,
     });
     expect(mocks.cover.reset).toHaveBeenCalledTimes(1);
   });
 });
+
+// These tests exercise the mutation after auth readiness; restore races use the real store in auth-wait tests.
+vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
+  useRequireAuth: () => ({ waitForAuth: async () => true }),
+}));

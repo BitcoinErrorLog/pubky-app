@@ -5,6 +5,7 @@ import { postUriBuilder } from 'pubky-app-specs';
 import { TIMELINE_FEED_VARIANT } from '@/config/feed';
 import { BookmarkController } from '@/controllers/bookmark/bookmark';
 import { PostController } from '@/controllers/post/post';
+import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { isAppError } from '@/libs/error/error.utils';
 import { isPostDeleted } from '@/libs/utils/utils';
 import type { Pubky } from '@/models/models.types';
@@ -51,7 +52,7 @@ async function isPostStillInCollection(collectionId: string, postId: string): Pr
   // commitUpdateCollectionItem throws NOT_FOUND for this exact state before
   // writing anything, so "already gone" here would misread a failed no-op as
   // success. Unverifiable → caller keeps shouldRestore and rolls back.
-  if (!collection || isPostDeleted(collection.content)) return null;
+  if (!collection || isPostDeleted(collection)) return null;
 
   const content = CollectionPostContent.parse(collection.content);
   if (!content) return null;
@@ -63,6 +64,7 @@ async function isPostStillInCollection(collectionId: string, postId: string): Pr
 export function useRemoveDeletedPost(postId: string): UseRemoveDeletedPostResult {
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const feed = useTimelineFeedContext();
+  const { waitForAuth } = useRequireAuth();
   const target = resolveRemovalTarget(feed, currentUserPubky);
   const [isRemoving, setIsRemoving] = useState(false);
   const isRemovingRef = useRef(false);
@@ -71,6 +73,11 @@ export function useRemoveDeletedPost(postId: string): UseRemoveDeletedPostResult
 
     isRemovingRef.current = true;
     setIsRemoving(true);
+    if (!(await waitForAuth())) {
+      isRemovingRef.current = false;
+      setIsRemoving(false);
+      return false;
+    }
     const optimisticRemoval = feed.removePostsOptimistically(postId);
 
     try {

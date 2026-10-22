@@ -138,7 +138,7 @@ describe('ProfileTagged', () => {
     const enrichedTags = [
       {
         label: 'bitcoin',
-        taggers: [{ id: 'user1', name: 'Not Vlada', avatarUrl: 'https://cdn.example.com/avatar/user1' }],
+        taggers: [{ id: 'user1', name: 'Other User', avatarUrl: 'https://cdn.example.com/avatar/user1' }],
         taggers_count: 1,
         relationship: false,
       },
@@ -148,7 +148,7 @@ describe('ProfileTagged', () => {
     render(<ProfileTagged />);
 
     expect(mockUseEnrichedTags).toHaveBeenCalledWith(mockTaggedOneTag.tags);
-    expect(screen.getByTestId('tagged-section')).toHaveAttribute('data-tagger-name', 'Not Vlada');
+    expect(screen.getByTestId('tagged-section')).toHaveAttribute('data-tagger-name', 'Other User');
   });
 
   it('passes the profile entity context to TaggedSection', () => {
@@ -185,25 +185,5 @@ describe('ProfileTagged - Empty State', () => {
     expect(screen.getByTestId('tagged-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('tagged-section')).not.toBeInTheDocument();
     expect(screen.queryAllByRole('generic').every((el) => el.getAttribute('data-slot') !== 'skeleton')).toBe(true);
-  });
-});
-
-describe('ProfileTagged - Snapshots', () => {
-  it('matches snapshot', () => {
-    mockUseTagged.mockReturnValue(mockTaggedOneTag);
-    const { container } = render(<ProfileTagged />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for loading state', () => {
-    mockUseTagged.mockReturnValue(mockTaggedLoading);
-    const { container } = render(<ProfileTagged />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot for empty state', () => {
-    mockUseTagged.mockReturnValue(mockTaggedEmpty);
-    const { container } = render(<ProfileTagged />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

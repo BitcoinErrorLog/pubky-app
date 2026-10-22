@@ -122,6 +122,20 @@ describe('HeaderHome', () => {
     expect(screen.getByTestId('header-button-sign-in')).toBeInTheDocument();
   });
 
+  it('smoothly scrolls Learn to the second section on the landing page', () => {
+    const nextSection = document.createElement('section');
+    nextSection.id = LANDING_NEXT_SECTION_ID;
+    nextSection.scrollIntoView = vi.fn();
+    document.body.appendChild(nextSection);
+
+    render(<HeaderHome />);
+
+    fireEvent.click(screen.getByTestId('header-learn-btn'));
+
+    expect(nextSection.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth' });
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
   it('navigates Learn and Explore from the logout header', () => {
     vi.mocked(usePathname).mockReturnValue(AUTH_ROUTES.LOGOUT);
 
@@ -195,28 +209,5 @@ describe('HeaderHome', () => {
 
     const container = screen.getByTestId('custom-header-home');
     expect(container).toHaveClass('custom-class');
-  });
-});
-
-describe('HeaderHome - Snapshots', () => {
-  beforeEach(() => {
-    vi.mocked(usePathname).mockReturnValue('/');
-  });
-
-  it('matches snapshot for default HeaderHome', () => {
-    const { container } = render(<HeaderHome />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot with custom className', () => {
-    const { container } = render(<HeaderHome className="custom-class" />);
-    expect(container.firstChild).toMatchSnapshot();
-  });
-
-  it('matches snapshot on the logout page', () => {
-    vi.mocked(usePathname).mockReturnValue(AUTH_ROUTES.LOGOUT);
-
-    const { container } = render(<HeaderHome />);
-    expect(container.firstChild).toMatchSnapshot();
   });
 });

@@ -69,6 +69,7 @@ export function useStreamPagination({
   streamId,
   limit = NEXUS_POSTS_PER_PAGE,
   resetOnStreamChange = true,
+  preserveCachedStream = false,
   onError,
 }: UseStreamPaginationOptions): UseStreamPaginationResult {
   const [postIds, setPostIds] = useState<string[]>([]);
@@ -91,9 +92,9 @@ export function useStreamPagination({
   // flight from the cursor it writes back. Reset in `clearState` (a fresh
   // fetch recounts consumed rows from scratch).
   const committedRemovalsRef = useRef(0);
-  // Monotonic token bumped by `clearState` (stream switch, refresh). A fetch snapshots it at
-  // entry and drops ALL of its state writes — success and failure — if a reset happened during
-  // its flight: a late-resolving request for a previous stream (or a pre-refresh cursor) must
+  // Monotonic token bumped by `clearState` (stream switch, refresh) and by the initial-load
+  // effect's cleanup (stream switch, unmount). A fetch snapshots it at entry and drops ALL of its
+  // state writes — success and failure — if a reset happened during its flight: a late-resolving request for a previous stream (or a pre-refresh cursor) must
   // not overwrite the fresh stream's posts, cursors, hasMore, error, or loading flags.
   const fetchGenerationRef = useRef(0);
   const activeStreamIdRef = useRef(streamId);
@@ -126,6 +127,10 @@ export function useStreamPagination({
    */
   const fetchStreamSlice = useCallback(
     async (isInitialLoad: boolean) => {
+      // Inert hook (no `streamId`): nothing to paginate, so never load and never
+      // touch the loading flags the derived return masks anyway.
+      if (!streamId) return;
+
       setLoadingState(isInitialLoad, true);
       setError(null);
       const generationAtRequest = fetchGenerationRef.current;
@@ -139,8 +144,14 @@ export function useStreamPagination({
         let cursor = streamTail;
 
         if (isInitialLoad) {
-          // Prepare stream for initial load: clear stale cache, merge unread posts, clear unread stream
-          await StreamPostsController.prepareStreamForInitialLoad({ streamId });
+          // Prepare stream for initial load: clear stale cache, merge unread posts, clear unread stream.
+          // Skipped for a caller that paginates a stream another surface owns and renders
+          // from its cached rows (`preserveCachedStream`): this reset deletes the shared row
+          // before the replacement page arrives, so a failed fetch would leave the caller
+          // with nothing to render. The load below stays additive either way.
+          if (!preserveCachedStream) {
+            await StreamPostsController.prepareStreamForInitialLoad({ streamId });
+          }
 
           const cachedLastPostTimestamp = await StreamPostsController.getCachedLastPostTimestamp({ streamId });
           if (isStale()) return;
@@ -234,7 +245,8 @@ export function useStreamPagination({
         if (anchor !== undefined) setLastPostId(anchor);
         setHasMore(!reachedEnd);
       } catch (err) {
-        Logger.error('Failed to fetch stream slice:', err);
+        // AppErrors are logged by their factory; anything else is logged here, even when stale.
+        if (!isAppError(err)) Logger.error('Failed to fetch stream slice:', err);
         // A stale failure belongs to a discarded request: surfacing it (error banner,
         // hasMore=false, onError) would poison the fresh stream's state.
         if (isStale()) return;
@@ -243,14 +255,14 @@ export function useStreamPagination({
         setHasMore(false);
         onError?.(err);
       } finally {
-        // The fresh stream's fetch owns the loading flags now; `clearState` already
-        // reset `loadingMore` so a skipped write here cannot strand it.
+        // The fresh stream's fetch owns the loading flags now; `clearState` or the
+        // initial-load effect already reset `loadingMore`, so a skipped write here cannot strand it.
         if (!isStale()) {
           setLoadingState(isInitialLoad, false);
         }
       }
     },
-    [streamId, lastPostId, streamTail, limit, setLoadingState, onError],
+    [streamId, lastPostId, streamTail, limit, setLoadingState, preserveCachedStream, onError],
   );
 
   /**
@@ -287,6 +299,8 @@ export function useStreamPagination({
    * Refresh function - clears state and fetches from beginning
    */
   const refresh = useCallback(async () => {
+    if (!streamId) return;
+
     clearState({
       preserveOptimisticPostIds: isCollectionItemsStream(streamId),
       preserveHiddenPostIds: true,
@@ -417,6 +431,10 @@ export function useStreamPagination({
   }, []);
 
   const removePostsOptimistically = (postIds: string | string[]) => {
+    if (!streamId) {
+      return { commit: () => {}, rollback: () => {} };
+    }
+
     const existingPostIds = new Set([...postIdsRef.current, ...optimisticPostIdsRef.current]);
     const idsToRemove = [...new Set(Array.isArray(postIds) ? postIds : [postIds])].filter((id) =>
       existingPostIds.has(id),
@@ -475,12 +493,47 @@ export function useStreamPagination({
 
   // Initial load and reset when streamId changes
   useEffect(() => {
+    if (!streamId) {
+      // Inert: no stream to load. `clearState` still invalidates an in-flight
+      // load from a previously active stream so its late response cannot land
+      // on the next one.
+      clearState();
+      return;
+    }
+
     if (resetOnStreamChange) {
       clearState();
+    } else {
+      // The previous run's cleanup made any in-flight loadMore stale, so it will skip its own
+      // finally-clear; without this the flag would stay set and block `loadMore` for good.
+      setLoadingMore(false);
     }
     fetchStreamSlice(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // A stream switch or unmount (e.g. a keyed feed replacement) discards this run's pending work.
+    return () => {
+      fetchGenerationRef.current += 1;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pagination state changes must not restart the initial load
   }, [streamId]);
+
+  // Inert result: an undefined `streamId` means the consumer is not paginating
+  // right now (e.g. a closed picker). Report an empty settled stream and no-op
+  // every action so callers never render a permanent loading state.
+  if (!streamId) {
+    return {
+      postIds: [],
+      loading: false,
+      loadingMore: false,
+      error: null,
+      hasMore: false,
+      loadMore: async () => {},
+      refresh: async () => {},
+      prependPosts: async () => {},
+      prependOptimisticPosts: () => {},
+      removePosts: () => {},
+      removePostsOptimistically: () => ({ commit: () => {}, rollback: () => {} }),
+    };
+  }
 
   return {
     postIds,

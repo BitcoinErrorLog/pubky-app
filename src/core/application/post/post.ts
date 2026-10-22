@@ -6,6 +6,7 @@ import type {
   TEditPostInput,
   TGetDetailsByIdsParams,
   TGetOrFetchPostParams,
+  TGetRelationshipsByIdsParams,
 } from '@/application/post/post.types';
 import { PostStreamApplication } from '@/application/stream/posts/post';
 import { TagApplication } from '@/application/tag/tag';
@@ -76,6 +77,17 @@ export class PostApplication {
    */
   static async getRelationships({ compositeId }: TCompositeId): Promise<PostRelationshipsModelSchema | null> {
     return await LocalPostService.readRelationships(compositeId);
+  }
+
+  /**
+   * Bulk reads post relationships from the local database, preserving input order.
+   * @param compositeIds - Array of composite post IDs in format "authorId:postId"
+   * @returns Array of post relationships aligned to `compositeIds` (undefined for missing posts)
+   */
+  static async getRelationshipsByIds({
+    compositeIds,
+  }: TGetRelationshipsByIdsParams): Promise<(PostRelationshipsModelSchema | undefined)[]> {
+    return await LocalPostService.readRelationshipsByIds(compositeIds);
   }
 
   /**
@@ -157,12 +169,13 @@ export class PostApplication {
     return details
       .filter(
         (post): post is PostDetailsModelSchema =>
-          // Drop tombstoned rows explicitly — they would currently be filtered
-          // out downstream by `CollectionPostContent.parse('[DELETED]')`
-          // returning `null`, but that's incidental: it relies on `[DELETED]`
-          // failing JSON parse. The explicit check is self-documenting and
-          // keeps the picker robust against future parser changes.
-          post !== undefined && post.kind === 'collection' && !isPostDeleted(post.content),
+          // Drop tombstoned rows explicitly (the Nexus `deleted` flag, or the
+          // legacy `[DELETED]` content) — they would currently be filtered out
+          // downstream by `CollectionPostContent.parse` returning `null`, but
+          // that's incidental: it relies on the tombstone content failing JSON
+          // parse. The explicit check is self-documenting and keeps the picker
+          // robust against future parser changes.
+          post !== undefined && post.kind === 'collection' && !isPostDeleted(post),
       )
       .map((post) => {
         const content = CollectionPostContent.parse(post.content);
