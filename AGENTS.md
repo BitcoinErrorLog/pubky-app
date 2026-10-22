@@ -127,10 +127,8 @@ are owned by QA: flag an invalidated spec, do not edit or run e2e yourself. `doc
 
 ## People and names
 
-- In code, comments, docs, fixtures, commit messages and PR text, refer to people only by GitHub handle. Never use real names.
-- Do not attribute opinions, decisions or personal matters to people.
-- Test fixtures use clearly fictional names (`Alice Example`, `Bob Example`).
-- This is a public repo and history is kept forever: a scrubbed name stays in earlier commits, so get it right the first time.
+Use GitHub handles for real people and fictional names in tests. Do not attribute opinions, decisions or personal matters
+to people. See [People and names](docs/development-workflow.md#people-and-names) for the full policy.
 
 ## Common failure modes
 
