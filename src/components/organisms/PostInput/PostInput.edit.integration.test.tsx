@@ -20,13 +20,8 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
  * stores, env) and the editor-heavy leaves are replaced.
  */
 
-const AUTHOR = 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo';
-const POST_ID = `${AUTHOR}:POST1`;
-const COVER_URI = `pubky://${AUTHOR}/pub/pubky.app/files/COVER`;
-const CLIP_URI = `pubky://${AUTHOR}/pub/pubky.app/files/CLIP`;
-const NEW_URI = `pubky://${AUTHOR}/pub/pubky.app/files/NEW1`;
-
 const mocks = vi.hoisted(() => ({
+  author: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo',
   commitEdit: vi.fn(),
   commitCreateFile: vi.fn(),
   commitDeleteFile: vi.fn(),
@@ -40,6 +35,12 @@ const mocks = vi.hoisted(() => ({
   } | null,
   editorMounts: 0,
 }));
+
+const AUTHOR = mocks.author;
+const POST_ID = `${AUTHOR}:POST1`;
+const COVER_URI = `pubky://${AUTHOR}/pub/pubky.app/files/COVER`;
+const CLIP_URI = `pubky://${AUTHOR}/pub/pubky.app/files/CLIP`;
+const NEW_URI = `pubky://${AUTHOR}/pub/pubky.app/files/NEW1`;
 
 vi.mock('@/controllers/post/post', () => ({
   PostController: { commitEdit: mocks.commitEdit, getDetails: vi.fn() },
@@ -58,7 +59,7 @@ vi.mock('@/hooks/useAttachmentsMetadata/useAttachmentsMetadata', () => ({
 }));
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: (selector: (state: { currentUserPubky: string }) => unknown) =>
-    selector({ currentUserPubky: 'o1gg96ewuojmopcjbz8895478wdtxtzzuxnfjjz8o8e77csa1ngo' }),
+    selector({ currentUserPubky: mocks.author }),
 }));
 vi.mock('@/hooks/useCurrentUserProfile/useCurrentUserProfile', () => ({
   // Null keeps PostHeader (db-backed) out of the render.
@@ -124,33 +125,36 @@ vi.mock('@/hooks/usePostInputAuthHandlers/usePostInputAuthHandlers', () => ({
   }),
 }));
 // The editor cannot run in jsdom. The stand-in hands the test what the real one hands the composer:
-// a change report, which rich text and markdown mode share, and the upload of an inserted image.
+// a change report, which rich text and markdown mode share, and the upload of an inserted image. Like
+// the real wrapper it swaps the editor for a skeleton while the inline attachments load, so a composer
+// that re-reads the row shows up as a second mount.
 vi.mock('@/molecules/MarkdownEditor/MarkdownEditor', async () => {
   const { useEffect } = await import('react');
-  return {
-    MarkdownEditor: (props: {
-      markdown: string;
-      onChange: (markdown: string, initialMarkdownNormalize: boolean) => void;
-      inlineMedia: { upload: (file: File) => Promise<string> };
-    }) => {
-      mocks.editor = {
-        markdown: props.markdown,
-        change: (markdown) => props.onChange(markdown, false),
-        upload: props.inlineMedia.upload,
+  type EditorProps = {
+    markdown: string;
+    onChange: (markdown: string, initialMarkdownNormalize: boolean) => void;
+    inlineMedia: { upload: (file: File) => Promise<string> };
+    isLoading?: boolean;
+  };
+  const Editor = (props: EditorProps) => {
+    mocks.editor = {
+      markdown: props.markdown,
+      change: (markdown) => props.onChange(markdown, false),
+      upload: props.inlineMedia.upload,
+    };
+    useEffect(() => {
+      mocks.editorMounts += 1;
+      return () => {
+        mocks.editor = null;
       };
-      useEffect(() => {
-        mocks.editorMounts += 1;
-        return () => {
-          mocks.editor = null;
-        };
-      }, []);
-      return <div data-testid="editor">{props.markdown}</div>;
-    },
+    }, []);
+    return <div data-testid="editor">{props.markdown}</div>;
+  };
+  return {
+    MarkdownEditor: (props: EditorProps) =>
+      props.isLoading ? <div data-testid="editor-loading" /> : <Editor {...props} />,
   };
 });
-vi.mock('@/molecules/MarkdownEditor/InitializedMDXEditor.utils', () => ({
-  sanitizeCodeBlockLanguages: (value: string) => value,
-}));
 vi.mock('../PostInputExpandableSection/PostInputExpandableSection', () => ({
   PostInputExpandableSection: (props: { onSubmit: () => void; isPostDisabled: boolean; isSubmitting: boolean }) => (
     <button data-testid="post-button" disabled={props.isPostDisabled || props.isSubmitting} onClick={props.onSubmit} />
@@ -205,7 +209,11 @@ describe('PostInput - editing while the post row changes under the dialog (integ
     global.URL.revokeObjectURL = vi.fn();
     mocks.editor = null;
     mocks.editorMounts = 0;
-    mocks.useAttachmentsMetadata.mockReturnValue({ files: [], isLoading: false });
+    // A row read for the new file would be a fresh key, which the real hook reports as loading
+    mocks.useAttachmentsMetadata.mockImplementation(({ fileUris }) => ({
+      files: [],
+      isLoading: fileUris.includes(NEW_URI),
+    }));
     mocks.commitDeleteFile.mockResolvedValue(undefined);
   });
 
@@ -256,6 +264,7 @@ describe('PostInput - editing while the post row changes under the dialog (integ
     expect(mocks.editorMounts).toBe(1);
     // The inline slots the editor waits on are the mount-time ones: the row round trip never asks for the new file
     expect(mocks.useAttachmentsMetadata).toHaveBeenLastCalledWith({ fileUris: [CLIP_URI] });
+    expect(mocks.useAttachmentsMetadata).not.toHaveBeenCalledWith({ fileUris: expect.arrayContaining([NEW_URI]) });
 
     await save(2);
     expect(mocks.commitEdit).toHaveBeenLastCalledWith(

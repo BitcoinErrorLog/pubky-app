@@ -104,15 +104,16 @@ export function PostInput({
   const [lockDraft, setLockDraft] = useState<TLockDraft | null>(null);
   // The edit dialog reads its post through a live query (`usePostDetails`): a failed save writes the
   // row with the new content and attachments and reverts it, and another device or a background
-  // refresh can change it under an open dialog. The composer seeds from the row once per mount (the
-  // dialog remounts it via `resetKey`) and ignores later values, or a refused save would reset the
-  // editor to the published body and a retry would write that body over the user's edit (#2877).
+  // refresh can change it under an open dialog. The composer seeds from the row once per mount and
+  // ignores later values, or a refused save would reset the editor to the published body and a retry
+  // would write that body over the user's edit (#2877). A new seed takes a new mount: the dialog
+  // unmounts its content when closed and keys the composer on `resetKey` after a discard.
   // `useEditAttachments` snapshots the attachment list for the same reason.
   const [editSeed] = useState(() => ({
     content: editContent,
     isArticle: editIsArticle,
     attachments: editAttachments,
-    lockTitle: editLock?.title,
+    lock: editLock,
   }));
   const isMobile = useIsMobile();
 
@@ -177,7 +178,7 @@ export function PostInput({
     postId,
     originalPostId,
     editPostId,
-    editLock,
+    editLock: editSeed.lock,
     editAttachmentUris: editSeed.attachments,
     editContent: editSeed.content,
     editIsArticle: editSeed.isArticle,
@@ -317,9 +318,9 @@ export function PostInput({
     onNormalSubmit: handleSubmitWithAuth,
   });
 
-  const { price: editLockPrice } = useLockFile(editLock?.lockUrl);
-  const isLockMode = isLockEnabled || editLock != null;
-  const activeLockTitle = editLock ? editLockTitle : lockTitle;
+  const { price: editLockPrice } = useLockFile(editSeed.lock?.lockUrl);
+  const isLockMode = isLockEnabled || editSeed.lock != null;
+  const activeLockTitle = editSeed.lock ? editLockTitle : lockTitle;
 
   const isValid = () => {
     // `isPublishingLock` counts as submitting: the action-bar button only disables through this check,
@@ -367,53 +368,52 @@ export function PostInput({
   const dissolveVariants = getComposerDissolveVariants(shouldReduceMotion);
 
   useEffect(() => {
-    if (isEdit) {
-      if (editSeed.isArticle) {
-        setIsArticle(true);
+    if (!isEdit) return;
+    if (editSeed.isArticle) {
+      setIsArticle(true);
 
-        const parsed = parseArticleContent(editSeed.content);
-        if (parsed) {
-          setArticleTitle(parsed.title);
-          // Resolve published attachment:{n} image references back to their
-          // homeserver file URIs so the composer edits real destinations.
-          // Unresolvable references are removed (never a hard failure — the
-          // article must stay editable so the user can repair it).
-          let articleAuthorPubky = '';
-          try {
-            articleAuthorPubky = editPostId ? parseCompositeId(editPostId).pubky : '';
-          } catch {
-            // Malformed composite id — no reference can resolve to an author-owned file
-          }
-          const deserialized = deserializeArticleBody({
-            body: parsed.body,
-            attachments: editSeed.attachments ?? [],
-            authorPubky: articleAuthorPubky,
-          });
-          setContent(deserialized.body);
-          if (deserialized.warnings.length > 0) {
-            toast({
-              variant: 'warning',
-              description:
-                deserialized.warnings.length === 1
-                  ? 'An attachment with a broken reference was removed from the article.'
-                  : `${deserialized.warnings.length} attachments with broken references were removed from the article.`,
-            });
-          }
-        } else {
+      const parsed = parseArticleContent(editSeed.content);
+      if (parsed) {
+        setArticleTitle(parsed.title);
+        // Resolve published attachment:{n} image references back to their
+        // homeserver file URIs so the composer edits real destinations.
+        // Unresolvable references are removed (never a hard failure — the
+        // article must stay editable so the user can repair it).
+        let articleAuthorPubky = '';
+        try {
+          articleAuthorPubky = editPostId ? parseCompositeId(editPostId).pubky : '';
+        } catch {
+          // Malformed composite id — no reference can resolve to an author-owned file
+        }
+        const deserialized = deserializeArticleBody({
+          body: parsed.body,
+          attachments: editSeed.attachments ?? [],
+          authorPubky: articleAuthorPubky,
+        });
+        setContent(deserialized.body);
+        if (deserialized.warnings.length > 0) {
           toast({
-            variant: 'error',
-            description: 'Could not parse article content',
+            variant: 'warning',
+            description:
+              deserialized.warnings.length === 1
+                ? 'An attachment with a broken reference was removed from the article.'
+                : `${deserialized.warnings.length} attachments with broken references were removed from the article.`,
           });
         }
       } else {
-        setContent(editSeed.content ?? '');
+        toast({
+          variant: 'error',
+          description: 'Could not parse article content',
+        });
       }
-      // Seeded with the body from the same snapshot, so the title and the body always describe one
-      // version of the post.
-      setEditLockTitle(editSeed.lockTitle ?? '');
+    } else {
+      setContent(editSeed.content ?? '');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- toast is an external side-effect, not a dependency
-  }, [variant, editSeed]);
+    // Seeded with the body from the same snapshot, so the title and the body always describe one
+    // version of the post.
+    setEditLockTitle(editSeed.lock?.title ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seeds once per mount from the editSeed snapshot (#2877): editPostId is fixed for the mount and the composer setters are stable
+  }, []);
 
   // Pre-fill content from share target or other external sources
   useEffect(() => {
@@ -783,13 +783,13 @@ export function PostInput({
                         submitIcon={submitIcon}
                         lockSwitch={lockSwitch}
                         lockCard={
-                          isLockConfigured || editLock ? (
+                          isLockConfigured || editSeed.lock ? (
                             <LockedPostCard
-                              price={editLock ? editLockPrice : lockConfig}
+                              price={editSeed.lock ? editLockPrice : lockConfig}
                               editableTitle={{
                                 value: activeLockTitle,
-                                onChange: editLock ? setEditLockTitle : setLockTitle,
-                                disabled: editLock ? isSubmitting : isPublishingLock,
+                                onChange: editSeed.lock ? setEditLockTitle : setLockTitle,
+                                disabled: editSeed.lock ? isSubmitting : isPublishingLock,
                                 maxLength: LOCK_TITLE_MAX_CHARACTER_LENGTH,
                               }}
                             />

@@ -129,7 +129,7 @@ export type PostInputProps =
        * follows) cannot overwrite what the user is editing.
        */
       editContent: string;
-      /** Editable article mode (required for edit) */
+      /** Editable article mode (required for edit). Read once at mount, like `editContent`. */
       editIsArticle: boolean;
       /**
        * The post's current attachment URIs, in display order (required for
@@ -139,6 +139,9 @@ export type PostInputProps =
        * once at mount, like `editContent`.
        */
       editAttachments: string[];
-      /** Existing lock announcement metadata. Omitted for normal post edits. */
+      /**
+       * Existing lock announcement metadata. Omitted for normal post edits. Read once at mount, like
+       * `editContent`: the title seeds the lock title field, the URL names the lock file.
+       */
       editLock?: EditLock;
     });
