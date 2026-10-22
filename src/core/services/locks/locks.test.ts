@@ -1,7 +1,7 @@
 import type { Session as LocksSdkSession } from '@synonymdev/locks-sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
-import { ErrorCategory } from '@/libs/error/error.types';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { isAppError } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
 import { useAuthStore } from '@/stores/auth/auth.store';
@@ -497,22 +497,25 @@ describe('LocksService (reader unlock)', () => {
 
     it('returns a region-blocked result instead of throwing', async () => {
       mocks.fakeViewer.submitProofBundle.mockRejectedValueOnce(
-        new Error('Lock Server viewer request failed with HTTP 451'),
+        Object.assign(new Error('Lock Server viewer request failed with HTTP 451'), { name: 'InvalidInput' }),
       );
 
       await expect(LocksService.submitProof(bundle)).resolves.toEqual({ regionBlocked: true });
     });
 
-    it('also reads a 451 the SDK throws as a bare string', async () => {
+    it('reports a bare string because it does not match the pinned SDK error contract', async () => {
       mocks.fakeViewer.submitProofBundle.mockRejectedValueOnce('Lock Server viewer request failed with HTTP 451');
 
-      await expect(LocksService.submitProof(bundle)).resolves.toEqual({ regionBlocked: true });
+      await expect(LocksService.submitProof(bundle)).rejects.toMatchObject({
+        service: ErrorService.Locks,
+        operation: 'LocksService.submitProof',
+      });
     });
 
     it('builds no AppError, so nothing is logged or sent to Sentry', async () => {
       const logError = vi.spyOn(Logger, 'error').mockImplementation(() => {});
       mocks.fakeViewer.submitProofBundle.mockRejectedValueOnce(
-        new Error('Lock Server viewer request failed with HTTP 451'),
+        Object.assign(new Error('Lock Server viewer request failed with HTTP 451'), { name: 'InvalidInput' }),
       );
 
       await LocksService.submitProof(bundle);

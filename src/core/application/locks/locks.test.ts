@@ -919,60 +919,6 @@ describe('LocksApplication (payment unlock)', () => {
       });
     });
   });
-
-  describe('fetchPaidContentIfCompleted', () => {
-    const params = { lockFile: withPrimary(), lockUrl, readerPubky: 'reader1' };
-    const paidBytes = new TextEncoder().encode('{"content":"paid","kind":"short","attachments":null}');
-
-    it('returns null when the reader has no saved bundle id', async () => {
-      await expect(LocksApplication.fetchPaidContentIfCompleted(params)).resolves.toBeNull();
-      expect(mocks.lookupVerificationTask).not.toHaveBeenCalled();
-    });
-
-    // A null here would read as "never paid" and hide a purchase whose id was lost.
-    it('propagates an unreadable saved id instead of returning null', async () => {
-      mocks.getBytesIfExists.mockResolvedValue(purchaseBytes('garbage'));
-
-      await expect(LocksApplication.fetchPaidContentIfCompleted(params)).rejects.toMatchObject({
-        code: ValidationErrorCode.INVALID_INPUT,
-      });
-      expect(mocks.lookupVerificationTask).not.toHaveBeenCalled();
-    });
-
-    it('returns null when the server has no task for the saved id', async () => {
-      mocks.listAll.mockResolvedValue([purchaseFile(BUNDLE_A)]);
-
-      await expect(LocksApplication.fetchPaidContentIfCompleted(params)).resolves.toBeNull();
-      expect(mocks.issueAccessCredential).not.toHaveBeenCalled();
-      expect(mocks.generateBundleId).not.toHaveBeenCalled();
-      expect(mocks.putBlob).not.toHaveBeenCalled();
-      expect(mocks.submitProof).not.toHaveBeenCalled();
-    });
-
-    // Not completed (still paying, or ended): there is no content to recover.
-    it.each(['pending', 'failed'])('returns null while the payment is %s', async (status) => {
-      mocks.listAll.mockResolvedValue([purchaseFile(BUNDLE_A)]);
-      lookups({ [BUNDLE_A]: task(status) });
-
-      await expect(LocksApplication.fetchPaidContentIfCompleted(params)).resolves.toBeNull();
-      expect(mocks.issueAccessCredential).not.toHaveBeenCalled();
-    });
-
-    it('reads the paid content with the completed id, whichever device minted it', async () => {
-      mocks.listAll.mockResolvedValue([purchaseFile(BUNDLE_A), purchaseFile(BUNDLE_B)]);
-      lookups({ [BUNDLE_A]: task('pending'), [BUNDLE_B]: task('completed') });
-      mocks.issueAccessCredential.mockResolvedValue({ credential: 'cred-abc', expires_at: 'e' });
-      mocks.proxyReadGuardedResource.mockResolvedValue(paidBytes);
-
-      const content = await LocksApplication.fetchPaidContentIfCompleted(params);
-      expect(content?.post.content).toBe('paid');
-      expect(mocks.issueAccessCredential).toHaveBeenCalledWith('pubkybob', BUNDLE_B);
-      // Recovery reads; it never buys.
-      expect(mocks.generateBundleId).not.toHaveBeenCalled();
-      expect(mocks.putBlob).not.toHaveBeenCalled();
-      expect(mocks.submitProof).not.toHaveBeenCalled();
-    });
-  });
 });
 
 describe('LocksApplication.fetchUnlockedContent', () => {

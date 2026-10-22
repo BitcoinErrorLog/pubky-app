@@ -27,7 +27,7 @@ export function usePaidUnlockAvailability(): PaidUnlockAvailability {
   const country = useClientRegionStore((state) => state.country);
 
   useEffect(() => {
-    if (holdsPaidUnlocks) void ClientRegionController.ensureLoaded();
+    if (holdsPaidUnlocks) void ClientRegionController.fetchCountryOnce();
   }, [holdsPaidUnlocks]);
 
   if (!holdsPaidUnlocks) return PAID_UNLOCKS_AVAILABLE;

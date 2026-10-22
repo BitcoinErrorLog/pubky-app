@@ -256,17 +256,6 @@ export class LocksApplication {
     return this.fetchUnlockedContent({ lockFile, credential });
   }
 
-  /**
-   * `fetchPaidContent` for a caller that knows neither the bundle id nor whether the payment went
-   * through: resolves the saved ids and downloads only when one is `completed`; null otherwise.
-   * Read-only; never mints an id or submits a proof.
-   */
-  static async fetchPaidContentIfCompleted(params: TPaymentLockParams): Promise<TUnlockedContent | null> {
-    const resolved = await this.fetchResolvedPurchase(params);
-    if (resolved?.kind !== 'reusable' || resolved.task?.status !== 'completed') return null;
-    return this.fetchPaidContent({ lockFile: params.lockFile, bundleId: resolved.bundleId });
-  }
-
   /** `pubky://…/<lock_id>.json` → `<lock_id>`, or a typed error for a malformed lock URL. */
   private static requireLockId(lockUrl: string, operation: string): string {
     const lockId = LockContentParser.lockIdFromUrl(lockUrl);

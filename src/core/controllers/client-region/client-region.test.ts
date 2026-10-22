@@ -8,7 +8,7 @@ vi.mock('@/application/client-region/client-region', () => ({
   ClientRegionApplication: { fetchCountry: vi.fn() },
 }));
 
-describe('ClientRegionController.ensureLoaded', () => {
+describe('ClientRegionController.fetchCountryOnce', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useClientRegionStore.setState(clientRegionInitialState);
@@ -17,7 +17,7 @@ describe('ClientRegionController.ensureLoaded', () => {
   it('stores the country the route reports', async () => {
     vi.mocked(ClientRegionApplication.fetchCountry).mockResolvedValue({ status: 'ready', country: 'US' });
 
-    await ClientRegionController.ensureLoaded();
+    await ClientRegionController.fetchCountryOnce();
 
     expect(useClientRegionStore.getState()).toMatchObject({ status: 'ready', country: 'US' });
   });
@@ -25,7 +25,7 @@ describe('ClientRegionController.ensureLoaded', () => {
   it('stores a null country when the edge could not tell', async () => {
     vi.mocked(ClientRegionApplication.fetchCountry).mockResolvedValue({ status: 'ready', country: null });
 
-    await ClientRegionController.ensureLoaded();
+    await ClientRegionController.fetchCountryOnce();
 
     expect(useClientRegionStore.getState()).toMatchObject({ status: 'ready', country: null });
   });
@@ -33,7 +33,7 @@ describe('ClientRegionController.ensureLoaded', () => {
   it('marks the read failed when the route is unavailable', async () => {
     vi.mocked(ClientRegionApplication.fetchCountry).mockResolvedValue({ status: 'unavailable' });
 
-    await ClientRegionController.ensureLoaded();
+    await ClientRegionController.fetchCountryOnce();
 
     expect(useClientRegionStore.getState().status).toBe('failed');
   });
@@ -44,8 +44,8 @@ describe('ClientRegionController.ensureLoaded', () => {
       () => new Promise((resolve) => (answer = resolve)),
     );
 
-    const first = ClientRegionController.ensureLoaded();
-    const second = ClientRegionController.ensureLoaded();
+    const first = ClientRegionController.fetchCountryOnce();
+    const second = ClientRegionController.fetchCountryOnce();
     expect(useClientRegionStore.getState().status).toBe('loading');
     answer({ status: 'ready', country: 'DE' });
     await Promise.all([first, second]);
@@ -56,10 +56,10 @@ describe('ClientRegionController.ensureLoaded', () => {
   it('does not ask again after the answer, nor after a failure, until the page reloads', async () => {
     vi.mocked(ClientRegionApplication.fetchCountry).mockResolvedValue({ status: 'unavailable' });
 
-    await ClientRegionController.ensureLoaded();
-    await ClientRegionController.ensureLoaded();
+    await ClientRegionController.fetchCountryOnce();
+    await ClientRegionController.fetchCountryOnce();
     useClientRegionStore.getState().markReady('DE');
-    await ClientRegionController.ensureLoaded();
+    await ClientRegionController.fetchCountryOnce();
 
     expect(ClientRegionApplication.fetchCountry).toHaveBeenCalledTimes(1);
   });

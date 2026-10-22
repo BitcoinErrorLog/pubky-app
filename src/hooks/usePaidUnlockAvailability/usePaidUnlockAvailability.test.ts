@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({ policy: undefined as RegionPolicy | undefined 
 
 vi.mock('@/config/region', () => ({ getRegionPolicy: () => mocks.policy }));
 vi.mock('@/controllers/client-region/client-region', () => ({
-  ClientRegionController: { ensureLoaded: vi.fn(async () => {}) },
+  ClientRegionController: { fetchCountryOnce: vi.fn(async () => {}) },
 }));
 
 function policyOf(raw: string): RegionPolicy {
@@ -29,7 +29,7 @@ describe('usePaidUnlockAvailability', () => {
   it('asks the region once the deployment lists a region, and says it is checking until it knows', () => {
     const { result } = renderHook(() => usePaidUnlockAvailability());
 
-    expect(ClientRegionController.ensureLoaded).toHaveBeenCalledTimes(1);
+    expect(ClientRegionController.fetchCountryOnce).toHaveBeenCalledTimes(1);
     expect(result.current).toEqual({ status: 'checking' });
   });
 
@@ -82,7 +82,7 @@ describe('usePaidUnlockAvailability', () => {
 
     const { result } = renderHook(() => usePaidUnlockAvailability());
 
-    expect(ClientRegionController.ensureLoaded).not.toHaveBeenCalled();
+    expect(ClientRegionController.fetchCountryOnce).not.toHaveBeenCalled();
     expect(result.current).toEqual({ status: 'available' });
   });
 });

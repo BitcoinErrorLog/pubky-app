@@ -92,9 +92,9 @@ export function LockedPostContent({
 
   // Paid but never received: the payment completed while the reader was away, so nothing on screen
   // would otherwise say so. Resolves itself, without the reader pressing anything.
-  const { hasPurchase, markPurchased } = usePurchasedLocks({ enabled: price !== null });
+  const { hasPurchase, markPurchased, status: purchasesStatus } = usePurchasedLocks({ enabled: price !== null });
   const lockId = lock ? LockContentParser.lockIdFromUrl(lock) : null;
-  usePurchaseResume({
+  const purchaseStatus = usePurchaseResume({
     lock,
     lockFile,
     // The open modal owns status polling and completion. In particular, markPurchased must not
@@ -106,14 +106,22 @@ export function LockedPostContent({
     onResumed: showUnlockedContent,
   });
 
-  // Paying is where a blocked region would otherwise only surface, as the Lock Server's 451 inside the pay
-  // dialog. Only a reader who could start a payment is held: the creator's own lock never offers Unlock, and
-  // a reader who already started this payment keeps it, because a block stops new commerce, not an order
-  // already in flight.
+  // A bundle file can predate any server task or outlive a failed payment. Only the read-only
+  // resolver can establish the in-flight exemption. An unreadable listing/task keeps the modal
+  // available for recovery, with new submissions guarded independently inside the pay hook.
   const paidUnlocks = usePaidUnlockAvailability();
-  const canStartPayment = Boolean(price) && !isOwnLock && !hasPurchase(lockId);
-  const regionBlock = canStartPayment && paidUnlocks.status === 'blocked' ? paidUnlocks : null;
-  const isRegionChecking = canStartPayment && paidUnlocks.status === 'checking';
+  const isPayableReader = Boolean(price) && !isOwnLock;
+  const canRecover = purchasesStatus === 'error' || purchaseStatus === 'unknown' || purchaseStatus === 'recoverable';
+  const isPurchaseChecking = purchasesStatus === 'loading' || purchaseStatus === 'checking';
+  const isRegionChecking =
+    isPayableReader &&
+    !canRecover &&
+    paidUnlocks.status !== 'available' &&
+    (paidUnlocks.status === 'checking' || isPurchaseChecking);
+  const regionBlock =
+    isPayableReader && purchaseStatus !== 'recoverable' && !isRegionChecking && paidUnlocks.status === 'blocked'
+      ? paidUnlocks
+      : null;
 
   const {
     stage,
@@ -128,6 +136,7 @@ export function LockedPostContent({
     viewContent,
   } = usePayToUnlock({
     open: isPayOpen,
+    paymentAvailability: paidUnlocks.status,
     lockUrl: lock ?? '',
     lockFile,
     onPurchased: markPurchased,
@@ -141,7 +150,7 @@ export function LockedPostContent({
   // reader gets the sign-in dialog instead. Unsupported legacy locks have no unlock handler, and
   // neither does the creator's own lock: it stays inert even if reading the original failed.
   const handleUnlock =
-    price && !showPermissionNotice && !isOwnLock && !regionBlock && !isRegionChecking
+    price && !showPermissionNotice && !isOwnLock && (!regionBlock || canRecover) && !isRegionChecking
       ? async () => {
           if (await waitForAuth()) setIsPayOpen(true);
         }

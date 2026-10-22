@@ -8,7 +8,7 @@ export class ClientRegionController {
    * Reads the viewer's IP country once per page load, however many lock cards ask. A failed read is final for
    * the load: a deployment without a Shop route would otherwise be asked again by every card in the feed.
    */
-  static async ensureLoaded(): Promise<void> {
+  static async fetchCountryOnce(): Promise<void> {
     const store = useClientRegionStore.getState();
     if (store.status !== 'idle') return;
     store.markLoading();

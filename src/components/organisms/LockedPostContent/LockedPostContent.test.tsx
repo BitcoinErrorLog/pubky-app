@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocksController } from '@/controllers/locks/locks';
 import { useLockFile } from '@/hooks/useLockFile/useLockFile';
+import type { UsePurchasedLocksResult } from '@/hooks/usePurchasedLocks/usePurchasedLocks.types';
+import type { PurchaseResumeStatus } from '@/hooks/usePurchaseResume/usePurchaseResume.types';
 import type { PaidUnlockAvailability } from '@/libs/region/paidUnlockAvailability';
 import { PostPreviewNestingProvider } from '@/molecules/PostPreviewCard/PostPreviewNestingContext';
 import type {
@@ -24,6 +26,7 @@ vi.mock('@/hooks/useLockFile/useLockFile', () => ({ useLockFile: vi.fn() }));
 // component passed so a test can drive `onCompleted` as if the payment finished.
 type PayParams = {
   open: boolean;
+  paymentAvailability: PaidUnlockAvailability['status'];
   onPurchased: (lockId: string) => void;
   onCompleted: (content: unknown) => void;
   onSessionExpired: () => void;
@@ -66,22 +69,29 @@ vi.mock('@/hooks/usePayToUnlock/usePayToUnlock', () => ({
 // 'lock1' is the id in LOCK_URL, so the payment-lock tests start from an already purchased lock.
 const purchasedMocks = vi.hoisted(() => ({
   params: null as null | { enabled: boolean },
+  status: 'ready' as UsePurchasedLocksResult['status'],
   hasPurchase: vi.fn((lockId: string | null) => lockId === 'lock1'),
   markPurchased: vi.fn(),
 }));
 vi.mock('@/hooks/usePurchasedLocks/usePurchasedLocks', () => ({
   usePurchasedLocks: (params: { enabled: boolean }) => {
     purchasedMocks.params = params;
-    return { hasPurchase: purchasedMocks.hasPurchase, markPurchased: purchasedMocks.markPurchased };
+    return {
+      hasPurchase: purchasedMocks.hasPurchase,
+      markPurchased: purchasedMocks.markPurchased,
+      status: purchasedMocks.status,
+    };
   },
 }));
 // The resume hook has its own tests; here only the wiring matters — capture what it was handed.
 const resumeMocks = vi.hoisted(() => ({
+  status: null as PurchaseResumeStatus | null,
   params: null as null | { onResumed: (content: unknown) => void; isPurchased: boolean; hasContent: boolean },
 }));
 vi.mock('@/hooks/usePurchaseResume/usePurchaseResume', () => ({
   usePurchaseResume: (params: { onResumed: (content: unknown) => void; isPurchased: boolean; hasContent: boolean }) => {
     resumeMocks.params = params;
+    return resumeMocks.status ?? (params.isPurchased ? 'recoverable' : 'none');
   },
 }));
 vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
@@ -223,6 +233,8 @@ describe('LockedPostContent', () => {
     toastMock.mockClear();
     purchasedMocks.hasPurchase.mockReset(); // back to the `lock1` implementation
     purchasedMocks.markPurchased.mockClear();
+    purchasedMocks.status = 'ready';
+    resumeMocks.status = null;
     payMocks.viewContent.mockClear();
     authMocks.isAuthenticated = true;
     authMocks.waitForAuth.mockImplementation(async () => authMocks.requireAuth(() => true) === true);
@@ -727,6 +739,41 @@ describe('LockedPostContent', () => {
       expect(screen.queryByTestId('locks-region-notice')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
       expect(await screen.findByTestId('pay-dialog')).toBeInTheDocument();
+    });
+
+    it('holds a saved bundle whose resolved task is absent or ended', () => {
+      paidUnlocks.value = { status: 'blocked', cause: 'region' };
+      purchasedMocks.hasPurchase.mockReturnValue(true);
+      resumeMocks.status = 'none';
+      paymentData();
+      renderReader();
+      expect(screen.getByTestId('locks-region-notice')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Unlock' })).toBeDisabled();
+    });
+
+    it.each(['listing', 'task'])(
+      'keeps recovery available after an unreadable %s without permitting new payments',
+      async (failure) => {
+        paidUnlocks.value = { status: 'blocked', cause: 'region' };
+        if (failure === 'listing') purchasedMocks.status = 'error';
+        else resumeMocks.status = 'unknown';
+        paymentData();
+        renderReader();
+        expect(screen.getByTestId('locks-region-notice')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+        expect(await screen.findByTestId('pay-dialog')).toBeInTheDocument();
+        expect(payMocks.params?.paymentAvailability).toBe('blocked');
+      },
+    );
+
+    it.each(['listing', 'task'])('waits for the %s before deciding whether recovery is possible', (pending) => {
+      paidUnlocks.value = { status: 'blocked', cause: 'region' };
+      if (pending === 'listing') purchasedMocks.status = 'loading';
+      else resumeMocks.status = 'checking';
+      paymentData();
+      renderReader();
+      expect(screen.getByTestId('spinner')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Unlock', hidden: true })).toBeDisabled();
     });
 
     it("does not hold the creator's own lock, which never offers Unlock", async () => {

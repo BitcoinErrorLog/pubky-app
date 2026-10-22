@@ -1,3 +1,4 @@
+import type { PaidUnlockAvailability } from '@/libs/region/paidUnlockAvailability';
 import type { LockFile, TPaykitConnectionState, TUnlockedContent } from '@/services/locks/locks.types';
 
 /**
@@ -25,6 +26,8 @@ export type TPayToUnlockStage =
 export interface UsePayToUnlockParams {
   /** The modal's open state; closed keeps the hook idle (no requests, no polling). */
   open: boolean;
+  /** Advisory guard for new submissions/retries; existing server tasks can still finish. */
+  paymentAvailability?: PaidUnlockAvailability['status'];
   /** The post's public `lock.json` URL. */
   lockUrl: string;
   /** The fetched lock file; null keeps the hook idle. */

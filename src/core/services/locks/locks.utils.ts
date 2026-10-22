@@ -30,12 +30,17 @@ export function toLocksError(error: unknown, operation: string) {
  * The Lock Server answers a proof submission with HTTP 451 (Unavailable For Legal Reasons) from a
  * region where paid unlocks are not offered. That is an expected, permanent answer, not a failure:
  * callers turn it into a state of its own before any `Err.*` is built, because the factories log and
- * report to Sentry on construction. Only a raw SDK failure counts; an `AppError` was already reported.
+ * report to Sentry on construction. The pinned SDK 0.1.0 exposes no status field: its browser binding
+ * emits an `InvalidInput` Error with this exact message. Match only that contract, covered by
+ * locks.region.contract.test.ts; an `AppError` was already reported and must be preserved.
  */
 export function isLockServerRegionBlocked(error: unknown): boolean {
   if (isAppError(error)) return false;
-  const message = error instanceof Error ? error.message : String(error);
-  return /\bHTTP 451\b/.test(message);
+  return (
+    error instanceof Error &&
+    error.name === 'InvalidInput' &&
+    error.message === 'Lock Server viewer request failed with HTTP 451'
+  );
 }
 
 /** One-time wasm init promise; see `ensureLocksSdkReady`. */

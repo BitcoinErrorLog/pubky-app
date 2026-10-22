@@ -243,7 +243,7 @@ LockedPostContent
   │    ├─ 2) my own post (a == b)         → local post, then fetchOwnContent on a miss
   │    ├─ 3) valid payment price → lock card → DialogPayToUnlock (sign-in required first)
   │    └─ 4) no valid price → masked lock card with Unlock disabled
-  └─ 5) saved purchase, no replica → usePurchaseResume → fetchPaidContentIfCompleted
+  └─ 5) saved purchase, no replica → usePurchaseResume → fetchResolvedPurchase → fetchPaidContent (completed only)
 ```
 
 The no-price state covers legacy or unreadable lock files. Their content remains masked and
@@ -425,7 +425,8 @@ Paid unlocks are held in some regions (at launch the EU, the UK and the US), and
 
 - It is off unless `PUBKY_RUNTIME_REGION_MODES` lists a region ([environment.md](environment.md)). Then free content and every other feature never read the viewer's region, and no request is made.
 - With a region listed it reads the viewer's country once per page load from the Shop's same-origin `/shop-embed/api/marketplace/client-region` route (`ClientRegionService`, through the application and controller into `useClientRegionStore`) and evaluates it with the Shop's rules (`@/libs/region/regionModes`, the same `SELECTOR=MODE` grammar).
-- A blocked reader sees "Paid unlocks aren't available in your region yet." with an info icon above the lock card, and Unlock is disabled. While the country is being read the card shows its spinner. A reader who already started this lock's payment keeps Unlock, so an order in flight can finish. The creator's own lock and content already unlocked are untouched.
+- A blocked reader sees "Paid unlocks aren't available in your region yet." with an info icon above the lock card, and Unlock is disabled for a new payment. While the country or a known purchase's task is being read the card shows its spinner. A saved bundle file alone is not an existing payment: a missing task or a failed/expired task stays held. Only a running/completed server task keeps Unlock for recovery. The creator's own lock and content already unlocked are untouched.
+- Purchase ids still come from one shared listing per reader/session. If that listing or a task read fails, Unlock can open the modal to re-read this lock's saved ids and recover a running/completed payment; the region notice remains visible. The modal checks availability again before every new submission or retry, including after its wallet check. A missing/ended task stops at the region notice without submitting or replacing the saved id. Recovery reuses its status lookup for completed-content downloads rather than looking up the same task twice.
 - A creator in a held region cannot switch **Lock content** on: `usePostInputLock` disables the switch and `PostInputActionBar` shows the info icon beside it (the line and the why open from it), so the creator hears it before the setup dialogs rather than after. Only the switch is held: normal posts, a lock already switched on (so it can be switched off) and everything else in the composer stay as they are. This is the one place a creator is restricted, and it follows the Shop's rule that selling paid unlocks is held where buying them is.
 - A country the edge cannot tell is held like the Shop holds it; a Shop route that cannot answer holds nobody. The check is advisory, and the 451 handling above covers whatever it misses.
 

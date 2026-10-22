@@ -67,22 +67,36 @@ describe('locks.utils', () => {
   });
 
   describe('isLockServerRegionBlocked', () => {
-    it('is true for the SDK failure carrying HTTP 451', () => {
-      expect(isLockServerRegionBlocked(new Error('Lock Server viewer request failed with HTTP 451'))).toBe(true);
-      expect(isLockServerRegionBlocked('Lock Server viewer request failed with HTTP 451')).toBe(true);
+    const sdkError = (message: string) => Object.assign(new Error(message), { name: 'InvalidInput' });
+
+    it('is true for the pinned SDK InvalidInput Error with the exact HTTP 451 message', () => {
+      expect(isLockServerRegionBlocked(sdkError('Lock Server viewer request failed with HTTP 451'))).toBe(true);
     });
 
     it('is false for other statuses, other failures and anything that is not a raw SDK failure', () => {
-      expect(isLockServerRegionBlocked(new Error('Lock Server viewer request failed with HTTP 429'))).toBe(false);
+      expect(isLockServerRegionBlocked(sdkError('Lock Server viewer request failed with HTTP 429'))).toBe(false);
+      expect(isLockServerRegionBlocked(sdkError('Lock Server viewer request failed with HTTP 4510'))).toBe(false);
+      expect(isLockServerRegionBlocked(sdkError('failed to parse JSON response: HTTP 451'))).toBe(false);
+      expect(isLockServerRegionBlocked(sdkError('Lock Server viewer request failed with HTTP 451\n'))).toBe(false);
+      expect(isLockServerRegionBlocked(new Error('Lock Server viewer request failed with HTTP 451'))).toBe(false);
+      expect(isLockServerRegionBlocked('Lock Server viewer request failed with HTTP 451')).toBe(false);
+      expect(
+        isLockServerRegionBlocked({ name: 'InvalidInput', message: 'Lock Server viewer request failed with HTTP 451' }),
+      ).toBe(false);
       expect(isLockServerRegionBlocked(new Error('network down'))).toBe(false);
       expect(isLockServerRegionBlocked(undefined)).toBe(false);
     });
 
     it('is false for an AppError, which was already reported at its origin', () => {
-      const reported = Err.validation(ValidationErrorCode.INVALID_INPUT, 'upstream said HTTP 451', {
-        service: ErrorService.Locks,
-        operation: 'op',
-      });
+      const reported = Err.validation(
+        ValidationErrorCode.INVALID_INPUT,
+        'Lock Server viewer request failed with HTTP 451',
+        {
+          service: ErrorService.Locks,
+          operation: 'op',
+        },
+      );
+      reported.name = 'InvalidInput';
       expect(isLockServerRegionBlocked(reported)).toBe(false);
     });
   });
