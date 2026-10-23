@@ -22,15 +22,18 @@ export class PaykitCreatorValidators {
       return { ok: false, message: 'Invalid creator', statusCode: HttpStatusCode.BAD_REQUEST };
     }
 
-    let origin: string;
+    let parsed: URL;
     try {
-      const parsed = new URL((returnTo ?? '').trim());
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('Unsupported protocol');
-      origin = parsed.origin;
+      parsed = new URL((returnTo ?? '').trim());
     } catch {
-      return { ok: false, message: 'Invalid return_to', statusCode: HttpStatusCode.BAD_REQUEST };
+      return invalidReturnTo();
     }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return invalidReturnTo();
 
-    return { ok: true, creator: withPubkyPrefix(bareCreator), returnTo: origin };
+    return { ok: true, creator: withPubkyPrefix(bareCreator), returnTo: parsed.origin };
   }
+}
+
+function invalidReturnTo(): Extract<TPaykitCreatorValidationResult, { ok: false }> {
+  return { ok: false, message: 'Invalid return_to', statusCode: HttpStatusCode.BAD_REQUEST };
 }

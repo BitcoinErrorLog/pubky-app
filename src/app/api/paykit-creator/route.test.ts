@@ -19,7 +19,7 @@ describe('API Route: /api/paykit-creator', () => {
   });
 
   it('answers { held: true } when Paykit holds the creator', async () => {
-    vi.spyOn(PaykitCreatorController, 'probe').mockResolvedValue({ ok: true, held: true });
+    vi.spyOn(PaykitCreatorController, 'fetchCreatorHeld').mockResolvedValue({ ok: true, held: true });
 
     const response = await GET(request(validQuery));
 
@@ -28,7 +28,7 @@ describe('API Route: /api/paykit-creator', () => {
   });
 
   it('answers { held: false } when it does not', async () => {
-    vi.spyOn(PaykitCreatorController, 'probe').mockResolvedValue({ ok: true, held: false });
+    vi.spyOn(PaykitCreatorController, 'fetchCreatorHeld').mockResolvedValue({ ok: true, held: false });
 
     const response = await GET(request(validQuery));
 
@@ -36,7 +36,7 @@ describe('API Route: /api/paykit-creator', () => {
   });
 
   it('hands the raw query values to the controller', async () => {
-    const probe = vi.spyOn(PaykitCreatorController, 'probe').mockResolvedValue({ ok: true, held: false });
+    const probe = vi.spyOn(PaykitCreatorController, 'fetchCreatorHeld').mockResolvedValue({ ok: true, held: false });
 
     await GET(request(validQuery));
 
@@ -44,7 +44,7 @@ describe('API Route: /api/paykit-creator', () => {
   });
 
   it('never lets a CDN or the browser cache the answer', async () => {
-    vi.spyOn(PaykitCreatorController, 'probe').mockResolvedValue({ ok: true, held: true });
+    vi.spyOn(PaykitCreatorController, 'fetchCreatorHeld').mockResolvedValue({ ok: true, held: true });
 
     const response = await GET(request(validQuery));
 
@@ -52,7 +52,7 @@ describe('API Route: /api/paykit-creator', () => {
   });
 
   it('passes the controller validation failure through as a 400', async () => {
-    vi.spyOn(PaykitCreatorController, 'probe').mockResolvedValue({
+    vi.spyOn(PaykitCreatorController, 'fetchCreatorHeld').mockResolvedValue({
       ok: false,
       message: 'Invalid creator',
       statusCode: HttpStatusCode.BAD_REQUEST,
@@ -66,7 +66,7 @@ describe('API Route: /api/paykit-creator', () => {
   });
 
   it('reports a Paykit outage with its status instead of an answer', async () => {
-    vi.spyOn(PaykitCreatorController, 'probe').mockRejectedValue(
+    vi.spyOn(PaykitCreatorController, 'fetchCreatorHeld').mockRejectedValue(
       Err.server(ServerErrorCode.SERVICE_UNAVAILABLE, 'Paykit unavailable', {
         service: ErrorService.Locks,
         operation: 'isCreatorHeld',
@@ -81,7 +81,7 @@ describe('API Route: /api/paykit-creator', () => {
   });
 
   it('hides an unexpected error behind a 500', async () => {
-    vi.spyOn(PaykitCreatorController, 'probe').mockRejectedValue(new Error('boom'));
+    vi.spyOn(PaykitCreatorController, 'fetchCreatorHeld').mockRejectedValue(new Error('boom'));
 
     const response = await GET(request(validQuery));
 

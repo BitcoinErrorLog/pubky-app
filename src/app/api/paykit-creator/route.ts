@@ -14,7 +14,7 @@ const NO_STORE_HEADERS = { headers: { 'Cache-Control': 'no-store' } };
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const result = await PaykitCreatorController.probe({
+    const result = await PaykitCreatorController.fetchCreatorHeld({
       creator: searchParams.get('creator'),
       returnTo: searchParams.get('return_to'),
     });

@@ -9,14 +9,14 @@ export class PaykitCreatorController {
   private constructor() {}
 
   /**
-   * Asks Paykit whether it already holds `creator`.
+   * Asks Paykit (network only, no cache) whether it already holds `creator`.
    *
    * @param params.creator - Raw `creator` query value (may be null)
    * @param params.returnTo - Raw `return_to` query value (may be null)
    * @returns The answer, or a validation failure for a malformed query
    * @throws AppError when Paykit cannot answer.
    */
-  static async probe(params: {
+  static async fetchCreatorHeld(params: {
     creator: string | null;
     returnTo: string | null;
   }): Promise<TPaykitCreatorControllerResult> {
