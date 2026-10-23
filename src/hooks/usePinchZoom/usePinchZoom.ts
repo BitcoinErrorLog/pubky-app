@@ -111,6 +111,23 @@ export function usePinchZoom({ enabled }: UsePinchZoomOptions) {
     return m ? { x: point.x - m.centre.x, y: point.y - m.centre.y } : point;
   };
 
+  const startGesture = () => {
+    const points = [...pointersRef.current.values()];
+    const start = transformRef.current;
+    if (points.length >= 2) {
+      const [a, b] = points;
+      gestureRef.current = {
+        start,
+        pinch: { distance: distance(a, b) || 1, midpoint: toFrame(midpoint(a, b)) },
+        moved: true,
+      };
+    } else if (points.length === 1) {
+      gestureRef.current = { start, origin: points[0], moved: false };
+    } else {
+      gestureRef.current = null;
+    }
+  };
+
   useEffect(() => {
     if (!enabled) {
       apply(IDENTITY);
@@ -131,27 +148,32 @@ export function usePinchZoom({ enabled }: UsePinchZoomOptions) {
       const current = transformRef.current;
       const scale = clamp(current.scale * Math.exp(-event.deltaY * speed), 1, PINCH_ZOOM_MAX_SCALE);
       commit(zoomAround(current, scale, toFrame({ x: event.clientX, y: event.clientY })));
+      // A drag or pinch in progress carries on from the wheel's result, not from where it started
+      if (gestureRef.current) {
+        const wasMoved = gestureRef.current.moved;
+        startGesture();
+        if (gestureRef.current) gestureRef.current.moved = wasMoved;
+      }
     };
     frameEl.addEventListener('wheel', onWheel, { passive: false });
     return () => frameEl.removeEventListener('wheel', onWheel);
   });
 
-  const startGesture = () => {
-    const points = [...pointersRef.current.values()];
-    const start = transformRef.current;
-    if (points.length >= 2) {
-      const [a, b] = points;
-      gestureRef.current = {
-        start,
-        pinch: { distance: distance(a, b) || 1, midpoint: toFrame(midpoint(a, b)) },
-        moved: true,
-      };
-    } else if (points.length === 1) {
-      gestureRef.current = { start, origin: points[0], moved: false };
-    } else {
-      gestureRef.current = null;
-    }
-  };
+  // Pan limits follow the frame: a resize or a phone rotation re-clamps, so no empty space shows past an image edge.
+  useEffect(() => {
+    const frameEl = frameRef.current;
+    if (!frameEl || !enabled || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      const current = transformRef.current;
+      if (current.scale <= 1) return;
+      const m = measure();
+      if (!m) return;
+      const next = clampZoomTransform(current, m.frame, m.content);
+      if (next.x !== current.x || next.y !== current.y || next.scale !== current.scale) apply(next);
+    });
+    observer.observe(frameEl);
+    return () => observer.disconnect();
+  }, [enabled]);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (!enabled) return;

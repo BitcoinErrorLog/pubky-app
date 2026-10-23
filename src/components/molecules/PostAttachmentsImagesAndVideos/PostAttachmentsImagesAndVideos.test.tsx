@@ -811,6 +811,33 @@ describe('PostAttachmentsImagesAndVideos', () => {
       expect(carousel).toHaveAttribute('data-watch-drag', 'true');
     });
 
+    it('keeps swiping off when a slide other than the visible one reports not zoomed, e.g. it is removed', () => {
+      setDialogOpen(true);
+      const imagesAndVideos = [createMockImage(), createMockImage(), createMockImage()];
+      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
+
+      const carousel = screen.getByTestId('carousel');
+      fireEvent.click(screen.getByTestId('zoom-in-media-item-0'));
+      expect(carousel).toHaveAttribute('data-watch-drag', 'false');
+
+      // A hidden slide's unmount cleanup reports false; the zoomed visible slide still owns the drag
+      fireEvent.click(screen.getByTestId('zoom-out-media-item-2'));
+      expect(carousel).toHaveAttribute('data-watch-drag', 'false');
+    });
+
+    it('gives a slide a fresh image component when another attachment takes its place, so no zoom carries over', () => {
+      setDialogOpen(true);
+      const first = createMockImage({ urls: { main: 'https://example.com/first.jpg' } });
+      const second = createMockImage({ urls: { main: 'https://example.com/second.jpg' } });
+      const { rerender } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={[first, second]} />);
+      const before = screen.getAllByTestId('carousel-image')[0];
+
+      rerender(<PostAttachmentsImagesAndVideos imagesAndVideos={[second]} />);
+      const after = screen.getAllByTestId('carousel-image')[0];
+      expect(after.querySelector('img')).toHaveAttribute('src', 'https://example.com/second.jpg');
+      expect(after).not.toBe(before);
+    });
+
     it('lets only the visible slide zoom, and none in fullscreen', () => {
       setDialogOpen(true);
       const imagesAndVideos = [createMockImage(), createMockImage()];

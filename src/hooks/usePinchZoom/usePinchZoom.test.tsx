@@ -29,6 +29,7 @@ describe('usePinchZoom', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -124,6 +125,53 @@ describe('usePinchZoom', () => {
     const notPrevented = fireEvent.wheel(frame(), { deltaY: -200, clientX: 200, clientY: 150 });
     expect(notPrevented).toBe(false);
     expect(frame()).toHaveAttribute('data-zoomed', 'true');
+  });
+
+  it('keeps a drag going from the wheel zoom instead of snapping back to where the drag started', () => {
+    render(<Harness />);
+    tap(200, 150);
+    tap(200, 150);
+
+    fireEvent.pointerDown(frame(), { pointerId: 3, clientX: 200, clientY: 150, pointerType: 'touch' });
+    fireEvent.pointerMove(frame(), { pointerId: 3, clientX: 260, clientY: 170, pointerType: 'touch' });
+    expect(reading()).toBe('2.50,60,20');
+
+    // 2.5 * e^(100 * 0.002) = 3.05, around the frame centre
+    fireEvent.wheel(frame(), { deltaY: -100, clientX: 200, clientY: 150 });
+    const [wheelScale, wheelX, wheelY] = (reading() ?? '').split(',');
+    expect(wheelScale).toBe('3.05');
+
+    // The next 10px of drag moves on from the wheel's result
+    fireEvent.pointerMove(frame(), { pointerId: 3, clientX: 270, clientY: 170, pointerType: 'touch' });
+    expect(reading()).toBe(`3.05,${Number(wheelX) + 10},${wheelY}`);
+  });
+
+  it('pulls the pan back inside the image edge when the frame shrinks, e.g. a phone rotates', () => {
+    const resizeCallbacks: (() => void)[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resizeCallbacks.push(callback);
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    render(<Harness />);
+    tap(200, 150);
+    tap(200, 150);
+    fireEvent.pointerDown(frame(), { pointerId: 3, clientX: 200, clientY: 150, pointerType: 'touch' });
+    fireEvent.pointerMove(frame(), { pointerId: 3, clientX: 1200, clientY: 150, pointerType: 'touch' });
+    fireEvent.pointerUp(frame(), { pointerId: 3, clientX: 1200, clientY: 150, pointerType: 'touch' });
+    expect(reading()).toBe('2.50,300,0');
+
+    // 400px wide becomes 320px: the horizontal bound drops from 300 to (320 * 2.5 - 320) / 2 = 240
+    const narrow = { ...FRAME, width: 320, right: 320 };
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ ...narrow, toJSON: () => narrow });
+    act(() => resizeCallbacks.forEach((callback) => callback()));
+    expect(reading()).toBe('2.50,240,0');
   });
 
   it('resets when it is disabled, e.g. the slide is swiped away', () => {

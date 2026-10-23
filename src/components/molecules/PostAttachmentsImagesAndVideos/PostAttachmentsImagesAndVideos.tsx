@@ -55,8 +55,12 @@ export const PostAttachmentsImagesAndVideos = ({
   const [api, setApi] = useState<CarouselApi>();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // While the visible image is zoomed, a one-finger drag pans it instead of swiping to the next slide
-  const [isMediaZoomed, setIsMediaZoomed] = useState(false);
+  // While the visible image is zoomed, a one-finger drag pans it instead of swiping to the next slide. Tracked by slide
+  // key, so a slide that unmounts or resets reports false for itself only and cannot clear another slide's zoom.
+  const [zoomedSlideKey, setZoomedSlideKey] = useState<string | null>(null);
+  const isMediaZoomed = zoomedSlideKey !== null;
+  const handleSlideZoomChange = (slideKey: string, isZoomed: boolean) =>
+    setZoomedSlideKey((current) => (isZoomed ? slideKey : current === slideKey ? null : current));
   const carouselRef = useRef<HTMLDivElement>(null);
   const [previewTrigger, setPreviewTrigger] = useState<HTMLElement | null>(null);
   const openPreview = (index: number, event?: MouseEvent) => {
@@ -246,27 +250,31 @@ export const PostAttachmentsImagesAndVideos = ({
           className="w-full max-w-80 xsm:max-w-full sm:max-w-[75dvw] 2xl:max-w-[50dvw]"
         >
           <CarouselContent className="-ml-3 items-center">
-            {imagesAndVideos.map((media, i) => (
-              <CarouselItem key={i} className="basis-full pl-3">
-                {media.type.startsWith('image') ? (
-                  <PostAttachmentsCarouselImage
-                    id={`media-item-${i}`}
-                    image={media}
-                    // Only the visible slide can zoom; the others reset and report false. Fullscreen hands the image
-                    // to the browser's top layer, where this transform no longer applies.
-                    isActive={currentIndex === i && !isFullscreen}
-                    onZoomChange={setIsMediaZoomed}
-                  />
-                ) : (
-                  <Video
-                    id={`media-item-${i}`}
-                    src={media.urls.main}
-                    pauseVideo={currentIndex !== i}
-                    className="max-h-[75dvh] w-full"
-                  />
-                )}
-              </CarouselItem>
-            ))}
+            {imagesAndVideos.map((media, i) => {
+              // Keyed by the media too: another attachment taking this slot gets a fresh slide, with no zoom carried over
+              const slideKey = `${i}-${media.urls.main}`;
+              return (
+                <CarouselItem key={slideKey} className="basis-full pl-3">
+                  {media.type.startsWith('image') ? (
+                    <PostAttachmentsCarouselImage
+                      id={`media-item-${i}`}
+                      image={media}
+                      // Only the visible slide can zoom; the others reset and report false. Fullscreen hands the image
+                      // to the browser's top layer, where this transform no longer applies.
+                      isActive={currentIndex === i && !isFullscreen}
+                      onZoomChange={(isZoomed) => handleSlideZoomChange(slideKey, isZoomed)}
+                    />
+                  ) : (
+                    <Video
+                      id={`media-item-${i}`}
+                      src={media.urls.main}
+                      pauseVideo={currentIndex !== i}
+                      className="max-h-[75dvh] w-full"
+                    />
+                  )}
+                </CarouselItem>
+              );
+            })}
           </CarouselContent>
 
           {total > 1 && (
