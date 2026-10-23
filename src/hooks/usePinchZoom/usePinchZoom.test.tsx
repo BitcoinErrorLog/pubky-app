@@ -174,6 +174,110 @@ describe('usePinchZoom', () => {
     expect(reading()).toBe('2.50,240,0');
   });
 
+  it('snaps back to the fitted size when a pinch ends barely zoomed, so the carousel can swipe again', () => {
+    render(<Harness />);
+
+    fireEvent.pointerDown(frame(), { pointerId: 1, clientX: 150, clientY: 150, pointerType: 'touch' });
+    fireEvent.pointerDown(frame(), { pointerId: 2, clientX: 250, clientY: 150, pointerType: 'touch' });
+    // 100px apart becomes 102px: 1.02x, too little to see
+    fireEvent.pointerMove(frame(), { pointerId: 2, clientX: 252, clientY: 150, pointerType: 'touch' });
+    expect(reading()).toBe('1.02,1,0');
+
+    fireEvent.pointerUp(frame(), { pointerId: 2, clientX: 252, clientY: 150, pointerType: 'touch' });
+    fireEvent.pointerUp(frame(), { pointerId: 1, clientX: 150, clientY: 150, pointerType: 'touch' });
+    expect(reading()).toBe('1.00,0,0');
+    expect(frame()).toHaveAttribute('data-zoomed', 'false');
+  });
+
+  it('snaps back to the fitted size when the wheel or a trackpad pinch stops barely zoomed', () => {
+    vi.useFakeTimers();
+    render(<Harness />);
+
+    // A trackpad pinch: ctrl+wheel in small steps, e^(5 * 0.01) = 1.05 after one
+    fireEvent.wheel(frame(), { deltaY: -5, ctrlKey: true, clientX: 200, clientY: 150 });
+    expect(reading()?.startsWith('1.05,')).toBe(true);
+    // Still pinching: the steps build on each other instead of snapping back in between
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    fireEvent.wheel(frame(), { deltaY: -5, ctrlKey: true, clientX: 200, clientY: 150 });
+    expect(reading()?.startsWith('1.11,')).toBe(true);
+    // e^(-5 * 0.01) takes it back under 1.1, and the pinch ends there
+    fireEvent.wheel(frame(), { deltaY: 5, ctrlKey: true, clientX: 200, clientY: 150 });
+    expect(reading()?.startsWith('1.05,')).toBe(true);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(reading()).toBe('1.00,0,0');
+    expect(frame()).toHaveAttribute('data-zoomed', 'false');
+  });
+
+  it('keeps a wheel zoom that ends well past the fitted size', () => {
+    vi.useFakeTimers();
+    render(<Harness />);
+
+    // e^(200 * 0.002) = 1.49
+    fireEvent.wheel(frame(), { deltaY: -200, clientX: 200, clientY: 150 });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(reading()?.startsWith('1.49,')).toBe(true);
+  });
+
+  it('reads a wheel counted in lines (Firefox) at the same speed as one counted in pixels', () => {
+    render(<Harness />);
+
+    // 3 lines of 16px is 48px: e^(48 * 0.002) = 1.10
+    fireEvent.wheel(frame(), { deltaY: -3, deltaMode: 1, clientX: 200, clientY: 150 });
+    expect(reading()?.startsWith('1.10,')).toBe(true);
+  });
+
+  it('zooms on a Safari trackpad pinch, which arrives as gesture events, and keeps the page from zooming', () => {
+    render(<Harness />);
+
+    const gesture = (type: string, scale: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.assign(event, { scale, clientX: 200, clientY: 150 });
+      return fireEvent(frame(), event);
+    };
+
+    expect(gesture('gesturestart', 1)).toBe(false);
+    expect(gesture('gesturechange', 2)).toBe(false);
+    expect(reading()).toBe('2.00,0,0');
+    // Safari may send the same pinch as ctrl+wheel as well; it is applied once
+    fireEvent.wheel(frame(), { deltaY: -50, ctrlKey: true, clientX: 200, clientY: 150 });
+    expect(reading()).toBe('2.00,0,0');
+    expect(gesture('gestureend', 2)).toBe(false);
+    expect(reading()).toBe('2.00,0,0');
+  });
+
+  it('leaves gesture events to the pointer handlers while fingers are down, so an iOS pinch is not applied twice', () => {
+    render(<Harness />);
+
+    fireEvent.pointerDown(frame(), { pointerId: 1, clientX: 150, clientY: 150, pointerType: 'touch' });
+    fireEvent.pointerDown(frame(), { pointerId: 2, clientX: 250, clientY: 150, pointerType: 'touch' });
+    for (const [type, scale] of [
+      ['gesturestart', 1],
+      ['gesturechange', 3],
+    ] as const) {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.assign(event, { scale, clientX: 200, clientY: 150 });
+      fireEvent(frame(), event);
+    }
+    expect(reading()).toBe('1.00,0,0');
+  });
+
+  it('forgets a pointer whose capture is lost, so the next taps are taps and not a pinch', () => {
+    render(<Harness />);
+
+    fireEvent.pointerDown(frame(), { pointerId: 1, clientX: 200, clientY: 150, pointerType: 'touch' });
+    fireEvent.lostPointerCapture(frame(), { pointerId: 1, clientX: 200, clientY: 150, pointerType: 'touch' });
+
+    tap(200, 150, 2);
+    tap(200, 150, 3);
+    expect(reading()).toBe('2.50,0,0');
+  });
+
   it('resets when it is disabled, e.g. the slide is swiped away', () => {
     const { rerender } = render(<Harness />);
     tap(200, 150);

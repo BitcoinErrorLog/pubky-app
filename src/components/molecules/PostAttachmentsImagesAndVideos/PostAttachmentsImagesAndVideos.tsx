@@ -61,6 +61,16 @@ export const PostAttachmentsImagesAndVideos = ({
   const isMediaZoomed = zoomedSlideKey !== null;
   const handleSlideZoomChange = (slideKey: string, isZoomed: boolean) =>
     setZoomedSlideKey((current) => (isZoomed ? slideKey : current === slideKey ? null : current));
+  // embla reads watchDrag on every pointer down, so swiping is decided per drag from a ref. A boolean option would make
+  // embla re-initialise each time zoom crosses 1x, and embla keeps the first function whose source text matches, so the
+  // function cannot close over state either.
+  const isSwipeBlockedRef = useRef(false);
+  useEffect(() => {
+    isSwipeBlockedRef.current = isFullscreen || isMediaZoomed;
+  }, [isFullscreen, isMediaZoomed]);
+  // A second finger landing is a pinch, never a swipe
+  const canSwipe = (_api: unknown, event: globalThis.MouseEvent | TouchEvent) =>
+    !isSwipeBlockedRef.current && !('touches' in event && event.touches.length > 1);
   const carouselRef = useRef<HTMLDivElement>(null);
   const [previewTrigger, setPreviewTrigger] = useState<HTMLElement | null>(null);
   const openPreview = (index: number, event?: MouseEvent) => {
@@ -244,7 +254,7 @@ export const PostAttachmentsImagesAndVideos = ({
             startIndex: currentIndex,
             loop: true,
             duration: 15,
-            watchDrag: !isFullscreen && !isMediaZoomed,
+            watchDrag: canSwipe,
           }}
           setApi={setApi}
           className="w-full max-w-80 xsm:max-w-full sm:max-w-[75dvw] 2xl:max-w-[50dvw]"
