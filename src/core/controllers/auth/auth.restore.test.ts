@@ -65,6 +65,12 @@ const profileError = () =>
     operation: 'userIsSignedUp',
   });
 
+const wrongEnvironmentError = () =>
+  Err.auth(AuthErrorCode.WRONG_ENVIRONMENT_HOMESERVER, 'Wrong environment', {
+    service: ErrorService.Homeserver,
+    operation: 'guard',
+  });
+
 function persistState() {
   const state = useAuthStore.getState();
   localStorage.setItem(
@@ -324,29 +330,61 @@ describe('AuthController restored session lifecycle', () => {
 
     await replaceAccount();
     const replacement = useAuthStore.getState();
+    // The newer flow owns the sign-in progress now; the stale restore must not reset it.
+    useSignInStore.setState(completedSignIn);
+    const replacementSignIn = useSignInStore.getState();
     if (result === 'success') bootstrap.resolve({ unread: 5, lastRead: 100, lastPolledTimestamp: undefined });
     else bootstrap.reject(profileError());
 
     await expect(restore).resolves.toBe(false);
     expect(useAuthStore.getState()).toBe(replacement);
+    expect(useSignInStore.getState()).toBe(replacementSignIn);
     expect(useSettingsStore.getState().privacy.neverShowPosts).toBe(false);
     expect(useNotificationStore.getState().unread).toBe(0);
     expect(UserApplication.ensureModerationFollow).not.toHaveBeenCalled();
   });
 
-  it('preserves its session and offers recovery when bootstrap fails', async () => {
+  it.each([
+    { failure: 'temporary', restoreStatus: 'temporary-error' },
+    { failure: 'wrong-environment', restoreStatus: 'reauth-required' },
+  ] as const)(
+    'preserves its session and offers recovery when bootstrap fails: $failure',
+    async ({ failure, restoreStatus }) => {
+      vi.spyOn(HomeserverService, 'request')
+        .mockResolvedValueOnce({ name: 'Account A' })
+        .mockResolvedValueOnce(savedSettings);
+      const error = failure === 'temporary' ? profileError() : wrongEnvironmentError();
+      vi.mocked(BootstrapApplication.initialize).mockRejectedValue(error);
+
+      const restore = AuthController.restorePersistedSession();
+      if (failure === 'temporary') await expect(restore).resolves.toBe(false);
+      else await expect(restore).rejects.toBe(error);
+
+      expect(useAuthStore.getState()).toMatchObject({
+        session: sessionA,
+        hasProfile: null,
+        restoreStatus,
+      });
+      // /sign-in must offer the sign-in choices again, not the primed progress steps.
+      expect(useSignInStore.getState()).toMatchObject(signInInitialState);
+      expect(databaseHelpers.clearDatabase).not.toHaveBeenCalled();
+    },
+  );
+
+  it('offers recovery when the saved session becomes unreadable during bootstrap', async () => {
     vi.spyOn(HomeserverService, 'request')
       .mockResolvedValueOnce({ name: 'Account A' })
       .mockResolvedValueOnce(savedSettings);
-    vi.mocked(BootstrapApplication.initialize).mockRejectedValue(profileError());
+    const generation = useAuthStore.getState().generation;
+    vi.mocked(BootstrapApplication.initialize).mockImplementation(async () => {
+      // The post-restore storage check cannot parse the record and falls back to recovery.
+      localStorage.setItem(AUTH_PERSIST_KEY, '{');
+      return notificationInitialState;
+    });
 
     await expect(AuthController.restorePersistedSession()).resolves.toBe(false);
 
-    expect(useAuthStore.getState()).toMatchObject({
-      session: sessionA,
-      hasProfile: null,
-      restoreStatus: 'temporary-error',
-    });
-    expect(databaseHelpers.clearDatabase).not.toHaveBeenCalled();
+    expect(useAuthStore.getState()).toMatchObject({ session: sessionA, generation, restoreStatus: 'temporary-error' });
+    expect(useSignInStore.getState()).toMatchObject(signInInitialState);
   });
 });
