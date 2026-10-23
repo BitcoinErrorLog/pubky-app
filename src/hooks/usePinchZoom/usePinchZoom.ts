@@ -3,14 +3,14 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 
 /** Scale and pan of the zoomed content, in px, relative to its fitted position (transform-origin: center). */
-export type ZoomTransform = { scale: number; x: number; y: number };
+type ZoomTransform = { scale: number; x: number; y: number };
 
 type Size = { width: number; height: number };
 type Point = { x: number; y: number };
 
 export const PINCH_ZOOM_MAX_SCALE = 5;
 /** Where a double tap lands: close enough to read text in a screenshot, far enough from the max to pinch further. */
-export const PINCH_ZOOM_DOUBLE_TAP_SCALE = 2.5;
+const PINCH_ZOOM_DOUBLE_TAP_SCALE = 2.5;
 const DOUBLE_TAP_MS = 300;
 const DOUBLE_TAP_SLOP_PX = 30;
 /** Movement under this is still a tap, not a drag. */
