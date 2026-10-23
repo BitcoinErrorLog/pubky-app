@@ -740,8 +740,11 @@ export class AuthController {
         useAuthStore.getState().setRestoreStatus('ready');
     } catch (error) {
       // The replacement is already durable. Never resurrect the previous session or erase this grant.
-      if (useAuthStore.getState().generation === generation && useAuthStore.getState().session === session)
+      if (useAuthStore.getState().generation === generation && useAuthStore.getState().session === session) {
+        // The retained session needs a fresh sign-in: clear the primed progress steps so /sign-in offers choices.
+        useSignInStore.getState().reset();
         useAuthStore.getState().setRestoreStatus('temporary-error');
+      }
       throw error;
     }
   }
