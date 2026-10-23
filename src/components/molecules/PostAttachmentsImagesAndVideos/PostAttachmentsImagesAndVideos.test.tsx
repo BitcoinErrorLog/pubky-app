@@ -91,14 +91,20 @@ vi.mock('@/molecules/PostAttachmentsCarouselImage/PostAttachmentsCarouselImage',
     PostAttachmentsCarouselImage: ({
       id,
       image,
+      isActive,
+      onZoomChange,
       'data-testid': dataTestId,
     }: {
       id: string;
       image: AttachmentConstructed;
+      isActive?: boolean;
+      onZoomChange?: (isZoomed: boolean) => void;
       'data-testid'?: string;
     }) => (
-      <div data-testid={dataTestId || 'carousel-image'} id={id}>
+      <div data-testid={dataTestId || 'carousel-image'} id={id} data-active={isActive}>
         <img src={image.urls.main} alt={image.name} />
+        <button data-testid={`zoom-in-${id}`} onClick={() => onZoomChange?.(true)} />
+        <button data-testid={`zoom-out-${id}`} onClick={() => onZoomChange?.(false)} />
       </div>
     ),
   };
@@ -788,6 +794,40 @@ describe('PostAttachmentsImagesAndVideos', () => {
 
       const carousel = screen.getByTestId('carousel');
       expect(carousel).toHaveAttribute('data-watch-drag', 'false');
+    });
+
+    it('turns swiping off while the visible image is zoomed, so a drag pans it', () => {
+      setDialogOpen(true);
+      const imagesAndVideos = [createMockImage(), createMockImage()];
+      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
+
+      const carousel = screen.getByTestId('carousel');
+      expect(carousel).toHaveAttribute('data-watch-drag', 'true');
+
+      fireEvent.click(screen.getByTestId('zoom-in-media-item-0'));
+      expect(carousel).toHaveAttribute('data-watch-drag', 'false');
+
+      fireEvent.click(screen.getByTestId('zoom-out-media-item-0'));
+      expect(carousel).toHaveAttribute('data-watch-drag', 'true');
+    });
+
+    it('lets only the visible slide zoom, and none in fullscreen', () => {
+      setDialogOpen(true);
+      const imagesAndVideos = [createMockImage(), createMockImage()];
+      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
+
+      const slides = screen.getAllByTestId('carousel-image');
+      expect(slides[0]).toHaveAttribute('data-active', 'true');
+      expect(slides[1]).toHaveAttribute('data-active', 'false');
+
+      Object.defineProperty(document, 'fullscreenElement', {
+        value: document.createElement('div'),
+        configurable: true,
+      });
+      fireEvent(document, new Event('fullscreenchange'));
+      expect(screen.getAllByTestId('carousel-image')[0]).toHaveAttribute('data-active', 'false');
+      Object.defineProperty(document, 'fullscreenElement', { value: null, configurable: true });
+      fireEvent(document, new Event('fullscreenchange'));
     });
 
     it('adds fullscreenchange event listener on mount', () => {
