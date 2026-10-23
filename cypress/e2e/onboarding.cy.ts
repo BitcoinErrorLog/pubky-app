@@ -156,6 +156,11 @@ describe('Onboarding', () => {
     cy.get('[data-cy="filter-reach-radiogroup"]')
       .find('[data-cy="network-reach-toggle"]')
       .should('have.attr', 'data-selected', 'true');
+
+    // Choosing interests creates an Interests custom feed (#2508)
+    cy.get('[data-cy="feed-navigation"]')
+      .find('[data-cy="feed-navigation-custom-tab"][aria-label="Interests"]', { timeout: 15_000 })
+      .should('be.visible');
   });
 
   it('shows most active people without interests and lands on the All feed after finishing', () => {
@@ -169,12 +174,22 @@ describe('Onboarding', () => {
     cy.location('pathname').should('eq', '/onboarding/follow');
     cy.get('[data-cy="suggested-user-card"]', extendedTimeout()).should('have.length.greaterThan', 0);
 
+    // Finish writes the Interests feed before it navigates, so any feed write happens before /home.
+    cy.intercept('PUT', '**/pub/pubky.app/feeds/**').as('feedPut');
     cy.finishFollowBestMatchesStep();
 
     // With zero follows the landing feed stays on All
     cy.get('[data-cy="filter-reach-radiogroup"]')
       .find('[data-cy="all-reach-toggle"]')
       .should('have.attr', 'data-selected', 'true');
+
+    // No interest tags means no Interests feed (#2508)
+    cy.get('@feedPut.all').should('have.length', 0);
+    cy.get('[data-cy="feed-navigation"]').find('[data-cy="feed-navigation-home-tab"]').should('be.visible');
+    cy.get('[data-cy="feed-navigation"]').find('[data-cy="feed-navigation-create-btn"]').should('be.visible');
+    cy.get('[data-cy="feed-navigation"]')
+      .find('[data-cy="feed-navigation-custom-tab"][aria-label="Interests"]')
+      .should('not.exist');
   });
 
   it('can use Explore mode without signing in and shows Join Pubky dialog when clicking new post button', () => {
