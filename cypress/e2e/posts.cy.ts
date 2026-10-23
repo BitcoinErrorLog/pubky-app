@@ -35,23 +35,11 @@ const pdfAttachment = {
   mimeType: 'application/pdf',
 };
 
-// The homeserver post record only. Blob and file uploads live under `/blobs/` and `/files/`.
-const POST_RESOURCE_PUT = /\/pub\/pubky\.app\/posts\/[^/?#]+$/;
-
-// One alias per submit. Reusing `postCreated` makes `cy.wait` return an earlier post's
-// 201: Cypress keeps every route with that alias and yields the first response not yet waited for.
-let homePostCreateCount = 0;
-
-const postBodyIncludes = (body: unknown, text: string): boolean => {
-  if (typeof body === 'string') return body.includes(text);
-  if (typeof body !== 'object' || body === null || !('content' in body)) return false;
-  const content = body.content;
-  return typeof content === 'string' && content.includes(text);
-};
-
 const submitHomePost = (postContent: string, files?: Cypress.FileReference | Cypress.FileReference[]) => {
-  const alias = `homePostCreated${homePostCreateCount}`;
-  homePostCreateCount += 1;
+  // One alias per submit. Reusing `postCreated` makes `cy.wait` return an earlier post's
+  // 201: Cypress keeps every route with that alias and yields the first response not yet waited for.
+  // Not derived from the content: a `.` in it would be read as an alias index.
+  const alias = Cypress._.uniqueId('homePostCreated');
   const attachments = files === undefined ? [] : Array.isArray(files) ? files : [files];
 
   cy.get('[data-cy="home-post-input"]:visible')
@@ -59,14 +47,15 @@ const submitHomePost = (postContent: string, files?: Cypress.FileReference | Cyp
     .within(() => {
       cy.get('[data-cy="post-input-textarea"]:visible').click();
       if (attachments.length > 0) {
-        // The picker is `className="hidden"`, so Cypress will not select a file on it without `force`.
-        cy.get('[data-cy="post-input-file-input"]').selectFile(attachments, { force: true });
-        cy.get('[data-cy="post-input-attachment-remove"]:visible').should('have.length.at.least', attachments.length);
+        // The file picker is hidden; the composer takes the same files as a drop.
+        cy.root().selectFile(attachments, { action: 'drag-drop' });
+        cy.get('[data-cy="post-input-attachment-remove"]:visible').should('have.length', attachments.length);
       }
       cy.get('[data-cy="post-input-textarea"]:visible').type(postContent).should('have.value', postContent);
-      cy.intercept('PUT', POST_RESOURCE_PUT, (req) => {
-        if (!postBodyIncludes(req.body, postContent)) return;
-        req.alias = alias;
+      // `*` stops at `/`, so blob and file uploads under `/blobs/` and `/files/` never match.
+      cy.intercept('PUT', '**/pub/pubky.app/posts/*', (req) => {
+        const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+        if (body.includes(postContent)) req.alias = alias;
       });
       cy.get('[data-cy="post-input-action-bar-post"]:visible').should('not.be.disabled').click();
       cy.wait(`@${alias}`).its('response.statusCode').should('eq', 201);
