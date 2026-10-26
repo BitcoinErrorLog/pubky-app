@@ -7,15 +7,15 @@ describe('TermsOfUsePage', () => {
     render(<TermsOfUsePage />);
 
     expect(screen.getByRole('heading', { level: 1, name: 'Terms of Service' })).toBeInTheDocument();
-    expect(screen.getByText('Effective Date: January 29, 2026')).toBeInTheDocument();
+    expect(screen.getByText('Effective Date: October 22, 2026')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'TERMS AND CONDITIONS' })).toHaveAttribute(
       'id',
       'terms-and-conditions',
     );
     expect(
-      screen.getByRole('heading', { level: 2, name: '20. MANDATORY RESOLUTION OF DISPUTES THROUGH ARBITRATION' }),
+      screen.getByRole('heading', { level: 2, name: '21. MANDATORY RESOLUTION OF DISPUTES THROUGH ARBITRATION' }),
     ).toHaveAttribute('id', 'arbitration');
-    expect(screen.getByRole('heading', { level: 3, name: '20.1 Covered Claims' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: '21.1 Covered Claims' })).toBeInTheDocument();
     expect(
       screen.getByText(/Your Pubky account is secured by cryptographic keys that only you control/),
     ).toBeInTheDocument();
