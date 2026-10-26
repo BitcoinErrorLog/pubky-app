@@ -35,6 +35,18 @@ describe('SettingsInfo', () => {
     expect(privacy).not.toHaveAttribute('target');
   });
 
+  it.each(['Terms of service', 'Privacy policy', 'More FAQ'])(
+    'renders %s as one link with its icon, not a button inside a link',
+    (name) => {
+      render(<SettingsInfo />);
+
+      const link = screen.getByRole('link', { name });
+      expect(link.querySelector('svg')).toBeInTheDocument();
+      expect(link.querySelector('button')).not.toBeInTheDocument();
+      expect(link.closest('button')).not.toBeInTheDocument();
+    },
+  );
+
   it('renders subtitle for Terms section', () => {
     render(<SettingsInfo />);
     expect(screen.getByText('Please read our terms carefully.')).toBeInTheDocument();

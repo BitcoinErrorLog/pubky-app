@@ -23,12 +23,12 @@ export function SettingsInfo({ className, hideFAQ = false }: SettingsInfoProps) 
       <FilterRoot>
         <FilterHeader title={'Terms of Service & Privacy'} subtitle={'Please read our terms carefully.'} />
         <FilterList className="gap-2">
-          <Link href={LEGAL_ROUTES.TERMS_OF_USE} className="w-full">
-            <SidebarButton icon={FileText}>{'Terms of service'}</SidebarButton>
-          </Link>
-          <Link href={LEGAL_ROUTES.PRIVACY_POLICY} className="w-full">
-            <SidebarButton icon={LockKeyhole}>{'Privacy policy'}</SidebarButton>
-          </Link>
+          <SidebarButton asChild icon={FileText}>
+            <Link href={LEGAL_ROUTES.TERMS_OF_USE}>{'Terms of service'}</Link>
+          </SidebarButton>
+          <SidebarButton asChild icon={LockKeyhole}>
+            <Link href={LEGAL_ROUTES.PRIVACY_POLICY}>{'Privacy policy'}</Link>
+          </SidebarButton>
         </FilterList>
       </FilterRoot>
 
@@ -57,9 +57,9 @@ export function SettingsInfo({ className, hideFAQ = false }: SettingsInfoProps) 
                 </Container>
               </Link>
             ))}
-            <Link href={SETTINGS_ROUTES.HELP} className="w-full">
-              <SidebarButton icon={MessageCircleQuestion}>{'More FAQ'}</SidebarButton>
-            </Link>
+            <SidebarButton asChild icon={MessageCircleQuestion}>
+              <Link href={SETTINGS_ROUTES.HELP}>{'More FAQ'}</Link>
+            </SidebarButton>
           </FilterList>
         </FilterRoot>
       )}
