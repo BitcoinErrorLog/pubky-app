@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 /** A numbered subsection (`3.1`), rendered as an `h3` with its own anchor. */
-export interface LegalSubsection {
+interface LegalSubsection {
   /** Anchor id; keep it stable so shared `#links` keep working after copy edits. */
   id: string;
   title: string;
