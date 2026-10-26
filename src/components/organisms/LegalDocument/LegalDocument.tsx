@@ -11,8 +11,8 @@ import { cn } from '@/libs/utils/utils';
 import { PageTitle } from '@/molecules/Page/Page';
 import type { LegalDocumentProps, LegalPreamble, LegalSection } from './LegalDocument.types';
 
-// Keeps an anchored heading clear of the sticky page header (96px tall, 144px from `sm`).
-const ANCHOR_OFFSET_CLASS = 'scroll-mt-28 sm:scroll-mt-40';
+// Keeps an anchored heading clear of the sticky page header (96px tall, `--header-offset-main` from `sm`).
+const ANCHOR_OFFSET_CLASS = 'scroll-mt-28 sm:scroll-mt-[calc(var(--header-offset-main)+1rem)]';
 const SECTION_TITLE_CLASS = cn('text-xl font-semibold', ANCHOR_OFFSET_CLASS);
 const SUBSECTION_TITLE_CLASS = cn('text-lg font-semibold', ANCHOR_OFFSET_CLASS);
 
@@ -105,7 +105,7 @@ function LegalContentsSidebar({ sections }: { sections: LegalSection[] }) {
   return (
     <nav
       aria-label={CONTENTS_LABEL}
-      className="hidden flex-col gap-3 lg:sticky lg:top-36 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:flex lg:max-h-[calc(100dvh-9rem)] lg:overflow-y-auto lg:pb-6"
+      className="hidden flex-col gap-3 lg:sticky lg:top-(--header-offset-main) lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:flex lg:max-h-[calc(100dvh-var(--header-offset-main))] lg:overflow-y-auto lg:pb-6"
     >
       <Typography size="sm" className="text-muted-foreground">
         {CONTENTS_LABEL}

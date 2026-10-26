@@ -93,6 +93,19 @@ describe('LegalDocument', () => {
     expect(body).not.toContainElement(contents);
   });
 
+  it('keeps anchored headings and the contents sidebar below the sticky header', () => {
+    renderDocument();
+
+    expect(screen.getByRole('heading', { level: 2, name: '1. SCOPE' })).toHaveClass(
+      'scroll-mt-28',
+      'sm:scroll-mt-[calc(var(--header-offset-main)+1rem)]',
+    );
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toHaveClass(
+      'lg:top-(--header-offset-main)',
+      'lg:max-h-[calc(100dvh-var(--header-offset-main))]',
+    );
+  });
+
   it('keeps the narrow-screen contents list collapsed until its button is pressed', async () => {
     const user = userEvent.setup();
     renderDocument();
