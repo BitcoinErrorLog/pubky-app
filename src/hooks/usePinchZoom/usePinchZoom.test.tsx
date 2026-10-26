@@ -5,10 +5,11 @@ import { clampZoomTransform, PINCH_ZOOM_MAX_SCALE, usePinchZoom, zoomAround } fr
 // The frame is 400 x 300 with its top-left at the origin, so its centre is (200, 150).
 const FRAME = { left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, x: 0, y: 0 };
 
-function Harness({ enabled = true }: { enabled?: boolean }) {
+function Harness({ enabled = true, withImage = false }: { enabled?: boolean; withImage?: boolean }) {
   const { frameRef, transform, isZoomed, handlers } = usePinchZoom({ enabled });
   return (
     <div ref={frameRef} data-testid="frame" data-zoomed={isZoomed} {...handlers}>
+      {withImage && <img data-testid="picture" alt="" />}
       <span data-testid="transform">{`${transform.scale.toFixed(2)},${transform.x},${transform.y}`}</span>
     </div>
   );
@@ -106,6 +107,39 @@ describe('usePinchZoom', () => {
     expect(reading()).toBe('2.50,60,20');
 
     // Bound: (400 * 2.5 - 400) / 2 = 300 horizontally, (300 * 2.5 - 300) / 2 = 225 vertically
+    fireEvent.pointerMove(frame(), { pointerId: 3, clientX: 1200, clientY: 1200, pointerType: 'touch' });
+    expect(reading()).toBe('2.50,300,225');
+  });
+
+  it('stops the pan at the edge of the drawn picture when object-contain letterboxes it', () => {
+    render(<Harness withImage />);
+    // A 3:4 portrait picture in a 400 x 300 box: object-contain draws it 225 x 300, with bars left and right
+    Object.defineProperties(screen.getByTestId('picture'), {
+      naturalWidth: { value: 300 },
+      naturalHeight: { value: 400 },
+      offsetWidth: { value: 400 },
+      offsetHeight: { value: 300 },
+    });
+    tap(200, 150);
+    tap(200, 150);
+
+    fireEvent.pointerDown(frame(), { pointerId: 3, clientX: 200, clientY: 150, pointerType: 'touch' });
+    fireEvent.pointerMove(frame(), { pointerId: 3, clientX: 1200, clientY: 1200, pointerType: 'touch' });
+    // Bound: (225 * 2.5 - 400) / 2 = 81.25 horizontally (the frame edge would be 300), (300 * 2.5 - 300) / 2 = 225 vertically
+    expect(reading()).toBe('2.50,81.25,225');
+  });
+
+  it('pans to the frame edge while the picture has no layout yet', () => {
+    render(<Harness withImage />);
+    // Loaded but not laid out (offsetWidth 0): the drawn size is unknown, so the frame stands in for it
+    Object.defineProperties(screen.getByTestId('picture'), {
+      naturalWidth: { value: 300 },
+      naturalHeight: { value: 400 },
+    });
+    tap(200, 150);
+    tap(200, 150);
+
+    fireEvent.pointerDown(frame(), { pointerId: 3, clientX: 200, clientY: 150, pointerType: 'touch' });
     fireEvent.pointerMove(frame(), { pointerId: 3, clientX: 1200, clientY: 1200, pointerType: 'touch' });
     expect(reading()).toBe('2.50,300,225');
   });

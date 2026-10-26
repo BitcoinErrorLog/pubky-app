@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AttachmentConstructed } from '@/organisms/PostAttachments/PostAttachments.types';
@@ -87,23 +87,25 @@ vi.mock('@/molecules/PostAttachmentsCarouselImage/PostAttachmentsCarouselImage',
     await importOriginal<typeof import('@/molecules/PostAttachmentsCarouselImage/PostAttachmentsCarouselImage')>();
   return {
     ...actual,
-    PostAttachmentsCarouselImage: ({
+    // Keeps its own zoom and shows it on `data-zoomed`, as the real frame does
+    PostAttachmentsCarouselImage: function MockCarouselImage({
       image,
       isActive,
-      onZoomChange,
       'data-testid': dataTestId,
     }: {
       image: AttachmentConstructed;
       isActive?: boolean;
-      onZoomChange?: (isZoomed: boolean) => void;
       'data-testid'?: string;
-    }) => (
-      <div data-testid={dataTestId || 'carousel-image'} data-active={isActive}>
-        <img src={image.urls.main} alt={image.name} />
-        <button data-testid={`zoom-in-${image.name}`} onClick={() => onZoomChange?.(true)} />
-        <button data-testid={`zoom-out-${image.name}`} onClick={() => onZoomChange?.(false)} />
-      </div>
-    ),
+    }) {
+      const [isZoomed, setIsZoomed] = useState(false);
+      return (
+        <div data-testid={dataTestId || 'carousel-image'} data-active={isActive} data-zoomed={isZoomed}>
+          <img src={image.urls.main} alt={image.name} />
+          <button data-testid={`zoom-in-${image.name}`} onClick={() => setIsZoomed(true)} />
+          <button data-testid={`zoom-out-${image.name}`} onClick={() => setIsZoomed(false)} />
+        </div>
+      );
+    },
   };
 });
 
@@ -161,8 +163,13 @@ const carouselApiState: {
   selectedSnap: 0,
 };
 
-/** What embla would decide for a drag starting now: watchDrag is read per pointer down, as embla does. */
-const canSwipe = (event: MouseEvent | TouchEvent = new MouseEvent('mousedown')) => {
+/** The picture inside a lightbox slide; the grid thumbnail carries the same alt text. */
+const slidePicture = (name: string) =>
+  screen.getAllByTestId('carousel-image').flatMap((slide) => [...slide.querySelectorAll(`img[alt="${name}"]`)])[0];
+
+/** What embla would decide for a drag starting now on `target`: watchDrag is read per pointer down, as embla does. */
+const canSwipe = (target?: Element, event: MouseEvent | TouchEvent = new MouseEvent('mousedown')) => {
+  if (target) Object.defineProperty(event, 'target', { value: target });
   const watchDrag = carouselApiState.opts?.watchDrag ?? true;
   return typeof watchDrag === 'function' ? watchDrag(undefined, event) !== false : watchDrag;
 };
@@ -674,31 +681,31 @@ describe('PostAttachmentsImagesAndVideos', () => {
       setDialogOpen(true);
       const imagesAndVideos = [createMockImage({ name: 'image-0.jpg' }), createMockImage({ name: 'image-1.jpg' })];
       render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
+      const picture = slidePicture('image-0.jpg');
 
-      expect(canSwipe()).toBe(true);
+      expect(canSwipe(picture)).toBe(true);
 
       fireEvent.click(screen.getByTestId('zoom-in-image-0.jpg'));
-      expect(canSwipe()).toBe(false);
+      expect(canSwipe(picture)).toBe(false);
 
       fireEvent.click(screen.getByTestId('zoom-out-image-0.jpg'));
-      expect(canSwipe()).toBe(true);
+      expect(canSwipe(picture)).toBe(true);
     });
 
-    it('keeps swiping off when a slide other than the visible one reports not zoomed, e.g. it is removed', () => {
+    it('keeps swiping off on the zoomed image when another slide is removed', () => {
       setDialogOpen(true);
-      const imagesAndVideos = [
-        createMockImage({ name: 'image-0.jpg' }),
-        createMockImage({ name: 'image-1.jpg' }),
-        createMockImage({ name: 'image-2.jpg' }),
+      const images = [
+        createMockImage({ name: 'image-0.jpg', urls: { main: 'https://example.com/0.jpg' } }),
+        createMockImage({ name: 'image-1.jpg', urls: { main: 'https://example.com/1.jpg' } }),
+        createMockImage({ name: 'image-2.jpg', urls: { main: 'https://example.com/2.jpg' } }),
       ];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
+      const { rerender } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={images} />);
 
       fireEvent.click(screen.getByTestId('zoom-in-image-0.jpg'));
-      expect(canSwipe()).toBe(false);
+      expect(canSwipe(slidePicture('image-0.jpg'))).toBe(false);
 
-      // A hidden slide's unmount cleanup reports false; the zoomed visible slide still owns the drag
-      fireEvent.click(screen.getByTestId('zoom-out-image-2.jpg'));
-      expect(canSwipe()).toBe(false);
+      rerender(<PostAttachmentsImagesAndVideos imagesAndVideos={images.slice(0, 2)} />);
+      expect(canSwipe(slidePicture('image-0.jpg'))).toBe(false);
     });
 
     it('decides swiping per drag, so zooming in or out never re-initialises the carousel', () => {
@@ -709,7 +716,7 @@ describe('PostAttachmentsImagesAndVideos', () => {
 
       fireEvent.click(screen.getByTestId('zoom-in-image-0.jpg'));
       const after = carouselApiState.opts?.watchDrag;
-      expect(canSwipe()).toBe(false);
+      expect(canSwipe(slidePicture('image-0.jpg'))).toBe(false);
       // embla re-initialises when an option changes, and compares a function option by its source text
       expect(typeof after).toBe('function');
       expect(String(after)).toBe(String(before));
@@ -726,8 +733,8 @@ describe('PostAttachmentsImagesAndVideos', () => {
         return event;
       };
 
-      expect(canSwipe(touchStart(1))).toBe(true);
-      expect(canSwipe(touchStart(2))).toBe(false);
+      expect(canSwipe(undefined, touchStart(1))).toBe(true);
+      expect(canSwipe(undefined, touchStart(2))).toBe(false);
     });
 
     it('gives a slide a fresh image component when another attachment takes its place, so no zoom carries over', () => {

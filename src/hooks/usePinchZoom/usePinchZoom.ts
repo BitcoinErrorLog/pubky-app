@@ -8,6 +8,7 @@ type ZoomTransform = { scale: number; x: number; y: number };
 type Size = { width: number; height: number };
 type Point = { x: number; y: number };
 
+// exported for tests
 export const PINCH_ZOOM_MAX_SCALE = 5;
 /** Where a double tap lands: close enough to read text in a screenshot, far enough from the max to pinch further. */
 const PINCH_ZOOM_DOUBLE_TAP_SCALE = 2.5;
@@ -33,6 +34,7 @@ const IDENTITY: ZoomTransform = { scale: 1, x: 0, y: 0 };
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 /** Rescales around `focal` (relative to the frame centre) so the content point under it stays put. */
+// exported for tests
 export function zoomAround(transform: ZoomTransform, scale: number, focal: Point): ZoomTransform {
   const ratio = scale / transform.scale;
   return {
@@ -46,6 +48,7 @@ export function zoomAround(transform: ZoomTransform, scale: number, focal: Point
  * Keeps the scaled content covering the frame: no pan past an image edge, and none at all on an axis where the scaled
  * content is still narrower than the frame (a tall photo stays centred horizontally).
  */
+// exported for tests
 export function clampZoomTransform(transform: ZoomTransform, frame: Size, content: Size): ZoomTransform {
   const scale = clamp(transform.scale, 1, PINCH_ZOOM_MAX_SCALE);
   const maxX = Math.max(0, (content.width * scale - frame.width) / 2);

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useEffectEvent, useState } from 'react';
+import { useState } from 'react';
 import { Image } from '@/atoms/Image/Image';
 import { usePinchZoom } from '@/hooks/usePinchZoom/usePinchZoom';
 import { getAttachmentPreviewUrl } from '@/libs/file/attachmentPreviewUrl';
@@ -10,26 +10,16 @@ type PostAttachmentsCarouselImageProps = {
   image: AttachmentConstructed;
   /** False on a slide that is not showing: its zoom resets, so swiping back finds it fitted. */
   isActive?: boolean;
-  /** Reports zooming in and out, so the carousel can hand a one-finger drag to panning instead of swiping. */
-  onZoomChange?: (isZoomed: boolean) => void;
   className?: string;
 };
 
 export const PostAttachmentsCarouselImage = ({
   image,
   isActive = true,
-  onZoomChange,
   className,
 }: PostAttachmentsCarouselImageProps) => {
   const [isMainLoaded, setIsMainLoaded] = useState(image.type === 'image/gif');
   const { frameRef, transform, isZoomed, isGesturing, handlers } = usePinchZoom({ enabled: isActive });
-
-  const reportZoom = useEffectEvent((zoomed: boolean) => onZoomChange?.(zoomed));
-  useEffect(() => {
-    reportZoom(isZoomed);
-  }, [isZoomed]);
-  // Closing the lightbox unmounts the slide mid-zoom; the carousel must not reopen with swiping still off.
-  useEffect(() => () => reportZoom(false), []);
 
   return (
     // touch-none: the page never zooms (the root viewport sets userScalable: false), so pinch, double tap and pan
@@ -37,6 +27,7 @@ export const PostAttachmentsCarouselImage = ({
     <div
       ref={frameRef}
       data-testid="carousel-image-zoom-frame"
+      // The carousel reads this to hand a drag on a zoomed image to panning instead of swiping
       data-zoomed={isZoomed}
       className={cn(
         'relative flex h-[75dvh] w-full touch-none items-center justify-center overflow-hidden rounded-md select-none',

@@ -53,22 +53,12 @@ export const PostAttachmentsImagesAndVideos = ({
   const [open, setOpen] = useState(false);
   const [api, setApi] = useState<CarouselApi>();
   const [currentIndex, setCurrentIndex] = useState(0);
-  // While the visible image is zoomed, a one-finger drag pans it instead of swiping to the next slide. Tracked by slide
-  // key, so a slide that unmounts or resets reports false for itself only and cannot clear another slide's zoom.
-  const [zoomedSlideKey, setZoomedSlideKey] = useState<string | null>(null);
-  const isMediaZoomed = zoomedSlideKey !== null;
-  const handleSlideZoomChange = (slideKey: string, isZoomed: boolean) =>
-    setZoomedSlideKey((current) => (isZoomed ? slideKey : current === slideKey ? null : current));
-  // embla reads watchDrag on every pointer down, so swiping is decided per drag from a ref. A boolean option would make
-  // embla re-initialise each time zoom crosses 1x, and embla keeps the first function whose source text matches, so the
-  // function cannot close over state either.
-  const isSwipeBlockedRef = useRef(false);
-  useEffect(() => {
-    isSwipeBlockedRef.current = isMediaZoomed;
-  }, [isMediaZoomed]);
-  // A second finger landing is a pinch, never a swipe
+  // embla reads watchDrag on every pointer down, so swiping is decided per drag. A drag that starts on a zoomed image
+  // pans it instead; the zoom frame says so on its own `data-zoomed`, so the carousel keeps no copy of it. A boolean
+  // option would make embla re-initialise each time zoom crosses 1x. A second finger landing is a pinch, never a swipe.
   const canSwipe = (_api: unknown, event: globalThis.MouseEvent | TouchEvent) =>
-    !isSwipeBlockedRef.current && !('touches' in event && event.touches.length > 1);
+    !(event.target instanceof Element && event.target.closest('[data-zoomed="true"]')) &&
+    !('touches' in event && event.touches.length > 1);
   const carouselRef = useRef<HTMLDivElement>(null);
   const [previewTrigger, setPreviewTrigger] = useState<HTMLElement | null>(null);
   const openPreview = (index: number, event?: MouseEvent) => {
@@ -244,9 +234,8 @@ export const PostAttachmentsImagesAndVideos = ({
                   {media.type.startsWith('image') ? (
                     <PostAttachmentsCarouselImage
                       image={media}
-                      // Only the visible slide can zoom; the others reset and report false.
+                      // Only the visible slide can zoom; the others reset to the fitted size.
                       isActive={currentIndex === i}
-                      onZoomChange={(isZoomed) => handleSlideZoomChange(slideKey, isZoomed)}
                       className={total > 1 ? 'h-[calc(75dvh+1.5rem)]' : 'h-[calc(75dvh+3rem)]'}
                     />
                   ) : (
