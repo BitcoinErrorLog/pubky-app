@@ -281,6 +281,11 @@ export function isLogoLandingRoute(pathname: string | null): boolean {
   return pathname != null && LOGO_LANDING_ROUTES.includes(pathname);
 }
 
+/** `/terms-of-use` or `/privacy-policy`. */
+export function isLegalRoute(pathname: string | null): boolean {
+  return pathname === LEGAL_ROUTES.TERMS_OF_USE || pathname === LEGAL_ROUTES.PRIVACY_POLICY;
+}
+
 // ============================================================================
 // Profile Route Helpers
 // ============================================================================

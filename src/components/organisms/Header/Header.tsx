@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import type { MouseEvent } from 'react';
-import { LEGAL_ROUTES, ONBOARDING_ROUTES } from '@/app/routes';
+import { isLegalRoute, ONBOARDING_ROUTES } from '@/app/routes';
 import { usePublicRoute } from '@/hooks/usePublicRoute/usePublicRoute';
 import { cn } from '@/libs/utils/utils';
 import {
@@ -26,7 +26,7 @@ export function Header() {
   const isOnboarding = pathname?.startsWith('/onboarding') ?? false;
   const isLandingPage = pathname === '/';
   const isCopyrightPage = pathname === '/copyright';
-  const isLegalPage = pathname === LEGAL_ROUTES.TERMS_OF_USE || pathname === LEGAL_ROUTES.PRIVACY_POLICY;
+  const isLegalPage = isLegalRoute(pathname);
   const stepConfig = pathname ? pathToStepConfig[pathname] : undefined;
   const currentStep = stepConfig?.step ?? 1;
   const currentTitle = stepConfig?.title;

@@ -17,6 +17,7 @@ import {
   isCoreExploreRoute,
   isCustomFeedRoute,
   isDynamicPublicRoute,
+  isLegalRoute,
   isLogoLandingRoute,
   isNavItemActive,
   isPostRoute,
@@ -258,6 +259,14 @@ describe('LEGAL_ROUTES', () => {
 
   it.each(Object.values(LEGAL_ROUTES))('points the header logo on %s at the landing page', (route) => {
     expect(isLogoLandingRoute(route)).toBe(true);
+  });
+
+  it.each(Object.values(LEGAL_ROUTES))('recognises %s as a legal route', (route) => {
+    expect(isLegalRoute(route)).toBe(true);
+  });
+
+  it.each([null, '/copyright', '/privacy', '/terms-of-use/extra'])('does not treat %s as a legal route', (route) => {
+    expect(isLegalRoute(route)).toBe(false);
   });
 });
 
