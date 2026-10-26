@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PostInput } from './PostInput';
 import { POST_INPUT_VARIANT } from './PostInput.constants';
@@ -15,9 +16,9 @@ vi.mock('@/hooks/useRequireAuth/useRequireAuth', () => ({
 /**
  * Editing a post through the real composer hooks (`usePostInput`, `usePost`, the inline media
  * session) while the dialog's post row changes under it. A save that fails after its local-first
- * write reaches the dialog as two row updates (the write, then the rollback); the composer must keep
- * what the user has and send exactly that on the retry (#2877). Only the IO boundary (controllers,
- * stores, env) and the editor-heavy leaves are replaced.
+ * write reaches the dialog as two row updates (the write, then the rollback) while the save is still in
+ * flight; the composer must keep what the user has and send exactly that on the retry (#2877). Only the
+ * IO boundary (controllers, stores, env) and the editor-heavy leaves are replaced.
  */
 
 const mocks = vi.hoisted(() => ({
@@ -196,7 +197,18 @@ const editArticle = (content: string, attachments: string[]) => (
 );
 /** Lets the body debounce hand its value to the composer state. */
 const settle = () => act(() => vi.advanceTimersByTime(500));
-const refuseNextSave = () => mocks.commitEdit.mockRejectedValueOnce(new Error('simulated homeserver refusal'));
+type Rerender = ReturnType<typeof render>['rerender'];
+/**
+ * Refuses the next save the way the app reports it: the local-first write reaches the live row while
+ * the homeserver write is in flight, and the rollback reaches it before the hook's catch runs, so both
+ * updates hit the composer while it is still submitting.
+ */
+const refuseNextSave = (rerender: Rerender, writtenRow: ReactElement, rolledBackRow: ReactElement) =>
+  mocks.commitEdit.mockImplementationOnce(async () => {
+    rerender(writtenRow);
+    rerender(rolledBackRow);
+    throw new Error('simulated homeserver refusal');
+  });
 const save = async (calls: number) => {
   fireEvent.click(screen.getByTestId('post-button'));
   await waitFor(() => expect(mocks.commitEdit).toHaveBeenCalledTimes(calls));
@@ -230,12 +242,10 @@ describe('PostInput - editing while the post row changes under the dialog (integ
     const { rerender } = render(editPost('Published'));
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited' } });
 
-    refuseNextSave();
+    // The failed save's local write, then its rollback, as the live post row reports them mid-save
+    refuseNextSave(rerender, editPost('Edited'), editPost('Published'));
     await save(1);
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'error' })));
-    // The failed save's local write, then its rollback, as the live post row reports them
-    rerender(editPost('Edited'));
-    rerender(editPost('Published'));
 
     expect(screen.getByRole('textbox')).toHaveValue('Edited');
     await save(2);
@@ -261,16 +271,18 @@ describe('PostInput - editing while the post row changes under the dialog (integ
     act(() => mocks.editor?.change(editedBody));
     settle();
 
-    // The save uploads the staged file first; the refused post write leaves it in the session
+    // The save uploads the staged file first; the refused post write leaves it in the session. Its local
+    // write carries the new slot and file, then the rollback takes them back, both while the save runs
+    const writtenArticle = JSON.stringify({ title: 'Essay', body: `${PUBLISHED_BODY}\n\n![new](attachment:2)` });
     mocks.commitCreateFile.mockResolvedValueOnce(NEW_URI);
-    refuseNextSave();
+    refuseNextSave(
+      rerender,
+      editArticle(writtenArticle, [COVER_URI, CLIP_URI, NEW_URI]),
+      editArticle(PUBLISHED_ARTICLE, [COVER_URI, CLIP_URI]),
+    );
     await save(1);
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'error' })));
     expect(mocks.commitCreateFile).toHaveBeenCalledTimes(1);
-    // The failed save's local write carries the new slot and file, then the rollback takes them back
-    const writtenArticle = JSON.stringify({ title: 'Essay', body: `${PUBLISHED_BODY}\n\n![new](attachment:2)` });
-    rerender(editArticle(writtenArticle, [COVER_URI, CLIP_URI, NEW_URI]));
-    rerender(editArticle(PUBLISHED_ARTICLE, [COVER_URI, CLIP_URI]));
 
     expect(mocks.editor?.markdown).toBe(editedBody);
     // The same editor node: the composer was never swapped for the loading skeleton and back
