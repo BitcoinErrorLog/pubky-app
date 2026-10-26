@@ -129,7 +129,7 @@ export function LegalDocument({ title, effectiveDate, preamble, sections }: Lega
       </PageHeader>
       <LegalContentsCollapsible sections={sections} />
       <LegalContentsSidebar sections={sections} />
-      <div className="flex min-w-0 flex-col gap-10 lg:col-start-1">
+      <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 [&_a]:underline">
         {preamble && <LegalPreambleSection {...preamble} />}
         {sections.map((section, index) => (
           <LegalNumberedSection key={section.id} section={section} number={index + 1} />

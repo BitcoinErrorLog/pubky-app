@@ -8,7 +8,11 @@ const SECTIONS: LegalSection[] = [
   {
     id: 'scope',
     title: 'SCOPE',
-    content: <LegalParagraph>Scope text.</LegalParagraph>,
+    content: (
+      <LegalParagraph>
+        Scope text, see <LegalLink href="mailto:privacy@synonym.to">privacy@synonym.to</LegalLink>.
+      </LegalParagraph>
+    ),
   },
   {
     id: 'choices',
@@ -77,6 +81,16 @@ describe('LegalDocument', () => {
       ['1. SCOPE', '#scope'],
       ['2. CHOICES', '#choices'],
     ]);
+  });
+
+  it('underlines the links in the text, not the contents entries', () => {
+    renderDocument();
+
+    const link = screen.getByRole('link', { name: 'privacy@synonym.to' });
+    const body = link.closest('section')?.parentElement;
+    expect(body).toHaveClass('[&_a]:underline');
+    const contents = screen.getByRole('navigation', { name: 'Contents' });
+    expect(body).not.toContainElement(contents);
   });
 
   it('keeps the narrow-screen contents list collapsed until its button is pressed', async () => {
