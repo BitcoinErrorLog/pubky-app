@@ -1,6 +1,6 @@
 'use client';
 import { type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { Maximize, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import {
   Carousel,
@@ -17,7 +17,6 @@ import { Typography } from '@/atoms/Typography/Typography';
 import { Video } from '@/atoms/Video/Video';
 import { getAttachmentPreviewUrl } from '@/libs/file/attachmentPreviewUrl';
 import { cn } from '@/libs/utils/utils';
-import { toast } from '@/molecules/Toaster/toast';
 import type { AttachmentConstructed } from '@/organisms/PostAttachments/PostAttachments.types';
 import { PostAttachmentsCarouselImage } from '../PostAttachmentsCarouselImage/PostAttachmentsCarouselImage';
 
@@ -54,7 +53,6 @@ export const PostAttachmentsImagesAndVideos = ({
   const [open, setOpen] = useState(false);
   const [api, setApi] = useState<CarouselApi>();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   // While the visible image is zoomed, a one-finger drag pans it instead of swiping to the next slide. Tracked by slide
   // key, so a slide that unmounts or resets reports false for itself only and cannot clear another slide's zoom.
   const [zoomedSlideKey, setZoomedSlideKey] = useState<string | null>(null);
@@ -66,8 +64,8 @@ export const PostAttachmentsImagesAndVideos = ({
   // function cannot close over state either.
   const isSwipeBlockedRef = useRef(false);
   useEffect(() => {
-    isSwipeBlockedRef.current = isFullscreen || isMediaZoomed;
-  }, [isFullscreen, isMediaZoomed]);
+    isSwipeBlockedRef.current = isMediaZoomed;
+  }, [isMediaZoomed]);
   // A second finger landing is a pinch, never a swipe
   const canSwipe = (_api: unknown, event: globalThis.MouseEvent | TouchEvent) =>
     !isSwipeBlockedRef.current && !('touches' in event && event.touches.length > 1);
@@ -80,17 +78,6 @@ export const PostAttachmentsImagesAndVideos = ({
     setOpen(true);
   };
 
-  const handleFullscreen = () => {
-    const currentMedia = document.getElementById(`media-item-${currentIndex}`);
-    if (currentMedia) {
-      currentMedia.requestFullscreen().catch((error: unknown) => {
-        toast({
-          variant: 'error',
-          description: error instanceof Error ? error.message : 'Could not enter fullscreen.',
-        });
-      });
-    }
-  };
   useEffect(() => {
     if (!api) {
       return;
@@ -109,17 +96,6 @@ export const PostAttachmentsImagesAndVideos = ({
       api.off('reInit', onSelect);
     };
   }, [api]);
-
-  // Disable carousel swipe when in fullscreen mode
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement !== null);
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, []);
   const isOnlyMedia = imagesAndVideos.length === 1;
   const isListVariant = variant === 'list';
   const visibleMedia = isListVariant ? imagesAndVideos.slice(0, MAX_VISIBLE_MEDIA) : imagesAndVideos;
@@ -267,19 +243,17 @@ export const PostAttachmentsImagesAndVideos = ({
                 <CarouselItem key={slideKey} className="basis-full pl-3">
                   {media.type.startsWith('image') ? (
                     <PostAttachmentsCarouselImage
-                      id={`media-item-${i}`}
                       image={media}
-                      // Only the visible slide can zoom; the others reset and report false. Fullscreen hands the image
-                      // to the browser's top layer, where this transform no longer applies.
-                      isActive={currentIndex === i && !isFullscreen}
+                      // Only the visible slide can zoom; the others reset and report false.
+                      isActive={currentIndex === i}
                       onZoomChange={(isZoomed) => handleSlideZoomChange(slideKey, isZoomed)}
+                      className={total > 1 ? 'h-[calc(75dvh+1.5rem)]' : 'h-[calc(75dvh+3rem)]'}
                     />
                   ) : (
                     <Video
-                      id={`media-item-${i}`}
                       src={media.urls.main}
                       pauseVideo={currentIndex !== i}
-                      className="max-h-[75dvh] w-full"
+                      className={cn('w-full', total > 1 ? 'max-h-[calc(75dvh+1.5rem)]' : 'max-h-[calc(75dvh+3rem)]')}
                     />
                   )}
                 </CarouselItem>
@@ -295,23 +269,13 @@ export const PostAttachmentsImagesAndVideos = ({
           )}
         </Carousel>
 
-        <Container className="mt-8 flex-row items-center justify-center gap-x-5.5">
-          <Button
-            onClick={handleFullscreen}
-            disabled={!document.fullscreenEnabled}
-            variant="secondary"
-            size="sm"
-            className="text-xs hover:bg-secondary"
-          >
-            Fullscreen <Maximize className="size-3" />
-          </Button>
-
-          {total > 1 && (
-            <Typography size="xs" className="text-muted-foreground">
+        {total > 1 && (
+          <Container className="mt-2 h-4 flex-row items-center justify-center">
+            <Typography size="xs" className="leading-4 text-muted-foreground">
               {currentIndex + 1}/{total}
             </Typography>
-          )}
-        </Container>
+          </Container>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -305,4 +305,14 @@ describe('zoom maths', () => {
     );
     expect(clamped).toEqual({ scale: 2, x: 0, y: 150 });
   });
+
+  it('clampZoomTransform uses the full frame height for a landscape image once scaled taller than the image itself', () => {
+    // A landscape image 400 x 150 inside a 400 x 300 frame: at 2.5x it is 375px tall, filling the 300px frame with a 37.5px vertical pan bound.
+    const clamped = clampZoomTransform(
+      { scale: 2.5, x: 500, y: 500 },
+      { width: 400, height: 300 },
+      { width: 400, height: 150 },
+    );
+    expect(clamped).toEqual({ scale: 2.5, x: 300, y: 37.5 });
+  });
 });

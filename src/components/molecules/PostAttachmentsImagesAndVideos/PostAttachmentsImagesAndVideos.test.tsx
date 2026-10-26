@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { toast } from '@/molecules/Toaster/toast';
 import type { AttachmentConstructed } from '@/organisms/PostAttachments/PostAttachments.types';
 import { PostAttachmentsImagesAndVideos } from './PostAttachmentsImagesAndVideos';
 
@@ -89,28 +88,24 @@ vi.mock('@/molecules/PostAttachmentsCarouselImage/PostAttachmentsCarouselImage',
   return {
     ...actual,
     PostAttachmentsCarouselImage: ({
-      id,
       image,
       isActive,
       onZoomChange,
       'data-testid': dataTestId,
     }: {
-      id: string;
       image: AttachmentConstructed;
       isActive?: boolean;
       onZoomChange?: (isZoomed: boolean) => void;
       'data-testid'?: string;
     }) => (
-      <div data-testid={dataTestId || 'carousel-image'} id={id} data-active={isActive}>
+      <div data-testid={dataTestId || 'carousel-image'} data-active={isActive}>
         <img src={image.urls.main} alt={image.name} />
-        <button data-testid={`zoom-in-${id}`} onClick={() => onZoomChange?.(true)} />
-        <button data-testid={`zoom-out-${id}`} onClick={() => onZoomChange?.(false)} />
+        <button data-testid={`zoom-in-${image.name}`} onClick={() => onZoomChange?.(true)} />
+        <button data-testid={`zoom-out-${image.name}`} onClick={() => onZoomChange?.(false)} />
       </div>
     ),
   };
 });
-
-vi.mock('@/molecules/Toaster/toast');
 
 // Track dialog open state for conditional rendering
 // When set to true by a test, it won't be overridden by the component
@@ -361,11 +356,6 @@ describe('PostAttachmentsImagesAndVideos', () => {
     carouselApiState.handlers = {};
     carouselApiState.selectedSnap = 0;
     carouselApiState.opts = undefined;
-    // Mock fullscreenEnabled
-    Object.defineProperty(document, 'fullscreenEnabled', {
-      value: true,
-      writable: true,
-    });
   });
 
   afterEach(() => {
@@ -679,167 +669,45 @@ describe('PostAttachmentsImagesAndVideos', () => {
     });
   });
 
-  describe('Fullscreen functionality', () => {
-    it('renders fullscreen button when dialog is open', () => {
-      setDialogOpen(true);
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      const buttons = screen.getAllByTestId('button');
-      const fullscreenButton = buttons.find((btn) => btn.textContent?.includes('Fullscreen'));
-      expect(fullscreenButton).toBeInTheDocument();
-    });
-
-    it('renders maximize icon in fullscreen button', () => {
-      setDialogOpen(true);
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      const fullscreenButton = screen
-        .getAllByTestId('button')
-        .find((btn) => btn.textContent?.includes('Fullscreen')) as HTMLButtonElement;
-      expect(fullscreenButton.querySelector('.lucide-maximize')).toBeInTheDocument();
-    });
-
-    it('fullscreen button is enabled when fullscreenEnabled is true', () => {
-      setDialogOpen(true);
-      Object.defineProperty(document, 'fullscreenEnabled', { value: true });
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      const buttons = screen.getAllByTestId('button');
-      const fullscreenButton = buttons.find((btn) => btn.textContent?.includes('Fullscreen'));
-      expect(fullscreenButton).not.toBeDisabled();
-    });
-
-    it('fullscreen button is disabled when fullscreenEnabled is false', () => {
-      setDialogOpen(true);
-      Object.defineProperty(document, 'fullscreenEnabled', { value: false });
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      const buttons = screen.getAllByTestId('button');
-      const fullscreenButton = buttons.find((btn) => btn.textContent?.includes('Fullscreen'));
-      expect(fullscreenButton).toBeDisabled();
-    });
-
-    it('calls requestFullscreen when fullscreen button is clicked', () => {
-      setDialogOpen(true);
-      const mockRequestFullscreen = vi.fn().mockResolvedValue(undefined);
-      const mockElement = document.createElement('div');
-      mockElement.requestFullscreen = mockRequestFullscreen;
-      mockElement.id = 'media-item-0';
-      document.body.appendChild(mockElement);
-
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      const buttons = screen.getAllByTestId('button');
-      const fullscreenButton = buttons.find((btn) => btn.textContent?.includes('Fullscreen'));
-      fireEvent.click(fullscreenButton!);
-
-      expect(mockRequestFullscreen).toHaveBeenCalled();
-
-      document.body.removeChild(mockElement);
-    });
-
-    it('shows toast error when fullscreen fails', async () => {
-      setDialogOpen(true);
-      const mockError = new Error('Fullscreen not allowed');
-      const mockRequestFullscreen = vi.fn().mockRejectedValue(mockError);
-      const mockElement = document.createElement('div');
-      mockElement.requestFullscreen = mockRequestFullscreen;
-      mockElement.id = 'media-item-0';
-      document.body.appendChild(mockElement);
-
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      const buttons = screen.getAllByTestId('button');
-      const fullscreenButton = buttons.find((btn) => btn.textContent?.includes('Fullscreen'));
-      fireEvent.click(fullscreenButton!);
-
-      // Wait for the promise rejection to be handled
-      await vi.waitFor(() => {
-        expect(vi.mocked(toast)).toHaveBeenCalledWith({
-          variant: 'error',
-          description: mockError.message,
-        });
-      });
-
-      document.body.removeChild(mockElement);
-    });
-  });
-
-  describe('Fullscreen swipe disable', () => {
-    it('sets watchDrag to true when exiting fullscreen', () => {
-      setDialogOpen(true);
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      // Simulate entering fullscreen first
-      Object.defineProperty(document, 'fullscreenElement', {
-        value: document.createElement('div'),
-        configurable: true,
-      });
-      fireEvent(document, new Event('fullscreenchange'));
-
-      // Simulate exiting fullscreen
-      Object.defineProperty(document, 'fullscreenElement', { value: null, configurable: true });
-      fireEvent(document, new Event('fullscreenchange'));
-
-      expect(canSwipe()).toBe(true);
-    });
-
-    it('sets watchDrag to false when entering fullscreen', () => {
-      setDialogOpen(true);
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      // Simulate entering fullscreen
-      Object.defineProperty(document, 'fullscreenElement', {
-        value: document.createElement('div'),
-        configurable: true,
-      });
-      fireEvent(document, new Event('fullscreenchange'));
-
-      expect(canSwipe()).toBe(false);
-    });
-
+  describe('Zoom swipe disable', () => {
     it('turns swiping off while the visible image is zoomed, so a drag pans it', () => {
       setDialogOpen(true);
-      const imagesAndVideos = [createMockImage(), createMockImage()];
+      const imagesAndVideos = [createMockImage({ name: 'image-0.jpg' }), createMockImage({ name: 'image-1.jpg' })];
       render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
 
       expect(canSwipe()).toBe(true);
 
-      fireEvent.click(screen.getByTestId('zoom-in-media-item-0'));
+      fireEvent.click(screen.getByTestId('zoom-in-image-0.jpg'));
       expect(canSwipe()).toBe(false);
 
-      fireEvent.click(screen.getByTestId('zoom-out-media-item-0'));
+      fireEvent.click(screen.getByTestId('zoom-out-image-0.jpg'));
       expect(canSwipe()).toBe(true);
     });
 
     it('keeps swiping off when a slide other than the visible one reports not zoomed, e.g. it is removed', () => {
       setDialogOpen(true);
-      const imagesAndVideos = [createMockImage(), createMockImage(), createMockImage()];
+      const imagesAndVideos = [
+        createMockImage({ name: 'image-0.jpg' }),
+        createMockImage({ name: 'image-1.jpg' }),
+        createMockImage({ name: 'image-2.jpg' }),
+      ];
       render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
 
-      fireEvent.click(screen.getByTestId('zoom-in-media-item-0'));
+      fireEvent.click(screen.getByTestId('zoom-in-image-0.jpg'));
       expect(canSwipe()).toBe(false);
 
       // A hidden slide's unmount cleanup reports false; the zoomed visible slide still owns the drag
-      fireEvent.click(screen.getByTestId('zoom-out-media-item-2'));
+      fireEvent.click(screen.getByTestId('zoom-out-image-2.jpg'));
       expect(canSwipe()).toBe(false);
     });
 
     it('decides swiping per drag, so zooming in or out never re-initialises the carousel', () => {
       setDialogOpen(true);
-      const imagesAndVideos = [createMockImage(), createMockImage()];
+      const imagesAndVideos = [createMockImage({ name: 'image-0.jpg' }), createMockImage({ name: 'image-1.jpg' })];
       render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
       const before = carouselApiState.opts?.watchDrag;
 
-      fireEvent.click(screen.getByTestId('zoom-in-media-item-0'));
+      fireEvent.click(screen.getByTestId('zoom-in-image-0.jpg'));
       const after = carouselApiState.opts?.watchDrag;
       expect(canSwipe()).toBe(false);
       // embla re-initialises when an option changes, and compares a function option by its source text
@@ -875,7 +743,7 @@ describe('PostAttachmentsImagesAndVideos', () => {
       expect(after).not.toBe(before);
     });
 
-    it('lets only the visible slide zoom, and none in fullscreen', () => {
+    it('lets only the visible slide zoom', () => {
       setDialogOpen(true);
       const imagesAndVideos = [createMockImage(), createMockImage()];
       render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
@@ -883,35 +751,6 @@ describe('PostAttachmentsImagesAndVideos', () => {
       const slides = screen.getAllByTestId('carousel-image');
       expect(slides[0]).toHaveAttribute('data-active', 'true');
       expect(slides[1]).toHaveAttribute('data-active', 'false');
-
-      Object.defineProperty(document, 'fullscreenElement', {
-        value: document.createElement('div'),
-        configurable: true,
-      });
-      fireEvent(document, new Event('fullscreenchange'));
-      expect(screen.getAllByTestId('carousel-image')[0]).toHaveAttribute('data-active', 'false');
-      Object.defineProperty(document, 'fullscreenElement', { value: null, configurable: true });
-      fireEvent(document, new Event('fullscreenchange'));
-    });
-
-    it('adds fullscreenchange event listener on mount', () => {
-      const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      expect(addEventListenerSpy).toHaveBeenCalledWith('fullscreenchange', expect.any(Function));
-      addEventListenerSpy.mockRestore();
-    });
-
-    it('removes fullscreenchange event listener on unmount', () => {
-      const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener');
-      const imagesAndVideos = [createMockImage()];
-      const { unmount } = render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      unmount();
-
-      expect(removeEventListenerSpy).toHaveBeenCalledWith('fullscreenchange', expect.any(Function));
-      removeEventListenerSpy.mockRestore();
     });
   });
 
@@ -1107,26 +946,6 @@ describe('PostAttachmentsImagesAndVideos', () => {
       const containers = screen.getAllByTestId('container');
       const gridContainer = containers.find((c) => c.getAttribute('data-display') === 'grid');
       expect(gridContainer).toHaveClass('gap-3');
-    });
-
-    it('fullscreen button has secondary variant', () => {
-      setDialogOpen(true);
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      const buttons = screen.getAllByTestId('button');
-      const fullscreenButton = buttons.find((btn) => btn.textContent?.includes('Fullscreen'));
-      expect(fullscreenButton).toHaveAttribute('data-variant', 'secondary');
-    });
-
-    it('fullscreen button has sm size', () => {
-      setDialogOpen(true);
-      const imagesAndVideos = [createMockImage()];
-      render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
-
-      const buttons = screen.getAllByTestId('button');
-      const fullscreenButton = buttons.find((btn) => btn.textContent?.includes('Fullscreen'));
-      expect(fullscreenButton).toHaveAttribute('data-size', 'sm');
     });
   });
 

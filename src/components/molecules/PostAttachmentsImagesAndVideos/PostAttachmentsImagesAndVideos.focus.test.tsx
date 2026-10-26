@@ -47,11 +47,6 @@ const createMockImage = (overrides: Partial<AttachmentConstructed> = {}): Attach
 describe('PostAttachmentsImagesAndVideos - focus (real Dialog)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(document, 'fullscreenEnabled', {
-      value: true,
-      writable: true,
-      configurable: true,
-    });
   });
 
   it('focuses the carousel via Radix onOpenAutoFocus when the lightbox opens', async () => {

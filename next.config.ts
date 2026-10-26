@@ -5,6 +5,9 @@ import { withSentryConfig } from '@sentry/nextjs';
 import packageJson from './package.json';
 
 const nextConfig: NextConfig = {
+  // Dev-only. Next matches the Origin hostname, so the scheme and port are omitted.
+  // Lets a phone on the LAN load the dev server at http://192.168.68.67:3000.
+  allowedDevOrigins: ['192.168.68.67'],
   env: {
     NEXT_PUBLIC_APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION ?? packageJson.version,
   },

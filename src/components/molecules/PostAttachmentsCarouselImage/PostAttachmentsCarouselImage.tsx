@@ -8,18 +8,18 @@ import type { AttachmentConstructed } from '@/organisms/PostAttachments/PostAtta
 
 type PostAttachmentsCarouselImageProps = {
   image: AttachmentConstructed;
-  id: string;
   /** False on a slide that is not showing: its zoom resets, so swiping back finds it fitted. */
   isActive?: boolean;
   /** Reports zooming in and out, so the carousel can hand a one-finger drag to panning instead of swiping. */
   onZoomChange?: (isZoomed: boolean) => void;
+  className?: string;
 };
 
 export const PostAttachmentsCarouselImage = ({
   image,
-  id,
   isActive = true,
   onZoomChange,
+  className,
 }: PostAttachmentsCarouselImageProps) => {
   const [isMainLoaded, setIsMainLoaded] = useState(image.type === 'image/gif');
   const { frameRef, transform, isZoomed, isGesturing, handlers } = usePinchZoom({ enabled: isActive });
@@ -39,15 +39,19 @@ export const PostAttachmentsCarouselImage = ({
       data-testid="carousel-image-zoom-frame"
       data-zoomed={isZoomed}
       className={cn(
-        'relative w-full touch-none overflow-hidden rounded-md select-none',
+        'relative flex h-[75dvh] w-full touch-none items-center justify-center overflow-hidden rounded-md select-none',
         isZoomed ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in',
+        className,
       )}
       onDragStart={(event) => event.preventDefault()}
       {...handlers}
     >
       <div
         data-testid="carousel-image-zoom-content"
-        className={cn('origin-center', !isGesturing && 'transition-transform duration-150 ease-out')}
+        className={cn(
+          'flex h-full w-full origin-center items-center justify-center',
+          !isGesturing && 'transition-transform duration-150 ease-out',
+        )}
         style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})` }}
       >
         {/* Feed image shown as placeholder while main loads */}
@@ -55,16 +59,15 @@ export const PostAttachmentsCarouselImage = ({
           <Image
             src={getAttachmentPreviewUrl(image)}
             alt={image.name}
-            className="max-h-[75dvh] w-full rounded-md object-contain"
+            className="max-h-full w-full rounded-md object-contain"
           />
         )}
 
         {/* Main high-res image */}
         <Image
-          id={isMainLoaded ? id : undefined}
           src={image.urls.main}
           alt={image.name}
-          className={isMainLoaded ? 'max-h-[75dvh] w-full rounded-md object-contain' : 'size-0'}
+          className={isMainLoaded ? 'max-h-full w-full rounded-md object-contain' : 'size-0'}
           onLoad={() => setIsMainLoaded(true)}
         />
       </div>
