@@ -37,6 +37,11 @@ export interface VisualTileLinkVideoProps {
   linkVideo: VisualLinkVideo;
 }
 
+export interface VisualTileLinkVideoFileProps {
+  tile: VisualTile;
+  onMediaError: () => void;
+}
+
 export interface VisualTileYouTubeThumbnailProps {
   tile: VisualTile;
   /** Fires when neither thumbnail variant exists, so the fallback card stays. */

@@ -12,6 +12,7 @@ const {
   mockUseInfiniteScroll,
   mockUseVisualFeedTiles,
   mockUseIsTouchDevice,
+  mockUseOgMetadata,
   mockUseRemoveDeletedPost,
   mockClickableTagsList,
   mockUserDetailsRef,
@@ -32,6 +33,7 @@ const {
   mockUseInfiniteScroll: vi.fn(),
   mockUseVisualFeedTiles: vi.fn(),
   mockUseIsTouchDevice: vi.fn(() => false),
+  mockUseOgMetadata: vi.fn(),
   mockUseRemoveDeletedPost: vi.fn(),
   mockClickableTagsList: vi.fn(({ className }: { className?: string }) => (
     <div data-testid="visual-overlay-tags" className={className}>
@@ -54,6 +56,10 @@ vi.mock('@/hooks/useInfiniteScroll/useInfiniteScroll', () => ({
 
 vi.mock('@/hooks/usePostNavigation/usePostNavigation', () => ({
   usePostNavigation: () => ({ navigateToPost: mockNavigateToPost }),
+}));
+
+vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
+  useOgMetadata: mockUseOgMetadata,
 }));
 
 vi.mock('@/hooks/useIsTouchDevice/useIsTouchDevice', () => ({
@@ -319,6 +325,7 @@ describe('VisualTimelinePosts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseIsTouchDevice.mockReturnValue(false);
+    mockUseOgMetadata.mockReturnValue({ metadata: null, isLoading: false, error: null });
     mockUseRemoveDeletedPost.mockReturnValue({
       canRemove: false,
       isRemoving: false,
@@ -1485,6 +1492,12 @@ describe('VisualTimelinePosts', () => {
       fireEvent.load(image);
     }
 
+    const fileTile = () =>
+      createLinkVideoTile(
+        { provider: 'file', hostLabel: 'cdn.example.com' },
+        { previewSrc: 'https://cdn.example.com/clip.mp4', mainSrc: 'https://cdn.example.com/clip.mp4' },
+      );
+
     const youtubeTile = () =>
       createLinkVideoTile(
         { provider: 'youtube', hostLabel: 'youtu.be' },
@@ -1506,14 +1519,15 @@ describe('VisualTimelinePosts', () => {
         pauseSpy.mockRestore();
       });
 
-      it('plays a direct video file over the fallback card and keeps the card when the file fails', () => {
-        const tile = renderTile(
-          createLinkVideoTile(
-            { provider: 'file', hostLabel: 'cdn.example.com' },
-            { previewSrc: 'https://cdn.example.com/clip.mp4', mainSrc: 'https://cdn.example.com/clip.mp4' },
-          ),
-        );
+      it('plays a direct file once the server preview reports a video, and keeps the card when it fails', () => {
+        mockUseOgMetadata.mockReturnValue({
+          metadata: { url: 'https://cdn.example.com/clip.mp4', title: null, image: null, type: 'video' },
+          isLoading: false,
+          error: null,
+        });
+        const tile = renderTile(fileTile());
 
+        expect(mockUseOgMetadata).toHaveBeenCalledWith('https://cdn.example.com/clip.mp4');
         const video = tile.querySelector('video');
         expect(video).toHaveAttribute('src', 'https://cdn.example.com/clip.mp4');
         // Transparent until the first frame, so the card shows while the file loads.
@@ -1598,12 +1612,29 @@ describe('VisualTimelinePosts', () => {
       expect(screen.getByTestId('visual-tile-link-video-fallback')).toHaveTextContent('vimeo.com');
       expect(tile.querySelector('img')).toBeNull();
       expect(tile.querySelector('video')).toBeNull();
+      expect(mockUseOgMetadata).not.toHaveBeenCalled();
     });
 
-    it('keeps a file link without sources to the card and never mounts a player', () => {
-      const tile = renderTile(createLinkVideoTile({ provider: 'file', hostLabel: '192.168.1.1' }));
+    it.each([
+      ['while the server preview is loading', { metadata: null, isLoading: true, error: null }],
+      [
+        'when the preview request fails',
+        { metadata: null, isLoading: false, error: new Error('Failed to fetch metadata') },
+      ],
+      [
+        // The route's answer for a private address, as for any page that is not a video.
+        'when the preview is not a video',
+        {
+          metadata: { url: 'https://cdn.example.com/clip.mp4', title: 'A page', image: null, type: 'website' },
+          isLoading: false,
+          error: null,
+        },
+      ],
+    ])('never mounts a player for a file link %s', (_label, preview) => {
+      mockUseOgMetadata.mockReturnValue(preview);
+      const tile = renderTile(fileTile());
 
-      expect(screen.getByTestId('visual-tile-link-video-fallback')).toHaveTextContent('192.168.1.1');
+      expect(screen.getByTestId('visual-tile-link-video-fallback')).toHaveTextContent('cdn.example.com');
       expect(tile.querySelector('video')).toBeNull();
     });
 
@@ -1622,6 +1653,12 @@ describe('VisualTimelinePosts', () => {
       expect(screen.queryByTestId('visual-tile-link-video-fallback')).not.toBeInTheDocument();
       expect(tile.querySelector('img')).toBeNull();
       expect(screen.queryByTestId('visual-overlay-content-stack')).not.toBeInTheDocument();
+    });
+
+    it('never asks the server about the file link of a blurred post', () => {
+      renderTile({ ...fileTile(), isBlurred: true });
+
+      expect(mockUseOgMetadata).not.toHaveBeenCalled();
     });
 
     it('keeps the post overlay and opens the post like any media tile', () => {

@@ -8,7 +8,6 @@ import { ModerationController } from '@/controllers/moderation/moderation';
 import { PostController } from '@/controllers/post/post';
 import { getAttachmentPreviewUrl } from '@/libs/file/attachmentPreviewUrl';
 import { Logger } from '@/libs/logger/logger';
-import { isPublicHostname } from '@/libs/network/network';
 import { parseArticleContent } from '@/libs/post/articleContent';
 import { articleHasInlineSlotZero } from '@/libs/post/articleInlineMedia';
 import { parseLockTeaserContent } from '@/libs/post/lockTeaser';
@@ -187,9 +186,8 @@ function buildLinkVideoTile(post: EnrichedPostDetails): VisualTile | null {
     return null;
   }
 
-  let hostname: string;
   try {
-    hostname = new URL(url).hostname;
+    new URL(url);
   } catch {
     // PostLinkEmbeds embeds nothing for a link `new URL` cannot read, such as a protocol-relative `//host/clip.mp4`.
     return null;
@@ -200,12 +198,12 @@ function buildLinkVideoTile(post: EnrichedPostDetails): VisualTile | null {
     return null;
   }
 
-  // A file on a loopback, private or local-only host keeps only the card: playing it would send
-  // every viewer's browser to that address, where List shows a link card from the server's guarded preview.
+  // A file's sources are the link itself; the renderer plays it only once the server's guarded
+  // preview reports a video, as List does.
   const [previewSrc, mainSrc] =
     match.provider === 'youtube'
       ? [getVisualYouTubeThumbnailUrl(match.videoId, 'hq720'), getVisualYouTubeThumbnailUrl(match.videoId, 'mqdefault')]
-      : match.provider === 'file' && isPublicHostname(hostname)
+      : match.provider === 'file'
         ? [url, url]
         : ['', ''];
 

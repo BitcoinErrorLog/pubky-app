@@ -97,28 +97,6 @@ export function isIpSafe(ip: string): boolean {
   return false;
 }
 
-const IPV4_LITERAL_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}$/;
-const LOCAL_ONLY_HOST_SUFFIXES = ['.localhost', '.local', '.internal', '.home.arpa', '.lan'];
-
-/**
- * Whether a URL hostname, as `URL.hostname` gives it, names a host on the public internet.
- * False for non-global IP literals (see `isIpSafe`), `localhost`, single-label names and
- * local-only suffixes. It reads the name only: a public name that resolves to a private
- * address is caught by the server-side DNS check, not here.
- */
-export function isPublicHostname(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, '');
-  if (!host) return false;
-
-  if (host.startsWith('[') || IPV4_LITERAL_REGEX.test(host)) {
-    return isIpSafe(host);
-  }
-
-  if (host === 'localhost' || !host.includes('.')) return false;
-
-  return !LOCAL_ONLY_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
-}
-
 function normalizeIpInput(ip: string): string | null {
   if (!ip || ip.trim() !== ip) return null;
 

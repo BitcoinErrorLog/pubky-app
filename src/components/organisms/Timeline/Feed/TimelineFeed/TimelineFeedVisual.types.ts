@@ -27,8 +27,8 @@ export interface VisualTile {
    * carries no image or video attachment. It has a fixed 16:9 frame and is never
    * probed. The renderer draws a fallback card (play icon, host) under the media:
    * the YouTube thumbnail (`previewSrc` hq720, `mainSrc` mqdefault), the video
-   * file itself (both are the link), or nothing (both empty) for Vimeo and for a
-   * file on a non-public host.
+   * file itself (both are the link; played once the server's preview reports a
+   * video), or nothing for Vimeo (both empty).
    */
   linkVideo?: VisualLinkVideo;
   attachmentId: string;

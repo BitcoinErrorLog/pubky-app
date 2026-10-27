@@ -13,6 +13,7 @@ import { TIMELINE_MAX_UNPRODUCTIVE_AUTO_LOADS } from '@/config/feed';
 import { useAvatarUrl } from '@/hooks/useAvatarUrl/useAvatarUrl';
 import { useInfiniteScroll } from '@/hooks/useInfiniteScroll/useInfiniteScroll';
 import { useIsTouchDevice } from '@/hooks/useIsTouchDevice/useIsTouchDevice';
+import { useOgMetadata } from '@/hooks/useOgMetadata/useOgMetadata';
 import { usePostNavigation } from '@/hooks/usePostNavigation/usePostNavigation';
 import { usePostReplyRepostDialogs } from '@/hooks/usePostReplyRepostDialogs/usePostReplyRepostDialogs';
 import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
@@ -47,6 +48,7 @@ import { VisualTimelinePostsSkeleton } from './VisualTimelinePosts.skeleton';
 import type {
   VisualTileImageProps,
   VisualTileLinkVideoFallbackProps,
+  VisualTileLinkVideoFileProps,
   VisualTileLinkVideoProps,
   VisualTileVideoProps,
   VisualTileYouTubeThumbnailProps,
@@ -205,10 +207,25 @@ function VisualTileYouTubeThumbnail({ tile, onUnavailable }: VisualTileYouTubeTh
 }
 
 /**
+ * A direct video file plays only once the server's guarded preview reports a video, the gate
+ * GenericPreview applies in List: the og-metadata route resolves the host on every redirect hop
+ * and answers a private address with a non-video fallback, so a link that names or resolves to
+ * the viewer's own network keeps the card. Until then, and for anything else, the card stays.
+ */
+function VisualTileLinkVideoFile({ tile, onMediaError }: VisualTileLinkVideoFileProps) {
+  const { metadata } = useOgMetadata(tile.mainSrc);
+
+  if (metadata?.type !== 'video') {
+    return null;
+  }
+
+  return <VisualTileVideo tile={tile} onMediaError={onMediaError} />;
+}
+
+/**
  * Media for a post whose video is a link: the fallback card first, then the
- * YouTube thumbnail or the video file on top of it. A tile without sources
- * keeps the card: Vimeo has no thumbnail without an API request, and a file on
- * a non-public host is never loaded.
+ * YouTube thumbnail or the video file on top of it. Vimeo has no thumbnail
+ * without an API request, so it keeps the card.
  */
 function VisualTileLinkVideo({ tile, linkVideo }: VisualTileLinkVideoProps) {
   const [hasMediaFailed, setHasMediaFailed] = React.useState(false);
@@ -223,7 +240,7 @@ function VisualTileLinkVideo({ tile, linkVideo }: VisualTileLinkVideoProps) {
       {hasMediaFailed || !tile.mainSrc ? null : linkVideo.provider === 'youtube' ? (
         <VisualTileYouTubeThumbnail tile={tile} onUnavailable={handleMediaFailed} />
       ) : (
-        <VisualTileVideo tile={tile} onMediaError={handleMediaFailed} />
+        <VisualTileLinkVideoFile tile={tile} onMediaError={handleMediaFailed} />
       )}
     </>
   );

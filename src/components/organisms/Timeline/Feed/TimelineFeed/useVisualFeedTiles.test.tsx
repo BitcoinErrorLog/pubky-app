@@ -1013,28 +1013,6 @@ describe('useVisualFeedTiles', () => {
       expect(result.current.hiddenPostCount).toBe(0);
     });
 
-    it.each([
-      'http://localhost:8080/clip.mp4',
-      'http://192.168.1.1/clip.mp4',
-      'http://[::1]/clip.mp4',
-      'http://intranet/clip.mp4',
-      'http://nas.local/clip.mp4',
-    ])('keeps a file link on a non-public host (%s) to the card, without loading it', async (fileUrl) => {
-      mockFindByIdsPreserveOrder.mockResolvedValue([
-        createPostDetails({ id: 'author:post-local-host', kind: 'video', content: fileUrl }),
-      ]);
-
-      const { result } = renderHook(() => useVisualFeedTiles({ postIds: ['author:post-local-host'], hasMore: false }));
-
-      await waitFor(() => {
-        expect(result.current.tiles).toHaveLength(1);
-      });
-      expect(result.current.tiles[0].linkVideo?.provider).toBe('file');
-      expect(result.current.tiles[0].previewSrc).toBe('');
-      expect(result.current.tiles[0].mainSrc).toBe('');
-      expect(result.current.hiddenPostCount).toBe(0);
-    });
-
     it('keeps the deleted placeholder for a deleted post that held a video link', async () => {
       mockFindByIdsPreserveOrder.mockResolvedValue([
         createPostDetails({ id: 'author:post-deleted', kind: 'video', content: '[DELETED]' }),
