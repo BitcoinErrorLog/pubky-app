@@ -183,6 +183,31 @@ describe('DialogEditPost', () => {
     expect(screen.getByTestId('post-input')).toHaveAttribute('data-layout-override', 'inline');
   });
 
+  it('mounts a fresh composer when the dialog switches to another post', () => {
+    vi.mocked(usePostDetails).mockImplementation((compositeId) => ({
+      postDetails: {
+        id: compositeId ?? '',
+        content: `Content of ${compositeId}`,
+        kind: 'short',
+        attachments: null,
+      } as ReturnType<typeof usePostDetails>['postDetails'],
+      isLoading: false,
+    }));
+    const onOpenChangeAction = vi.fn();
+    const { rerender } = render(<DialogEditPost postId="post-1" open={true} onOpenChangeAction={onOpenChangeAction} />);
+    const firstComposer = screen.getByTestId('post-input');
+    expect(firstComposer).toHaveAttribute('data-edit-post-id', 'post-1');
+
+    rerender(<DialogEditPost postId="post-2" open={true} onOpenChangeAction={onOpenChangeAction} />);
+
+    // A new node, not the first one re-rendered with new props: the composer is keyed on the post id, so
+    // a seed taken for one post can never be saved under another post's id (#2877)
+    const secondComposer = screen.getByTestId('post-input');
+    expect(secondComposer).not.toBe(firstComposer);
+    expect(secondComposer).toHaveAttribute('data-edit-post-id', 'post-2');
+    expect(secondComposer).toHaveAttribute('data-edit-content', 'Content of post-2');
+  });
+
   it('renders with "Edit Article" title for long posts', () => {
     vi.mocked(usePostDetails).mockReturnValue({
       postDetails: {

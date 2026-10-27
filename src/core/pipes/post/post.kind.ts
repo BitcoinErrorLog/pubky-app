@@ -1,8 +1,8 @@
-import { LinkifyIt } from 'linkify-it';
 import { PubkyAppPostKind } from 'pubky-app-specs';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { getFirstLinkUrl } from '@/libs/post/postLinkUrl';
 import { isVideoUrl } from '@/libs/utils/videoUrl';
 
 type TInferPostKindParams = {
@@ -25,24 +25,6 @@ type TResolveTagTargetCompositeIdParams = {
   originalPostId?: string;
   content: string;
   attachments?: File[];
-};
-
-// Keep these aligned with PostLinkEmbeds so we treat links consistently.
-// linkify-it v6 defaults fuzzyLink to false; keep matching protocol-less URLs.
-const IGNORED_PROTOCOLS = ['ftp:', 'mailto:'];
-
-const stripMarkdownLinks = (content: string): string => {
-  return content.replace(/\[([^\]]*)\]\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g, '<stripped-link>');
-};
-
-const getSupportedUrl = (content: string): string | null => {
-  const linkify = new LinkifyIt({ fuzzyLink: true });
-  IGNORED_PROTOCOLS.forEach((protocol) => linkify.add(protocol, null));
-
-  const strippedContent = stripMarkdownLinks(content);
-  const match = linkify.match(strippedContent);
-
-  return match?.[0]?.url ?? null;
 };
 
 const getAttachmentKind = (contentTypes: string[]): PubkyAppPostKind | null => {
@@ -68,7 +50,7 @@ const getAttachmentKind = (contentTypes: string[]): PubkyAppPostKind | null => {
  * media kind, else Short.
  */
 const inferContentKind = (content: string, attachmentContentTypes: string[]): PubkyAppPostKind => {
-  const url = getSupportedUrl(content);
+  const url = getFirstLinkUrl(content);
   if (url) {
     return isVideoUrl(url) ? PubkyAppPostKind.Video : PubkyAppPostKind.Link;
   }
