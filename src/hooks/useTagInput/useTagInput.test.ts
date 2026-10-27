@@ -11,6 +11,10 @@ vi.mock('../useEmojiInsert/useEmojiInsert', () => ({
   useEmojiInsert: vi.fn(() => vi.fn()),
 }));
 
+vi.mock('@/libs/logger/logger', () => ({
+  Logger: { error: vi.fn() },
+}));
+
 function createPasteEvent(text: string): React.ClipboardEvent {
   return mockClipboardEvent({
     preventDefault: vi.fn(),
@@ -96,6 +100,81 @@ describe('useTagInput', () => {
 
     expect(mockOnTagAdd).toHaveBeenCalledWith('new-tag');
     expect(result.current.inputValue).toBe('');
+  });
+
+  it('clears the input when onTagAdd resolves with success: true', async () => {
+    mockOnTagAdd.mockResolvedValueOnce({ success: true });
+    const { result } = renderHook(() => useTagInput({ onTagAdd: mockOnTagAdd }));
+
+    act(() => {
+      result.current.handleInputChange({ target: { value: 'new-tag' } } as React.ChangeEvent<HTMLInputElement>);
+    });
+    await act(async () => {
+      await result.current.handleTagSubmit();
+    });
+
+    expect(result.current.inputValue).toBe('');
+  });
+
+  it('keeps the typed value when onTagAdd resolves with success: false (#2890)', async () => {
+    mockOnTagAdd.mockResolvedValueOnce({ success: false, error: 'Failed to add tag' });
+    const { result } = renderHook(() => useTagInput({ onTagAdd: mockOnTagAdd }));
+
+    act(() => {
+      result.current.handleInputChange({ target: { value: 'unauthed' } } as React.ChangeEvent<HTMLInputElement>);
+    });
+    await act(async () => {
+      await result.current.handleTagSubmit();
+    });
+
+    expect(mockOnTagAdd).toHaveBeenCalledWith('unauthed');
+    expect(result.current.inputValue).toBe('unauthed');
+  });
+
+  it('keeps the typed value when onTagAdd rejects', async () => {
+    mockOnTagAdd.mockRejectedValueOnce(new Error('write failed'));
+    const { result } = renderHook(() => useTagInput({ onTagAdd: mockOnTagAdd }));
+
+    act(() => {
+      result.current.handleInputChange({ target: { value: 'unauthed' } } as React.ChangeEvent<HTMLInputElement>);
+    });
+    await act(async () => {
+      await result.current.handleTagSubmit();
+    });
+
+    expect(result.current.inputValue).toBe('unauthed');
+  });
+
+  describe('addTag', () => {
+    it('adds the given label and clears the input when the add went through', async () => {
+      const { result } = renderHook(() => useTagInput({ onTagAdd: mockOnTagAdd }));
+
+      act(() => {
+        result.current.handleInputChange({ target: { value: 'bit' } } as React.ChangeEvent<HTMLInputElement>);
+      });
+      await act(async () => {
+        await result.current.addTag('bitcoin');
+      });
+
+      expect(mockOnTagAdd).toHaveBeenCalledWith('bitcoin');
+      expect(result.current.inputValue).toBe('');
+      expect(result.current.showSuggestions).toBe(false);
+    });
+
+    it('keeps the typed value when the add resolves with success: false (#2890)', async () => {
+      mockOnTagAdd.mockResolvedValueOnce({ success: false });
+      const { result } = renderHook(() => useTagInput({ onTagAdd: mockOnTagAdd }));
+
+      act(() => {
+        result.current.handleInputChange({ target: { value: 'bit' } } as React.ChangeEvent<HTMLInputElement>);
+      });
+      await act(async () => {
+        await result.current.addTag('bitcoin');
+      });
+
+      expect(mockOnTagAdd).toHaveBeenCalledWith('bitcoin');
+      expect(result.current.inputValue).toBe('bit');
+    });
   });
 
   it('does not add duplicate tags (case-insensitive)', () => {
