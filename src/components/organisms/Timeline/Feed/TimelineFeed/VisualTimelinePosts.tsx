@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import { CirclePlay } from 'lucide-react';
 import { TagKind } from '@/application/tag/tag.types';
 import { Card } from '@/atoms/Card/Card';
 import { Container } from '@/atoms/Container/Container';
 import { Image } from '@/atoms/Image/Image';
 import { Skeleton } from '@/atoms/Skeleton/Skeleton';
+import { Typography } from '@/atoms/Typography/Typography';
 import { Video } from '@/atoms/Video/Video';
 import { TIMELINE_MAX_UNPRODUCTIVE_AUTO_LOADS } from '@/config/feed';
 import { useAvatarUrl } from '@/hooks/useAvatarUrl/useAvatarUrl';
@@ -35,6 +37,7 @@ import { PostActionsBar } from '../../../PostActionsBar/PostActionsBar';
 import { PostContentBlurred } from '../../../PostContentBlurred/PostContentBlurred';
 import {
   appendVisualTrailingCell,
+  isVisualYouTubePlaceholderThumbnail,
   VISUAL_GRID_MAX_WIDTH_PX,
   VISUAL_TILE_ASPECT_RATIOS,
   VISUAL_TILE_COLUMN_SPANS,
@@ -43,7 +46,10 @@ import { useVisualFeedTiles } from './useVisualFeedTiles';
 import { VisualTimelinePostsSkeleton } from './VisualTimelinePosts.skeleton';
 import type {
   VisualTileImageProps,
+  VisualTileLinkVideoFallbackProps,
+  VisualTileLinkVideoProps,
   VisualTileVideoProps,
+  VisualTileYouTubeThumbnailProps,
   VisualTimelinePlaceholderTileProps,
   VisualTimelinePostsProps,
   VisualTimelineRowProps,
@@ -55,7 +61,7 @@ function stopPropagation(event: React.SyntheticEvent) {
   event.stopPropagation();
 }
 
-function VisualTileVideo({ tile }: VisualTileVideoProps) {
+function VisualTileVideo({ tile, onMediaError }: VisualTileVideoProps) {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const { ref, isVisible } = useViewportObserver({
     rootMargin: '300px 0px 300px 0px',
@@ -99,7 +105,8 @@ function VisualTileVideo({ tile }: VisualTileVideoProps) {
         pauseVideo={!isVisible}
         preload="metadata"
         onTimeUpdate={handleTimeUpdate}
-        className="h-full w-full rounded-none object-cover"
+        onError={onMediaError}
+        className={cn('h-full w-full rounded-none object-cover', onMediaError && 'bg-transparent')}
       />
     </Container>
   );
@@ -124,6 +131,102 @@ function VisualTileImage({ tile }: VisualTileImageProps) {
   };
 
   return <Image src={currentSrc} alt={tile.attachmentName} fill className="object-cover" onError={handleError} />;
+}
+
+/** Card a link video tile shows under its media, and instead of it when the media is missing or fails. */
+function VisualTileLinkVideoFallback({ hostLabel }: VisualTileLinkVideoFallbackProps) {
+  return (
+    <Container
+      overrideDefaults
+      data-testid="visual-tile-link-video-fallback"
+      className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted p-4"
+    >
+      <CirclePlay aria-hidden="true" className="size-10 text-muted-foreground" />
+      {hostLabel ? (
+        <Typography as="span" size="sm" className="max-w-full truncate text-muted-foreground">
+          {hostLabel}
+        </Typography>
+      ) : null}
+    </Container>
+  );
+}
+
+/**
+ * Tries the sharp `hq720` thumbnail, then `mqdefault`. i.ytimg answers a missing
+ * one with a 404 that browsers report either as an error or as a load of its
+ * 120x90 placeholder, so both move on. The image stays transparent until a real
+ * thumbnail has loaded, leaving the fallback card visible until then.
+ */
+function VisualTileYouTubeThumbnail({ tile, onUnavailable }: VisualTileYouTubeThumbnailProps) {
+  const [currentSrc, setCurrentSrc] = React.useState(tile.previewSrc);
+  const [isLoaded, setIsLoaded] = React.useState(false);
+
+  const handleMissing = () => {
+    if (currentSrc === tile.mainSrc) {
+      onUnavailable();
+      return;
+    }
+
+    setCurrentSrc(tile.mainSrc);
+  };
+
+  const handleLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth, naturalHeight } = event.currentTarget;
+    if (!naturalWidth || !naturalHeight || isVisualYouTubePlaceholderThumbnail(naturalWidth, naturalHeight)) {
+      handleMissing();
+      return;
+    }
+
+    setIsLoaded(true);
+  };
+
+  return (
+    <>
+      <Image
+        // A fresh element per candidate, so a late load event from the previous one is dropped.
+        key={currentSrc}
+        src={currentSrc}
+        alt=""
+        fill
+        referrerPolicy="no-referrer"
+        className={cn('object-cover transition-opacity duration-200', !isLoaded && 'opacity-0')}
+        onLoad={handleLoad}
+        onError={handleMissing}
+      />
+      {isLoaded ? (
+        <CirclePlay
+          aria-hidden="true"
+          data-testid="visual-tile-play-badge"
+          className="pointer-events-none absolute inset-0 m-auto size-12 text-white drop-shadow-md"
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Media for a post whose video is a link: the fallback card first, then the
+ * YouTube thumbnail or the video file on top of it. A tile without sources
+ * keeps the card: Vimeo has no thumbnail without an API request, and a file on
+ * a non-public host is never loaded.
+ */
+function VisualTileLinkVideo({ tile, linkVideo }: VisualTileLinkVideoProps) {
+  const [hasMediaFailed, setHasMediaFailed] = React.useState(false);
+
+  const handleMediaFailed = () => {
+    setHasMediaFailed(true);
+  };
+
+  return (
+    <>
+      <VisualTileLinkVideoFallback hostLabel={linkVideo.hostLabel} />
+      {hasMediaFailed || !tile.mainSrc ? null : linkVideo.provider === 'youtube' ? (
+        <VisualTileYouTubeThumbnail tile={tile} onUnavailable={handleMediaFailed} />
+      ) : (
+        <VisualTileVideo tile={tile} onMediaError={handleMediaFailed} />
+      )}
+    </>
+  );
 }
 
 function VisualTimelineTileOverlay({ tile, size, onReplyClick, onRepostClick }: VisualTimelineTileOverlayProps) {
@@ -257,6 +360,8 @@ function VisualTimelineTile({ tile, size, onNavigate }: VisualTimelineTileProps)
       >
         {tile.isBlurred ? (
           <PostContentBlurred postId={tile.postId} className="h-full rounded-none" />
+        ) : tile.linkVideo ? (
+          <VisualTileLinkVideo tile={tile} linkVideo={tile.linkVideo} />
         ) : tile.mediaKind === 'video' ? (
           <VisualTileVideo tile={tile} />
         ) : (

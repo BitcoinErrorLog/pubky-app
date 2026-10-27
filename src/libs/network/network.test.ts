@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isIpSafe } from './network';
+import { isIpSafe, isPublicHostname } from './network';
 
 describe('network', () => {
   describe('isIpSafe', () => {
@@ -127,6 +127,35 @@ describe('network', () => {
       '223.255.255.255',
     ])('allows global IPv4 addresses near blocked boundaries %s', (ip) => {
       expect(isIpSafe(ip)).toBe(true);
+    });
+  });
+
+  describe('isPublicHostname', () => {
+    it.each(['cdn.example.com', 'video.example.co.uk', 'example.com.', '93.184.216.34', '[2606:4700:4700::1111]'])(
+      'treats %s as public',
+      (hostname) => {
+        expect(isPublicHostname(hostname)).toBe(true);
+      },
+    );
+
+    it.each([
+      '',
+      'localhost',
+      'LOCALHOST.',
+      'app.localhost',
+      'intranet',
+      'nas.local',
+      'db.internal',
+      'printer.home.arpa',
+      'router.lan',
+      '127.0.0.1',
+      '192.168.1.1',
+      '10.0.0.5',
+      '169.254.169.254',
+      '[::1]',
+      '[fe80::1]',
+    ])('treats %s as not public', (hostname) => {
+      expect(isPublicHostname(hostname)).toBe(false);
     });
   });
 });
