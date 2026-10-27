@@ -297,7 +297,9 @@ describe('DialogLockContent focus on close', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Apply Lock' }));
     });
     await waitFor(() => expect(onApplied).toHaveBeenCalled());
-    view.rerender(<DialogLockContent open={false} onOpenChange={vi.fn()} onApplied={onApplied} focusAfterApplyRef={target} />);
+    view.rerender(
+      <DialogLockContent open={false} onOpenChange={vi.fn()} onApplied={onApplied} focusAfterApplyRef={target} />,
+    );
     await waitFor(() => expect(target.current).toHaveFocus());
     target.current.remove();
   });
@@ -307,7 +309,9 @@ describe('DialogLockContent focus on close', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     });
-    view.rerender(<DialogLockContent open={false} onOpenChange={vi.fn()} onApplied={onApplied} focusAfterApplyRef={target} />);
+    view.rerender(
+      <DialogLockContent open={false} onOpenChange={vi.fn()} onApplied={onApplied} focusAfterApplyRef={target} />,
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(target.current).not.toHaveFocus();
     target.current.remove();
