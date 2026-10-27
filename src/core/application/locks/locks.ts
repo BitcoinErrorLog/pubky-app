@@ -45,10 +45,10 @@ import type {
   TPaymentBundleParams,
   TPaymentLockParams,
   TReplicateUnlockedContentParams,
-  TViewerScope,
   TResolvedPurchase,
   TStartPaymentParams,
   TStartPaymentResult,
+  TViewerScope,
 } from './locks.types';
 
 // v1 payment locks must hold exactly one criterion, referenced once by the lock logic.

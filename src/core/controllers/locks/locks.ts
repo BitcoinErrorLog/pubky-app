@@ -13,6 +13,7 @@ import type {
   TStartPaymentParams,
   TStartPaymentResult,
 } from '@/application/locks/locks.types';
+import { captureViewerSession } from '@/controllers/tag/tag-cache.utils';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -38,7 +39,6 @@ import type {
   TUnlockedListItem,
   TVerificationTask,
 } from '@/services/locks/locks.types';
-import { captureViewerSession } from '@/controllers/tag/tag-cache.utils';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useLocksAuthStore } from '@/stores/locksAuth/locksAuth.store';
 
