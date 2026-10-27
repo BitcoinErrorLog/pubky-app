@@ -1,5 +1,5 @@
 import type { Session as LocksSdkSession } from '@synonymdev/locks-sdk';
-import { PAYKIT_PAYMENT_IN_HOURS } from '@/config/locks';
+import { LOCK_ATTACHMENT_UPLOAD_CONCURRENCY, PAYKIT_PAYMENT_IN_HOURS } from '@/config/locks';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -613,11 +613,11 @@ export class LocksApplication {
    * attachments its secondary resources.
    *
    * Attachments go first because a resource's path only exists once its bytes are uploaded, and the
-   * post has to reference them. Attachments upload concurrently; the post and the lock follow once all
-   * of them are up.
+   * post has to reference them. Attachments upload a few at a time (`uploadAttachments`); the post and
+   * the lock follow once all of them are up.
    *
-   * TODO:[Locks] #2039 — a failure part-way leaves the uploaded resources orphaned on the server (with
-   * concurrent uploads, every attachment that still finished). See the note on
+   * TODO:[Locks] #2039 — a failure part-way leaves the uploaded resources orphaned on the server (every
+   * attachment that finished, including the ones still in flight when another failed). See the note on
    * `LocksService.createContentLock` for the cleanup rules.
    *
    * The composer checks the file count and size against the Lock Server defaults first
@@ -631,10 +631,7 @@ export class LocksApplication {
     // The guarded bytes land on the Lock-Server-authenticated account, which may differ from the
     // pubky.app user. Capture that owner from the upload response so `buildPost` can reference the
     // attachments by their real host. With no attachments the owner stays undefined and no URIs are built.
-    // Each upload mints its own path, so they cannot conflict and run concurrently. `Promise.all` keeps
-    // the input order and fails fast: one lost file means no lock, and the post still waits for all of
-    // them because it references their paths.
-    const uploads = await Promise.all(attachments.map((file) => this.upload(file)));
+    const uploads = await this.uploadAttachments(attachments);
     const owner = uploads.at(-1)?.creator;
     const attachmentResources: TGuardedResource[] = uploads.map((uploaded) => uploaded.resource);
     const postFile = buildPost(attachmentResources, owner);
@@ -688,6 +685,34 @@ export class LocksApplication {
   }): Promise<void> {
     const cached = GuardedContentParser.toCachedPost(post, resources);
     if (cached) await LocalLocksService.upsertPost({ lockId, creator, post: cached }).catch(() => undefined);
+  }
+
+  /**
+   * Uploads the attachments with at most `LOCK_ATTACHMENT_UPLOAD_CONCURRENCY` in flight and returns
+   * their results in input order, whatever order they finish in. Each upload mints its own path, so
+   * they cannot conflict.
+   *
+   * One lost file means no lock: after the first failure no further attachment starts, and the error
+   * is thrown only once the uploads already in flight have settled. A retry right after it therefore
+   * never overlaps this attempt, at the cost of surfacing the error one upload later.
+   */
+  private static async uploadAttachments(files: TLockContentFile[]): Promise<TRegisterGuardedResourceResult[]> {
+    const results: TRegisterGuardedResourceResult[] = new Array(files.length);
+    let next = 0;
+    let failure: { error: unknown } | undefined;
+    const worker = async () => {
+      while (!failure && next < files.length) {
+        const index = next++;
+        try {
+          results[index] = await this.upload(files[index]);
+        } catch (error) {
+          failure ??= { error };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(LOCK_ATTACHMENT_UPLOAD_CONCURRENCY, files.length) }, worker));
+    if (failure) throw failure.error;
+    return results;
   }
 
   /**
