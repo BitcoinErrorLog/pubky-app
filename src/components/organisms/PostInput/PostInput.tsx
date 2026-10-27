@@ -840,7 +840,12 @@ export function PostInput({
               }}
               onSuccess={handleAuthSuccess}
             />
-            <DialogLockContent open={isLockDialogOpen} onOpenChange={closeLockDialog} onApplied={handleLockApplied} />
+            <DialogLockContent
+              open={isLockDialogOpen}
+              onOpenChange={closeLockDialog}
+              onApplied={handleLockApplied}
+              focusAfterApplyRef={textareaRef}
+            />
           </>
         )}
       </Container>
