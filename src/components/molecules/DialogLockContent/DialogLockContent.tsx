@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import { Controller, useWatch } from 'react-hook-form';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -28,8 +29,13 @@ const toSats = (value: string) =>
     .replace(/\D.*$/, '')
     .replace(/^0+(?=\d)/, '');
 
-export function DialogLockContent({ open, onOpenChange, onApplied }: DialogLockContentProps) {
-  const { form, submit, reset, changeAsset } = useLockContentForm(onApplied);
+export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApplyRef }: DialogLockContentProps) {
+  // Set when Apply Lock closes the dialog, so the close can move focus on instead of restoring it.
+  const appliedRef = useRef(false);
+  const { form, submit, reset, changeAsset } = useLockContentForm((config) => {
+    appliedRef.current = true;
+    onApplied(config);
+  });
   const [amount, asset] = useWatch({
     control: form.control,
     name: [LOCK_CONTENT_FORM_FIELDS.AMOUNT, LOCK_CONTENT_FORM_FIELDS.ASSET],
@@ -57,6 +63,15 @@ export function DialogLockContent({ open, onOpenChange, onApplied }: DialogLockC
         avoidKeyboard
         className="max-w-md rounded-xl border-x-0 border-y border-brand bg-card sm:max-w-xl"
         hiddenTitle={'Lock Content'}
+        // Radix restores focus to whatever had it before the dialog opened (the lock switch). After
+        // Apply Lock the creator's next step is the announcement, so focus goes there instead.
+        onCloseAutoFocus={(event) => {
+          const target = appliedRef.current ? focusAfterApplyRef?.current : null;
+          appliedRef.current = false;
+          if (!target) return;
+          event.preventDefault();
+          target.focus();
+        }}
       >
         <DialogHeader>
           <DialogTitle>{'Lock Content'}</DialogTitle>

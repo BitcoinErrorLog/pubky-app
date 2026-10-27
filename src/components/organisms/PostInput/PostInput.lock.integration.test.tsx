@@ -444,6 +444,13 @@ describe('PostInput lock flow (integration)', () => {
     expect(mocks.handleSubmit).not.toHaveBeenCalled(); // never leaks the to-be-locked body as a normal post
   });
 
+  it('focuses the announcement field once the lock is applied (#2430)', async () => {
+    await renderComposer();
+    await configureLock();
+    const announcement = screen.getByPlaceholderText('Write a short announcement to tease your content.');
+    await waitFor(() => expect(announcement).toHaveFocus());
+  });
+
   it('renders no lock switch when no Lock Server is configured', async () => {
     mocks.lockServer = undefined;
     await renderComposer();
