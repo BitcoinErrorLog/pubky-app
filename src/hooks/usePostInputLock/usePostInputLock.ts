@@ -228,7 +228,7 @@ export function usePostInputLock({
       return;
     }
     if (result.status === 'failed') {
-      toast({ variant: 'error', description: 'Something went wrong. Try again.' });
+      toast({ variant: 'error', description: result.description ?? 'Something went wrong. Try again.' });
       return;
     }
 

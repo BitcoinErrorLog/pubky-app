@@ -18,6 +18,11 @@ const mocks = vi.hoisted(() => ({
   fetchPaykitSetupStatus: vi.fn(),
   commitCreate: vi.fn(),
   post: vi.fn(),
+  strip: vi.fn<(file: File) => Promise<File>>(),
+}));
+
+vi.mock('@/libs/image/stripImageMetadata', () => ({
+  stripImageMetadata: (file: File) => mocks.strip(file),
 }));
 
 vi.mock('@/controllers/locks/locks', () => ({
@@ -76,6 +81,47 @@ describe('useCreateLockContent', () => {
       creator: 'pubkybob',
     });
     mocks.commitCreate.mockResolvedValue('POST1');
+    mocks.strip.mockImplementation(async (file) => file);
+  });
+
+  describe('locked file clean-up (#2685)', () => {
+    it('uploads each locked file as the clean-up returned it, with its own type and bytes', async () => {
+      const photo = new File(['raw-with-gps'], 'IMG_0001.jpg', { type: 'image/jpeg' });
+      const doc = makeFile('notes.pdf', 'application/pdf');
+      const cleaned = new File(['clean'], 'a1b2c3.webp', { type: 'image/webp' });
+      mocks.strip.mockImplementation(async (file) => (file === photo ? cleaned : file));
+      const { result } = renderHook(() => useCreateLockContent(params([photo, doc])));
+
+      await act(() => result.current.publish());
+
+      expect(mocks.strip).toHaveBeenCalledWith(photo);
+      expect(mocks.strip).toHaveBeenCalledWith(doc);
+      const [{ attachments }] = mocks.createLockContent.mock.calls[0];
+      expect(attachments.map((a: { contentType: string }) => a.contentType)).toEqual(['image/webp', 'application/pdf']);
+      expect(new TextDecoder().decode(attachments[0].bytes)).toBe('clean');
+      expect(new TextDecoder().decode(attachments[1].bytes)).toBe('xx');
+    });
+
+    it('fails with the size-limit message and creates no lock when an image cannot be brought under the cap', async () => {
+      mocks.strip.mockRejectedValue(new Error('IMAGE_UPLOAD_SIZE_LIMIT:gif'));
+      const { result } = renderHook(() => useCreateLockContent(params([makeFile('big.gif', 'image/gif')])));
+
+      const outcome = await act(() => result.current.publish());
+
+      expect(outcome).toEqual({ status: 'failed', description: expect.stringContaining('This GIF exceeds') });
+      expect(mocks.createLockContent).not.toHaveBeenCalled();
+      expect(mocks.commitCreate).not.toHaveBeenCalled();
+    });
+
+    it('fails without creating a lock when the clean-up itself breaks', async () => {
+      mocks.strip.mockRejectedValue(new Error('decode failed'));
+      const { result } = renderHook(() => useCreateLockContent(params([makeFile('a.png', 'image/png')])));
+
+      const outcome = await act(() => result.current.publish());
+
+      expect(outcome).toEqual({ status: 'failed' });
+      expect(mocks.createLockContent).not.toHaveBeenCalled();
+    });
   });
 
   it('uploads the locked attachments as bytes', async () => {

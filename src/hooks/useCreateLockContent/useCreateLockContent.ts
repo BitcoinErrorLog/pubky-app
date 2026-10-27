@@ -10,6 +10,8 @@ import { AuthErrorCode, ServerErrorCode, ValidationErrorCode } from '@/libs/erro
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { isAppError, toAppError } from '@/libs/error/error.utils';
+import { getImageUploadSizeLimitToastMessage } from '@/libs/image/imageUploadSizeLimit';
+import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { buildLockTeaserContent, isLockTeaserWithinLimit } from '@/libs/post/lockTeaser';
 import { stripPubkyPrefix } from '@/libs/utils/utils';
 import { lockPriceSchema, type TGuardedResource } from '@/services/locks/locks.types';
@@ -108,10 +110,20 @@ export function useCreateLockContent({
         return { contentType: POST_CONTENT_TYPE, bytes: new TextEncoder().encode(JSON.stringify(post.toJson())) };
       };
 
-      // TODO:[Locks] #2685 — the files go up as the author picked them. A normal upload first removes
-      // image metadata, which can hold the GPS position, and compresses the image.
+      // Every locked file goes through the same clean-up as a normal upload first (#2685): images are
+      // re-encoded without their metadata (which can hold the GPS position), SVGs lose scripts and
+      // risky references, and large photos are compressed. Other files pass through unchanged. The
+      // cleaned file's own type and bytes go up, since the Lock Server checks them against each other.
+      let sanitized: File[];
+      try {
+        sanitized = await Promise.all(lockedPost.attachments.map((file) => stripImageMetadata(file)));
+      } catch (caught) {
+        const description = getImageUploadSizeLimitToastMessage(caught);
+        if (description) return { status: 'failed', description };
+        throw caught;
+      }
       const files = await Promise.all(
-        lockedPost.attachments.map(async (file) => ({
+        sanitized.map(async (file) => ({
           contentType: file.type,
           bytes: new Uint8Array(await file.arrayBuffer()),
         })),

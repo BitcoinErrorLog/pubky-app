@@ -78,6 +78,9 @@ vi.mock('@/config/network', () => ({
   getLockServer: () => 'lockpubky',
   getPaykitServerUrl: () => 'https://paykit.server',
 }));
+// The clean-up re-encodes images on a canvas, which jsdom does not have, and these fixtures are not
+// real images. It has its own tests (stripImageMetadata, useCreateLockContent); pass files through.
+vi.mock('@/libs/image/stripImageMetadata', () => ({ stripImageMetadata: async (file: File) => file }));
 vi.mock('@/molecules/Toaster/toast', () => ({ toast: (...args: unknown[]) => mocks.toast(...args) }));
 vi.mock('@/hooks/useLockFile/useLockFile', () => ({ useLockFile: () => ({ lockFile: null, price: null }) }));
 vi.mock('@/hooks/useMentionAutocomplete/useMentionAutocomplete', () => ({
