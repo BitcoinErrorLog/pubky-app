@@ -1,6 +1,5 @@
 'use client';
 import { type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
 import { Button } from '@/atoms/Button/Button';
 import {
   Carousel,
@@ -11,7 +10,7 @@ import {
   CarouselPrevious,
 } from '@/atoms/Carousel/Carousel';
 import { Container } from '@/atoms/Container/Container';
-import { Dialog, DialogClose, DialogContent, DialogTrigger } from '@/atoms/Dialog/Dialog';
+import { Dialog, DialogContent, DialogTrigger } from '@/atoms/Dialog/Dialog';
 import { Image } from '@/atoms/Image/Image';
 import { Typography } from '@/atoms/Typography/Typography';
 import { Video } from '@/atoms/Video/Video';
@@ -34,6 +33,31 @@ const LIST_TILE_FRAME_CLASS = cn(TILE_FRAME_CLASS, 'only:w-fit');
 // "+N more" badge shown on the last visible tile when media overflows the grid.
 const REMAINING_OVERLAY_CLASS =
   'absolute right-3 bottom-3 z-10 flex size-10 items-center justify-center rounded-full border border-secondary-foreground/40 bg-black/80 text-base font-bold text-white shadow-md';
+
+/** Movement under this is still a tap, not a pan. */
+const TAP_SLOP_PX = 10;
+
+/**
+ * Whether a point lands on the picture an object-contain image draws, not the transparent bands around it. The rect
+ * includes the zoom transform, so this follows the picture as it is shown.
+ */
+const isOnDrawnImage = (img: HTMLImageElement, x: number, y: number) => {
+  const rect = img.getBoundingClientRect();
+  if (!img.naturalWidth || !img.naturalHeight) return true;
+  const fit = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+  const width = img.naturalWidth * fit;
+  const height = img.naturalHeight * fit;
+  const left = rect.left + (rect.width - width) / 2;
+  const top = rect.top + (rect.height - height) / 2;
+  return x >= left && x <= left + width && y >= top && y <= top + height;
+};
+
+/** Whether a press lands on the see-through space around the media rather than on the media or a control. */
+const isOutsideMedia = (target: EventTarget, x: number, y: number) => {
+  if (!(target instanceof Element) || target.closest('button, video')) return false;
+  if (target instanceof HTMLImageElement) return !isOnDrawnImage(target, x, y);
+  return true;
+};
 
 type PostAttachmentsImagesAndVideosProps = {
   imagesAndVideos: AttachmentConstructed[];
@@ -60,6 +84,8 @@ export const PostAttachmentsImagesAndVideos = ({
     !(event.target instanceof Element && event.target.closest('[data-zoomed="true"]')) &&
     !('touches' in event && event.touches.length > 1);
   const carouselRef = useRef<HTMLDivElement>(null);
+  // Judged on press: a double tap that zooms out has refitted the picture by the time its click arrives
+  const pressRef = useRef<{ x: number; y: number; outside: boolean } | null>(null);
   const [previewTrigger, setPreviewTrigger] = useState<HTMLElement | null>(null);
   const openPreview = (index: number, event?: MouseEvent) => {
     event?.stopPropagation();
@@ -194,26 +220,29 @@ export const PostAttachmentsImagesAndVideos = ({
         showCloseButton={false}
         overrideDefaults
         centered
-        onCloseAutoFocus={
-          renderTrigger
-            ? (event) => {
-                event.preventDefault();
-                previewTrigger?.focus();
-              }
-            : undefined
-        }
+        // Edge to edge on mobile; the vertical gutter stays as the tap-outside-to-close area.
+        className="mx-0 w-full sm:mx-4 sm:w-auto"
+        // Radix would focus its one stored trigger (the last tile mounted) and scroll to it; return to the tile tapped
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          previewTrigger?.focus({ preventScroll: true });
+        }}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           carouselRef.current?.focus();
         }}
+        onPointerDownCapture={(e) => {
+          pressRef.current = { x: e.clientX, y: e.clientY, outside: isOutsideMedia(e.target, e.clientX, e.clientY) };
+        }}
         onClick={(e) => {
           e.stopPropagation();
+          const press = pressRef.current;
+          // A keyboard-activated click (detail 0) has no point; a press that travelled was a pan
+          if (e.detail === 0 || !press?.outside) return;
+          if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_SLOP_PX) return;
+          setOpen(false);
         }}
       >
-        <DialogClose className="absolute top-4 right-4 z-60 flex size-8 cursor-pointer items-center justify-center rounded-full bg-[rgba(5,5,10,0.30)] text-secondary-foreground/70 transition-colors hover:bg-[rgba(5,5,10,0.40)] hover:text-secondary-foreground">
-          <X className="size-4" />
-        </DialogClose>
-
         <Carousel
           ref={carouselRef}
           opts={{
@@ -223,7 +252,7 @@ export const PostAttachmentsImagesAndVideos = ({
             watchDrag: canSwipe,
           }}
           setApi={setApi}
-          className="w-full max-w-80 xsm:max-w-full sm:max-w-[75dvw] 2xl:max-w-[50dvw]"
+          className="w-full max-w-full sm:max-w-[75dvw] 2xl:max-w-[50dvw]"
         >
           <CarouselContent className="-ml-3 items-center">
             {imagesAndVideos.map((media, i) => {

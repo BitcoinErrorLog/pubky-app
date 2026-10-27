@@ -43,6 +43,7 @@ vi.mock('@/atoms/Dialog/Dialog', () => {
       showCloseButton,
       overrideDefaults,
       centered,
+      className,
       onClick,
       'aria-describedby': ariaDescribedBy,
       'data-testid': dataTestId,
@@ -52,6 +53,7 @@ vi.mock('@/atoms/Dialog/Dialog', () => {
       showCloseButton?: boolean;
       overrideDefaults?: boolean;
       centered?: boolean;
+      className?: string;
       onClick?: (e: React.MouseEvent) => void;
       'aria-describedby'?: string;
       'data-testid'?: string;
@@ -67,6 +69,7 @@ vi.mock('@/atoms/Dialog/Dialog', () => {
           data-show-close-button={showCloseButton}
           data-override-defaults={overrideDefaults}
           data-centered={centered}
+          className={className}
           aria-describedby={ariaDescribedBy}
           onClick={onClick}
         >
@@ -551,21 +554,23 @@ describe('PostAttachmentsImagesAndVideos', () => {
       expect(screen.getByTestId('carousel')).toBeInTheDocument();
     });
 
-    it('renders dialog close button when open', () => {
+    it('renders no close button, so the lightbox is dismissed by tapping outside it', () => {
       setDialogOpen(true);
       const imagesAndVideos = [createMockImage()];
       render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
 
-      expect(screen.getByTestId('dialog-close')).toBeInTheDocument();
+      expect(screen.getByTestId('dialog-content')).toHaveAttribute('data-show-close-button', 'false');
+      expect(screen.queryByTestId('dialog-close')).not.toBeInTheDocument();
     });
 
-    it('renders X icon in close button when open', () => {
+    it('spans the full mobile width with no horizontal gutter', () => {
       setDialogOpen(true);
       const imagesAndVideos = [createMockImage()];
       render(<PostAttachmentsImagesAndVideos imagesAndVideos={imagesAndVideos} />);
 
-      const close = screen.getByTestId('dialog-close');
-      expect(close.querySelector('.lucide-x')).toBeInTheDocument();
+      expect(screen.getByTestId('dialog-content')).toHaveClass('mx-0', 'w-full', 'sm:mx-4', 'sm:w-auto');
+      expect(screen.getByTestId('carousel')).toHaveClass('w-full', 'max-w-full');
+      expect(screen.getByTestId('carousel')).not.toHaveClass('max-w-80');
     });
 
     it('renders dialog content with hidden title for accessibility', () => {
