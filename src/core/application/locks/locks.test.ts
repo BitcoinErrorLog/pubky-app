@@ -167,6 +167,48 @@ describe('LocksApplication (content)', () => {
     });
   });
 
+  it('uploads the attachments concurrently, keeps their order, and uploads the post only after all of them (#2316)', async () => {
+    const pending = new Map<string, PromiseWithResolvers<{ resource: TGuardedResource; creator: string }>>();
+    mocks.registerGuardedResource.mockImplementation(({ path }: { path: string }) => {
+      const deferred = Promise.withResolvers<{ resource: TGuardedResource; creator: string }>();
+      pending.set(path, deferred);
+      return deferred.promise;
+    });
+    const builder = vi.fn(() => file());
+
+    const publish = LocksApplication.createLockContent({
+      attachments: [file('image/png'), file('video/mp4'), file('image/jpeg')],
+      buildPost: builder,
+      lockConfig: paymentConfig,
+    });
+    await vi.waitFor(() => expect(pending.size).toBe(3));
+
+    // All three are in flight together; the post has not been uploaded and no lock exists yet.
+    expect([...pending.keys()]).toEqual(['id-1', 'id-2', 'id-3']);
+    expect(builder).not.toHaveBeenCalled();
+
+    // Resolve out of order: the builder must still see the attachments in the creator's order.
+    for (const path of ['id-3', 'id-1'])
+      pending.get(path)!.resolve({ resource: descriptor(path), creator: CREATOR_PUBKY });
+    await Promise.resolve();
+    expect(builder).not.toHaveBeenCalled();
+    expect(pending.has('id-4')).toBe(false);
+    pending.get('id-2')!.resolve({ resource: descriptor('id-2'), creator: CREATOR_PUBKY });
+
+    await vi.waitFor(() => expect(pending.has('id-4')).toBe(true));
+    expect(builder).toHaveBeenCalledExactlyOnceWith(
+      [descriptor('id-1'), descriptor('id-2'), descriptor('id-3')],
+      CREATOR_PUBKY,
+    );
+    expect(mocks.creatorCreateContentLock).not.toHaveBeenCalled();
+    pending.get('id-4')!.resolve({ resource: descriptor('id-4'), creator: CREATOR_PUBKY });
+
+    await publish;
+    expect(mocks.creatorCreateContentLock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ primary_resource: descriptor('id-4') }),
+    );
+  });
+
   it('gives identical files distinct paths, so neither overwrites the other', async () => {
     await LocksApplication.createLockContent({
       attachments: [file('image/png'), file('image/png')],

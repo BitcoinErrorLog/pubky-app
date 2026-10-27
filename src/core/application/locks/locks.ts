@@ -613,10 +613,12 @@ export class LocksApplication {
    * attachments its secondary resources.
    *
    * Attachments go first because a resource's path only exists once its bytes are uploaded, and the
-   * post has to reference them. Uploads are sequential.
+   * post has to reference them. Attachments upload concurrently; the post and the lock follow once all
+   * of them are up.
    *
-   * TODO:[Locks] #2039 — a failure part-way leaves the already-uploaded resources orphaned on the
-   * server. See the note on `LocksService.createContentLock` for the cleanup rules.
+   * TODO:[Locks] #2039 — a failure part-way leaves the uploaded resources orphaned on the server (with
+   * concurrent uploads, every attachment that still finished). See the note on
+   * `LocksService.createContentLock` for the cleanup rules.
    *
    * The composer checks the file count and size against the Lock Server defaults first
    * (`LOCK_ATTACHMENT_*` in `@/config/posts`); the server stays the authority.
@@ -629,13 +631,12 @@ export class LocksApplication {
     // The guarded bytes land on the Lock-Server-authenticated account, which may differ from the
     // pubky.app user. Capture that owner from the upload response so `buildPost` can reference the
     // attachments by their real host. With no attachments the owner stays undefined and no URIs are built.
-    let owner: string | undefined;
-    const attachmentResources: TGuardedResource[] = [];
-    for (const file of attachments) {
-      const uploaded = await this.upload(file);
-      owner = uploaded.creator;
-      attachmentResources.push(uploaded.resource);
-    }
+    // Each upload mints its own path, so they cannot conflict and run concurrently. `Promise.all` keeps
+    // the input order and fails fast: one lost file means no lock, and the post still waits for all of
+    // them because it references their paths.
+    const uploads = await Promise.all(attachments.map((file) => this.upload(file)));
+    const owner = uploads.at(-1)?.creator;
+    const attachmentResources: TGuardedResource[] = uploads.map((uploaded) => uploaded.resource);
     const postFile = buildPost(attachmentResources, owner);
     const post = await this.upload(postFile);
 
