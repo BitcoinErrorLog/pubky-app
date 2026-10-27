@@ -22,6 +22,17 @@ describe('LockedPostCard', () => {
     expect(screen.getByTestId('locked-post-card')).toHaveClass('bg-muted');
   });
 
+  it('keeps the shield illustration at 76px so it clears the Unlock pill on narrow cards', () => {
+    const { container } = render(<LockedPostCard title="Secret" price={{ amount: '1234', asset: 'BTC' }} />);
+
+    // Decorative (alt=""), so it has no accessible role to query by.
+    const shield = container.querySelector('img[src*="shield.png"]');
+    expect(shield).toHaveClass('size-19');
+    expect(shield).not.toHaveClass('size-24');
+    expect(shield).toHaveAttribute('width', '76');
+    expect(shield).toHaveAttribute('height', '76');
+  });
+
   it('falls back to the default title while the creator has not typed one', () => {
     render(<LockedPostCard title="" />);
     expect(screen.getByRole('heading', { level: 4 })).toHaveTextContent('Locked content');
