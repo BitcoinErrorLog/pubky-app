@@ -187,11 +187,11 @@ export function LockedPostCard({
       <Image
         src="/images/shield.png"
         alt=""
-        width={76}
-        height={76}
-        // 20% under the original 96px, so on a narrow card (collection cards layout) the shield clears the
-        // Unlock and price pill instead of touching it.
-        className="hidden size-19 shrink-0 rounded-md object-contain sm:block"
+        width={68}
+        height={68}
+        // Kept small so on a narrow card (collection cards layout) the shield clears the Unlock and price
+        // pill instead of touching it.
+        className="hidden size-17 shrink-0 rounded-md object-contain sm:block"
       />
     </div>
   );
