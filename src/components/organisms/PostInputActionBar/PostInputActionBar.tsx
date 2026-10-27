@@ -13,8 +13,8 @@ import { LocksRegionNotice } from '@/molecules/LocksRegionNotice/LocksRegionNoti
 import type { PostInputActionBarProps } from './PostInputActionBar.types';
 
 const COMMON_BUTTON_PROPS = { variant: 'secondary', size: 'sm' } as const;
-const LOCK_HELP_MESSAGE = 'Lock your post so readers pay to unlock it.';
-const LOCK_HELP_INFO = 'Add text or attachments first, then turn on the lock.';
+const LOCK_HELP_HEADING = 'Sell your content';
+const LOCK_HELP_INFO = 'Put a price on your content. Let people pay to unlock the value you create.';
 
 interface ActionButtonContentProps {
   Icon: React.ComponentType<{
@@ -120,15 +120,15 @@ export function PostInputActionBar({
                     variant="ghost"
                     size="icon"
                     className="size-6 text-muted-foreground"
-                    aria-label={LOCK_HELP_MESSAGE}
+                    aria-label={LOCK_HELP_HEADING}
                     data-testid="lock-switch-help"
                   >
                     <Info aria-hidden />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="top" align="start" sideOffset={6} className="flex flex-col gap-2 p-3">
-                  <Typography overrideDefaults className="text-sm font-medium text-popover-foreground">
-                    {LOCK_HELP_MESSAGE}
+                  <Typography overrideDefaults className="text-sm font-bold text-popover-foreground">
+                    {LOCK_HELP_HEADING}
                   </Typography>
                   <Typography
                     overrideDefaults

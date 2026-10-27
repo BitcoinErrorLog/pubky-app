@@ -97,7 +97,7 @@ vi.mock('@/molecules/LocksRegionNotice/LocksRegionNotice', () => ({
   ),
 }));
 
-const LOCK_HELP_MESSAGE = 'Lock your post so readers pay to unlock it.';
+const LOCK_HELP_HEADING = 'Sell your content';
 
 describe('PostInputActionBar', () => {
   const mockUseIsMobile = vi.mocked(useIsMobile);
@@ -276,10 +276,12 @@ describe('PostInputActionBar', () => {
   it('shows the lock help beside a lock switch that is available, explaining it on open', async () => {
     render(<PostInputActionBar hideArticleButton={false} lockSwitch={{ checked: false, onCheckedChange: vi.fn() }} />);
 
-    fireEvent.click(screen.getByRole('button', { name: LOCK_HELP_MESSAGE }));
+    fireEvent.click(screen.getByRole('button', { name: LOCK_HELP_HEADING }));
 
-    expect(await screen.findByText('Add text or attachments first, then turn on the lock.')).toBeInTheDocument();
-    expect(screen.getByText(LOCK_HELP_MESSAGE, { selector: 'p' })).toBeInTheDocument();
+    expect(
+      await screen.findByText('Put a price on your content. Let people pay to unlock the value you create.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(LOCK_HELP_HEADING, { selector: 'p' })).toBeInTheDocument();
   });
 
   it.each(['region', 'unknown'] as const)(
@@ -297,7 +299,7 @@ describe('PostInputActionBar', () => {
       expect(lockSwitch).toBeDisabled();
       expect(screen.getByTestId('locks-region-notice')).toHaveAttribute('data-cause', cause);
       expect(screen.getByTestId('locks-region-notice')).toHaveAttribute('data-variant', 'icon');
-      expect(screen.queryByRole('button', { name: LOCK_HELP_MESSAGE })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: LOCK_HELP_HEADING })).not.toBeInTheDocument();
       fireEvent.click(lockSwitch);
       expect(onCheckedChange).not.toHaveBeenCalled();
     },
