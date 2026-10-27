@@ -1578,6 +1578,19 @@ describe('VisualTimelinePosts', () => {
       expect(screen.getByTestId('visual-tile-play-badge')).toBeInTheDocument();
     });
 
+    it('shows the mqdefault thumbnail with a play badge when hq720 is missing', () => {
+      const tile = renderTile(youtubeTile());
+
+      fireEvent.error(tile.querySelector('img')!);
+
+      const fallbackImage = tile.querySelector('img');
+      expect(fallbackImage).toHaveAttribute('src', YOUTUBE_MQDEFAULT);
+      loadImage(fallbackImage!, 320, 180);
+
+      expect(fallbackImage).not.toHaveClass('opacity-0');
+      expect(screen.getByTestId('visual-tile-play-badge')).toBeInTheDocument();
+    });
+
     it("moves past i.ytimg's 120x90 placeholder to mqdefault, then keeps only the card", () => {
       const tile = renderTile(youtubeTile());
 
