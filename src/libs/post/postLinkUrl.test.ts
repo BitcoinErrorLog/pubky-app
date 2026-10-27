@@ -28,6 +28,13 @@ describe('getFirstLinkUrl', () => {
     expect(getFirstLinkUrl('Look https://youtu.be/dQw4w9WgXcQ.')).toBe('https://youtu.be/dQw4w9WgXcQ');
   });
 
+  it('keeps answers independent across calls on the shared parser', () => {
+    expect(getFirstLinkUrl('https://youtu.be/dQw4w9WgXcQ')).toBe('https://youtu.be/dQw4w9WgXcQ');
+    expect(getFirstLinkUrl('no link here')).toBeNull();
+    expect(getFirstLinkUrl('then https://example.com/next')).toBe('https://example.com/next');
+    expect(getFirstLinkUrl('then https://example.com/next')).toBe('https://example.com/next');
+  });
+
   it('returns null for content without a link', () => {
     expect(getFirstLinkUrl('just some words')).toBeNull();
     expect(getFirstLinkUrl('')).toBeNull();

@@ -21,19 +21,26 @@ const stripMarkdownLinks = (content: string): string => {
   return content.replace(/\[([^\]]*)\]\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g, '<stripped-link>');
 };
 
+let linkify: LinkifyIt | null = null;
+
+/** Built once: linkify-it compiles its regexes on construction and again on every `add`. */
+const getLinkify = (): LinkifyIt => {
+  if (linkify) return linkify;
+  // linkify-it v6 defaults fuzzyLink to false; keep matching protocol-less URLs.
+  const instance = new LinkifyIt({ fuzzyLink: true });
+  // Disable unwanted protocol types
+  IGNORED_PROTOCOLS.forEach((protocol) => instance.add(protocol, null));
+  linkify = instance;
+  return instance;
+};
+
 /**
  * First bare URL in the content, or null when there is none.
  * Markdown links, `ftp:` and `mailto:` are skipped; a protocol-less URL comes back with `http://`.
  */
 export function getFirstLinkUrl(content: string): string | null {
-  // linkify-it v6 defaults fuzzyLink to false; keep matching protocol-less URLs.
-  const linkify = new LinkifyIt({ fuzzyLink: true });
-
-  // Disable unwanted protocol types
-  IGNORED_PROTOCOLS.forEach((protocol) => linkify.add(protocol, null));
-
   // Strip Markdown link syntax before parsing
-  const match = linkify.match(stripMarkdownLinks(content));
+  const match = getLinkify().match(stripMarkdownLinks(content));
 
   return match?.[0]?.url ?? null;
 }
