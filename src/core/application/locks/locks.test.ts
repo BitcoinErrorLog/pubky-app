@@ -1409,6 +1409,113 @@ describe('LocksApplication.fetchUnlockedList', () => {
   });
 });
 
+describe('LocksApplication cache writes after logout (#2797)', () => {
+  const READER = 'pubkyreader123';
+  const LOCK_URL = `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/LOCK1.json`;
+  const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+  const markerOf = (content: string, modifiedAt = 1) => ({
+    bytes: encode({ content, kind: 'short', attachments: null }),
+    modifiedAt,
+  });
+
+  /** A viewer scope that logs out while the network read is in flight. */
+  const logoutDuring = () => {
+    let current = true;
+    return { isCurrent: () => current, logout: () => (current = false) };
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.putBlob.mockResolvedValue(undefined);
+  });
+
+  it('replicateUnlockedContent still finishes the replica but skips the cache write', async () => {
+    const scope = logoutDuring();
+    mocks.putBlob.mockImplementation(async () => scope.logout());
+
+    await LocksApplication.replicateUnlockedContent({
+      lockUrl: LOCK_URL,
+      readerPubky: READER,
+      content: { post: { content: 'secret', kind: 'short', attachments: null }, attachments: [] },
+      announcementUri: 'pubky://author/pub/pubky.app/posts/POST1',
+      isCurrent: scope.isCurrent,
+    });
+
+    expect(mocks.putBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.cachePost).not.toHaveBeenCalled();
+  });
+
+  it('fetchUnlockedList returns the list but does not cache it', async () => {
+    const scope = logoutDuring();
+    mocks.listAll.mockResolvedValueOnce([`pubky://${READER}/priv/social/unlocked/LOCK1/post.json`]);
+    mocks.getBytesIfExists.mockImplementationOnce(async () => {
+      scope.logout();
+      return markerOf('secret');
+    });
+
+    const result = await LocksApplication.fetchUnlockedList({ readerPubky: READER, isCurrent: scope.isCurrent });
+
+    expect(result.map((item) => item.lockId)).toEqual(['LOCK1']);
+    expect(mocks.cachePost).not.toHaveBeenCalled();
+  });
+
+  it('fetchReplicatedContent returns the content but does not cache it', async () => {
+    const scope = logoutDuring();
+    mocks.getBytesIfExists.mockImplementationOnce(async () => {
+      scope.logout();
+      return markerOf('secret');
+    });
+
+    const result = await LocksApplication.fetchReplicatedContent({
+      lockUrl: LOCK_URL,
+      readerPubky: READER,
+      isCurrent: scope.isCurrent,
+    });
+
+    expect(result?.post.content).toBe('secret');
+    expect(mocks.cachePost).not.toHaveBeenCalled();
+  });
+
+  it("fetchOwnContent returns the creator's original but does not cache it", async () => {
+    const scope = logoutDuring();
+    mocks.getBytes.mockImplementationOnce(async () => {
+      scope.logout();
+      return encode({ content: 'mine', kind: 'short', attachments: null });
+    });
+
+    const result = await LocksApplication.fetchOwnContent({
+      lockUrl: VALID_LOCK_URL,
+      lockFile: asOpaque<LockFile>({
+        creator: 'pubkyowner',
+        primary_resource: { path: '/priv/app.locks/content/post', hash: 'h', content_type: 'x', size: 1 },
+      }),
+      isCurrent: scope.isCurrent,
+    });
+
+    expect(result.post.content).toBe('mine');
+    expect(mocks.cachePost).not.toHaveBeenCalled();
+  });
+
+  it('fetchLockFile returns the descriptor but does not cache it', async () => {
+    const scope = logoutDuring();
+    mocks.readContentLock.mockImplementationOnce(async () => {
+      scope.logout();
+      return lockFile;
+    });
+
+    await expect(
+      LocksApplication.fetchLockFile({ lockUrl: VALID_LOCK_URL, isCurrent: scope.isCurrent }),
+    ).resolves.toEqual(lockFile);
+    expect(mocks.cacheDescriptor).not.toHaveBeenCalled();
+  });
+
+  it('still caches when the viewer is unchanged', async () => {
+    mocks.readContentLock.mockResolvedValueOnce(lockFile);
+    await LocksApplication.fetchLockFile({ lockUrl: VALID_LOCK_URL, isCurrent: () => true });
+    expect(mocks.cacheDescriptor).toHaveBeenCalledWith({ lockId: 'lock1', descriptor: lockFile });
+  });
+});
+
 describe('LocksApplication.getUnlockedList', () => {
   it("exposes a cached marker's announcement post as a composite id", async () => {
     mocks.cacheUnlockedList.mockResolvedValueOnce([
