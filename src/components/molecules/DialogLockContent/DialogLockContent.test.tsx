@@ -279,3 +279,41 @@ describe('price denomination', () => {
     expect(screen.getByRole('button', { name: 'Apply Lock' })).toBeDisabled();
   });
 });
+
+describe('DialogLockContent focus on close', () => {
+  const renderWithTarget = async (open: boolean, onApplied = vi.fn()) => {
+    const target = { current: document.createElement('textarea') };
+    document.body.appendChild(target.current);
+    const view = render(
+      <DialogLockContent open={open} onOpenChange={vi.fn()} onApplied={onApplied} focusAfterApplyRef={target} />,
+    );
+    return { target, view, onApplied };
+  };
+
+  it('moves focus to focusAfterApplyRef when Apply Lock closes the dialog', async () => {
+    const { target, view, onApplied } = await renderWithTarget(true);
+    await enterPrice('1000');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply Lock' }));
+    });
+    await waitFor(() => expect(onApplied).toHaveBeenCalled());
+    view.rerender(
+      <DialogLockContent open={false} onOpenChange={vi.fn()} onApplied={onApplied} focusAfterApplyRef={target} />,
+    );
+    await waitFor(() => expect(target.current).toHaveFocus());
+    target.current.remove();
+  });
+
+  it('leaves focusAfterApplyRef alone when the dialog is cancelled', async () => {
+    const { target, view, onApplied } = await renderWithTarget(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    });
+    view.rerender(
+      <DialogLockContent open={false} onOpenChange={vi.fn()} onApplied={onApplied} focusAfterApplyRef={target} />,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(target.current).not.toHaveFocus();
+    target.current.remove();
+  });
+});

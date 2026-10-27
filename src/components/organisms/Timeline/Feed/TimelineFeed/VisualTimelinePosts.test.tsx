@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TIMELINE_MAX_UNPRODUCTIVE_AUTO_LOADS } from '@/config/feed';
 import { TtlCoordinator } from '@/coordinators/ttl/ttl';
-import type { VisualPlaceholderKind, VisualRow, VisualTile } from './TimelineFeedVisual.types';
+import type { VisualLinkVideo, VisualPlaceholderKind, VisualRow, VisualTile } from './TimelineFeedVisual.types';
 import { VisualTimelinePosts } from './VisualTimelinePosts';
 
 const {
@@ -12,6 +12,7 @@ const {
   mockUseInfiniteScroll,
   mockUseVisualFeedTiles,
   mockUseIsTouchDevice,
+  mockUseOgMetadata,
   mockUseRemoveDeletedPost,
   mockClickableTagsList,
   mockUserDetailsRef,
@@ -32,6 +33,7 @@ const {
   mockUseInfiniteScroll: vi.fn(),
   mockUseVisualFeedTiles: vi.fn(),
   mockUseIsTouchDevice: vi.fn(() => false),
+  mockUseOgMetadata: vi.fn(),
   mockUseRemoveDeletedPost: vi.fn(),
   mockClickableTagsList: vi.fn(({ className }: { className?: string }) => (
     <div data-testid="visual-overlay-tags" className={className}>
@@ -54,6 +56,10 @@ vi.mock('@/hooks/useInfiniteScroll/useInfiniteScroll', () => ({
 
 vi.mock('@/hooks/usePostNavigation/usePostNavigation', () => ({
   usePostNavigation: () => ({ navigateToPost: mockNavigateToPost }),
+}));
+
+vi.mock('@/hooks/useOgMetadata/useOgMetadata', () => ({
+  useOgMetadata: mockUseOgMetadata,
 }));
 
 vi.mock('@/hooks/useIsTouchDevice/useIsTouchDevice', () => ({
@@ -286,6 +292,30 @@ function createRows(): VisualRow[] {
   ];
 }
 
+function createLinkVideoTile(linkVideo: VisualLinkVideo, overrides: Partial<VisualTile> = {}): VisualTile {
+  return {
+    id: 'author:post-link:link:https://example.com/video',
+    postId: 'author:post-link',
+    linkVideo,
+    attachmentId: '',
+    attachmentName: '',
+    contentType: '',
+    mediaKind: 'video',
+    previewSrc: '',
+    mainSrc: '',
+    metadataWidth: 16,
+    metadataHeight: 9,
+    sizeOptions: ['wide', 'medium'],
+    preferredSize: 'wide',
+    rowSize: 'wide',
+    probeState: 'ready',
+    isBlurred: false,
+    content: 'Watch this',
+    indexedAt: 1,
+    ...overrides,
+  };
+}
+
 /** The tiles behind `createRows()`: what the tile pipeline tracks for that mosaic. */
 function createTiles(): VisualTile[] {
   return createRows().flatMap((row) => row.cells.flatMap((cell) => (cell.tile ? [cell.tile] : [])));
@@ -295,6 +325,7 @@ describe('VisualTimelinePosts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseIsTouchDevice.mockReturnValue(false);
+    mockUseOgMetadata.mockReturnValue({ metadata: null, isLoading: false, error: null });
     mockUseRemoveDeletedPost.mockReturnValue({
       canRemove: false,
       isRemoving: false,
@@ -1424,6 +1455,235 @@ describe('VisualTimelinePosts', () => {
 
       expect(screen.getByLabelText('Open post author:post1')).toBeInTheDocument();
       expect(screen.queryByTestId('timeline-end')).not.toBeInTheDocument();
+    });
+  });
+  describe('link video tiles', () => {
+    const YOUTUBE_HQ720 = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hq720.jpg';
+    const YOUTUBE_MQDEFAULT = 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg';
+
+    function renderTile(tile: VisualTile) {
+      mockUseVisualFeedTiles.mockReturnValue({
+        rows: [{ key: 'row-link', cells: [{ key: 'cell-link', size: 'wide', tile }] }],
+        tail: [],
+        tiles: [tile],
+        hasPendingSnapshot: false,
+        hasPendingTiles: false,
+        hasPendingFiles: false,
+        hasPendingPostDetails: false,
+      });
+
+      render(
+        <VisualTimelinePosts
+          postIds={[tile.postId]}
+          loading={false}
+          loadingMore={false}
+          error={null}
+          hasMore={false}
+          loadMore={vi.fn()}
+        />,
+      );
+
+      return screen.getByLabelText(`Open post ${tile.postId}`);
+    }
+
+    function loadImage(image: HTMLImageElement, width: number, height: number) {
+      Object.defineProperty(image, 'naturalWidth', { configurable: true, value: width });
+      Object.defineProperty(image, 'naturalHeight', { configurable: true, value: height });
+      fireEvent.load(image);
+    }
+
+    const fileTile = () =>
+      createLinkVideoTile(
+        { provider: 'file', hostLabel: 'cdn.example.com' },
+        { previewSrc: 'https://cdn.example.com/clip.mp4', mainSrc: 'https://cdn.example.com/clip.mp4' },
+      );
+
+    const youtubeTile = () =>
+      createLinkVideoTile(
+        { provider: 'youtube', hostLabel: 'youtu.be' },
+        { previewSrc: YOUTUBE_HQ720, mainSrc: YOUTUBE_MQDEFAULT },
+      );
+
+    describe('with media playback stubbed', () => {
+      let playSpy: ReturnType<typeof vi.spyOn>;
+      let pauseSpy: ReturnType<typeof vi.spyOn>;
+
+      beforeEach(() => {
+        // jsdom's play() returns undefined, so the tile video's `.catch` would throw.
+        playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+        pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        playSpy.mockRestore();
+        pauseSpy.mockRestore();
+      });
+
+      it('plays a direct file once the server preview reports a video, and keeps the card when it fails', () => {
+        mockUseOgMetadata.mockReturnValue({
+          metadata: { url: 'https://cdn.example.com/clip.mp4', title: null, image: null, type: 'video' },
+          isLoading: false,
+          error: null,
+        });
+        const tile = renderTile(fileTile());
+
+        expect(mockUseOgMetadata).toHaveBeenCalledWith('https://cdn.example.com/clip.mp4');
+        const video = tile.querySelector('video');
+        expect(video).toHaveAttribute('src', 'https://cdn.example.com/clip.mp4');
+        // Transparent until the first frame, so the card shows while the file loads.
+        expect(video).toHaveClass('bg-transparent');
+        expect(screen.getByTestId('visual-tile-link-video-fallback')).toHaveTextContent('cdn.example.com');
+
+        fireEvent.error(video!);
+
+        expect(tile.querySelector('video')).toBeNull();
+        expect(screen.getByTestId('visual-tile-link-video-fallback')).toBeInTheDocument();
+      });
+
+      it('leaves attachment video tiles as they were: opaque, no card, still mounted after an error', () => {
+        const tile = renderTile({
+          ...createLinkVideoTile({ provider: 'file', hostLabel: '' }),
+          linkVideo: undefined,
+          attachmentId: 'file-video',
+          attachmentName: 'clip.mp4',
+          contentType: 'video/mp4',
+          previewSrc: '/clip.mp4',
+          mainSrc: '/clip.mp4',
+        });
+
+        const video = tile.querySelector('video');
+        expect(video).not.toHaveClass('bg-transparent');
+
+        fireEvent.error(video!);
+
+        expect(tile.querySelector('video')).toBe(video);
+        expect(screen.queryByTestId('visual-tile-link-video-fallback')).not.toBeInTheDocument();
+        expect(tile).toHaveClass('bg-black');
+      });
+    });
+
+    it('shows the fallback card under a hidden YouTube thumbnail until the thumbnail loads', () => {
+      const tile = renderTile(youtubeTile());
+
+      expect(screen.getByTestId('visual-tile-link-video-fallback')).toHaveTextContent('youtu.be');
+      const image = tile.querySelector('img');
+      expect(image).toHaveAttribute('src', YOUTUBE_HQ720);
+      expect(image).toHaveAttribute('referrerpolicy', 'no-referrer');
+      expect(image).toHaveClass('opacity-0');
+      expect(screen.queryByTestId('visual-tile-play-badge')).not.toBeInTheDocument();
+
+      loadImage(image!, 1280, 720);
+
+      expect(image).not.toHaveClass('opacity-0');
+      expect(screen.getByTestId('visual-tile-play-badge')).toBeInTheDocument();
+    });
+
+    it('shows the mqdefault thumbnail with a play badge when hq720 is missing', () => {
+      const tile = renderTile(youtubeTile());
+
+      fireEvent.error(tile.querySelector('img')!);
+
+      const fallbackImage = tile.querySelector('img');
+      expect(fallbackImage).toHaveAttribute('src', YOUTUBE_MQDEFAULT);
+      loadImage(fallbackImage!, 320, 180);
+
+      expect(fallbackImage).not.toHaveClass('opacity-0');
+      expect(screen.getByTestId('visual-tile-play-badge')).toBeInTheDocument();
+    });
+
+    it("moves past i.ytimg's 120x90 placeholder to mqdefault, then keeps only the card", () => {
+      const tile = renderTile(youtubeTile());
+
+      loadImage(tile.querySelector('img')!, 120, 90);
+
+      const fallbackImage = tile.querySelector('img');
+      expect(fallbackImage).toHaveAttribute('src', YOUTUBE_MQDEFAULT);
+      expect(fallbackImage).toHaveClass('opacity-0');
+
+      loadImage(fallbackImage!, 120, 90);
+
+      expect(tile.querySelector('img')).toBeNull();
+      expect(screen.getByTestId('visual-tile-link-video-fallback')).toBeInTheDocument();
+      expect(screen.queryByTestId('visual-tile-play-badge')).not.toBeInTheDocument();
+    });
+
+    it('moves to mqdefault when hq720 fails, then keeps only the card when that fails too', () => {
+      const tile = renderTile(youtubeTile());
+
+      fireEvent.error(tile.querySelector('img')!);
+      expect(tile.querySelector('img')).toHaveAttribute('src', YOUTUBE_MQDEFAULT);
+
+      fireEvent.error(tile.querySelector('img')!);
+
+      expect(tile.querySelector('img')).toBeNull();
+      expect(screen.getByTestId('visual-tile-link-video-fallback')).toBeInTheDocument();
+    });
+
+    it('shows only the fallback card for a Vimeo link', () => {
+      const tile = renderTile(createLinkVideoTile({ provider: 'vimeo', hostLabel: 'vimeo.com' }));
+
+      expect(screen.getByTestId('visual-tile-link-video-fallback')).toHaveTextContent('vimeo.com');
+      expect(tile.querySelector('img')).toBeNull();
+      expect(tile.querySelector('video')).toBeNull();
+      expect(mockUseOgMetadata).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['while the server preview is loading', { metadata: null, isLoading: true, error: null }],
+      [
+        'when the preview request fails',
+        { metadata: null, isLoading: false, error: new Error('Failed to fetch metadata') },
+      ],
+      [
+        // The route's answer for a private address, as for any page that is not a video.
+        'when the preview is not a video',
+        {
+          metadata: { url: 'https://cdn.example.com/clip.mp4', title: 'A page', image: null, type: 'website' },
+          isLoading: false,
+          error: null,
+        },
+      ],
+    ])('never mounts a player for a file link %s', (_label, preview) => {
+      mockUseOgMetadata.mockReturnValue(preview);
+      const tile = renderTile(fileTile());
+
+      expect(screen.getByTestId('visual-tile-link-video-fallback')).toHaveTextContent('cdn.example.com');
+      expect(tile.querySelector('video')).toBeNull();
+    });
+
+    it('omits the host line when the host cannot be read', () => {
+      renderTile(createLinkVideoTile({ provider: 'vimeo', hostLabel: '' }));
+
+      const fallback = screen.getByTestId('visual-tile-link-video-fallback');
+      expect(fallback.querySelector('svg')).toBeInTheDocument();
+      expect(fallback.querySelector('span')).toBeNull();
+    });
+
+    it('blurs a moderated link tile without loading its media or showing the card', () => {
+      const tile = renderTile({ ...youtubeTile(), isBlurred: true });
+
+      expect(tile).toHaveTextContent('author:post-link');
+      expect(screen.queryByTestId('visual-tile-link-video-fallback')).not.toBeInTheDocument();
+      expect(tile.querySelector('img')).toBeNull();
+      expect(screen.queryByTestId('visual-overlay-content-stack')).not.toBeInTheDocument();
+    });
+
+    it('never asks the server about the file link of a blurred post', () => {
+      renderTile({ ...fileTile(), isBlurred: true });
+
+      expect(mockUseOgMetadata).not.toHaveBeenCalled();
+    });
+
+    it('keeps the post overlay and opens the post like any media tile', () => {
+      const tile = renderTile(createLinkVideoTile({ provider: 'vimeo', hostLabel: 'vimeo.com' }));
+
+      expect(screen.getByTestId('visual-overlay-content-stack')).toBeInTheDocument();
+
+      fireEvent.click(tile);
+      expect(mockNavigateToPost).toHaveBeenCalledWith('author:post-link');
+
+      fireEvent.keyDown(tile, { key: 'Enter' });
+      expect(mockNavigateToPost).toHaveBeenCalledTimes(2);
     });
   });
 });
