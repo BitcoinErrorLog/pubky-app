@@ -112,7 +112,9 @@ export function LockedPostCard({
       )}
       data-testid="locked-post-card"
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-4">
+      {/* No `min-w-0`: the column keeps at least the pill's width, so the pill never runs under the shield
+          and the default title stays on one line. A long custom title still wraps (`wrap-anywhere`). */}
+      <div className="flex flex-1 flex-col gap-4">
         <div className={cn('flex items-center gap-2', editableTitle && 'group')}>
           {editableTitle ? (
             <>
@@ -138,7 +140,8 @@ export function LockedPostCard({
                 // Marks the input for the composer's outside-click collapse exclusion (usePostInput).
                 data-lock-title-input=""
                 className={cn(
-                  'min-w-0 flex-1 bg-transparent text-xl leading-7 font-bold text-foreground caret-foreground outline-none placeholder:text-muted-foreground',
+                  // `w-0`: an input's default width would otherwise set the column's minimum and push the card wide.
+                  'w-0 min-w-0 flex-1 bg-transparent text-xl leading-7 font-bold text-foreground caret-foreground outline-none placeholder:text-muted-foreground',
                   !isEditing && 'group-hover:text-brand',
                 )}
               />
@@ -184,15 +187,17 @@ export function LockedPostCard({
         </div>
       </div>
 
-      <Image
-        src="/images/shield.png"
-        alt=""
-        width={68}
-        height={68}
-        // Kept small so on a narrow card (collection cards layout) the shield clears the Unlock and price
-        // pill instead of touching it.
-        className="hidden size-17 shrink-0 rounded-md object-contain sm:block"
-      />
+      {/* 68px at most (the design asks for 25-30% under the original 96px). On a narrow card (two-column
+          Cards layout) it gives way to the pill instead of running under it, and drops out once too small. */}
+      <div className="@container/shield hidden w-17 min-w-0 shrink sm:block">
+        <Image
+          src="/images/shield.png"
+          alt=""
+          width={68}
+          height={68}
+          className="hidden aspect-square h-auto w-full rounded-md object-contain @min-[2.5rem]/shield:block"
+        />
+      </div>
     </div>
   );
 }
