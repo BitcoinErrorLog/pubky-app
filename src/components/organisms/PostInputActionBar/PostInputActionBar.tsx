@@ -112,6 +112,7 @@ export function PostInputActionBar({
               className="data-[state=unchecked]:bg-accent"
             />
             {lockSwitch.regionNotice ? <LocksRegionNotice variant="icon" cause={lockSwitch.regionNotice} /> : null}
+            {/* TODO: share this info popover with the `icon` variant of `LocksRegionNotice`, which it mirrors. */}
             {lockSwitch.showHelp && !lockSwitch.regionNotice ? (
               <Popover>
                 <PopoverTrigger asChild>
