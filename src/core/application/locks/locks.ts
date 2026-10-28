@@ -609,8 +609,8 @@ export class LocksApplication {
     return LocksService.exchangeSessionCode(params);
   }
 
-  static restoreSession(): Promise<LocksSdkSession> {
-    return LocksService.restoreSession();
+  static restoreSession(secret?: string): Promise<LocksSdkSession> {
+    return LocksService.restoreSession(secret);
   }
 
   static signout(session?: LocksSdkSession): Promise<void> {
