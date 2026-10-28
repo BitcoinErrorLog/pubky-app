@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Controller, useWatch } from 'react-hook-form';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -155,7 +156,22 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
                         ? satsFormatter.format(BigInt(field.value))
                         : field.value
                     }
-                    onFocus={() => setIsAmountFocused(true)}
+                    onFocus={(event) => {
+                      const input = event.currentTarget;
+                      // Ungroup only after the browser has placed the caret (a click) or selected the value (Tab)
+                      // in the grouped text, then carry that selection over to the same digits. Ungrouping in the
+                      // focus task itself drops the select-all and shifts a click by the separators before it.
+                      requestAnimationFrame(() => {
+                        if (document.activeElement !== input) return;
+                        const { value, selectionStart, selectionEnd } = input;
+                        const digitsBefore = (index: number | null) =>
+                          value.slice(0, index ?? value.length).replace(/\D/g, '').length;
+                        const start = digitsBefore(selectionStart);
+                        const end = digitsBefore(selectionEnd);
+                        flushSync(() => setIsAmountFocused(true));
+                        input.setSelectionRange(start, end);
+                      });
+                    }}
                     onBlur={() => {
                       setIsAmountFocused(false);
                       field.onBlur();
@@ -167,8 +183,10 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
                       }
                       // Stays up after the next keystroke: typing "2.4" leaves "24", and the note must still
                       // be there when the creator looks. Emptying the field clears it.
-                      const next = toSats(event.target.value);
-                      setDroppedInput((shown) => dropsInput(event.target.value) || (shown && next !== ''));
+                      const raw = event.target.value;
+                      const next = toSats(raw);
+                      const dropped = dropsInput(raw);
+                      setDroppedInput((shown) => dropped || (shown && next !== ''));
                       field.onChange(next);
                     }}
                     aria-describedby={asset === 'BTC' && droppedInput ? 'lock-amount-whole-sats' : undefined}
@@ -186,11 +204,15 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
               )}
             </Container>
 
-            {asset === 'BTC' && droppedInput && (
-              <Typography id="lock-amount-whole-sats" className="pt-1 text-xs text-muted-foreground">
-                {'Only whole sat amounts are accepted.'}
-              </Typography>
-            )}
+            {/* A live region, rendered before its text: aria-describedby is read only on focus, and the note
+                appears while the field already has it. Empty, it leaves the flow, so the layout does not move. */}
+            <Typography
+              id="lock-amount-whole-sats"
+              role="status"
+              className="pt-1 text-xs text-muted-foreground empty:absolute"
+            >
+              {asset === 'BTC' && droppedInput ? 'Only whole sat amounts are accepted.' : null}
+            </Typography>
 
             {asset === 'BTC' && rateStatus === 'failed' && (
               <Typography className="pt-1 text-xs text-destructive">

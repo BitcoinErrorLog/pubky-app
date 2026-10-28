@@ -187,7 +187,46 @@ describe('price field editing (#2458)', () => {
     expect(field()).toHaveValue('1,234,567');
 
     await user.click(field());
-    expect(field()).toHaveValue('1234567');
+    await waitFor(() => expect(field()).toHaveValue('1234567'));
+  });
+
+  it('keeps the select-all of tabbing back in, so typing replaces the amount', async () => {
+    const user = userEvent.setup();
+    await setup();
+    await user.type(field(), '1234567');
+    await user.tab();
+    expect(field()).toHaveValue('1,234,567');
+
+    await user.tab({ shift: true });
+    await waitFor(() => expect(field()).toHaveValue('1234567'));
+    expect([field().selectionStart, field().selectionEnd]).toEqual([0, 7]);
+    await user.keyboard('9');
+    expect(field()).toHaveValue('9');
+  });
+
+  it('keeps a click on the grouped amount on the same digit once ungrouped', async () => {
+    const user = userEvent.setup();
+    await setup();
+    await user.type(field(), '1234567');
+    await user.tab();
+    expect(field()).toHaveValue('1,234,567');
+
+    await user.pointer({ keys: '[MouseLeft]', target: field(), offset: 7 }); // between "5" and "6" in "1,234,567"
+    await waitFor(() => expect(field()).toHaveValue('1234567'));
+    expect(field().selectionStart).toBe(5); // "12345|67"
+    await user.keyboard('0');
+    expect(field()).toHaveValue('12345067');
+  });
+
+  it('announces the whole-sats note from a live region that is rendered before the note appears', async () => {
+    const user = userEvent.setup();
+    await setup();
+    const region = screen.getByRole('status');
+    expect(region).toBeEmptyDOMElement();
+
+    await user.type(field(), '2.4');
+    expect(region).toHaveTextContent('Only whole sat amounts are accepted.');
+    expect(screen.getByRole('status')).toBe(region);
   });
 
   it('keeps every typed digit above 2^53 and applies exactly that amount', async () => {
