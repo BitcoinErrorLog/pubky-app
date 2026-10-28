@@ -640,7 +640,7 @@ describe('LocksController (content)', () => {
     };
 
     await expect(LocksController.createLockContent(params)).resolves.toBe(lock);
-    expect(mocks.createLockContent).toHaveBeenCalledWith(params);
+    expect(mocks.createLockContent).toHaveBeenCalledWith({ ...params, isCurrent: expect.any(Function) });
   });
 
   it.each([ErrorService.Locks, ErrorService.Homeserver])(
@@ -681,7 +681,10 @@ describe('LocksController.fetchLockFile', () => {
       lockFile: MOCK_LOCK_FILE,
       price: { amount: '1000', asset: 'BTC' as const },
     });
-    expect(LocksApplication.fetchLockFile).toHaveBeenCalledWith({ lockUrl: VALID_LOCK_URL });
+    expect(LocksApplication.fetchLockFile).toHaveBeenCalledWith({
+      lockUrl: VALID_LOCK_URL,
+      isCurrent: expect.any(Function),
+    });
   });
 
   it('resolves a null price without a lock file', async () => {
@@ -709,7 +712,7 @@ describe('LocksController.getOrFetchLockFile', () => {
       lockFile,
       price: { amount: '1000', asset },
     });
-    expect(mocks.getOrFetchLockFile).toHaveBeenCalledWith({ lockUrl: VALID_LOCK_URL });
+    expect(mocks.getOrFetchLockFile).toHaveBeenCalledWith({ lockUrl: VALID_LOCK_URL, isCurrent: expect.any(Function) });
   });
 
   it('resolves a null price without a lock file', async () => {
@@ -740,7 +743,7 @@ describe('LocksController.fetchReplicatedContent', () => {
     mocks.fetchReplicatedContent.mockResolvedValue(content);
 
     await expect(LocksController.fetchReplicatedContent(params)).resolves.toEqual(content);
-    expect(mocks.fetchReplicatedContent).toHaveBeenCalledWith(params);
+    expect(mocks.fetchReplicatedContent).toHaveBeenCalledWith({ ...params, isCurrent: expect.any(Function) });
   });
 });
 
@@ -763,6 +766,7 @@ describe('LocksController.replicateUnlockedContent', () => {
       readerPubky: 'pubkyreader',
       content,
       announcementUri: 'pubky://pubkyauthor/pub/pubky.app/posts/POST1',
+      isCurrent: expect.any(Function),
     });
   });
 });
@@ -774,7 +778,7 @@ describe('LocksController.fetchUnlockedList', () => {
     mocks.fetchUnlockedList.mockResolvedValue(items);
 
     await expect(LocksController.fetchUnlockedList(params)).resolves.toEqual(items);
-    expect(mocks.fetchUnlockedList).toHaveBeenCalledWith(params);
+    expect(mocks.fetchUnlockedList).toHaveBeenCalledWith({ ...params, isCurrent: expect.any(Function) });
   });
 });
 
@@ -785,7 +789,7 @@ describe('LocksController.fetchOwnContent', () => {
     mocks.fetchOwnContent.mockResolvedValue(content);
 
     await expect(LocksController.fetchOwnContent(params)).resolves.toEqual(content);
-    expect(mocks.fetchOwnContent).toHaveBeenCalledWith(params);
+    expect(mocks.fetchOwnContent).toHaveBeenCalledWith({ ...params, isCurrent: expect.any(Function) });
   });
 });
 
@@ -829,5 +833,60 @@ describe('LocksController (payment delegation)', () => {
 
     await expect(controller[method](params)).resolves.toEqual(result);
     expect(application[target]).toHaveBeenCalledWith(params);
+  });
+});
+
+describe('LocksController cache writes are scoped to the viewer (#2797)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ currentUserPubky: MOCK_LOCK_AUTHOR_PUBKY, generation: 'original-login' });
+  });
+
+  const lastScope = (mock: ReturnType<typeof vi.fn>) => {
+    const [params] = mock.mock.calls.at(-1) as [{ isCurrent?: () => boolean }];
+    return params.isCurrent;
+  };
+
+  it.each([
+    [
+      'fetchUnlockedList',
+      () => LocksController.fetchUnlockedList({ readerPubky: 'pubkyreader' }),
+      mocks.fetchUnlockedList,
+    ],
+    [
+      'fetchReplicatedContent',
+      () => LocksController.fetchReplicatedContent({ lockUrl: VALID_LOCK_URL, readerPubky: 'pubkyreader' }),
+      mocks.fetchReplicatedContent,
+    ],
+    [
+      'fetchOwnContent',
+      () => LocksController.fetchOwnContent({ lockUrl: VALID_LOCK_URL, lockFile: MOCK_LOCK_FILE }),
+      mocks.fetchOwnContent,
+    ],
+    [
+      'replicateUnlockedContent',
+      () =>
+        LocksController.replicateUnlockedContent({
+          lockUrl: VALID_LOCK_URL,
+          readerPubky: 'pubkyreader',
+          content: { post: { content: 's', kind: 'short', attachments: null }, attachments: [] },
+          postId: 'pubkyauthor:POST1',
+        }),
+      mocks.replicateUnlockedContent,
+    ],
+    ['fetchLockFile', () => LocksController.fetchLockFile({ lockUrl: VALID_LOCK_URL }), mocks.fetchLockFile],
+    [
+      'getOrFetchLockFile',
+      () => LocksController.getOrFetchLockFile({ lockUrl: VALID_LOCK_URL }),
+      mocks.getOrFetchLockFile,
+    ],
+  ])('%s hands the application a scope that ends at logout', async (_name, call, appMock) => {
+    appMock.mockResolvedValueOnce(null);
+    await call().catch(() => undefined);
+
+    const isCurrent = lastScope(appMock);
+    expect(isCurrent?.()).toBe(true);
+    useAuthStore.setState({ currentUserPubky: null });
+    expect(isCurrent?.()).toBe(false);
   });
 });
