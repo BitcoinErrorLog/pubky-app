@@ -31,6 +31,23 @@ describe('LockedPostCard', () => {
     expect(shield).toHaveAttribute('height', '68');
   });
 
+  it('anchors the shield to the bottom of the card, level with the Unlock pill', () => {
+    render(<LockedPostCard title="Secret" price={{ amount: '1234', asset: 'BTC' }} />);
+
+    const card = screen.getByTestId('locked-post-card');
+    expect(card).toHaveClass('items-end');
+    expect(card).not.toHaveClass('items-start');
+  });
+
+  it('caps the shield at 48px on a narrow card (the 336px and 309px Cards layout cards)', () => {
+    const { container } = render(<LockedPostCard title="Secret" price={{ amount: '1234', asset: 'BTC' }} />);
+
+    // The card is its own size container, so the cap follows the card, not the viewport.
+    expect(screen.getByTestId('locked-post-card')).toHaveClass('@container/lock-card');
+    const shieldBox = container.querySelector('img[src*="shield.png"]')?.parentElement;
+    expect(shieldBox).toHaveClass('w-17', '@max-xs/lock-card:w-12');
+  });
+
   it('falls back to the default title while the creator has not typed one', () => {
     render(<LockedPostCard title="" />);
     expect(screen.getByRole('heading', { level: 4 })).toHaveTextContent('Locked content');

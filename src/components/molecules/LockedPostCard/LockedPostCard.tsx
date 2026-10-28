@@ -106,7 +106,9 @@ export function LockedPostCard({
       // A quote-repost preview is itself `bg-muted`, so the card has to step down a shade there or the
       // two read as one block. The price pill steps down with it to keep its own contrast.
       className={cn(
-        'flex cursor-default items-start justify-between gap-4 rounded-md p-6',
+        // `@container/lock-card`: the shield's size follows the card's own width, not the viewport.
+        // `items-end`: the shield sits on the bottom edge, level with the Unlock pill.
+        '@container/lock-card flex cursor-default items-end justify-between gap-4 rounded-md p-6',
         isNested ? 'bg-card' : 'bg-muted',
         className,
       )}
@@ -187,9 +189,10 @@ export function LockedPostCard({
         </div>
       </div>
 
-      {/* 68px at most (the design asks for 25-30% under the original 96px). On a narrow card (two-column
-          Cards layout) it gives way to the pill instead of running under it, and drops out once too small. */}
-      <div className="@container/shield hidden w-17 min-w-0 shrink sm:block">
+      {/* 68px at most (the design asks for 25-30% under the original 96px), 48px on a card under 20rem of content (the
+          Cards layout's 336px and 309px cards). It still gives way to the pill instead of running under it,
+          and drops out once too small. */}
+      <div className="@container/shield hidden w-17 min-w-0 shrink sm:block @max-xs/lock-card:w-12">
         <Image
           src="/images/shield.png"
           alt=""
