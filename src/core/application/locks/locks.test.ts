@@ -100,6 +100,34 @@ const paymentConfig = { amount: '1000', asset: 'BTC' as const };
 const CREATOR_PUBKY = `pubky${MOCK_LOCK_AUTHOR_PUBKY}`;
 const LOCK_SERVER_PUBKY = 'pubky7ir1ttte48bcp4zjychjyscicrwi1j34mtt91ptsafdbjmr8g9eo';
 
+/** Runs every queued task and microtask, so an assertion that nothing happened is not one tick early. */
+const drainTasks = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/** Holds every guarded-resource upload open until the test settles it by path, and counts the in-flight peak. */
+const deferUploads = () => {
+  const pending = new Map<string, PromiseWithResolvers<{ resource: TGuardedResource; creator: string }>>();
+  let inFlight = 0;
+  let peak = 0;
+  mocks.registerGuardedResource.mockImplementation(({ path }: { path: string }) => {
+    const deferred = Promise.withResolvers<{ resource: TGuardedResource; creator: string }>();
+    pending.set(path, deferred);
+    peak = Math.max(peak, ++inFlight);
+    return deferred.promise;
+  });
+  return {
+    pending,
+    maxInFlight: () => peak,
+    settle: (path: string) => {
+      inFlight--;
+      pending.get(path)!.resolve({ resource: descriptor(path), creator: CREATOR_PUBKY });
+    },
+    fail: (path: string, error: Error) => {
+      inFlight--;
+      pending.get(path)!.reject(error);
+    },
+  };
+};
+
 describe('LocksApplication (content)', () => {
   beforeAll(() => {
     const sdkEntry = import.meta.resolve('@synonymdev/locks-sdk');
@@ -165,6 +193,82 @@ describe('LocksApplication (content)', () => {
       content_lock_path: '/pub/app.locks/LOCK1.json',
       creator: CREATOR_PUBKY,
     });
+  });
+
+  it('uploads at most three attachments at once, keeps their order, and uploads the post only after all of them (#2316)', async () => {
+    const uploads = deferUploads();
+    const builder = vi.fn(() => file());
+
+    const publish = LocksApplication.createLockContent({
+      attachments: [file('image/png'), file('video/mp4'), file('image/jpeg'), file('image/webp')],
+      buildPost: builder,
+      lockConfig: paymentConfig,
+    });
+    await vi.waitFor(() => expect(uploads.pending.size).toBe(3));
+    await drainTasks();
+
+    // Three are in flight together; the fourth waits for a free slot, and there is no post yet.
+    expect([...uploads.pending.keys()]).toEqual(['id-1', 'id-2', 'id-3']);
+    expect(builder).not.toHaveBeenCalled();
+
+    // A slot freed out of order goes to the next attachment, and only to it.
+    uploads.settle('id-3');
+    await vi.waitFor(() => expect(uploads.pending.has('id-4')).toBe(true));
+    await drainTasks();
+    expect(uploads.pending.size).toBe(4);
+    expect(builder).not.toHaveBeenCalled();
+
+    // Everything but `id-2` done: the post still waits for it.
+    uploads.settle('id-4');
+    uploads.settle('id-1');
+    await drainTasks();
+    expect(builder).not.toHaveBeenCalled();
+    expect(uploads.pending.has('id-5')).toBe(false);
+    uploads.settle('id-2');
+
+    await vi.waitFor(() => expect(uploads.pending.has('id-5')).toBe(true));
+    // The builder sees the attachments in the creator's order, not the order they finished in.
+    expect(builder).toHaveBeenCalledExactlyOnceWith(
+      [descriptor('id-1'), descriptor('id-2'), descriptor('id-3'), descriptor('id-4')],
+      CREATOR_PUBKY,
+    );
+    expect(mocks.creatorCreateContentLock).not.toHaveBeenCalled();
+    uploads.settle('id-5');
+
+    await publish;
+    expect(uploads.maxInFlight()).toBe(3);
+    expect(mocks.creatorCreateContentLock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ primary_resource: descriptor('id-5') }),
+    );
+  });
+
+  it('starts no further attachment after one fails, and rejects once the in-flight ones settle', async () => {
+    const uploads = deferUploads();
+    const builder = vi.fn(() => file());
+    let settled = false;
+
+    const publish = LocksApplication.createLockContent({
+      attachments: [file('image/png'), file('video/mp4'), file('image/jpeg'), file('image/webp')],
+      buildPost: builder,
+      lockConfig: paymentConfig,
+    }).finally(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(uploads.pending.size).toBe(3));
+
+    uploads.fail('id-1', new Error('upload failed'));
+    await drainTasks();
+    // The free slot is not refilled, and the error waits for the two uploads still running, so a
+    // retry right after it does not overlap this attempt.
+    expect(uploads.pending.has('id-4')).toBe(false);
+    expect(settled).toBe(false);
+
+    uploads.settle('id-2');
+    uploads.settle('id-3');
+    await expect(publish).rejects.toThrow('upload failed');
+    expect(mocks.registerGuardedResource).toHaveBeenCalledTimes(3);
+    expect(builder).not.toHaveBeenCalled();
+    expect(mocks.creatorCreateContentLock).not.toHaveBeenCalled();
   });
 
   it('gives identical files distinct paths, so neither overwrites the other', async () => {
@@ -1406,6 +1510,113 @@ describe('LocksApplication.fetchUnlockedList', () => {
     const result = await LocksApplication.fetchUnlockedList({ readerPubky: READER });
 
     expect(result.map((item) => item.lockId)).toEqual(['DATED', 'NOHEADER']);
+  });
+});
+
+describe('LocksApplication cache writes after logout (#2797)', () => {
+  const READER = 'pubkyreader123';
+  const LOCK_URL = `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/LOCK1.json`;
+  const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+  const markerOf = (content: string, modifiedAt = 1) => ({
+    bytes: encode({ content, kind: 'short', attachments: null }),
+    modifiedAt,
+  });
+
+  /** A viewer scope that logs out while the network read is in flight. */
+  const logoutDuring = () => {
+    let current = true;
+    return { isCurrent: () => current, logout: () => (current = false) };
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.putBlob.mockResolvedValue(undefined);
+  });
+
+  it('replicateUnlockedContent still finishes the replica but skips the cache write', async () => {
+    const scope = logoutDuring();
+    mocks.putBlob.mockImplementation(async () => scope.logout());
+
+    await LocksApplication.replicateUnlockedContent({
+      lockUrl: LOCK_URL,
+      readerPubky: READER,
+      content: { post: { content: 'secret', kind: 'short', attachments: null }, attachments: [] },
+      announcementUri: 'pubky://author/pub/pubky.app/posts/POST1',
+      isCurrent: scope.isCurrent,
+    });
+
+    expect(mocks.putBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.cachePost).not.toHaveBeenCalled();
+  });
+
+  it('fetchUnlockedList returns the list but does not cache it', async () => {
+    const scope = logoutDuring();
+    mocks.listAll.mockResolvedValueOnce([`pubky://${READER}/priv/social/unlocked/LOCK1/post.json`]);
+    mocks.getBytesIfExists.mockImplementationOnce(async () => {
+      scope.logout();
+      return markerOf('secret');
+    });
+
+    const result = await LocksApplication.fetchUnlockedList({ readerPubky: READER, isCurrent: scope.isCurrent });
+
+    expect(result.map((item) => item.lockId)).toEqual(['LOCK1']);
+    expect(mocks.cachePost).not.toHaveBeenCalled();
+  });
+
+  it('fetchReplicatedContent returns the content but does not cache it', async () => {
+    const scope = logoutDuring();
+    mocks.getBytesIfExists.mockImplementationOnce(async () => {
+      scope.logout();
+      return markerOf('secret');
+    });
+
+    const result = await LocksApplication.fetchReplicatedContent({
+      lockUrl: LOCK_URL,
+      readerPubky: READER,
+      isCurrent: scope.isCurrent,
+    });
+
+    expect(result?.post.content).toBe('secret');
+    expect(mocks.cachePost).not.toHaveBeenCalled();
+  });
+
+  it("fetchOwnContent returns the creator's original but does not cache it", async () => {
+    const scope = logoutDuring();
+    mocks.getBytes.mockImplementationOnce(async () => {
+      scope.logout();
+      return encode({ content: 'mine', kind: 'short', attachments: null });
+    });
+
+    const result = await LocksApplication.fetchOwnContent({
+      lockUrl: VALID_LOCK_URL,
+      lockFile: asOpaque<LockFile>({
+        creator: 'pubkyowner',
+        primary_resource: { path: '/priv/app.locks/content/post', hash: 'h', content_type: 'x', size: 1 },
+      }),
+      isCurrent: scope.isCurrent,
+    });
+
+    expect(result.post.content).toBe('mine');
+    expect(mocks.cachePost).not.toHaveBeenCalled();
+  });
+
+  it('fetchLockFile returns the descriptor but does not cache it', async () => {
+    const scope = logoutDuring();
+    mocks.readContentLock.mockImplementationOnce(async () => {
+      scope.logout();
+      return lockFile;
+    });
+
+    await expect(
+      LocksApplication.fetchLockFile({ lockUrl: VALID_LOCK_URL, isCurrent: scope.isCurrent }),
+    ).resolves.toEqual(lockFile);
+    expect(mocks.cacheDescriptor).not.toHaveBeenCalled();
+  });
+
+  it('still caches when the viewer is unchanged', async () => {
+    mocks.readContentLock.mockResolvedValueOnce(lockFile);
+    await LocksApplication.fetchLockFile({ lockUrl: VALID_LOCK_URL, isCurrent: () => true });
+    expect(mocks.cacheDescriptor).toHaveBeenCalledWith({ lockId: 'lock1', descriptor: lockFile });
   });
 });
 

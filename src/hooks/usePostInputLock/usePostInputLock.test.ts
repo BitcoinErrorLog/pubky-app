@@ -214,7 +214,12 @@ describe('usePostInputLock', () => {
       setUpLocks();
       const { result, captureComposer } = setup(true, true);
 
-      expect(result.current.lockSwitch).toMatchObject({ checked: false, disabled: true, regionNotice: cause });
+      expect(result.current.lockSwitch).toMatchObject({
+        checked: false,
+        disabled: true,
+        regionNotice: cause,
+        showHelp: false,
+      });
 
       act(() => result.current.lockSwitch?.onCheckedChange(true));
       // The held switch must not capture the draft or open any Locks dialog.
@@ -224,17 +229,35 @@ describe('usePostInputLock', () => {
       expect(result.current.isAuthDialogOpen).toBe(false);
     });
 
-    it('keeps the switch off while the region is still being read, without a notice', () => {
+    it('keeps the switch off while the region is still being read, without a notice or help', () => {
       paidUnlocks.value = { status: 'checking' };
       const { result } = setup(true, true);
 
-      expect(result.current.lockSwitch).toMatchObject({ disabled: true, regionNotice: undefined });
+      expect(result.current.lockSwitch).toMatchObject({ disabled: true, regionNotice: undefined, showHelp: false });
     });
 
     it('leaves the switch exactly as it is when paid unlocks are available', () => {
       const { result } = setup(true, true);
 
-      expect(result.current.lockSwitch).toMatchObject({ checked: false, disabled: false, regionNotice: undefined });
+      expect(result.current.lockSwitch).toMatchObject({
+        checked: false,
+        disabled: false,
+        regionNotice: undefined,
+        showHelp: true,
+      });
+    });
+
+    it('offers the help on an empty composer, whose switch waits for content', () => {
+      expect(setup(true, false).result.current.lockSwitch).toMatchObject({ disabled: true, showHelp: true });
+    });
+
+    it('hides the help once the lock is on', () => {
+      setUpLocks();
+      const { result } = setup(true, true);
+
+      act(() => result.current.lockSwitch?.onCheckedChange(true));
+
+      expect(result.current.lockSwitch).toMatchObject({ checked: true, showHelp: false });
     });
 
     it('still publishes a normal post: only the lock switch is held', async () => {

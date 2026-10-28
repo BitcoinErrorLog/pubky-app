@@ -1,5 +1,5 @@
 import type { Session as LocksSdkSession } from '@synonymdev/locks-sdk';
-import { PAYKIT_PAYMENT_IN_HOURS } from '@/config/locks';
+import { LOCK_ATTACHMENT_UPLOAD_CONCURRENCY, PAYKIT_PAYMENT_IN_HOURS } from '@/config/locks';
 import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -48,6 +48,7 @@ import type {
   TResolvedPurchase,
   TStartPaymentParams,
   TStartPaymentResult,
+  TViewerScope,
 } from './locks.types';
 
 // v1 payment locks must hold exactly one criterion, referenced once by the lock logic.
@@ -382,7 +383,8 @@ export class LocksApplication {
     readerPubky,
     content,
     announcementUri,
-  }: TReplicateUnlockedContentParams): Promise<void> {
+    isCurrent,
+  }: TReplicateUnlockedContentParams & TViewerScope): Promise<void> {
     const lockId = this.requireLockId(lockUrl, 'replicateUnlockedContent');
 
     for (const attachment of content.attachments) {
@@ -405,6 +407,7 @@ export class LocksApplication {
     });
 
     // Cache failure must not turn a completed unlock into a failure.
+    if (isCurrent?.() === false) return;
     await LocalLocksService.upsertPost({
       lockId,
       creator: LockContentParser.creatorFromUrl(lockUrl) ?? undefined,
@@ -419,7 +422,10 @@ export class LocksApplication {
    * concurrently-deleted marker drops that one item so the rest still renders; any other failure
    * rejects the whole list so the caller can retry.
    */
-  static async fetchUnlockedList({ readerPubky }: TFetchUnlockedListParams): Promise<TUnlockedListItem[]> {
+  static async fetchUnlockedList({
+    readerPubky,
+    isCurrent,
+  }: TFetchUnlockedListParams & TViewerScope): Promise<TUnlockedListItem[]> {
     const files = await HomeserverService.listAll({
       baseDirectory: GuardedContentParser.unlockedRootUrl(readerPubky),
     });
@@ -442,6 +448,7 @@ export class LocksApplication {
     const result = items
       .filter((item): item is TUnlockedListItem => item !== null)
       .sort((a, b) => b.unlockedAt - a.unlockedAt);
+    if (isCurrent?.() === false) return result;
     await Promise.all(
       result.map(({ lockId, post, unlockedAt }) =>
         LocalLocksService.upsertPost({
@@ -497,7 +504,8 @@ export class LocksApplication {
   static async fetchReplicatedContent({
     lockUrl,
     readerPubky,
-  }: TFetchReplicatedContentParams): Promise<TUnlockedContent | null> {
+    isCurrent,
+  }: TFetchReplicatedContentParams & TViewerScope): Promise<TUnlockedContent | null> {
     const lockId = LockContentParser.lockIdFromUrl(lockUrl);
     if (!lockId) return null;
 
@@ -509,12 +517,14 @@ export class LocksApplication {
     const { post } = replicatedPost;
     const refs = post.attachments ?? [];
     const attachments = await this.fetchReplicatedAttachments({ post });
-    await LocalLocksService.upsertPost({
-      lockId,
-      creator: LockContentParser.creatorFromUrl(lockUrl) ?? undefined,
-      post,
-      unlockedAt: replicatedPost.unlockedAt,
-    }).catch(() => undefined);
+    if (isCurrent?.() !== false) {
+      await LocalLocksService.upsertPost({
+        lockId,
+        creator: LockContentParser.creatorFromUrl(lockUrl) ?? undefined,
+        post,
+        unlockedAt: replicatedPost.unlockedAt,
+      }).catch(() => undefined);
+    }
     return {
       post: { content: post.content, kind: post.kind, attachments: refs.map((ref) => ref.url) },
       attachments,
@@ -554,7 +564,11 @@ export class LocksApplication {
    * Only valid when the lock owner is the signed-in account (a == b); the caller
    * verifies that before calling.
    */
-  static async fetchOwnContent({ lockUrl, lockFile }: TFetchOwnContentParams): Promise<TUnlockedContent> {
+  static async fetchOwnContent({
+    lockUrl,
+    lockFile,
+    isCurrent,
+  }: TFetchOwnContentParams & TViewerScope): Promise<TUnlockedContent> {
     const primaryPath = lockFile.primary_resource?.path;
     if (!primaryPath) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'lock file has no readable primary resource', {
@@ -580,7 +594,7 @@ export class LocksApplication {
       HomeserverService.getBytes(uri),
     );
     const lockId = LockContentParser.lockIdFromUrl(lockUrl);
-    if (lockId) {
+    if (lockId && isCurrent?.() !== false) {
       await this.cacheGuardedOriginal({
         lockId,
         creator: lockFile.creator,
@@ -613,10 +627,12 @@ export class LocksApplication {
    * attachments its secondary resources.
    *
    * Attachments go first because a resource's path only exists once its bytes are uploaded, and the
-   * post has to reference them. Uploads are sequential.
+   * post has to reference them. Attachments upload a few at a time (`uploadAttachments`); the post and
+   * the lock follow once all of them are up.
    *
-   * TODO:[Locks] #2039 — a failure part-way leaves the already-uploaded resources orphaned on the
-   * server. See the note on `LocksService.createContentLock` for the cleanup rules.
+   * TODO:[Locks] #2039 — a failure part-way leaves the uploaded resources orphaned on the server (every
+   * attachment that finished, including the ones still in flight when another failed). See the note on
+   * `LocksService.createContentLock` for the cleanup rules.
    *
    * The composer checks the file count and size against the Lock Server defaults first
    * (`LOCK_ATTACHMENT_*` in `@/config/posts`); the server stays the authority.
@@ -625,17 +641,14 @@ export class LocksApplication {
     attachments = [],
     buildPost,
     lockConfig,
-  }: TCreateLockContentParams): Promise<TCreateContentLockResult> {
+    isCurrent,
+  }: TCreateLockContentParams & TViewerScope): Promise<TCreateContentLockResult> {
     // The guarded bytes land on the Lock-Server-authenticated account, which may differ from the
     // pubky.app user. Capture that owner from the upload response so `buildPost` can reference the
     // attachments by their real host. With no attachments the owner stays undefined and no URIs are built.
-    let owner: string | undefined;
-    const attachmentResources: TGuardedResource[] = [];
-    for (const file of attachments) {
-      const uploaded = await this.upload(file);
-      owner = uploaded.creator;
-      attachmentResources.push(uploaded.resource);
-    }
+    const uploads = await this.uploadAttachments(attachments);
+    const owner = uploads.at(-1)?.creator;
+    const attachmentResources: TGuardedResource[] = uploads.map((uploaded) => uploaded.resource);
     const postFile = buildPost(attachmentResources, owner);
     const post = await this.upload(postFile);
 
@@ -661,7 +674,7 @@ export class LocksApplication {
     });
     const lockUrl = `pubky://${stripPubkyPrefix(result.creator)}${result.content_lock_path}`;
     const parsedPost = GuardedContentParser.parsePost(postFile.bytes);
-    if (parsedPost) {
+    if (parsedPost && isCurrent?.() !== false) {
       await this.cacheGuardedOriginal({
         lockId: result.lock_id,
         creator: result.creator,
@@ -670,7 +683,7 @@ export class LocksApplication {
       });
     }
     // Publishing must not wait for a second homeserver read before the announcement can be posted.
-    void this.fetchLockFile({ lockUrl }).catch(() => undefined);
+    void this.fetchLockFile({ lockUrl, isCurrent }).catch(() => undefined);
     return result;
   }
 
@@ -690,6 +703,34 @@ export class LocksApplication {
   }
 
   /**
+   * Uploads the attachments with at most `LOCK_ATTACHMENT_UPLOAD_CONCURRENCY` in flight and returns
+   * their results in input order, whatever order they finish in. Each upload mints its own path, so
+   * they cannot conflict.
+   *
+   * One lost file means no lock: after the first failure no further attachment starts, and the error
+   * is thrown only once the uploads already in flight have settled. A retry right after it therefore
+   * never overlaps this attempt, at the cost of surfacing the error one upload later.
+   */
+  private static async uploadAttachments(files: TLockContentFile[]): Promise<TRegisterGuardedResourceResult[]> {
+    const results: TRegisterGuardedResourceResult[] = new Array(files.length);
+    let next = 0;
+    let failure: { error: unknown } | undefined;
+    const worker = async () => {
+      while (!failure && next < files.length) {
+        const index = next++;
+        try {
+          results[index] = await this.upload(files[index]);
+        } catch (error) {
+          failure ??= { error };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(LOCK_ATTACHMENT_UPLOAD_CONCURRENCY, files.length) }, worker));
+    if (failure) throw failure.error;
+    return results;
+  }
+
+  /**
    * Uploads one file under a freshly minted path and returns its descriptor.
    *
    * The path is a random id, never the original filename: two attachments named `cover.png` would
@@ -706,7 +747,7 @@ export class LocksApplication {
   }
 
   /** Reads the creator's public `lock.json`. Throws for a malformed `lock` URL. */
-  static async fetchLockFile({ lockUrl }: TFetchLockFileParams): Promise<LockFile | null> {
+  static async fetchLockFile({ lockUrl, isCurrent }: TFetchLockFileParams & TViewerScope): Promise<LockFile | null> {
     if (!LockContentParser.isValidLockUrl(lockUrl)) {
       throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'post lock URL is not a valid pubky homeserver URL', {
         service: ErrorService.Locks,
@@ -718,7 +759,7 @@ export class LocksApplication {
     // TODO:[Locks] locks#22 — replace this cast when the SDK exports its lock-file reader type.
     const descriptor = (await LocksService.readContentLock(lockUrl)) as LockFile;
     const lockId = LockContentParser.lockIdFromUrl(lockUrl);
-    if (lockId) {
+    if (lockId && isCurrent?.() !== false) {
       await LocalLocksService.upsertDescriptor({ lockId, descriptor }).catch(() => undefined);
     }
     return descriptor;
@@ -745,7 +786,7 @@ export class LocksApplication {
     return (await this.getCreatorRecord(lockUrl))?.descriptor ?? null;
   }
 
-  static async getOrFetchLockFile(params: TFetchLockFileParams): Promise<LockFile | null> {
+  static async getOrFetchLockFile(params: TFetchLockFileParams & TViewerScope): Promise<LockFile | null> {
     // A broken cache must not prevent a public lock from loading from its source.
     const cached = await this.getLockFile(params).catch(() => null);
     return cached ?? this.fetchLockFile(params);
