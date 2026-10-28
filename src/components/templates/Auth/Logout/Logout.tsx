@@ -18,7 +18,9 @@ import { ContentCard } from '@/molecules/Content/Content';
 import { LogoutContent, LogoutNavigation } from '@/molecules/Logout/Logout';
 import { PageTitle } from '@/molecules/Page/Page';
 import { AlertBackup } from '@/organisms/AlertBackup/AlertBackup';
+import { hasAccountState } from '@/stores/auth/auth.selectors';
 import { useAuthStore } from '@/stores/auth/auth.store';
+import { hasSignupAttemptForSecretState } from '@/stores/onboarding/onboarding.selectors';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 
 type LogoutViewState = 'idle' | 'loading' | 'success' | 'error' | 'canceled';
@@ -57,8 +59,13 @@ export function Logout() {
   const [viewState, setViewState] = useState<LogoutViewState>('idle');
 
   const secretKey = useOnboardingStore((state) => state.secretKey);
+  // A generated pubky without an account has nothing to back up, and AlertBackup stays hidden for it; a key whose
+  // sign-up already started may own an account the auth store holds no session for, so it keeps the prompt (#2955).
+  const hasAuthAccount = useAuthStore(hasAccountState);
+  const hasSignupAttempt = useOnboardingStore(hasSignupAttemptForSecretState);
+  const hasAccount = hasAuthAccount || hasSignupAttempt;
   const needsBackup = Boolean(
-    secretKey && currentUserPubky && Identity.tryZ32FromSecret(secretKey) === currentUserPubky,
+    hasAccount && secretKey && currentUserPubky && Identity.tryZ32FromSecret(secretKey) === currentUserPubky,
   );
 
   const isHydrated = onboardingHasHydrated && authHasHydrated;

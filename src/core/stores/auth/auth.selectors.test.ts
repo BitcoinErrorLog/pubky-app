@@ -1,6 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import { mockGrantReference, mockSession } from '@/test-utils/pubky';
-import { selectDisplayUserPubky } from './auth.selectors';
+import { hasAccountState, selectDisplayUserPubky } from './auth.selectors';
+
+describe('hasAccountState', () => {
+  it('is true for a ready session', () => {
+    expect(
+      hasAccountState({ session: mockSession(), sessionReference: mockGrantReference(), restoreStatus: 'ready' }),
+    ).toBe(true);
+  });
+
+  it('is true while the session is restoring', () => {
+    expect(hasAccountState({ session: null, sessionReference: mockGrantReference(), restoreStatus: 'restoring' })).toBe(
+      true,
+    );
+  });
+
+  it('is true while a saved session is still pending restoration', () => {
+    expect(hasAccountState({ session: null, sessionReference: mockGrantReference(), restoreStatus: 'idle' })).toBe(
+      true,
+    );
+  });
+
+  it.each(['reauth-required', 'temporary-error'] as const)(
+    'is true after %s: that member can still recover',
+    (restoreStatus) => {
+      expect(hasAccountState({ session: null, sessionReference: null, restoreStatus })).toBe(true);
+    },
+  );
+
+  it('is false for a generated pubky with no session and nothing to restore (#2955)', () => {
+    expect(hasAccountState({ session: null, sessionReference: null, restoreStatus: 'idle' })).toBe(false);
+  });
+});
 
 describe('selectDisplayUserPubky', () => {
   it('returns the pubky of a ready session', () => {
