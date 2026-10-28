@@ -15,6 +15,7 @@ import type { PostInputActionBarProps } from './PostInputActionBar.types';
 const COMMON_BUTTON_PROPS = { variant: 'secondary', size: 'sm' } as const;
 const LOCK_HELP_HEADING = 'Sell your content';
 const LOCK_HELP_INFO = 'Put a price on your content. Let people pay to unlock the value you create.';
+const LOCK_HELP_REQUIREMENT = 'Add text or attachments first, then turn on the lock.';
 
 interface ActionButtonContentProps {
   Icon: React.ComponentType<{
@@ -136,6 +137,9 @@ export function PostInputActionBar({
                     data-testid="lock-switch-help-info"
                   >
                     {LOCK_HELP_INFO}
+                  </Typography>
+                  <Typography overrideDefaults className="text-sm text-popover-foreground">
+                    {LOCK_HELP_REQUIREMENT}
                   </Typography>
                 </PopoverContent>
               </Popover>
