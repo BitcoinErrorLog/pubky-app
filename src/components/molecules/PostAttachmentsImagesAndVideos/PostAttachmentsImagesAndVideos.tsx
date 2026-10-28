@@ -1,7 +1,6 @@
 'use client';
 import { type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { Minus, Plus } from 'lucide-react';
-import { Button, ButtonVariant } from '@/atoms/Button/Button';
+import { Button } from '@/atoms/Button/Button';
 import {
   Carousel,
   type CarouselApi,
@@ -236,21 +235,22 @@ export const PostAttachmentsImagesAndVideos = ({
             )}
           </Container>
           {hasCollapseToggle && (
-            <Button
-              type="button"
-              variant={ButtonVariant.OUTLINE}
-              size="sm"
-              aria-expanded={isExpanded}
-              onClick={(event) => {
-                // The post card navigates on click; the toggle must not.
-                event.stopPropagation();
-                setIsExpanded((expanded) => !expanded);
-              }}
-              className={cn('self-start', total === 2 && 'sm:hidden')}
-            >
-              {isExpanded ? <Minus aria-hidden /> : <Plus aria-hidden />}
-              {isExpanded ? 'Show less' : 'Show more'}
-            </Button>
+            // The app's Show more button (as in the collections lists), centred under the row.
+            <Container overrideDefaults className={cn('flex w-full justify-center', total === 2 && 'sm:hidden')}>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                aria-expanded={isExpanded}
+                onClick={(event) => {
+                  // The post card navigates on click; the toggle must not.
+                  event.stopPropagation();
+                  setIsExpanded((expanded) => !expanded);
+                }}
+              >
+                {isExpanded ? 'Show less' : 'Show more'}
+              </Button>
+            </Container>
           )}
         </>
       )}

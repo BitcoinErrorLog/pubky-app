@@ -202,7 +202,8 @@ describe('PostAttachments', () => {
       expect(tiles[1]).toHaveClass('max-sm:hidden');
       tiles.slice(2).forEach((tile) => expect(tile).toHaveClass('hidden'));
       // The Show more row is reserved too, so the toggle does not push the post down when it appears.
-      expect(container.querySelector('[data-slot="skeleton"].h-8')).toBeInTheDocument();
+      // Centred like the Show more button it stands in for, so it does not jump sideways on load.
+      expect(container.querySelector('[data-slot="skeleton"].h-8')).toHaveClass('self-center');
     });
 
     it('reserves the toggle row on mobile only for two pending media tiles', () => {

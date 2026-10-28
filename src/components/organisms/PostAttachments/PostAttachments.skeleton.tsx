@@ -40,7 +40,9 @@ export function PostAttachmentsSkeleton({
           ))}
         </Container>
       )}
-      {hasCollapseToggle && <Skeleton className={cn('h-8 w-28 self-start rounded-full', total === 2 && 'sm:hidden')} />}
+      {hasCollapseToggle && (
+        <Skeleton className={cn('h-8 w-28 self-center rounded-full', total === 2 && 'sm:hidden')} />
+      )}
       {[...audios, ...genericFiles].map(({ slot }) => (
         <Skeleton key={slot} className="h-14 w-full rounded-md" />
       ))}

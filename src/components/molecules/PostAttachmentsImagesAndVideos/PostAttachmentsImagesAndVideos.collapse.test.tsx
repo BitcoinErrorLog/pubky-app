@@ -56,7 +56,18 @@ describe('PostAttachmentsImagesAndVideos - collapsed media row (#2868)', () => {
     const toggle = screen.getByRole('button', { name: 'Show more' });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     // Something is hidden at every width, so the toggle shows at every width.
-    expect(toggle).not.toHaveClass('sm:hidden');
+    expect(toggle.parentElement).not.toHaveClass('sm:hidden');
+  });
+
+  it('uses the app Show more button, centred under the row with no icon', () => {
+    render(<PostAttachmentsImagesAndVideos imagesAndVideos={images(3)} collapsible />);
+
+    const toggle = screen.getByRole('button', { name: 'Show more' });
+    // The default variant's brand fill, as the collections lists' Show more.
+    expect(toggle).toHaveClass('bg-brand/16');
+    expect(toggle).not.toHaveClass('self-start');
+    expect(toggle.querySelector('svg')).toBeNull();
+    expect(toggle.parentElement).toHaveClass('flex', 'w-full', 'justify-center');
   });
 
   it('reveals every tile and offers Show less once expanded, then collapses again', async () => {
@@ -81,7 +92,7 @@ describe('PostAttachmentsImagesAndVideos - collapsed media row (#2868)', () => {
     render(<PostAttachmentsImagesAndVideos imagesAndVideos={images(2)} collapsible />);
 
     expect(tiles()[1]).toHaveClass('max-sm:hidden');
-    expect(screen.getByRole('button', { name: 'Show more' })).toHaveClass('sm:hidden');
+    expect(screen.getByRole('button', { name: 'Show more' }).parentElement).toHaveClass('sm:hidden');
   });
 
   it('does not let the toggle click reach the post card, which navigates on click', async () => {
