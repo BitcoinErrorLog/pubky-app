@@ -126,3 +126,6 @@ export type TCreateLockContentParams = {
   /** How the content is gated. The criterion is assembled from it at publish time. */
   lockConfig: TLockConfig;
 };
+
+/** The announcement's top-level `lock` URL; the lock id is parsed from it. */
+export type TDeleteLockContentParams = { lockUrl: string };

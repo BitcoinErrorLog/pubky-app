@@ -35,7 +35,9 @@ const mocks = vi.hoisted(() => ({
   cacheGet: vi.fn().mockResolvedValue(null),
   cacheDescriptor: vi.fn().mockResolvedValue(undefined),
   cachePost: vi.fn().mockResolvedValue(undefined),
+  cacheDelete: vi.fn().mockResolvedValue(undefined),
   cacheUnlockedList: vi.fn().mockResolvedValue([]),
+  deleteContentLock: vi.fn(),
 }));
 
 vi.mock('@/services/local/locks/locks', () => ({
@@ -43,6 +45,7 @@ vi.mock('@/services/local/locks/locks', () => ({
     get: mocks.cacheGet,
     upsertDescriptor: mocks.cacheDescriptor,
     upsertPost: mocks.cachePost,
+    delete: mocks.cacheDelete,
     getUnlockedList: mocks.cacheUnlockedList,
   },
 }));
@@ -64,6 +67,7 @@ vi.mock('@/services/locks/locks', async (importOriginal) => {
       registerGuardedResource: mocks.registerGuardedResource,
       // Publishing uses the production service and SDK builder; only creator transport is mocked.
       createContentLock: actual.LocksService.createContentLock,
+      deleteContentLock: mocks.deleteContentLock,
       generateBundleId: mocks.generateBundleId,
       submitProof: mocks.submitProof,
       lookupPaykitConnectionState: mocks.lookupPaykitConnectionState,
@@ -129,6 +133,64 @@ describe('LocksApplication (content)', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  describe('deleteLockContent', () => {
+    const lockUrl = `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/LOCK1.json`;
+
+    it('deletes the lock by the id parsed from the URL, then drops the cached original', async () => {
+      mocks.deleteContentLock.mockResolvedValue(undefined);
+
+      await expect(LocksApplication.deleteLockContent({ lockUrl })).resolves.toBeUndefined();
+
+      expect(mocks.deleteContentLock).toHaveBeenCalledWith('LOCK1');
+      expect(mocks.cacheDelete).toHaveBeenCalledWith('LOCK1');
+      expect(mocks.deleteContentLock.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.cacheDelete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it.each([
+      'not-a-url',
+      'pubky://not-a-pubky/pub/app.locks/LOCK1.json',
+      `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/`,
+    ])('skips %s so the announcement stays deletable, without calling the Lock Server', async (badUrl) => {
+      await expect(LocksApplication.deleteLockContent({ lockUrl: badUrl })).resolves.toBeUndefined();
+
+      expect(mocks.deleteContentLock).not.toHaveBeenCalled();
+      expect(mocks.cacheDelete).not.toHaveBeenCalled();
+    });
+
+    it('skips the cache delete when the viewer logged out while the Lock Server call was in flight (#2797)', async () => {
+      let current = true;
+      mocks.deleteContentLock.mockImplementationOnce(async () => {
+        current = false;
+      });
+
+      await LocksApplication.deleteLockContent({ lockUrl, isCurrent: () => current });
+
+      expect(mocks.deleteContentLock).toHaveBeenCalledWith('LOCK1');
+      expect(mocks.cacheDelete).not.toHaveBeenCalled();
+    });
+
+    it('keeps the cached original when the Lock Server refuses', async () => {
+      const refused = Err.server(ServerErrorCode.INTERNAL_ERROR, 'refused', {
+        service: ErrorService.Locks,
+        operation: 'test',
+      });
+      mocks.deleteContentLock.mockRejectedValueOnce(refused);
+
+      await expect(LocksApplication.deleteLockContent({ lockUrl })).rejects.toBe(refused);
+
+      expect(mocks.cacheDelete).not.toHaveBeenCalled();
+    });
+
+    it('resolves when only the cache delete fails: the server already accepted the deletion', async () => {
+      mocks.deleteContentLock.mockResolvedValue(undefined);
+      mocks.cacheDelete.mockRejectedValueOnce(new Error('IndexedDB closed'));
+
+      await expect(LocksApplication.deleteLockContent({ lockUrl })).resolves.toBeUndefined();
+    });
   });
 
   it('uploads the attachments first, then the post built from their paths', async () => {

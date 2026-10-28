@@ -434,4 +434,18 @@ export class LocksService {
       throw toLocksError(error, 'LocksService.createContentLock');
     }
   }
+
+  /**
+   * Default (graceful) deletion: `lock.json` becomes a tombstone at once, paid-but-unfinished unlocks
+   * are drained server-side, then the guarded resources go. Accepted as `202` and irreversible.
+   */
+  static async deleteContentLock(lockId: string): Promise<void> {
+    const session = getLockSession();
+    try {
+      await ensureLocksSdkReady();
+      await session.creator.deleteContentLock(lockId);
+    } catch (error) {
+      throw toLocksError(error, 'LocksService.deleteContentLock');
+    }
+  }
 }

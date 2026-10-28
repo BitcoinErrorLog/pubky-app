@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   setLockServiceConfig: vi.fn(),
   fetchPaykitSetupStatus: vi.fn(),
   createLockContent: vi.fn(),
+  deleteLockContent: vi.fn(),
   fetchLockFile: vi.fn(),
   getOrFetchLockFile: vi.fn(),
   hasPaykitReceiver: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock('@/application/locks/locks', () => ({
     setLockServiceConfig: mocks.setLockServiceConfig,
     fetchPaykitSetupStatus: mocks.fetchPaykitSetupStatus,
     createLockContent: mocks.createLockContent,
+    deleteLockContent: mocks.deleteLockContent,
     fetchLockFile: mocks.fetchLockFile,
     getOrFetchLockFile: mocks.getOrFetchLockFile,
     hasPaykitReceiver: mocks.hasPaykitReceiver,
@@ -665,6 +667,51 @@ describe('LocksController (content)', () => {
       );
     },
   );
+
+  it('deleteLockContent delegates to the application', async () => {
+    mocks.deleteLockContent.mockResolvedValue(undefined);
+    const params = { lockUrl: `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/LOCK1.json` };
+
+    await expect(LocksController.deleteLockContent(params)).resolves.toBeUndefined();
+    expect(mocks.deleteLockContent).toHaveBeenCalledWith({ ...params, isCurrent: expect.any(Function) });
+  });
+
+  it.each([ErrorService.Locks, ErrorService.Homeserver])(
+    'deleteLockContent only clears the current Locks session for a Locks auth error: %s',
+    async (service) => {
+      useLocksAuthStore
+        .getState()
+        .init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      const rejected = Err.auth(AuthErrorCode.SESSION_EXPIRED, 'rejected', { service, operation: 'test' });
+      mocks.deleteLockContent.mockRejectedValueOnce(rejected);
+
+      await expect(
+        LocksController.deleteLockContent({ lockUrl: `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/LOCK1.json` }),
+      ).rejects.toBe(rejected);
+
+      expect(useLocksAuthStore.getState().selectLocksSession()).toBe(
+        service === ErrorService.Locks ? null : fakeSession,
+      );
+    },
+  );
+
+  it('deleteLockContent keeps the stored secret when the auth error came from a missing session', async () => {
+    // Restore in flight: the secret is persisted, the session is not back yet.
+    const store = useLocksAuthStore.getState();
+    store.init({ session: fakeSession, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+    store.setSession(null);
+    const rejected = Err.auth(AuthErrorCode.UNAUTHORIZED, 'no session', {
+      service: ErrorService.Locks,
+      operation: 'test',
+    });
+    mocks.deleteLockContent.mockRejectedValueOnce(rejected);
+
+    await expect(
+      LocksController.deleteLockContent({ lockUrl: `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/LOCK1.json` }),
+    ).rejects.toBe(rejected);
+
+    expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBe('secret-abc');
+  });
 });
 
 const MOCK_LOCK_FILE = mockLockFile();
@@ -879,6 +926,11 @@ describe('LocksController cache writes are scoped to the viewer (#2797)', () => 
       'getOrFetchLockFile',
       () => LocksController.getOrFetchLockFile({ lockUrl: VALID_LOCK_URL }),
       mocks.getOrFetchLockFile,
+    ],
+    [
+      'deleteLockContent',
+      () => LocksController.deleteLockContent({ lockUrl: VALID_LOCK_URL }),
+      mocks.deleteLockContent,
     ],
   ])('%s hands the application a scope that ends at logout', async (_name, call, appMock) => {
     appMock.mockResolvedValueOnce(null);
