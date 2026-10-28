@@ -70,6 +70,9 @@ const fakeSession = asOpaque<LocksSdkSession>({
 describe('LocksController (auth)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps queued once-values; a logout test that never reaches the restore must not
+    // hand its value to the next test.
+    mocks.restoreSession.mockReset();
     mocks.generateConnectUrl.mockResolvedValue('https://lock.server/connect');
     mocks.isServerReady.mockResolvedValue(true);
     mocks.exchangeSessionCode.mockResolvedValue({ session: fakeSession, secret: 'secret-abc' });
@@ -257,13 +260,71 @@ describe('LocksController (auth)', () => {
       expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBe('secret-new');
     });
 
-    it('clears the persisted secret without a network call when no live session exists', async () => {
+    // A fresh load rehydrates the secret before the live session is rebuilt; a logout in that window
+    // must still revoke the session on the Lock Server (#2712).
+    it('rebuilds the session from the persisted secret and signs it out when no live session exists yet', async () => {
+      const restored = asOpaque<LocksSdkSession>({ id: 'restored-session' });
+      mocks.restoreSession.mockResolvedValueOnce(restored);
       useLocksAuthStore.getState().init({ session: null, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+
+      await LocksController.logout();
+
+      expect(mocks.restoreSession).toHaveBeenCalledWith('secret-abc');
+      expect(mocks.signout).toHaveBeenCalledWith(restored);
+      expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBeNull();
+    });
+
+    it('revokes the session when logout lands while the fresh-load restore is still running', async () => {
+      const pendingRestore = Promise.withResolvers<LocksSdkSession>();
+      const revoked = asOpaque<LocksSdkSession>({ id: 'revoked-session' });
+      mocks.restoreSession.mockReturnValueOnce(pendingRestore.promise).mockResolvedValueOnce(revoked);
+      useAuthStore.setState({ currentUserPubky: MOCK_LOCK_AUTHOR_PUBKY });
+      useLocksAuthStore.getState().init({ session: null, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+
+      const restoring = LocksController.restorePersistedLocksSession();
+      await LocksController.logout();
+      pendingRestore.resolve(fakeSession);
+      await restoring;
+
+      expect(mocks.signout).toHaveBeenCalledWith(revoked);
+      const store = useLocksAuthStore.getState();
+      expect(store.selectLocksSession()).toBeNull();
+      expect(store.selectLocksSessionSecret()).toBeNull();
+    });
+
+    it('still clears the device when the secret cannot be rebuilt into a session', async () => {
+      mocks.restoreSession.mockRejectedValueOnce(new Error('malformed secret'));
+      useLocksAuthStore.getState().init({ session: null, secret: 'secret-bad', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
 
       await LocksController.logout();
 
       expect(mocks.signout).not.toHaveBeenCalled();
       expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBeNull();
+    });
+
+    it('does not wait past the timeout for a restore that never finishes', async () => {
+      vi.useFakeTimers();
+      try {
+        mocks.restoreSession.mockReturnValueOnce(new Promise(() => {}));
+        useLocksAuthStore
+          .getState()
+          .init({ session: null, secret: 'secret-abc', creatorPubky: MOCK_LOCK_AUTHOR_PUBKY });
+
+        const done = LocksController.logout();
+        await vi.advanceTimersByTimeAsync(60_000);
+        await done;
+
+        expect(useLocksAuthStore.getState().selectLocksSessionSecret()).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('makes no network call when neither a session nor a secret exists', async () => {
+      await LocksController.logout();
+
+      expect(mocks.restoreSession).not.toHaveBeenCalled();
+      expect(mocks.signout).not.toHaveBeenCalled();
     });
   });
 
