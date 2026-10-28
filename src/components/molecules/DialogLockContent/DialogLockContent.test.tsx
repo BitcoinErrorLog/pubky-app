@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DialogLockContent } from './DialogLockContent';
 
@@ -147,6 +148,98 @@ describe('DialogLockContent', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onApplied).not.toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('price field editing (#2458)', () => {
+  const field = () => screen.getByLabelText<HTMLInputElement>('Bitcoin Amount', { selector: 'input' });
+
+  it('keeps the caret where the creator typed when the edit crosses a thousands boundary', async () => {
+    const user = userEvent.setup();
+    await setup();
+    await user.type(field(), '100');
+    field().setSelectionRange(1, 1);
+    await user.keyboard('2');
+
+    expect(field()).toHaveValue('1200');
+    expect(field().selectionStart).toBe(2);
+    await user.keyboard('5'); // the rest of the correction lands next to the first key
+    expect(field()).toHaveValue('12500');
+  });
+
+  it('lets backspace at the separator position delete a digit instead of a comma that comes back', async () => {
+    const user = userEvent.setup();
+    await setup();
+    await user.type(field(), '1000');
+    field().setSelectionRange(2, 2); // after "10" while editing; after the comma when "1,000" is shown
+    await user.keyboard('{Backspace}');
+
+    expect(field()).toHaveValue('100');
+  });
+
+  it('groups the amount once the field loses focus, and ungroups it on focus', async () => {
+    const user = userEvent.setup();
+    await setup();
+    await user.type(field(), '1234567');
+    expect(field()).toHaveValue('1234567');
+
+    await user.tab();
+    expect(field()).toHaveValue('1,234,567');
+
+    await user.click(field());
+    expect(field()).toHaveValue('1234567');
+  });
+
+  it('keeps every typed digit above 2^53 and applies exactly that amount', async () => {
+    const user = userEvent.setup();
+    const { onApplied } = await setup();
+    await user.type(field(), '123456789012345678');
+    await user.tab();
+    expect(field()).toHaveValue('123,456,789,012,345,678');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply Lock' }));
+    });
+    expect(onApplied).toHaveBeenCalledWith({ amount: '123456789012345678', asset: 'BTC' });
+  });
+
+  it.each([
+    [
+      'a pasted decimal',
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.click(field());
+        await user.paste('1.5');
+      },
+      '1',
+    ],
+    [
+      'a decimal typed key by key',
+      async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.type(field(), '2.4');
+      },
+      '24',
+    ],
+  ])('says so when it drops %s', async (_label, enter, kept) => {
+    const user = userEvent.setup();
+    await setup();
+    await enter(user);
+
+    expect(field()).toHaveValue(kept);
+    expect(screen.getByText('Only whole sat amounts are accepted.')).toBeInTheDocument();
+    expect(field()).toHaveAccessibleDescription('Only whole sat amounts are accepted.');
+  });
+
+  it('stays quiet for grouping separators and clears the note once the field is emptied', async () => {
+    const user = userEvent.setup();
+    await setup();
+    await user.click(field());
+    await user.paste('1,234');
+    expect(screen.queryByText('Only whole sat amounts are accepted.')).not.toBeInTheDocument();
+
+    await user.paste('.5');
+    expect(screen.getByText('Only whole sat amounts are accepted.')).toBeInTheDocument();
+    await user.clear(field());
+    expect(screen.queryByText('Only whole sat amounts are accepted.')).not.toBeInTheDocument();
   });
 });
 

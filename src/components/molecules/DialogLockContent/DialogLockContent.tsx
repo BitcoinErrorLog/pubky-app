@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Controller, useWatch } from 'react-hook-form';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Container } from '@/atoms/Container/Container';
@@ -29,10 +29,25 @@ const toSats = (value: string) =>
     .replace(/\D.*$/, '')
     .replace(/^0+(?=\d)/, '');
 
+// True when the filter dropped something the creator typed, beyond grouping separators and leading
+// zeros: a decimal or a stray character. The field then says so instead of changing it silently.
+const dropsInput = (value: string) => /\D/.test(value.replace(/[,\s]/g, ''));
+
+const satsFormatter = new Intl.NumberFormat('en-US');
+
 export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApplyRef }: DialogLockContentProps) {
   // Set when Apply Lock closes the dialog, so the close can move focus on instead of restoring it.
   const appliedRef = useRef(false);
-  const { form, submit, reset, changeAsset } = useLockContentForm((config) => {
+  // Grouping is applied only while the field is not focused: re-inserting a separator mid-edit moves
+  // the caret to the end, so a correction lands in the wrong place (#2458).
+  const [isAmountFocused, setIsAmountFocused] = useState(false);
+  const [droppedInput, setDroppedInput] = useState(false);
+  const {
+    form,
+    submit,
+    reset: resetForm,
+    changeAsset: changeFormAsset,
+  } = useLockContentForm((config) => {
     appliedRef.current = true;
     onApplied(config);
   });
@@ -43,6 +58,16 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
   // The rate is only for pricing a lock, but every post composer mounts this dialog — fetching
   // before it opens would cost a `/api/btc-rate` call on the home feed, Locks users or not.
   const { rate: btcRate, status: rateStatus } = useBtcRate(open && asset === 'BTC');
+
+  const reset = () => {
+    setDroppedInput(false);
+    resetForm();
+  };
+
+  const changeAsset = (next: string) => {
+    setDroppedInput(false);
+    changeFormAsset(next);
+  };
 
   const price = parseLockPrice(amount, asset);
   const { isValid, isSubmitting } = form.formState;
@@ -126,13 +151,27 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
                     id="lock-amount"
                     inputMode={asset === 'BTC' ? 'numeric' : 'decimal'}
                     value={
-                      asset === 'BTC' && field.value
-                        ? new Intl.NumberFormat('en-US').format(BigInt(field.value))
+                      asset === 'BTC' && field.value && !isAmountFocused
+                        ? satsFormatter.format(BigInt(field.value))
                         : field.value
                     }
-                    onChange={(event) =>
-                      field.onChange(asset === 'BTC' ? toSats(event.target.value) : event.target.value)
-                    }
+                    onFocus={() => setIsAmountFocused(true)}
+                    onBlur={() => {
+                      setIsAmountFocused(false);
+                      field.onBlur();
+                    }}
+                    onChange={(event) => {
+                      if (asset !== 'BTC') {
+                        field.onChange(event.target.value);
+                        return;
+                      }
+                      // Stays up after the next keystroke: typing "2.4" leaves "24", and the note must still
+                      // be there when the creator looks. Emptying the field clears it.
+                      const next = toSats(event.target.value);
+                      setDroppedInput((shown) => dropsInput(event.target.value) || (shown && next !== ''));
+                      field.onChange(next);
+                    }}
+                    aria-describedby={asset === 'BTC' && droppedInput ? 'lock-amount-whole-sats' : undefined}
                     maxLength={27}
                     placeholder="0"
                     className="h-auto flex-1 border-0 bg-transparent p-0 text-base shadow-none"
@@ -146,6 +185,12 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
                 </Typography>
               )}
             </Container>
+
+            {asset === 'BTC' && droppedInput && (
+              <Typography id="lock-amount-whole-sats" className="pt-1 text-xs text-muted-foreground">
+                {'Only whole sat amounts are accepted.'}
+              </Typography>
+            )}
 
             {asset === 'BTC' && rateStatus === 'failed' && (
               <Typography className="pt-1 text-xs text-destructive">
