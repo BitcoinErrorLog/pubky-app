@@ -66,6 +66,9 @@ export function LockedPostContent({
   // matches the route ids, so the nesting flag is what keeps those compact.
   const isFocusedPostPage =
     routeParams?.userId === authorId && routeParams?.postId === rawPostId && !isNestedPostPreview;
+  // Fixed at mount: the feed stays mounted, hidden, under the post modal, whose route names this post,
+  // and must not read the full article there (#2686). The post page and the modal mount their own copy.
+  const [preview] = useState(!isFocusedPostPage);
   const lockContent = LocksController.getLockContent(content);
   const { lockFile, price, isLoading: isLockFileLoading } = useLockFile(lock);
   const {
@@ -77,7 +80,7 @@ export function LockedPostContent({
     isOwnLock,
     isResolvingOwn,
     isResolvingReplica,
-  } = useUnlockedContent({ lock, lockFile, postId });
+  } = useUnlockedContent({ lock, lockFile, postId, preview });
   const { waitForAuth, isAuthenticated } = useRequireAuth();
   // A session from before the app asked for `/priv` cannot read whether this reader already
   // unlocked, so ask for the permission first and keep the card inert: a second unlock would

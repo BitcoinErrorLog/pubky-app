@@ -9,6 +9,7 @@ import {
   IMAGE_UPLOAD_SIZE_LIMIT_KIND_CONTEXT_KEY,
 } from '@/libs/image/imageUploadSizeLimit';
 import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
+import { getArticlePreviewSlots } from '@/libs/post/articleInlineMedia';
 import { stripPubkyPrefix } from '@/libs/utils/utils';
 import type { LockModelSchema } from '@/models/locks/locks.schema';
 import { CompositeIdDomain } from '@/models/models.types';
@@ -345,9 +346,11 @@ export class LocksApplication {
     uris: string[],
     operation: string,
     readBytes: (path: string, uri: string) => Promise<Uint8Array>,
+    previewSlots: number[] | null = null,
   ): Promise<TUnlockedAttachment[]> {
     const reads = await Promise.all(
       uris.map(async (uri, slot) => {
+        if (previewSlots && !previewSlots.includes(slot)) return null;
         try {
           const path = GuardedContentParser.attachmentUriToPath(uri);
           const contentType = lockFile.secondary_resources?.[path]?.content_type;
@@ -509,6 +512,7 @@ export class LocksApplication {
   static async fetchReplicatedContent({
     lockUrl,
     readerPubky,
+    preview,
     isCurrent,
   }: TFetchReplicatedContentParams & TViewerScope): Promise<TUnlockedContent | null> {
     const lockId = LockContentParser.lockIdFromUrl(lockUrl);
@@ -521,7 +525,7 @@ export class LocksApplication {
     // readable when the creator's homeserver is down or the lock was deleted.
     const { post } = replicatedPost;
     const refs = post.attachments ?? [];
-    const attachments = await this.fetchReplicatedAttachments({ post });
+    const attachments = await this.fetchReplicatedAttachments({ post, preview });
     if (isCurrent?.() !== false) {
       await LocalLocksService.upsertPost({
         lockId,
@@ -543,15 +547,21 @@ export class LocksApplication {
    * Missing file (404) → drop it, show the rest. Anything else → throw, so a brief outage does not
    * look like lost media. Same rule as `readAttachments`.
    */
-  static async fetchReplicatedAttachments({ post }: TFetchReplicatedAttachmentsParams): Promise<TUnlockedAttachment[]> {
+  static async fetchReplicatedAttachments({
+    post,
+    preview,
+  }: TFetchReplicatedAttachmentsParams): Promise<TUnlockedAttachment[]> {
+    const previewSlots = preview ? getArticlePreviewSlots(post) : null;
     const reads = await Promise.all(
-      (post.attachments ?? []).map(async ({ url, content_type, slot }, index) => {
+      (post.attachments ?? []).map(async ({ url, content_type, slot: refSlot }, index) => {
+        const slot = refSlot ?? index;
+        if (previewSlots && !previewSlots.includes(slot)) return null;
         try {
           return {
             id: url.slice(url.lastIndexOf('/') + 1),
             contentType: content_type,
             bytes: await HomeserverService.getBytes(url),
-            slot: slot ?? index,
+            slot,
           };
         } catch (error) {
           // 404 = the replica lost this file; `getBytes` already reported it.
@@ -572,6 +582,7 @@ export class LocksApplication {
   static async fetchOwnContent({
     lockUrl,
     lockFile,
+    preview,
     isCurrent,
   }: TFetchOwnContentParams & TViewerScope): Promise<TUnlockedContent> {
     const primaryPath = lockFile.primary_resource?.path;
@@ -595,8 +606,12 @@ export class LocksApplication {
     }
 
     // Creator path: the guarded original lives on their own HS, so read each attachment URI directly.
-    const attachments = await this.readAttachments(lockFile, post.attachments ?? [], 'fetchOwnContent', (_path, uri) =>
-      HomeserverService.getBytes(uri),
+    const attachments = await this.readAttachments(
+      lockFile,
+      post.attachments ?? [],
+      'fetchOwnContent',
+      (_path, uri) => HomeserverService.getBytes(uri),
+      preview ? getArticlePreviewSlots(post) : null,
     );
     const lockId = LockContentParser.lockIdFromUrl(lockUrl);
     if (lockId && isCurrent?.() !== false) {

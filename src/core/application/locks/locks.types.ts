@@ -67,10 +67,13 @@ export type TReplicateUnlockedContentParams = {
   announcementUri: string;
 };
 
+/** A preview card renders an article's cover and none of its body media, so a preview read skips those bytes. */
+export type TPreviewRead = { preview?: boolean };
+
 export type TFetchReplicatedContentParams = {
   lockUrl: string;
   readerPubky: string;
-};
+} & TPreviewRead;
 
 export type TFetchUnlockedListParams = {
   readerPubky: string;
@@ -78,12 +81,12 @@ export type TFetchUnlockedListParams = {
 
 export type TFetchReplicatedAttachmentsParams = {
   post: ReplicatedPost;
-};
+} & TPreviewRead;
 
 export type TFetchOwnContentParams = {
   lockUrl: string;
   lockFile: LockFile;
-};
+} & TPreviewRead;
 
 /**
  * The viewer session a call started under. `isCurrent()` turns false once that viewer logged out or the
