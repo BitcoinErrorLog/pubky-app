@@ -22,6 +22,41 @@ describe('LockedPostCard', () => {
     expect(screen.getByTestId('locked-post-card')).toHaveClass('bg-muted');
   });
 
+  it('requests the shield illustration at 68px so it clears the Unlock pill on narrow cards', () => {
+    const { container } = render(<LockedPostCard title="Secret" price={{ amount: '1234', asset: 'BTC' }} />);
+
+    // Decorative (alt=""), so it has no accessible role to query by.
+    const shield = container.querySelector('img[src*="shield.png"]');
+    expect(shield).toHaveAttribute('width', '68');
+    expect(shield).toHaveAttribute('height', '68');
+  });
+
+  it('anchors the shield to the bottom of the card, level with the Unlock pill', () => {
+    render(<LockedPostCard title="Secret" price={{ amount: '1234', asset: 'BTC' }} />);
+
+    const card = screen.getByTestId('locked-post-card');
+    expect(card).toHaveClass('items-end');
+    expect(card).not.toHaveClass('items-start');
+  });
+
+  it('caps the shield at 48px on a narrow card (the 336px and 309px Cards layout cards)', () => {
+    const { container } = render(<LockedPostCard title="Secret" price={{ amount: '1234', asset: 'BTC' }} />);
+
+    // The card is its own size container, so the cap follows the card, not the viewport.
+    expect(screen.getByTestId('locked-post-card')).toHaveClass('@container/lock-card');
+    const shieldBox = container.querySelector('img[src*="shield.png"]')?.parentElement;
+    expect(shieldBox).toHaveClass('w-17', '@max-xs/lock-card:w-12');
+  });
+
+  it('hides the shield rather than drawing it under 48px when the pill leaves too little room', () => {
+    const { container } = render(<LockedPostCard title="Secret" price={{ amount: '1234', asset: 'BTC' }} />);
+
+    // The image shows only once its own box is at least 3rem (48px) wide, so a squeezed card drops it.
+    const shield = container.querySelector('img[src*="shield.png"]');
+    expect(shield).toHaveClass('hidden', '@min-[3rem]/shield:block');
+    expect(shield).not.toHaveClass('@min-[2.5rem]/shield:block');
+  });
+
   it('falls back to the default title while the creator has not typed one', () => {
     render(<LockedPostCard title="" />);
     expect(screen.getByRole('heading', { level: 4 })).toHaveTextContent('Locked content');

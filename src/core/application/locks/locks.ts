@@ -4,6 +4,11 @@ import { ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { isAppError, isNotFound, isValidationError, toAppError } from '@/libs/error/error.utils';
+import {
+  getImageUploadSizeLimitKind,
+  IMAGE_UPLOAD_SIZE_LIMIT_KIND_CONTEXT_KEY,
+} from '@/libs/image/imageUploadSizeLimit';
+import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { stripPubkyPrefix } from '@/libs/utils/utils';
 import type { LockModelSchema } from '@/models/locks/locks.schema';
 import { CompositeIdDomain } from '@/models/models.types';
@@ -644,10 +649,18 @@ export class LocksApplication {
     lockConfig,
     isCurrent,
   }: TCreateLockContentParams & TViewerScope): Promise<TCreateContentLockResult> {
+    // Every file is cleaned before the first upload, so a file that fails the clean-up leaves nothing
+    // on the server. One at a time, like `PostController.normalizeFileAttachments`: the clean-up
+    // decodes each image on a canvas, and nine full-size photos at once can crash a mobile tab.
+    const files: TLockContentFile[] = [];
+    for (const file of attachments) {
+      files.push(await this.toLockContentFile(file));
+    }
+
     // The guarded bytes land on the Lock-Server-authenticated account, which may differ from the
     // pubky.app user. Capture that owner from the upload response so `buildPost` can reference the
     // attachments by their real host. With no attachments the owner stays undefined and no URIs are built.
-    const uploads = await this.uploadAttachments(attachments);
+    const uploads = await this.uploadAttachments(files);
     const owner = uploads.at(-1)?.creator;
     const attachmentResources: TGuardedResource[] = uploads.map((uploaded) => uploaded.resource);
     const postFile = buildPost(attachmentResources, owner);
@@ -716,6 +729,40 @@ export class LocksApplication {
   }): Promise<void> {
     const cached = GuardedContentParser.toCachedPost(post, resources);
     if (cached) await LocalLocksService.upsertPost({ lockId, creator, post: cached }).catch(() => undefined);
+  }
+
+  /**
+   * Runs one locked file through the same clean-up as a normal upload (#2685): images are re-encoded
+   * without their metadata (which can hold the GPS position), SVGs lose scripts and risky references,
+   * and large photos are compressed. Other files pass through unchanged. The cleaned file's own type
+   * and bytes go up, since the Lock Server checks them against each other.
+   *
+   * Failures are wrapped like `FileApplication.toFileAttachment` (ADR-0009 keeps this application
+   * from calling it): a validation error, with the size-limit kind in the context so the composer
+   * can show the kind-specific message.
+   */
+  private static async toLockContentFile(file: File): Promise<TLockContentFile> {
+    let sanitized: File;
+    try {
+      sanitized = await stripImageMetadata(file);
+    } catch (error) {
+      const sizeLimitKind = getImageUploadSizeLimitKind(error);
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Image sanitization failed', {
+        service: ErrorService.Local,
+        operation: 'createLockContent',
+        cause: error,
+        context: sizeLimitKind ? { [IMAGE_UPLOAD_SIZE_LIMIT_KIND_CONTEXT_KEY]: sizeLimitKind } : undefined,
+      });
+    }
+    try {
+      return { contentType: sanitized.type, bytes: new Uint8Array(await sanitized.arrayBuffer()) };
+    } catch (error) {
+      throw Err.validation(ValidationErrorCode.INVALID_INPUT, 'Failed to read file content', {
+        service: ErrorService.Local,
+        operation: 'createLockContent',
+        cause: error,
+      });
+    }
   }
 
   /**

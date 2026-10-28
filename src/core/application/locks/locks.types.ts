@@ -114,8 +114,11 @@ export type TLockContentFile = {
  * attachments land.
  */
 export type TCreateLockContentParams = {
-  /** Attachments (images, video, …). Uploaded first, so `buildPost` can reference their paths. */
-  attachments?: TLockContentFile[];
+  /**
+   * Attachments (images, video, …) as the author picked them. Cleaned like a normal upload, then
+   * uploaded first, so `buildPost` can reference their paths.
+   */
+  attachments?: File[];
   /**
    * Builds the JSON file holding the `PubkyAppPost` object from the uploaded attachment descriptors.
    * Called with an empty array when there are no attachments. `ownerPubky` is the account the guarded

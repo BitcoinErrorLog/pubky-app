@@ -387,13 +387,13 @@ describe('PostInput lock flow (integration)', () => {
 
     // Each guarded file went up as bytes with its own content type, in order.
     const [{ attachments, buildPost }] = mocks.createLockContent.mock.calls[0];
-    expect(attachments.map((file: { contentType: string }) => file.contentType)).toEqual([
+    expect(attachments.map((file: File) => file.type)).toEqual([
       'image/png',
       'video/mp4',
       'application/pdf',
       'audio/mpeg',
     ]);
-    for (const file of attachments) expect(file.bytes).toBeInstanceOf(Uint8Array);
+    for (const file of attachments) expect(file).toBeInstanceOf(File);
 
     // The locked post itself is declared as an opaque blob and links all four files.
     const postFile = buildPost(
