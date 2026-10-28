@@ -69,9 +69,6 @@ vi.mock('@/config/network', () => ({
   getLockServer: () => 'lockpubky',
   getPaykitServerUrl: () => 'https://paykit.server',
 }));
-// The clean-up re-encodes images on a canvas, which jsdom does not have, and these fixtures are not
-// real images. It has its own tests (stripImageMetadata, useCreateLockContent); pass files through.
-vi.mock('@/libs/image/stripImageMetadata', () => ({ stripImageMetadata: async (file: File) => file }));
 vi.mock('@/molecules/Toaster/toast', () => ({ toast: (...args: unknown[]) => mocks.toast(...args) }));
 vi.mock('@/hooks/useLockFile/useLockFile', () => ({
   useLockFile: (lockUrl?: string) => ({
@@ -485,8 +482,8 @@ describe('PostInput lock wiring', () => {
       fireEvent.click(screen.getByTestId('post-button'));
 
       await waitFor(() => expect(mocks.createLockContent).toHaveBeenCalledTimes(1));
-      const { attachments } = mocks.createLockContent.mock.calls[0][0] as { attachments: { contentType: string }[] };
-      expect(attachments.map((attachment) => attachment.contentType)).toEqual(['image/png', 'image/jpeg']);
+      const { attachments } = mocks.createLockContent.mock.calls[0][0] as { attachments: File[] };
+      expect(attachments.map((attachment) => attachment.type)).toEqual(['image/png', 'image/jpeg']);
     });
 
     it('captures what the inputs hold, which the composer state has not caught up with', () => {

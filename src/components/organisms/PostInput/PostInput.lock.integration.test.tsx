@@ -70,9 +70,6 @@ vi.mock('@/config/network', () => ({
   getLockServer: () => mocks.lockServer,
   getPaykitServerUrl: () => 'https://paykit.server',
 }));
-// The clean-up re-encodes images on a canvas, which jsdom does not have, and these fixtures are not
-// real images. It has its own tests (stripImageMetadata, useCreateLockContent); pass files through.
-vi.mock('@/libs/image/stripImageMetadata', () => ({ stripImageMetadata: async (file: File) => file }));
 vi.mock('@/molecules/Toaster/toast', () => ({ toast: (...args: unknown[]) => mocks.toast(...args) }));
 
 // Minimal specs stand-in: a kind enum (consumed by the real `inferPostKindForCreate`) and a
@@ -390,13 +387,13 @@ describe('PostInput lock flow (integration)', () => {
 
     // Each guarded file went up as bytes with its own content type, in order.
     const [{ attachments, buildPost }] = mocks.createLockContent.mock.calls[0];
-    expect(attachments.map((file: { contentType: string }) => file.contentType)).toEqual([
+    expect(attachments.map((file: File) => file.type)).toEqual([
       'image/png',
       'video/mp4',
       'application/pdf',
       'audio/mpeg',
     ]);
-    for (const file of attachments) expect(file.bytes).toBeInstanceOf(Uint8Array);
+    for (const file of attachments) expect(file).toBeInstanceOf(File);
 
     // The locked post itself is declared as an opaque blob and links all four files.
     const postFile = buildPost(
