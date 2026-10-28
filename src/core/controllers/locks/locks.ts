@@ -13,6 +13,7 @@ import type {
   TStartPaymentParams,
   TStartPaymentResult,
 } from '@/application/locks/locks.types';
+import { captureViewerSession } from '@/controllers/tag/tag-cache.utils';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
@@ -270,7 +271,7 @@ export class LocksController {
   static async createLockContent(params: TCreateLockContentParams): Promise<TCreateContentLockResult> {
     const isCurrent = this.captureSessionOwner();
     try {
-      return await LocksApplication.createLockContent(params);
+      return await LocksApplication.createLockContent({ ...params, isCurrent: captureViewerSession() });
     } catch (error) {
       // A homeserver auth failure cannot be fixed by signing in to the Lock Server.
       if (isCurrent() && isAppError(error) && isAuthError(error) && error.service === ErrorService.Locks) {
@@ -285,7 +286,7 @@ export class LocksController {
    * its content is gated. Delegates to the application, which validates the URL and performs the read.
    */
   static async fetchLockFile(params: TFetchLockFileParams): Promise<TFetchLockFileResult> {
-    const lockFile = await LocksApplication.fetchLockFile(params);
+    const lockFile = await LocksApplication.fetchLockFile({ ...params, isCurrent: captureViewerSession() });
     return {
       lockFile,
       price: LockFileParser.resolvePrice(lockFile),
@@ -293,7 +294,7 @@ export class LocksController {
   }
 
   static async getOrFetchLockFile(params: TFetchLockFileParams): Promise<TFetchLockFileResult> {
-    const lockFile = await LocksApplication.getOrFetchLockFile(params);
+    const lockFile = await LocksApplication.getOrFetchLockFile({ ...params, isCurrent: captureViewerSession() });
     return {
       lockFile,
       price: LockFileParser.resolvePrice(lockFile),
@@ -364,12 +365,13 @@ export class LocksController {
     return LocksApplication.replicateUnlockedContent({
       ...params,
       announcementUri: postUriBuilder(authorId, rawPostId),
+      isCurrent: captureViewerSession(),
     });
   }
 
   /** Loads already-unlocked content from the reader's `/priv`, or null if this lock isn't unlocked yet. */
   static fetchReplicatedContent(params: TFetchReplicatedContentParams): Promise<TUnlockedContent | null> {
-    return LocksApplication.fetchReplicatedContent(params);
+    return LocksApplication.fetchReplicatedContent({ ...params, isCurrent: captureViewerSession() });
   }
 
   /** Loads the media bytes for one already-listed unlocked post. */
@@ -379,11 +381,11 @@ export class LocksController {
 
   /** Lists the reader's unlocked content (newest first) from their own `/priv/social/unlocked/`. */
   static fetchUnlockedList(params: TFetchUnlockedListParams): Promise<TUnlockedListItem[]> {
-    return LocksApplication.fetchUnlockedList(params);
+    return LocksApplication.fetchUnlockedList({ ...params, isCurrent: captureViewerSession() });
   }
 
   /** Creator reads their own locked content directly from the guarded original (owner == signed-in). */
   static fetchOwnContent(params: TFetchOwnContentParams): Promise<TUnlockedContent> {
-    return LocksApplication.fetchOwnContent(params);
+    return LocksApplication.fetchOwnContent({ ...params, isCurrent: captureViewerSession() });
   }
 }

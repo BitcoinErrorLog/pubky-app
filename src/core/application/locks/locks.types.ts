@@ -85,6 +85,13 @@ export type TFetchOwnContentParams = {
   lockFile: LockFile;
 };
 
+/**
+ * The viewer session a call started under. `isCurrent()` turns false once that viewer logged out or the
+ * account was replaced; a cache write is then skipped, so a late response cannot put a signed-out
+ * reader's content back into IndexedDB after logout cleared it (#2797).
+ */
+export type TViewerScope = { isCurrent?: () => boolean };
+
 /** The creator's price, in the selected denomination's smallest unit. */
 export type TLockConfig = TLockPrice;
 
