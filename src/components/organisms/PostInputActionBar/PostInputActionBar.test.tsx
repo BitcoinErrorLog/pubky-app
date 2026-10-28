@@ -274,7 +274,12 @@ describe('PostInputActionBar', () => {
   });
 
   it('shows the lock help beside a lock switch that is available, explaining it on open', async () => {
-    render(<PostInputActionBar hideArticleButton={false} lockSwitch={{ checked: false, onCheckedChange: vi.fn() }} />);
+    render(
+      <PostInputActionBar
+        hideArticleButton={false}
+        lockSwitch={{ checked: false, onCheckedChange: vi.fn(), showHelp: true }}
+      />,
+    );
 
     fireEvent.click(screen.getByRole('button', { name: LOCK_HELP_HEADING }));
 
@@ -284,6 +289,21 @@ describe('PostInputActionBar', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText(LOCK_HELP_HEADING, { selector: 'p' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['the lock is on', { checked: true }],
+    ['the region is still being read', { checked: false, disabled: true }],
+  ])('shows no lock help when %s', (_state, lockSwitch) => {
+    render(
+      <PostInputActionBar
+        hideArticleButton={false}
+        lockSwitch={{ ...lockSwitch, onCheckedChange: vi.fn(), showHelp: false }}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: LOCK_HELP_HEADING })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('locks-region-notice')).not.toBeInTheDocument();
   });
 
   it.each(['region', 'unknown'] as const)(

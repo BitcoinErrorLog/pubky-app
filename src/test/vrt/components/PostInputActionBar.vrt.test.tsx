@@ -17,7 +17,7 @@ async function renderWithLockHelpOpen(viewport: VrtViewport) {
         onPostClick={vi.fn()}
         isPostDisabled
         hideArticleButton={false}
-        lockSwitch={{ checked: false, onCheckedChange: vi.fn() }}
+        lockSwitch={{ checked: false, onCheckedChange: vi.fn(), showHelp: true }}
       />
     </Container>,
     { viewport },

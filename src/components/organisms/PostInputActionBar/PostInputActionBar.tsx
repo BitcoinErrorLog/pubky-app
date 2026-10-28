@@ -111,9 +111,8 @@ export function PostInputActionBar({
               aria-label="Lock content"
               className="data-[state=unchecked]:bg-accent"
             />
-            {lockSwitch.regionNotice ? (
-              <LocksRegionNotice variant="icon" cause={lockSwitch.regionNotice} />
-            ) : (
+            {lockSwitch.regionNotice ? <LocksRegionNotice variant="icon" cause={lockSwitch.regionNotice} /> : null}
+            {lockSwitch.showHelp && !lockSwitch.regionNotice ? (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -139,7 +138,7 @@ export function PostInputActionBar({
                   </Typography>
                 </PopoverContent>
               </Popover>
-            )}
+            ) : null}
           </Container>
         ) : null}
       </Container>
