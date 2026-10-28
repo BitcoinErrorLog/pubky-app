@@ -612,5 +612,19 @@ describe('usePostInputLock', () => {
       expect(clearComposer).not.toHaveBeenCalled();
       expect(onPublished).not.toHaveBeenCalled();
     });
+
+    it('shows the size-limit message a failed publish carries instead of the generic one (#2685)', async () => {
+      setUpLocks();
+      mocks.publish.mockResolvedValue({ status: 'failed', description: 'This GIF exceeds the 5MB upload limit.' });
+      const { result } = setup();
+
+      configureLock(result);
+      await act(async () => result.current.submitOrPublish());
+
+      expect(mocks.toast).toHaveBeenCalledWith({
+        variant: 'error',
+        description: 'This GIF exceeds the 5MB upload limit.',
+      });
+    });
   });
 });

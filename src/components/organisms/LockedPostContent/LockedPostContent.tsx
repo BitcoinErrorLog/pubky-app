@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Check, Lock } from 'lucide-react';
-import { matchPostRoute } from '@/app/routes';
+import { isPostRoute, matchPostRoute } from '@/app/routes';
 import { Container } from '@/atoms/Container/Container';
 import { LocksController } from '@/controllers/locks/locks';
 import { useLockFile } from '@/hooks/useLockFile/useLockFile';
@@ -59,7 +59,8 @@ export function LockedPostContent({
   const [isPayOpen, setIsPayOpen] = useState(false);
   const { pubky: authorId, id: rawPostId } = parseCompositeId(postId);
   const isNestedPostPreview = useIsNestedPostPreview();
-  const routeParams = matchPostRoute(usePathname());
+  const pathname = usePathname();
+  const routeParams = matchPostRoute(pathname);
   // Only the post the route names opens in full: the same page renders embeds and thread parents
   // through this component, and the reply/repost dialogs preview the focused post itself — which
   // matches the route ids, so the nesting flag is what keeps those compact.
@@ -198,6 +199,10 @@ export function LockedPostContent({
                 content={unlockedPost.content}
                 attachments={null}
                 localAttachments={media}
+                // One row of media off the post page, so a many-image lock does not stretch the feed (#2868).
+                // On a post page everything expands, replies, embeds and thread parents included, as PostText
+                // truncates text only off post pages.
+                collapseMedia={!isPostRoute(pathname)}
                 textClassName={textClassName}
                 pendingAttachments={pendingAttachments}
               />
