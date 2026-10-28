@@ -555,6 +555,24 @@ describe('LockedPostContent', () => {
     expect(await unlockedBody()).toHaveAttribute('data-collapse-media', 'false');
   });
 
+  it('expands a different post on a post page too: replies, embeds and thread parents never collapse', async () => {
+    // Collapsing only saves room in the feed. A locked reply under the focused post is not the post the
+    // route names, and still shows all its media.
+    mockLockData({ lockFile: asOpaque<LockFile>({ creator: 'pubkybob' }) });
+    vi.mocked(LocksController.fetchReplicatedContent).mockResolvedValue({
+      post: { content: 'the reply body', kind: 'image', attachments: null },
+      attachments: [],
+    });
+    pathname.value = '/post/pubkyparent/PARENT1';
+
+    render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:REPLY1" />);
+
+    expect((await screen.findByText('the reply body')).closest('[data-testid="post-body"]')).toHaveAttribute(
+      'data-collapse-media',
+      'false',
+    );
+  });
+
   it('keeps plain body text on the body renderer even when the kind is long', async () => {
     mockLockData({ lockFile: asOpaque<LockFile>({ creator: 'pubkybob' }) });
     vi.mocked(LocksController.fetchReplicatedContent).mockResolvedValue({
