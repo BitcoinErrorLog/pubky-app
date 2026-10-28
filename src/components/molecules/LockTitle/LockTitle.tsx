@@ -2,7 +2,6 @@
 
 import { Fragment } from 'react';
 import { splitMentions } from '@/libs/post/postMentions';
-import { withPubkyPrefix } from '@/libs/utils/utils';
 import { PostPreviewNestingProvider } from '@/molecules/PostPreviewCard/PostPreviewNestingContext';
 import { PostMentions } from '@/organisms/PostMentions/PostMentions';
 
@@ -29,7 +28,7 @@ export function LockTitle({ title, mentionClassName, interactive = true }: LockT
   const content = segments.map((segment, index) =>
     segment.isMention ? (
       <PostMentions key={index} data-type="mention" className={mentionClassName}>
-        {withPubkyPrefix(segment.pubky)}
+        {`pubky${segment.pubky}`}
       </PostMentions>
     ) : (
       <Fragment key={index}>{segment.text}</Fragment>

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LockTitle } from './LockTitle';
 
 const KEY = 'o1gg96ewuojmopcjbz8895478wdtxtzzber7aezq6ror5a91j7dy';
+// A valid 52-character z-base-32 key that itself starts with "pubky".
+const PUBKY_LEADING_KEY = `pubky${KEY.slice(5)}`;
 const mocks = vi.hoisted(() => ({ profile: { name: 'Jane Whitlock' } as { name: string } | null }));
 
 vi.mock('@/hooks/useUserProfile/useUserProfile', () => ({
@@ -25,6 +27,16 @@ describe('LockTitle', () => {
 
     expect(container).toHaveTextContent('hello @Jane Whitlock and more');
     expect(container).not.toHaveTextContent(KEY);
+  });
+
+  it('keeps a mention whose key itself starts with "pubky"', () => {
+    const { container } = render(<LockTitle title={`hi pubky${PUBKY_LEADING_KEY} there`} />);
+
+    expect(container).toHaveTextContent('hi @Jane Whitlock there');
+    expect(screen.getByRole('link', { name: '@Jane Whitlock' })).toHaveAttribute(
+      'href',
+      `/profile/${PUBKY_LEADING_KEY}`,
+    );
   });
 
   it('accepts the legacy pk: prefix, as post text does', () => {
