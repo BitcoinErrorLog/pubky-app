@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest';
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { mockGrantReference, mockSession } from '@/test-utils/pubky';
-import { selectDisplayUserPubky } from './auth.selectors';
+import { mockAuthStore } from '@/test-utils/stores';
+import { createAuthSelectors, selectDisplayUserPubky } from './auth.selectors';
+
+describe('createAuthSelectors', () => {
+  it('throws an Auth/UNAUTHORIZED AppError when no user is signed in (#2958)', () => {
+    const { selectCurrentUserPubky } = createAuthSelectors(() => mockAuthStore({ currentUserPubky: null }));
+    expect(selectCurrentUserPubky).toThrow(
+      expect.objectContaining({
+        category: ErrorCategory.Auth,
+        code: AuthErrorCode.UNAUTHORIZED,
+        service: ErrorService.Local,
+        operation: 'selectCurrentUserPubky',
+      }),
+    );
+  });
+});
 
 describe('selectDisplayUserPubky', () => {
   it('returns the pubky of a ready session', () => {
