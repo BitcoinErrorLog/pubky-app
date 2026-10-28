@@ -11,7 +11,6 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { isAppError, toAppError } from '@/libs/error/error.utils';
 import { getImageUploadSizeLimitToastMessage } from '@/libs/image/imageUploadSizeLimit';
-import { stripImageMetadata } from '@/libs/image/stripImageMetadata';
 import { buildLockTeaserContent, isLockTeaserWithinLimit } from '@/libs/post/lockTeaser';
 import { stripPubkyPrefix } from '@/libs/utils/utils';
 import { lockPriceSchema, type TGuardedResource } from '@/services/locks/locks.types';
@@ -110,25 +109,12 @@ export function useCreateLockContent({
         return { contentType: POST_CONTENT_TYPE, bytes: new TextEncoder().encode(JSON.stringify(post.toJson())) };
       };
 
-      // Every locked file goes through the same clean-up as a normal upload first (#2685): images are
-      // re-encoded without their metadata (which can hold the GPS position), SVGs lose scripts and
-      // risky references, and large photos are compressed. Other files pass through unchanged. The
-      // cleaned file's own type and bytes go up, since the Lock Server checks them against each other.
-      let sanitized: File[];
-      try {
-        sanitized = await Promise.all(lockedPost.attachments.map((file) => stripImageMetadata(file)));
-      } catch (caught) {
-        const description = getImageUploadSizeLimitToastMessage(caught);
-        if (description) return { status: 'failed', description };
-        throw caught;
-      }
-      const files = await Promise.all(
-        sanitized.map(async (file) => ({
-          contentType: file.type,
-          bytes: new Uint8Array(await file.arrayBuffer()),
-        })),
-      );
-      const lock = await LocksController.createLockContent({ attachments: files, buildPost, lockConfig });
+      // The application cleans each locked file like a normal upload before any of them goes up (#2685).
+      const lock = await LocksController.createLockContent({
+        attachments: lockedPost.attachments,
+        buildPost,
+        lockConfig,
+      });
       // The lock lives on the Lock-Server-authenticated pubky's homeserver, which may differ from the
       // pubky.app account. Build the URL from `lock.creator`, stripping its `pubky` prefix to the raw
       // z32 host the `pubky://` scheme expects.
@@ -161,7 +147,9 @@ export function useCreateLockContent({
       if (appError.category === ErrorCategory.Auth && appError.service === ErrorService.Locks) {
         return { status: 'auth-expired' };
       }
-      return { status: 'failed' };
+      // An image the clean-up cannot bring under the upload cap: retrying cannot help, so say why.
+      const description = getImageUploadSizeLimitToastMessage(appError);
+      return description ? { status: 'failed', description } : { status: 'failed' };
     } finally {
       inFlight.current = false;
       setIsPublishing(false);
