@@ -24,7 +24,9 @@ async function renderWithLockHelpOpen(viewport: VrtViewport) {
   );
   await page.getByRole('button', { name: 'Sell your content' }).click();
   await expect
-    .element(page.getByText('Put a price on your content. Let people pay to unlock the value you create.'))
+    .element(
+      page.getByText('Let people pay to unlock the value you create. Add content first, then switch on the lock.'),
+    )
     .toBeVisible();
 }
 

@@ -279,9 +279,10 @@ describe('PostInputActionBar', () => {
     fireEvent.click(screen.getByRole('button', { name: LOCK_HELP_HEADING }));
 
     expect(
-      await screen.findByText('Put a price on your content. Let people pay to unlock the value you create.'),
+      await screen.findByText(
+        'Let people pay to unlock the value you create. Add content first, then switch on the lock.',
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByText('Add text or attachments first, then turn on the lock.')).toBeInTheDocument();
     expect(screen.getByText(LOCK_HELP_HEADING, { selector: 'p' })).toBeInTheDocument();
   });
 
