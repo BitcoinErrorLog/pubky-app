@@ -191,14 +191,14 @@ export function LockedPostCard({
 
       {/* 68px at most (the design asks for 25-30% under the original 96px), 48px on a card under 20rem of content (the
           Cards layout's 336px and 309px cards). It still gives way to the pill instead of running under it,
-          and drops out once too small. */}
+          and drops out once it would draw under 48px (3rem). */}
       <div className="@container/shield hidden w-17 min-w-0 shrink sm:block @max-xs/lock-card:w-12">
         <Image
           src="/images/shield.png"
           alt=""
           width={68}
           height={68}
-          className="hidden aspect-square h-auto w-full rounded-md object-contain @min-[2.5rem]/shield:block"
+          className="hidden aspect-square h-auto w-full rounded-md object-contain @min-[3rem]/shield:block"
         />
       </div>
     </div>
