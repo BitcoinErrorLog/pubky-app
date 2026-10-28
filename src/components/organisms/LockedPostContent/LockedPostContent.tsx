@@ -198,6 +198,8 @@ export function LockedPostContent({
                 content={unlockedPost.content}
                 attachments={null}
                 localAttachments={media}
+                // One row of media outside the post page, so a many-image lock does not stretch the feed (#2868).
+                collapseMedia={!isFocusedPostPage}
                 textClassName={textClassName}
                 pendingAttachments={pendingAttachments}
               />

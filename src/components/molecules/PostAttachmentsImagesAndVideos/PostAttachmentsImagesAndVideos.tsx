@@ -1,6 +1,7 @@
 'use client';
 import { type MouseEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { Button } from '@/atoms/Button/Button';
+import { Minus, Plus } from 'lucide-react';
+import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import {
   Carousel,
   type CarouselApi,
@@ -31,6 +32,11 @@ const LIST_TILE_CLASS = 'aspect-video h-[theme(spacing.27)] max-w-full';
 const TILE_FRAME_CLASS = 'relative only:h-auto sm:last:odd:col-span-2';
 const LIST_TILE_FRAME_CLASS = cn(TILE_FRAME_CLASS, 'only:w-fit');
 // "+N more" badge shown on the last visible tile when media overflows the grid.
+/**
+ * Collapsed media row (#2868): one tile on mobile, two from `sm` up, the rest behind "Show more".
+ * Hidden with CSS rather than removed, so the breakpoint needs no JS and the lightbox keeps the full set.
+ */
+const collapsedTileClass = (index: number) => (index >= 2 ? 'hidden' : index === 1 ? 'max-sm:hidden' : undefined);
 const REMAINING_OVERLAY_CLASS =
   'absolute right-3 bottom-3 z-10 flex size-10 items-center justify-center rounded-full border border-secondary-foreground/40 bg-black/80 text-base font-bold text-white shadow-md';
 
@@ -62,6 +68,11 @@ const isOutsideMedia = (target: EventTarget, x: number, y: number) => {
 type PostAttachmentsImagesAndVideosProps = {
   imagesAndVideos: AttachmentConstructed[];
   variant?: 'default' | 'list';
+  /**
+   * Show one row (one tile on mobile, two from `sm` up) with a "Show more" toggle for the rest.
+   * Default grid only; the lightbox always holds every item.
+   */
+  collapsible?: boolean;
   renderTrigger?: (props: {
     imagesAndVideos: AttachmentConstructed[];
     isPreviewOpen: boolean;
@@ -71,10 +82,12 @@ type PostAttachmentsImagesAndVideosProps = {
 export const PostAttachmentsImagesAndVideos = ({
   imagesAndVideos,
   variant = 'default',
+  collapsible = false,
   renderTrigger,
 }: PostAttachmentsImagesAndVideosProps) => {
   const total = imagesAndVideos.length;
   const [open, setOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [api, setApi] = useState<CarouselApi>();
   const [currentIndex, setCurrentIndex] = useState(0);
   // embla reads watchDrag on every pointer down, so swiping is decided per drag. A drag that starts on a zoomed image
@@ -117,6 +130,10 @@ export const PostAttachmentsImagesAndVideos = ({
   const visibleMedia = isListVariant ? imagesAndVideos.slice(0, MAX_VISIBLE_MEDIA) : imagesAndVideos;
   const remainingMediaCount = isListVariant ? Math.max(0, imagesAndVideos.length - visibleMedia.length) : 0;
   const remainingOverlayIndex = remainingMediaCount > 0 ? visibleMedia.length - 1 : -1;
+  // Two tiles fill the desktop row, so with exactly two only mobile has anything to reveal.
+  const hasCollapseToggle = collapsible && !isListVariant && total > 1;
+  const tileCollapseClass = (index: number) =>
+    hasCollapseToggle && !isExpanded ? collapsedTileClass(index) : undefined;
 
   const renderRemainingOverlay = (index: number, onClick?: (event: MouseEvent) => void) => {
     if (index !== remainingOverlayIndex) {
@@ -147,70 +164,93 @@ export const PostAttachmentsImagesAndVideos = ({
       {renderTrigger ? (
         renderTrigger({ imagesAndVideos, openPreview, isPreviewOpen: open })
       ) : (
-        /* Grid layout */
-        <Container
-          display={isListVariant ? undefined : 'grid'}
-          overrideDefaults={isListVariant}
-          className={isListVariant ? cn('gap-3', LIST_GRID_CLASS) : MEDIA_GRID_CLASS}
-        >
-          {visibleMedia.map((media, i) =>
-            media.type.startsWith('image') ? (
-              <DialogTrigger
-                key={i}
-                asChild
-                className={cn(
-                  isListVariant ? LIST_TILE_CLASS : 'h-52 w-full max-w-full',
-                  isListVariant ? LIST_TILE_FRAME_CLASS : TILE_FRAME_CLASS,
-                  'cursor-pointer outline-none only:static focus-visible:ring-2 focus-visible:ring-ring',
-                )}
-              >
-                <Button overrideDefaults onClick={(e) => openPreview(i, e)}>
-                  <Image
-                    src={getAttachmentPreviewUrl(media)}
-                    alt={media.name}
-                    fill={!isOnlyMedia}
-                    className={cn(
-                      'rounded-md',
-                      isOnlyMedia
-                        ? cn(
-                            isListVariant ? 'max-h-[theme(spacing.27)] w-fit' : 'max-h-96 max-w-full',
-                            'object-contain',
-                          )
-                        : 'object-cover object-center',
-                    )}
+        <>
+          {/* Grid layout */}
+          <Container
+            display={isListVariant ? undefined : 'grid'}
+            overrideDefaults={isListVariant}
+            className={isListVariant ? cn('gap-3', LIST_GRID_CLASS) : MEDIA_GRID_CLASS}
+          >
+            {visibleMedia.map((media, i) =>
+              media.type.startsWith('image') ? (
+                <DialogTrigger
+                  key={i}
+                  asChild
+                  className={cn(
+                    isListVariant ? LIST_TILE_CLASS : 'h-52 w-full max-w-full',
+                    isListVariant ? LIST_TILE_FRAME_CLASS : TILE_FRAME_CLASS,
+                    'cursor-pointer outline-none only:static focus-visible:ring-2 focus-visible:ring-ring',
+                    tileCollapseClass(i),
+                  )}
+                >
+                  <Button overrideDefaults onClick={(e) => openPreview(i, e)}>
+                    <Image
+                      src={getAttachmentPreviewUrl(media)}
+                      alt={media.name}
+                      fill={!isOnlyMedia}
+                      className={cn(
+                        'rounded-md',
+                        isOnlyMedia
+                          ? cn(
+                              isListVariant ? 'max-h-[theme(spacing.27)] w-fit' : 'max-h-96 max-w-full',
+                              'object-contain',
+                            )
+                          : 'object-cover object-center',
+                      )}
+                    />
+                    {renderRemainingOverlay(i)}
+                  </Button>
+                </DialogTrigger>
+              ) : isListVariant ? (
+                <Container
+                  key={i}
+                  overrideDefaults
+                  className={cn(LIST_TILE_CLASS, LIST_TILE_FRAME_CLASS, 'only:max-h-[theme(spacing.27)]')}
+                >
+                  <Video
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                    src={media.urls.main}
+                    pauseVideo={open}
+                    className="h-full w-full cursor-auto object-cover"
                   />
-                  {renderRemainingOverlay(i)}
-                </Button>
-              </DialogTrigger>
-            ) : isListVariant ? (
-              <Container
-                key={i}
-                overrideDefaults
-                className={cn(LIST_TILE_CLASS, LIST_TILE_FRAME_CLASS, 'only:max-h-[theme(spacing.27)]')}
-              >
+                  {renderRemainingOverlay(i, (e) => openPreview(i, e))}
+                </Container>
+              ) : (
                 <Video
+                  key={i}
                   onClick={(e) => {
                     e.stopPropagation();
                   }}
                   src={media.urls.main}
                   pauseVideo={open}
-                  className="h-full w-full cursor-auto object-cover"
+                  className={cn(
+                    'h-52 w-full max-w-full cursor-auto only:h-auto only:max-h-96 sm:last:odd:col-span-2',
+                    tileCollapseClass(i),
+                  )}
                 />
-                {renderRemainingOverlay(i, (e) => openPreview(i, e))}
-              </Container>
-            ) : (
-              <Video
-                key={i}
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
-                src={media.urls.main}
-                pauseVideo={open}
-                className="h-52 w-full max-w-full cursor-auto only:h-auto only:max-h-96 sm:last:odd:col-span-2"
-              />
-            ),
+              ),
+            )}
+          </Container>
+          {hasCollapseToggle && (
+            <Button
+              type="button"
+              variant={ButtonVariant.OUTLINE}
+              size="sm"
+              aria-expanded={isExpanded}
+              onClick={(event) => {
+                // The post card navigates on click; the toggle must not.
+                event.stopPropagation();
+                setIsExpanded((expanded) => !expanded);
+              }}
+              className={cn('self-start', total === 2 && 'sm:hidden')}
+            >
+              {isExpanded ? <Minus aria-hidden /> : <Plus aria-hidden />}
+              {isExpanded ? 'Show less' : 'Show more'}
+            </Button>
           )}
-        </Container>
+        </>
       )}
 
       {/* Carousel dialog */}

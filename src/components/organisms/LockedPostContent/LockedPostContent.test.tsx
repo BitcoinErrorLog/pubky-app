@@ -180,15 +180,18 @@ vi.mock('../PostBody/PostBody', () => ({
     content,
     localAttachments,
     pendingAttachments,
+    collapseMedia,
   }: {
     content: string;
     localAttachments?: unknown[];
     pendingAttachments?: unknown[];
+    collapseMedia?: boolean;
   }) => (
     <div
       data-testid="post-body"
       data-media={localAttachments?.length ?? 0}
       data-pending={pendingAttachments?.length ?? 0}
+      data-collapse-media={String(collapseMedia ?? false)}
     >
       {content}
     </div>
@@ -528,6 +531,28 @@ describe('LockedPostContent', () => {
     render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
 
     expect(await screen.findByTestId('post-article')).toHaveAttribute('data-variant', 'preview');
+  });
+
+  it('collapses the unlocked media to one row in the feed, and shows it all on the post page (#2868)', async () => {
+    mockLockData({ lockFile: asOpaque<LockFile>({ creator: 'pubkybob' }) });
+    vi.mocked(LocksController.fetchReplicatedContent).mockResolvedValue({
+      post: { content: 'the body', kind: 'image', attachments: null },
+      attachments: [],
+    });
+    const unlockedBody = async () => (await screen.findByText('the body')).closest('[data-testid="post-body"]');
+
+    const { unmount } = render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
+    expect(await unlockedBody()).toHaveAttribute('data-collapse-media', 'true');
+    // The public teaser above the lock is a normal post body and never collapses.
+    expect(screen.getByText('A teaser').closest('[data-testid="post-body"]')).toHaveAttribute(
+      'data-collapse-media',
+      'false',
+    );
+    unmount();
+
+    pathname.value = '/post/pubkycreator/POST1';
+    render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
+    expect(await unlockedBody()).toHaveAttribute('data-collapse-media', 'false');
   });
 
   it('keeps plain body text on the body renderer even when the kind is long', async () => {
