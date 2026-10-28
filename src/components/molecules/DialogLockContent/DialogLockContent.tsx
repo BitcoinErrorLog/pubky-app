@@ -157,6 +157,11 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
                         : field.value
                     }
                     onFocus={(event) => {
+                      // Only the sats value is grouped; a USD value is shown as typed, so its selection stays.
+                      if (asset !== 'BTC') {
+                        setIsAmountFocused(true);
+                        return;
+                      }
                       const input = event.currentTarget;
                       // Ungroup only after the browser has placed the caret (a click) or selected the value (Tab)
                       // in the grouped text, then carry that selection over to the same digits. Ungrouping in the

@@ -370,6 +370,23 @@ describe('price denomination', () => {
     expect(screen.getByRole('button', { name: 'Apply Lock' })).toBeDisabled();
   });
 
+  it('keeps the select-all of tabbing back into a USD amount, so typing replaces it', async () => {
+    const user = userEvent.setup();
+    await setup();
+    await chooseCurrency('USD');
+    const field = () => screen.getByLabelText<HTMLInputElement>('USD Amount', { selector: 'input' });
+    await user.type(field(), '12.50');
+    await user.tab();
+
+    await user.tab({ shift: true });
+    // Let the focus handler's frame run before reading the selection.
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(field()).toHaveValue('12.50');
+    expect([field().selectionStart, field().selectionEnd]).toEqual([0, 5]);
+    await user.keyboard('9');
+    expect(field()).toHaveValue('9');
+  });
+
   it('clears the dollar amount when switching back to Bitcoin', async () => {
     await setup();
     await chooseCurrency('USD');
