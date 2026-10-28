@@ -31,12 +31,14 @@ const LIST_TILE_CLASS = 'aspect-video h-[theme(spacing.27)] max-w-full';
 // Shared tile framing for both image and video cells (single-media collapse + last-odd span).
 const TILE_FRAME_CLASS = 'relative only:h-auto sm:last:odd:col-span-2';
 const LIST_TILE_FRAME_CLASS = cn(TILE_FRAME_CLASS, 'only:w-fit');
-// "+N more" badge shown on the last visible tile when media overflows the grid.
 /**
  * Collapsed media row (#2868): one tile on mobile, two from `sm` up, the rest behind "Show more".
  * Hidden with CSS rather than removed, so the breakpoint needs no JS and the lightbox keeps the full set.
+ * The pending skeleton shares it so a loading lock collapses the same way.
  */
-const collapsedTileClass = (index: number) => (index >= 2 ? 'hidden' : index === 1 ? 'max-sm:hidden' : undefined);
+export const collapsedTileClass = (index: number) =>
+  index >= 2 ? 'hidden' : index === 1 ? 'max-sm:hidden' : undefined;
+// "+N more" badge shown on the last visible tile when media overflows the grid.
 const REMAINING_OVERLAY_CLASS =
   'absolute right-3 bottom-3 z-10 flex size-10 items-center justify-center rounded-full border border-secondary-foreground/40 bg-black/80 text-base font-bold text-white shadow-md';
 

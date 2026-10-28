@@ -37,7 +37,9 @@ export const PostAttachments = ({
     : splitAttachmentsByMediaType(files);
 
   if (pendingAttachments.length > 0 && mediaVariant === 'default') {
-    return <PostAttachmentsSkeleton attachments={pendingAttachments} className={className} />;
+    return (
+      <PostAttachmentsSkeleton attachments={pendingAttachments} collapseMedia={collapseMedia} className={className} />
+    );
   }
 
   const isContentPending = mediaVariant === 'cards' && isLoading;
