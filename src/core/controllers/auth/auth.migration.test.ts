@@ -2188,6 +2188,29 @@ describe('saved session loss diagnostics (#2942)', () => {
     });
   });
 
+  it('reports Shop presence on the restore trigger when Shop loaded before the reload', async () => {
+    // The previous page (or another tab) loaded Shop; this page's module never saw the mark.
+    vi.resetModules();
+    const previousPage = await import('@/libs/shop-embed/frame-presence');
+    previousPage.markShopFrameLoaded();
+    seed(null, narrowReference);
+    const spy = vi.spyOn(Err, 'database');
+    vi.spyOn(HomeserverService, 'restoreReference').mockRejectedValue(
+      Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Authorize this account again to restore its session.', {
+        service: ErrorService.Homeserver,
+        operation: 'restoreGrant',
+        context: { reason: 'missing_local_grant', material: 'record' },
+      }),
+    );
+    expect(await AuthController.restorePersistedSession()).toBe(false);
+    const reports = lossReports(spy);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatchObject({
+      context: { trigger: 'restore', material: 'record', shopFrameLoaded: true },
+    });
+    expect(reports[0].context?.shopFrameLoadedAgoS).toEqual(expect.any(Number));
+  });
+
   it('does not report a grant the homeserver rejected', async () => {
     seed(null, narrowReference);
     const spy = vi.spyOn(Err, 'database');
