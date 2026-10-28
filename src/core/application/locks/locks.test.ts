@@ -111,6 +111,34 @@ const paymentConfig = { amount: '1000', asset: 'BTC' as const };
 const CREATOR_PUBKY = `pubky${MOCK_LOCK_AUTHOR_PUBKY}`;
 const LOCK_SERVER_PUBKY = 'pubky7ir1ttte48bcp4zjychjyscicrwi1j34mtt91ptsafdbjmr8g9eo';
 
+/** Runs every queued task and microtask, so an assertion that nothing happened is not one tick early. */
+const drainTasks = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/** Holds every guarded-resource upload open until the test settles it by path, and counts the in-flight peak. */
+const deferUploads = () => {
+  const pending = new Map<string, PromiseWithResolvers<{ resource: TGuardedResource; creator: string }>>();
+  let inFlight = 0;
+  let peak = 0;
+  mocks.registerGuardedResource.mockImplementation(({ path }: { path: string }) => {
+    const deferred = Promise.withResolvers<{ resource: TGuardedResource; creator: string }>();
+    pending.set(path, deferred);
+    peak = Math.max(peak, ++inFlight);
+    return deferred.promise;
+  });
+  return {
+    pending,
+    maxInFlight: () => peak,
+    settle: (path: string) => {
+      inFlight--;
+      pending.get(path)!.resolve({ resource: descriptor(path), creator: CREATOR_PUBKY });
+    },
+    fail: (path: string, error: Error) => {
+      inFlight--;
+      pending.get(path)!.reject(error);
+    },
+  };
+};
+
 describe('LocksApplication (content)', () => {
   beforeAll(() => {
     const sdkEntry = import.meta.resolve('@synonymdev/locks-sdk');
@@ -177,6 +205,82 @@ describe('LocksApplication (content)', () => {
       content_lock_path: '/pub/app.locks/LOCK1.json',
       creator: CREATOR_PUBKY,
     });
+  });
+
+  it('uploads at most three attachments at once, keeps their order, and uploads the post only after all of them (#2316)', async () => {
+    const uploads = deferUploads();
+    const builder = vi.fn(() => file());
+
+    const publish = LocksApplication.createLockContent({
+      attachments: [picked('image/png'), picked('video/mp4'), picked('image/jpeg'), picked('image/webp')],
+      buildPost: builder,
+      lockConfig: paymentConfig,
+    });
+    await vi.waitFor(() => expect(uploads.pending.size).toBe(3));
+    await drainTasks();
+
+    // Three are in flight together; the fourth waits for a free slot, and there is no post yet.
+    expect([...uploads.pending.keys()]).toEqual(['id-1', 'id-2', 'id-3']);
+    expect(builder).not.toHaveBeenCalled();
+
+    // A slot freed out of order goes to the next attachment, and only to it.
+    uploads.settle('id-3');
+    await vi.waitFor(() => expect(uploads.pending.has('id-4')).toBe(true));
+    await drainTasks();
+    expect(uploads.pending.size).toBe(4);
+    expect(builder).not.toHaveBeenCalled();
+
+    // Everything but `id-2` done: the post still waits for it.
+    uploads.settle('id-4');
+    uploads.settle('id-1');
+    await drainTasks();
+    expect(builder).not.toHaveBeenCalled();
+    expect(uploads.pending.has('id-5')).toBe(false);
+    uploads.settle('id-2');
+
+    await vi.waitFor(() => expect(uploads.pending.has('id-5')).toBe(true));
+    // The builder sees the attachments in the creator's order, not the order they finished in.
+    expect(builder).toHaveBeenCalledExactlyOnceWith(
+      [descriptor('id-1'), descriptor('id-2'), descriptor('id-3'), descriptor('id-4')],
+      CREATOR_PUBKY,
+    );
+    expect(mocks.creatorCreateContentLock).not.toHaveBeenCalled();
+    uploads.settle('id-5');
+
+    await publish;
+    expect(uploads.maxInFlight()).toBe(3);
+    expect(mocks.creatorCreateContentLock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ primary_resource: descriptor('id-5') }),
+    );
+  });
+
+  it('starts no further attachment after one fails, and rejects once the in-flight ones settle', async () => {
+    const uploads = deferUploads();
+    const builder = vi.fn(() => file());
+    let settled = false;
+
+    const publish = LocksApplication.createLockContent({
+      attachments: [picked('image/png'), picked('video/mp4'), picked('image/jpeg'), picked('image/webp')],
+      buildPost: builder,
+      lockConfig: paymentConfig,
+    }).finally(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(uploads.pending.size).toBe(3));
+
+    uploads.fail('id-1', new Error('upload failed'));
+    await drainTasks();
+    // The free slot is not refilled, and the error waits for the two uploads still running, so a
+    // retry right after it does not overlap this attempt.
+    expect(uploads.pending.has('id-4')).toBe(false);
+    expect(settled).toBe(false);
+
+    uploads.settle('id-2');
+    uploads.settle('id-3');
+    await expect(publish).rejects.toThrow('upload failed');
+    expect(mocks.registerGuardedResource).toHaveBeenCalledTimes(3);
+    expect(builder).not.toHaveBeenCalled();
+    expect(mocks.creatorCreateContentLock).not.toHaveBeenCalled();
   });
 
   it('gives identical files distinct paths, so neither overwrites the other', async () => {

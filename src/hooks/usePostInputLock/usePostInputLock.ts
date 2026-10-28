@@ -250,6 +250,7 @@ export function usePostInputLock({
             // A lock already switched on stays operable, so a creator can always take it back off.
             disabled: !lockEnabled && (!canEnable || paidUnlocks.status !== 'available'),
             regionNotice: !lockEnabled && paidUnlocks.status === 'blocked' ? paidUnlocks.cause : undefined,
+            showHelp: !lockEnabled && paidUnlocks.status === 'available',
           }
         : undefined,
     isLockEnabled: lockEnabled,
