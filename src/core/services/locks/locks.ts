@@ -293,9 +293,13 @@ export class LocksService {
     }
   }
 
-  /** Restores a Locks session from the persisted bearer secret (read from the store). */
-  static async restoreSession(): Promise<LocksSdkSession> {
-    const secret = useLocksAuthStore.getState().selectLocksSessionSecret();
+  /**
+   * Restores a Locks session from a bearer secret: the persisted one by default, or one the caller
+   * captured before clearing the store (logout revokes a session that was never rebuilt).
+   */
+  static async restoreSession(
+    secret: string | null = useLocksAuthStore.getState().selectLocksSessionSecret(),
+  ): Promise<LocksSdkSession> {
     if (!secret) {
       throw Err.auth(AuthErrorCode.UNAUTHORIZED, 'No persisted Locks secret to restore', {
         service: ErrorService.Locks,

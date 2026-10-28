@@ -211,6 +211,12 @@ describe('LocksService (auth)', () => {
     expect(mocks.fakeLocks.restoreSession).toHaveBeenCalledWith('secret-abc');
   });
 
+  it('restoreSession rebuilds from a secret the caller passes, even after the store was cleared', async () => {
+    const session = await LocksService.restoreSession('secret-captured');
+    expect(session).toBe(mocks.fakeSession);
+    expect(mocks.fakeLocks.restoreSession).toHaveBeenCalledWith('secret-captured');
+  });
+
   it('restoreSession throws an auth error when the store holds no secret', async () => {
     const error = await LocksService.restoreSession().catch((e: unknown) => e);
     expect(isAppError(error)).toBe(true);
