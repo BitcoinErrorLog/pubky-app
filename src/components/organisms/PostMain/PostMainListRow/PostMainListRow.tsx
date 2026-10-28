@@ -18,6 +18,7 @@ import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { parseCollectionContent } from '@/libs/post/collectionContent';
 import { DEFAULT_LOCK_TITLE, parseLockTeaserContent } from '@/libs/post/lockTeaser';
 import { cn, formatPublicKey, isPostDeleted, resolveUserDisplayName } from '@/libs/utils/utils';
+import { LockTitle } from '@/molecules/LockTitle/LockTitle';
 import { PostHeaderTimestamp } from '@/molecules/PostHeaderTimestamp/PostHeaderTimestamp';
 import { PostListMediaThumbnail } from '@/molecules/PostListMediaThumbnail/PostListMediaThumbnail';
 import { truncateAtWordBoundary } from '@/molecules/PostText/PostText.utils';
@@ -161,6 +162,10 @@ export function PostMainListRow({
     previewPostDetails.lock ?? null,
   );
   const snippet = showFullContent ? '' : truncateAtWordBoundary(contentSnippet, LIST_SNIPPET_MAX_CHARS);
+  // A lock title (at most 100 characters, under the snippet cap, so never cut through a key) shows
+  // its mentions as display names, as the lock card does (#2681).
+  const isLockTitleSnippet =
+    !!previewPostDetails.lock && parseLockTeaserContent(previewPostDetails.content.trim()) !== null;
   const profileUrl = getUserProfileUrl(displayUserId, currentUserPubky);
   const shouldShowDisplayHeader = shouldShowPostHeader || shouldUseOriginalPost;
   const shouldShowCompactBlur = !showFullContent && (displayPostDetails.is_blurred || previewPostDetails.is_blurred);
@@ -214,7 +219,7 @@ export function PostMainListRow({
                 overrideDefaults
                 data-cy="post-list-snippet"
               >
-                {snippet}
+                {isLockTitleSnippet ? <LockTitle title={snippet} interactive={false} /> : snippet}
               </Typography>
             ) : null}
           </Container>
