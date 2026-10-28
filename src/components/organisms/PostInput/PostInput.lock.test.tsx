@@ -482,8 +482,8 @@ describe('PostInput lock wiring', () => {
       fireEvent.click(screen.getByTestId('post-button'));
 
       await waitFor(() => expect(mocks.createLockContent).toHaveBeenCalledTimes(1));
-      const { attachments } = mocks.createLockContent.mock.calls[0][0] as { attachments: { contentType: string }[] };
-      expect(attachments.map((attachment) => attachment.contentType)).toEqual(['image/png', 'image/jpeg']);
+      const { attachments } = mocks.createLockContent.mock.calls[0][0] as { attachments: File[] };
+      expect(attachments.map((attachment) => attachment.type)).toEqual(['image/png', 'image/jpeg']);
     });
 
     it('captures what the inputs hold, which the composer state has not caught up with', () => {
