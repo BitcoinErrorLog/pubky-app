@@ -3,7 +3,7 @@ import { AuthErrorCode } from '@/libs/error/error.codes';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { mockGrantReference, mockSession } from '@/test-utils/pubky';
 import { mockAuthStore } from '@/test-utils/stores';
-import { createAuthSelectors, hasAccountState, selectDisplayUserPubky } from './auth.selectors';
+import { createAuthSelectors, hasAccountState, selectAccountUserPubky, selectDisplayUserPubky } from './auth.selectors';
 
 describe('createAuthSelectors', () => {
   it('throws an Auth/UNAUTHORIZED AppError when no user is signed in (#2958)', () => {
@@ -47,6 +47,30 @@ describe('hasAccountState', () => {
 
   it('is false for a generated pubky with no session and nothing to restore (#2955)', () => {
     expect(hasAccountState({ session: null, sessionReference: null, restoreStatus: 'idle' })).toBe(false);
+  });
+});
+
+describe('selectAccountUserPubky', () => {
+  it('returns the stored pubky while the browser holds an account', () => {
+    expect(
+      selectAccountUserPubky({
+        currentUserPubky: 'account',
+        session: null,
+        sessionReference: null,
+        restoreStatus: 'reauth-required',
+      }),
+    ).toBe('account');
+  });
+
+  it('returns null for a generated pubky with no session and nothing to restore (#2955)', () => {
+    expect(
+      selectAccountUserPubky({
+        currentUserPubky: 'generated-key',
+        session: null,
+        sessionReference: null,
+        restoreStatus: 'idle',
+      }),
+    ).toBeNull();
   });
 });
 

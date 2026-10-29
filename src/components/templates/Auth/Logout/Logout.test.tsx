@@ -213,6 +213,23 @@ describe('Logout', () => {
     expect(await screen.findByTestId('logout-content')).toBeInTheDocument();
     expect(mocks.mockLogout).toHaveBeenCalledOnce();
   });
+  it.each(['reauth-required', 'temporary-error'] as const)(
+    'keeps the backup prompt for a member whose restore ended in %s (#2955)',
+    (restoreStatus) => {
+      // The auth store merge yields reauth-required for a persisted pubky without a reference: no session, nothing
+      // to restore, but an account whose only key may still be in this browser.
+      const key = Keypair.random();
+      mocks.onboardingState.secretKey = Buffer.from(key.secret()).toString('hex');
+      mocks.authState.currentUserPubky = key.publicKey.z32();
+      mocks.authState.session = null;
+      mocks.authState.sessionReference = null;
+      mocks.authState.restoreStatus = restoreStatus;
+      render(<Logout />);
+      expect(screen.getByText('Back up your key before signing out')).toBeInTheDocument();
+      expect(screen.getByText('Backup controls')).toBeInTheDocument();
+      expect(mocks.mockLogout).not.toHaveBeenCalled();
+    },
+  );
   it('keeps the backup prompt when the stored key has a sign-up attempt but no session yet (#2955)', () => {
     // AuthController.signUp records the attempt before signing the created account in; that key may own an account.
     const key = Keypair.random();

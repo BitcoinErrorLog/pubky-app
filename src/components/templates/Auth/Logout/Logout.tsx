@@ -9,6 +9,7 @@ import { PageSubtitle } from '@/atoms/PageSubtitle/PageSubtitle';
 import { Spinner } from '@/atoms/Spinner/Spinner';
 import { CONTENT_GUTTER_CLASS } from '@/config/layoutClasses';
 import { AuthController } from '@/controllers/auth/auth';
+import { useHasBackupAccount } from '@/hooks/useHasBackupAccount/useHasBackupAccount';
 import { isAuthFlowCanceledError } from '@/libs/error/auth-flow-canceled';
 import { Identity } from '@/libs/identity/identity';
 import { Logger } from '@/libs/logger/logger';
@@ -20,7 +21,6 @@ import { PageTitle } from '@/molecules/Page/Page';
 import { AlertBackup } from '@/organisms/AlertBackup/AlertBackup';
 import { hasAccountState } from '@/stores/auth/auth.selectors';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { hasSignupAttemptForSecretState } from '@/stores/onboarding/onboarding.selectors';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 
 type LogoutViewState = 'idle' | 'loading' | 'success' | 'error' | 'canceled';
@@ -49,28 +49,23 @@ export function Logout() {
   const router = useRouter();
   const onboardingHasHydrated = useOnboardingStore((state) => state.hasHydrated);
   const authHasHydrated = useAuthStore((state) => state.hasHydrated);
-  const session = useAuthStore((state) => state.session);
-  const sessionReference = useAuthStore((state) => state.sessionReference);
+  const hasAuthAccount = useAuthStore(hasAccountState);
   const generation = useAuthStore((state) => state.generation);
   const logoutIntent = useRef<{ pubky: string | null; generation: string } | null>(null);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
-  const restoreStatus = useAuthStore((state) => state.restoreStatus);
   const isLoggingOut = useAuthStore((state) => state.isLoggingOut);
   const [viewState, setViewState] = useState<LogoutViewState>('idle');
 
   const secretKey = useOnboardingStore((state) => state.secretKey);
-  // A generated pubky without an account has nothing to back up, and AlertBackup stays hidden for it; a key whose
-  // sign-up already started may own an account the auth store holds no session for, so it keeps the prompt (#2955).
-  const hasAuthAccount = useAuthStore(hasAccountState);
-  const hasSignupAttempt = useOnboardingStore(hasSignupAttemptForSecretState);
-  const hasAccount = hasAuthAccount || hasSignupAttempt;
+  // Same rule as AlertBackup, which this page renders: a generated pubky without an account has nothing to back up,
+  // while a key whose sign-up already started keeps the prompt (#2955).
+  const hasBackupAccount = useHasBackupAccount();
   const needsBackup = Boolean(
-    hasAccount && secretKey && currentUserPubky && Identity.tryZ32FromSecret(secretKey) === currentUserPubky,
+    hasBackupAccount && secretKey && currentUserPubky && Identity.tryZ32FromSecret(secretKey) === currentUserPubky,
   );
 
   const isHydrated = onboardingHasHydrated && authHasHydrated;
-  const isSignedOut =
-    session === null && sessionReference === null && currentUserPubky === null && restoreStatus === 'idle';
+  const isSignedOut = !hasAuthAccount && currentUserPubky === null;
 
   useEffect(() => {
     if (!isHydrated || isLoggingOut || viewState !== 'idle') return;

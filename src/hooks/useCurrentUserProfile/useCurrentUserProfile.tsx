@@ -3,7 +3,7 @@
 import { UserController } from '@/controllers/user/user';
 import { useLocalFirstQuery } from '@/hooks/useLocalFirstQuery/useLocalFirstQuery';
 import type { NexusUserDetails } from '@/services/nexus/nexus.types';
-import { hasAccountState } from '@/stores/auth/auth.selectors';
+import { selectAccountUserPubky } from '@/stores/auth/auth.selectors';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { UseCurrentUserProfileResult } from './useCurrentUserProfile.types';
 
@@ -27,7 +27,7 @@ import type { UseCurrentUserProfileResult } from './useCurrentUserProfile.types'
  */
 export function useCurrentUserProfile({ enabled = true }: { enabled?: boolean } = {}): UseCurrentUserProfileResult {
   // The onboarding key step stores a generated pubky before sign-up: that visitor is a guest with no profile (#2955).
-  const currentUserPubky = useAuthStore((state) => (hasAccountState(state) ? state.currentUserPubky : null));
+  const currentUserPubky = useAuthStore(selectAccountUserPubky);
 
   const { data: userDetails } = useLocalFirstQuery<NexusUserDetails>({
     queryFn: () => UserController.getDetails({ userId: currentUserPubky! }),

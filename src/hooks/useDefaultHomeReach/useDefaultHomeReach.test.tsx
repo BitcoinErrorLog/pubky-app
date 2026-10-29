@@ -150,7 +150,7 @@ describe('useDefaultHomeReach', () => {
 
     renderHook(() => useDefaultHomeReach());
 
-    expect(useProfileStats).toHaveBeenCalledWith('generated-key', { enabled: false });
+    expect(useProfileStats).toHaveBeenCalledWith('', { enabled: false });
     expect(useHomeStore.getState().reach).toBe(REACH.ALL);
   });
 

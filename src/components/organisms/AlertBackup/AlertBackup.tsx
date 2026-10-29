@@ -12,22 +12,18 @@ import { useEffect, useState } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { Container } from '@/atoms/Container/Container';
 import { Typography } from '@/atoms/Typography/Typography';
+import { useHasBackupAccount } from '@/hooks/useHasBackupAccount/useHasBackupAccount';
 import { Identity } from '@/libs/identity/identity';
-import { hasAccountState } from '@/stores/auth/auth.selectors';
 import { useAuthStore } from '@/stores/auth/auth.store';
-import { hasSignupAttemptForSecretState } from '@/stores/onboarding/onboarding.selectors';
 import { useOnboardingStore } from '@/stores/onboarding/onboarding.store';
 import { DialogBackup } from '../DialogBackup/DialogBackup';
 import { DialogConfirmBackup } from '../DialogConfirmBackup/DialogConfirmBackup';
 
 export const AlertBackup = () => {
   const { secretKey } = useOnboardingStore();
-  // A sign-up already started for this key may own an account the auth store holds no session for yet (#2955).
-  const hasSignupAttempt = useOnboardingStore(hasSignupAttemptForSecretState);
   const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   const restoreStatus = useAuthStore((state) => state.restoreStatus);
-  const hasAuthAccount = useAuthStore(hasAccountState);
-  const hasAccount = hasAuthAccount || hasSignupAttempt;
+  const hasAccount = useHasBackupAccount();
   const needsSignIn = Boolean(
     restoreStatus === 'reauth-required' &&
     secretKey &&

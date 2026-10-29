@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useProfileStats } from '@/hooks/useProfileStats/useProfileStats';
-import { hasAccountState } from '@/stores/auth/auth.selectors';
+import { selectAccountUserPubky } from '@/stores/auth/auth.selectors';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import { useHomeStore } from '@/stores/home/home.store';
 import { REACH } from '@/stores/home/home.types';
@@ -10,9 +10,8 @@ import { REACH } from '@/stores/home/home.types';
 const DEFAULT_NETWORK_MIN_FOLLOWING = 3;
 
 export function useDefaultHomeReach(): void {
-  const currentUserPubky = useAuthStore((state) => state.currentUserPubky);
   // The onboarding key step stores a generated pubky before sign-up; it has no counts on Nexus (#2955).
-  const hasAccount = useAuthStore(hasAccountState);
+  const currentUserPubky = useAuthStore(selectAccountUserPubky);
   const authHasHydrated = useAuthStore((state) => state.hasHydrated);
   const homeHasHydrated = useHomeStore((state) => state.hasHydrated);
   const reach = useHomeStore((state) => state.reach);
@@ -22,7 +21,6 @@ export function useDefaultHomeReach(): void {
   const canLoadCounts =
     authHasHydrated &&
     homeHasHydrated &&
-    hasAccount &&
     Boolean(currentUserPubky) &&
     !hasUserSetReach &&
     !taggedAsActive &&

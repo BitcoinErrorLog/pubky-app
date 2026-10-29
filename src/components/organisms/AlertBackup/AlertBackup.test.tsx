@@ -233,6 +233,27 @@ describe('AlertBackup', () => {
       expect(screen.getByTestId('dialog-backup')).toBeInTheDocument();
     });
 
+    it('keeps the alert after a reload while a sign-up for the stored secret is recorded', () => {
+      // The generated pubky is not persisted, the secret and the attempt are.
+      useAuthStore.setState({ currentUserPubky: null });
+      useOnboardingStore.setState({
+        signupAttempt: {
+          pubky: keypair.publicKey.z32(),
+          homeserver: 'homeserver',
+          environment: 'staging',
+          phase: 'created',
+        },
+      });
+      render(<AlertBackup />);
+      expect(screen.getByText('Back up now')).toBeInTheDocument();
+    });
+
+    it('renders nothing after a reload without a sign-up attempt', () => {
+      useAuthStore.setState({ currentUserPubky: null });
+      const { container } = render(<AlertBackup />);
+      expect(container).toBeEmptyDOMElement();
+    });
+
     it.each(['creating', 'created'] as const)(
       'keeps the alert while a sign-up for that key is %s: it may already own an account',
       (phase) => {
