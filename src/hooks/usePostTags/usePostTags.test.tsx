@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PostController } from '@/controllers/post/post';
 import { TagController } from '@/controllers/tag/tag';
 import { TagCacheController } from '@/controllers/tag/tag-cache';
-import { NetworkErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, NetworkErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { toast } from '@/molecules/Toaster/toast';
@@ -315,6 +315,29 @@ describe('usePostTags', () => {
         description: 'Could not add tag',
       });
     });
+
+    it('prompts sign-in instead of the generic copy when the add is rejected as unauthenticated (#2890)', async () => {
+      vi.mocked(TagController.commitCreate).mockRejectedValueOnce(
+        Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Session expired', {
+          service: ErrorService.Homeserver,
+          operation: 'commitCreate',
+        }),
+      );
+
+      const { result } = renderHook(() => usePostTags('author:post123'));
+
+      let response: Awaited<ReturnType<typeof result.current.handleTagAdd>>;
+      await act(async () => {
+        response = await result.current.handleTagAdd('unauthed');
+      });
+
+      expect(response!).toEqual({ success: false, error: 'Failed to add tag' });
+      expect(vi.mocked(toast)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
+        variant: 'error',
+        description: 'Session expired. Please sign in.',
+      });
+    });
   });
 
   describe('handleTagToggle', () => {
@@ -402,6 +425,54 @@ describe('usePostTags', () => {
       expect(vi.mocked(toast)).toHaveBeenCalledWith({
         variant: 'error',
         description: 'Could not remove tag',
+      });
+    });
+
+    it('prompts sign-in when adding through a toggle is rejected as UNAUTHORIZED (#2890)', async () => {
+      vi.mocked(TagController.commitCreate).mockRejectedValueOnce(
+        Err.auth(AuthErrorCode.UNAUTHORIZED, 'Unauthorized', {
+          service: ErrorService.Homeserver,
+          operation: 'commitCreate',
+        }),
+      );
+
+      const { result } = renderHook(() => usePostTags('author:post123'));
+
+      await act(async () => {
+        await result.current.handleTagToggle({ label: 'bitcoin', relationship: false });
+      });
+
+      expect(vi.mocked(toast)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
+        variant: 'error',
+        description: 'Session expired. Please sign in.',
+      });
+    });
+
+    it('prompts sign-in when removing a tag is rejected as SESSION_EXPIRED (#2890)', async () => {
+      const mockViewerId = 'viewer-123';
+      vi.mocked(useAuthStore).mockImplementation(mockAuthStoreSelector(mockViewerId));
+      vi.mocked(useLiveQuery).mockReturnValue({
+        id: 'author:post123',
+        tags: [{ label: 'solo-tag', taggers_count: 1, taggers: [mockViewerId], relationship: true }],
+      });
+      vi.mocked(TagController.commitDelete).mockRejectedValueOnce(
+        Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Session expired', {
+          service: ErrorService.Homeserver,
+          operation: 'commitDelete',
+        }),
+      );
+
+      const { result } = renderHook(() => usePostTags('author:post123'));
+
+      await act(async () => {
+        await result.current.handleTagToggle({ label: 'solo-tag', relationship: true });
+      });
+
+      expect(vi.mocked(toast)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(toast)).toHaveBeenCalledWith({
+        variant: 'error',
+        description: 'Session expired. Please sign in.',
       });
     });
   });

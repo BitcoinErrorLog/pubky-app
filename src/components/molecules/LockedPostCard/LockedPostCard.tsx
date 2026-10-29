@@ -106,13 +106,17 @@ export function LockedPostCard({
       // A quote-repost preview is itself `bg-muted`, so the card has to step down a shade there or the
       // two read as one block. The price pill steps down with it to keep its own contrast.
       className={cn(
-        'flex cursor-default items-start justify-between gap-4 rounded-md p-6',
+        // `@container/lock-card`: the shield's size follows the card's own width, not the viewport.
+        // `items-end`: the shield sits on the bottom edge, level with the Unlock pill.
+        '@container/lock-card flex cursor-default items-end justify-between gap-4 rounded-md p-6',
         isNested ? 'bg-card' : 'bg-muted',
         className,
       )}
       data-testid="locked-post-card"
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-4">
+      {/* No `min-w-0`: the column keeps at least the pill's width, so the pill never runs under the shield
+          and the default title stays on one line. A long custom title still wraps (`wrap-anywhere`). */}
+      <div className="flex flex-1 flex-col gap-4">
         <div className={cn('flex items-center gap-2', editableTitle && 'group')}>
           {editableTitle ? (
             <>
@@ -138,7 +142,8 @@ export function LockedPostCard({
                 // Marks the input for the composer's outside-click collapse exclusion (usePostInput).
                 data-lock-title-input=""
                 className={cn(
-                  'min-w-0 flex-1 bg-transparent text-xl leading-7 font-bold text-foreground caret-foreground outline-none placeholder:text-muted-foreground',
+                  // `w-0`: an input's default width would otherwise set the column's minimum and push the card wide.
+                  'w-0 min-w-0 flex-1 bg-transparent text-xl leading-7 font-bold text-foreground caret-foreground outline-none placeholder:text-muted-foreground',
                   !isEditing && 'group-hover:text-brand',
                 )}
               />
@@ -184,13 +189,18 @@ export function LockedPostCard({
         </div>
       </div>
 
-      <Image
-        src="/images/shield.png"
-        alt=""
-        width={96}
-        height={96}
-        className="hidden size-24 shrink-0 rounded-md object-contain sm:block"
-      />
+      {/* 68px at most (the design asks for 25-30% under the original 96px), 48px on a card under 20rem of content (the
+          Cards layout's 336px and 309px cards). It still gives way to the pill instead of running under it,
+          and drops out once it would draw under 48px (3rem). */}
+      <div className="@container/shield hidden w-17 min-w-0 shrink sm:block @max-xs/lock-card:w-12">
+        <Image
+          src="/images/shield.png"
+          alt=""
+          width={68}
+          height={68}
+          className="hidden aspect-square h-auto w-full rounded-md object-contain @min-[3rem]/shield:block"
+        />
+      </div>
     </div>
   );
 }
