@@ -7,8 +7,7 @@ import { useProfileStats } from '@/hooks/useProfileStats/useProfileStats';
 import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { useTagCache } from '@/hooks/useTagCache/useTagCache';
 import type { Pubky } from '@/models/models.types';
-import { transformTagsForViewer } from '@/molecules/TaggedItem/TaggedItem.utils';
-import { toast } from '@/molecules/Toaster/toast';
+import { showTagWriteErrorToast, transformTagsForViewer } from '@/molecules/TaggedItem/TaggedItem.utils';
 import type { NexusTag } from '@/services/nexus/nexus.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { UseTaggedOptions, UseTaggedResult } from './useTagged.types';
@@ -148,12 +147,9 @@ export function useTagged(userId: string | null | undefined, options: UseTaggedO
         });
 
         return { success: true };
-      } catch {
+      } catch (error) {
         if (viewRevision.current !== revision) return { success: false };
-        toast({
-          variant: 'error',
-          description: 'Could not add tag',
-        });
+        showTagWriteErrorToast(error, 'Could not add tag');
         return { success: false, error: 'Failed to add tag' };
       }
     },
@@ -214,7 +210,7 @@ export function useTagged(userId: string | null | undefined, options: UseTaggedO
             return next;
           });
         }
-      } catch {
+      } catch (error) {
         if (viewRevision.current !== revision) return;
         // Rollback zero-tagger state on error
         if (userIsTagger) {
@@ -224,10 +220,7 @@ export function useTagged(userId: string | null | undefined, options: UseTaggedO
             return next;
           });
         }
-        toast({
-          variant: 'error',
-          description: userIsTagger ? 'Could not remove tag' : 'Could not add tag',
-        });
+        showTagWriteErrorToast(error, userIsTagger ? 'Could not remove tag' : 'Could not add tag');
       }
     },
     [userId, viewerId, allTags, tagOrder, waitForAuth],

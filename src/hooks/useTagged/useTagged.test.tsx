@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TagKind } from '@/application/tag/tag.types';
 import { useProfileStats } from '@/hooks/useProfileStats/useProfileStats';
-import { NetworkErrorCode } from '@/libs/error/error.codes';
+import { AuthErrorCode, NetworkErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { toast } from '@/molecules/Toaster/toast';
@@ -255,6 +255,34 @@ describe('useTagged', () => {
     });
   });
 
+  it('prompts sign-in instead of the generic copy when the add is rejected as unauthenticated (#2890)', async () => {
+    mockLocalTags = [];
+    mockMocks.mockTagCreate.mockRejectedValueOnce(
+      Err.auth(AuthErrorCode.SESSION_EXPIRED, 'Session expired', {
+        service: ErrorService.Homeserver,
+        operation: 'commitCreate',
+      }),
+    );
+
+    const { result } = renderHook(() => useTagged(mockUserId));
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    let addResult: Awaited<ReturnType<typeof result.current.handleTagAdd>>;
+    await act(async () => {
+      addResult = await result.current.handleTagAdd('unauthed');
+    });
+
+    expect(addResult!).toEqual({ success: false, error: 'Failed to add tag' });
+    expect(vi.mocked(toast)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'Session expired. Please sign in.',
+    });
+  });
+
   it('does not show a success toast when removing a tag', async () => {
     mockLocalTags = [
       {
@@ -342,6 +370,39 @@ describe('useTagged', () => {
     expect(vi.mocked(toast)).toHaveBeenCalledWith({
       variant: 'error',
       description: 'Could not remove tag',
+    });
+  });
+
+  it('prompts sign-in when removing a tag is rejected as UNAUTHORIZED (#2890)', async () => {
+    mockLocalTags = [
+      {
+        label: 'bitcoin',
+        taggers: ['mock-current-user'],
+        taggers_count: 1,
+        relationship: true,
+      },
+    ];
+    mockMocks.mockTagDelete.mockRejectedValueOnce(
+      Err.auth(AuthErrorCode.UNAUTHORIZED, 'Unauthorized', {
+        service: ErrorService.Homeserver,
+        operation: 'commitDelete',
+      }),
+    );
+
+    const { result } = renderHook(() => useTagged(mockUserId));
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.handleTagToggle({ label: 'bitcoin', relationship: true });
+    });
+
+    expect(vi.mocked(toast)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast)).toHaveBeenCalledWith({
+      variant: 'error',
+      description: 'Session expired. Please sign in.',
     });
   });
 

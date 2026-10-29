@@ -228,8 +228,7 @@ export function PostInput({
     removeExistingAttachment,
   });
   const isSubmitting = isWriting || isWaiting;
-  const restoreStatus = useAuthStore((state) => state.restoreStatus);
-  const displayUserPubky = selectDisplayUserPubky({ currentUserPubky, restoreStatus });
+  const displayUserPubky = useAuthStore((state) => selectDisplayUserPubky({ ...state, currentUserPubky }));
 
   const isPostVariant = variant === POST_INPUT_VARIANT.POST;
 

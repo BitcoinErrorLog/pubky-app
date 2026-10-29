@@ -9,8 +9,7 @@ import { useRequireAuth } from '@/hooks/useRequireAuth/useRequireAuth';
 import { useTagCache } from '@/hooks/useTagCache/useTagCache';
 import { isAppError } from '@/libs/error/error.utils';
 import { Logger } from '@/libs/logger/logger';
-import { transformTagsForViewer } from '@/molecules/TaggedItem/TaggedItem.utils';
-import { toast } from '@/molecules/Toaster/toast';
+import { showTagWriteErrorToast, transformTagsForViewer } from '@/molecules/TaggedItem/TaggedItem.utils';
 import type { NexusTag } from '@/services/nexus/nexus.types';
 import { useAuthStore } from '@/stores/auth/auth.store';
 import type { UsePostTagsOptions, UsePostTagsResult } from './usePostTags.types';
@@ -243,12 +242,9 @@ export function usePostTags(postId: string | null | undefined, options: UsePostT
         setRecentlyAddedLabels((prev) => new Map(prev).set(labelLower, counter));
 
         return { success: true };
-      } catch {
+      } catch (error) {
         if (viewRevision.current !== revision) return { success: false };
-        toast({
-          variant: 'error',
-          description: 'Could not add tag',
-        });
+        showTagWriteErrorToast(error, 'Could not add tag');
         return { success: false, error: 'Failed to add tag' };
       }
     },
@@ -319,7 +315,7 @@ export function usePostTags(postId: string | null | undefined, options: UsePostT
             return next;
           });
         }
-      } catch {
+      } catch (error) {
         if (viewRevision.current !== revision) return;
         // Rollback zero-tagger state on error
         if (userIsTagger) {
@@ -329,10 +325,7 @@ export function usePostTags(postId: string | null | undefined, options: UsePostT
             return next;
           });
         }
-        toast({
-          variant: 'error',
-          description: userIsTagger ? 'Could not remove tag' : 'Could not add tag',
-        });
+        showTagWriteErrorToast(error, userIsTagger ? 'Could not remove tag' : 'Could not add tag');
       }
     },
     [postId, viewerId, allTags, tagOrder, waitForAuth],

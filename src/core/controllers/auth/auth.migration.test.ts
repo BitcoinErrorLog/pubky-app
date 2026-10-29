@@ -2069,7 +2069,7 @@ describe('final review session ownership regressions', () => {
               password: 'password',
             });
       expect(result).toBe(true);
-      expect(signin).toHaveBeenCalledWith({ keypair });
+      expect(signin).toHaveBeenCalledWith({ keypair, isCurrent: expect.any(Function) });
       expect(useAuthStore.getState()).toMatchObject({ currentUserPubky: OTHER_PUBKY, session, restoreStatus: 'ready' });
       expect(clearDatabase).toHaveBeenCalledOnce();
     },
