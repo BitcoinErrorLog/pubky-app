@@ -10,11 +10,13 @@ Covers the creator side of Locks Phase 1. The reader/unlock side is a separate, 
 to the account signed in to pubky.app. The two-identities decision below is unchanged; the check is
 temporary.
 
-**Amendment (#2433, 2026-10-29):** the announcement envelope gains an optional `content_kind`, the v1 name
-of the locked post's kind (`note | article | image | video | link | file`), so the card and the unlock
-dialog show what is locked before anyone unlocks it. It stays app-owned and leniently parsed: a missing or
-unknown value reads as generic locked content and never fails the parse. The teaser budget shrinks by the
-25 characters of its longest entry (1859 → 1834). The lock file is unchanged.
+**Amendment (#2433, 2026-10-29):** the announcement envelope gains an optional `content_kind`, the locked
+post's kind string (`short | long | image | video | link | file`), so the card and the unlock dialog show
+what is locked before anyone unlocks it, with the content filter's icons. It stays app-owned and leniently
+parsed: a missing or unknown value shows as generic locked content and never fails the parse, and an edit
+writes the stored value back unchanged, including one this build does not know. The teaser max is
+`LOCK_TEASER_MAX_CHARACTER_LENGTH` minus the length of the `content_kind` entry actually written, so locks
+without one keep the old limit. The lock file is unchanged.
 
 ## Context
 

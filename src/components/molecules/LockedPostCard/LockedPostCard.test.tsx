@@ -273,10 +273,12 @@ describe('LockedPostCard', () => {
   describe('content kind', () => {
     it.each([
       ['image', 'Locked image', 'lucide-image'],
-      ['article', 'Locked article', 'lucide-newspaper'],
+      ['long', 'Locked article', 'lucide-newspaper'],
       ['video', 'Locked video', 'lucide-circle-play'],
-      ['file', 'Locked file', 'lucide-file-text'],
-      ['note', 'Locked content', 'lucide-sticky-note'],
+      ['file', 'Locked file', 'lucide-download'],
+      ['link', 'Locked content', 'lucide-link'],
+      ['short', 'Locked content', 'lucide-sticky-note'],
+      ['podcast', 'Locked content', 'lucide-sticky-note'],
       [undefined, 'Locked content', 'lucide-sticky-note'],
     ] as const)('shows %s as "%s" with its icon when untitled', (contentKind, title, iconClass) => {
       const { container } = render(<LockedPostCard title="" contentKind={contentKind} price={null} />);
@@ -298,7 +300,7 @@ describe('LockedPostCard', () => {
       );
 
       expect(screen.getByRole('textbox', { name: 'Lock title' })).toHaveAttribute('placeholder', 'Locked file');
-      expect(container.querySelector('svg.lucide-file-text')).toBeInTheDocument();
+      expect(container.querySelector('svg.lucide-download')).toBeInTheDocument();
     });
   });
 });

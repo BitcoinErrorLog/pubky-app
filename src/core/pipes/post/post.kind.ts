@@ -4,7 +4,8 @@ import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
 import { getFirstLinkUrl } from '@/libs/post/postLinkUrl';
 import { isVideoUrl } from '@/libs/utils/videoUrl';
-import type { TLockContentKind } from '@/services/locks/locks.types';
+import { postKindToString } from '@/models/feed/feed.helpers';
+import { isLockContentKind, type TLockContentKind } from '@/services/locks/locks.types';
 
 type TInferPostKindParams = {
   content: string;
@@ -71,26 +72,12 @@ export const inferPostKindForCreate = ({ content, attachments, isArticle }: TInf
 };
 
 /**
- * The v1 name a lock announcement saves for the kind of its locked post (#2433). A create never infers a
- * collection or an unknown kind, so those save nothing and read as generic content.
+ * The post kind string a lock announcement saves for the kind of its locked post (#2433). A create never
+ * infers a collection or an unknown kind, so those save nothing and read as generic content.
  */
 export const toLockContentKind = (kind: PubkyAppPostKind): TLockContentKind | undefined => {
-  switch (kind) {
-    case PubkyAppPostKind.Short:
-      return 'note';
-    case PubkyAppPostKind.Long:
-      return 'article';
-    case PubkyAppPostKind.Image:
-      return 'image';
-    case PubkyAppPostKind.Video:
-      return 'video';
-    case PubkyAppPostKind.Link:
-      return 'link';
-    case PubkyAppPostKind.File:
-      return 'file';
-    default:
-      return undefined;
-  }
+  const name = postKindToString(kind);
+  return isLockContentKind(name) ? name : undefined;
 };
 
 /**

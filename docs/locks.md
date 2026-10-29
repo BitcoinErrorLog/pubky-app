@@ -134,8 +134,8 @@ honoring the specs contract and returning this field.
 Lock announcements use the existing `DialogEditPost` composer. The dialog detects the top-level
 `lock`, parses the public envelope with the reader's parse, and exposes only the teaser
 description and editable lock title. Saving rebuilds the envelope with
-`buildLockTeaserContent`, writing back the stored `content_kind` (`DialogEditPost` → `EditLock.contentKind`
-→ `usePostInput` → `usePost.edit`); `PostNormalizer.toEdit` reconstructs the original post with
+`buildLockTeaserContent`, writing back the stored `content_kind` unchanged, including one this build does not
+know (`DialogEditPost` → `EditLock.contentKind` → `usePostInput` → `usePost.edit`); `PostNormalizer.toEdit` reconstructs the original post with
 `PubkyAppPost.new_with_lock` so the stored lock URL survives content, kind, and attachment edits.
 The price is read-only from the existing `lock.json`; the edit composer cannot change lock criteria
 or guarded content.
@@ -196,18 +196,19 @@ deleted-post fallback once Nexus drops it.
   fields degrade to empty strings so the teaser still renders. The edit composer reads it with
   the same parse, so what the creator edits is what the reader sees (see
   [Editing an announcement](#editing-an-announcement)).
-- `content_kind` (#2433) is the locked post's kind, from `inferPostKindForCreate` at publish time, in its v1
-  name: `note | article | image | video | link | file` (`LOCK_CONTENT_KINDS`, `toLockContentKind`). The order
-  is the normal post's: video over image over file, and audio is a file. `getLockContentDisplay`
-  (`libs/post/lockContentKind.ts`) maps it to the icon and the untitled fallback at render time, for both
-  `LockedPostCard` and `DialogPayToUnlock`: article → "Locked article" / Newspaper, image → "Locked image" /
-  Image, video → "Locked video" / CirclePlay, file → "Locked file" / FileText, anything else → "Locked
-  content" / StickyNote. The composer seeds the card's title with that default; a title the creator types is
-  kept. The parse is lenient: missing (every lock from before #2433), unknown or malformed reads as unset and
-  never fails, because `LockedPostContent` renders nothing for a lock whose content does not parse. The field
-  is written after the two text fields and left out when unset, and it counts in `isLockTeaserWithinLimit`:
-  `LOCK_TEASER_MAX_CHARACTER_LENGTH` reserves 25 characters for its longest entry,
-  `,"content_kind":"article"`.
+- `content_kind` (#2433) is the locked post's kind, from `inferPostKindForCreate` at publish time, as its
+  post kind string: `short | long | image | video | link | file` (`LOCK_CONTENT_KINDS`, `toLockContentKind`).
+  The order is the normal post's: video over image over file, and audio is a file. Any string is kept raw, so
+  an edit writes the stored value back unchanged, including one this build does not know; a non-string reads
+  as unset. `getLockContentDisplay` (`libs/post/lockContentKind.ts`) narrows it for display only, with icons
+  that follow the content filter: long → "Locked article" / Newspaper, image → "Locked image" / Image,
+  video → "Locked video" / CirclePlay, file → "Locked file" / Download, link → "Locked content" / Link,
+  short, missing or unknown → "Locked content" / StickyNote. The card, the unlock dialog and the text previews
+  share it. The composer seeds the card's title with that default; a title the creator types is kept. The
+  field is written after the two text fields and left out when unset, and it counts in
+  `isLockTeaserWithinLimit`. The composer's teaser max (`getLockTeaserMaxLength`) is
+  `LOCK_TEASER_MAX_CHARACTER_LENGTH` minus the length of the `content_kind` entry actually written, so a lock
+  without one keeps the old limit.
 - The reader's replica marker (`/priv/social/unlocked/<lockId>/post.json`, `replicatedPostSchema`) is
   not a `PubkyAppPost`: each attachment carries its `content_type` inline so the copy renders without
   the creator's lock file, and `announcement` holds the `pubky://…/posts/<id>` URI of the post the

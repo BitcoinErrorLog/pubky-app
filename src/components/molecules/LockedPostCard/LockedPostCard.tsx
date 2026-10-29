@@ -9,13 +9,13 @@ import { getLockContentDisplay } from '@/libs/post/lockContentKind';
 import { formatLockPrice } from '@/libs/utils/lockPrice';
 import { cn } from '@/libs/utils/utils';
 import { useIsNestedPostPreview } from '@/molecules/PostPreviewCard/PostPreviewNestingContext';
-import type { TLockContentKind, TLockPrice } from '@/services/locks/locks.types';
+import type { TLockPrice } from '@/services/locks/locks.types';
 
 interface LockedPostCardProps {
   /** Creator-typed lock title for the reader/preview view. Ignored when `editableTitle` is set. */
   title?: string;
   /** The locked post's kind: picks the icon and the title shown when none was typed (#2433). */
-  contentKind?: TLockContentKind;
+  contentKind?: string;
   /** The lock price shown beside Unlock. Nullish → the masked dots, unless `isLoading` shows the spinner instead. */
   price?: TLockPrice | null;
   onUnlock?: () => void;

@@ -16,7 +16,13 @@ import { inferPostKindForCreate, toLockContentKind } from '@/pipes/post/post.kin
 import { postKindBelongsToStream } from '@/stores/home/home.utils';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import { useLocksAuthStore } from '@/stores/locksAuth/locksAuth.store';
-import type { UsePostInputLockOptions, UsePostInputLockReturn } from './usePostInputLock.types';
+import type { TLockDraft, UsePostInputLockOptions, UsePostInputLockReturn } from './usePostInputLock.types';
+
+/** The kind a lock announcement saves for a captured draft, inferred as a normal post's would be (#2433). */
+const contentKindOf = (draft: TLockDraft) =>
+  toLockContentKind(
+    inferPostKindForCreate({ content: draft.content, attachments: draft.attachments, isArticle: draft.isArticle }),
+  );
 
 /** Turns raw files into the local-blob attachment shape shown before the remote copies are ready. */
 const filesToLocalAttachments = (files: File[]) =>
@@ -112,7 +118,7 @@ export function usePostInputLock({
     isArticle: lockDraft?.isArticle,
   });
   // Saved in the announcement, so the card shows what is locked before anyone unlocks it (#2433).
-  const lockContentKind = lockDraft ? toLockContentKind(lockedKind) : undefined;
+  const lockContentKind = lockDraft ? contentKindOf(lockDraft) : undefined;
 
   // Once the switch is on the composer holds the announcement; the locked post is the captured draft,
   // whose kind is inferred exactly as a normal post would be (link / image / video / …).
@@ -174,12 +180,7 @@ export function usePostInputLock({
     setLockEnabled(true);
     // Seed the card's title with the default for what is being locked, so it reads as real, editable text
     // (not a placeholder). A title the creator edits is kept as typed (#2433).
-    const draftKind = inferPostKindForCreate({
-      content: draft.content,
-      attachments: draft.attachments,
-      isArticle: draft.isArticle,
-    });
-    setLockTitle(getLockContentDisplay(toLockContentKind(draftKind)).title);
+    setLockTitle(getLockContentDisplay(contentKindOf(draft)).title);
 
     // Gate on Locks setup: fully set up → lock content dialog; otherwise the modal, which opens at
     // whichever step is still missing.

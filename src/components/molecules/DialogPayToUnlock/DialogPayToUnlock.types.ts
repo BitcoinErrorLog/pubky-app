@@ -1,5 +1,5 @@
 import type { TPayToUnlockStage } from '@/hooks/usePayToUnlock/usePayToUnlock.types';
-import type { TLockContentKind, TLockPrice, TPaykitConnectionState } from '@/services/locks/locks.types';
+import type { TLockPrice, TPaykitConnectionState } from '@/services/locks/locks.types';
 
 export interface DialogPayToUnlockProps {
   open: boolean;
@@ -7,7 +7,7 @@ export interface DialogPayToUnlockProps {
   /** Creator-typed lock title, shown in the header card. */
   lockTitle: string;
   /** The locked post's kind: picks the header icon and the title shown when none was typed (#2433). */
-  contentKind?: TLockContentKind;
+  contentKind?: string;
   /** Post author — the avatar beside the title links to their profile. */
   authorId: string;
   /** Price and denomination, from the lock file's payment criterion. */

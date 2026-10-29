@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LOCK_TEASER_MAX_CHARACTER_LENGTH } from '@/config/posts';
+import { MAX_CHARACTERS_TOAST_TITLE } from '@/hooks/useCharacterLimitWarning/useCharacterLimitWarning';
 import { parseLockTeaserContent } from '@/libs/post/lockTeaser';
 import { PostInput } from './PostInput';
 import { POST_INPUT_VARIANT } from './PostInput.constants';
@@ -346,6 +348,33 @@ describe('PostInput - editing while the post row changes under the dialog (integ
 
       const [{ content }] = mocks.commitEdit.mock.calls[0];
       expect(content).toBe('{"lock_title":"Holiday","teaser_description":"New teaser"}');
+    });
+
+    // A kind this build does not know is carried raw, so an edit never erases what a newer app saved.
+    it('keeps a content kind this build does not know through an edit', async () => {
+      render(editLockPost('{"lock_title":"Holiday","teaser_description":"Old teaser","content_kind":"podcast"}'));
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New teaser' } });
+
+      await save(1);
+
+      const [{ content }] = mocks.commitEdit.mock.calls[0];
+      expect(content).toBe('{"lock_title":"Holiday","teaser_description":"New teaser","content_kind":"podcast"}');
+    });
+
+    // The max follows the envelope actually written: a lock with no kind keeps the old teaser budget.
+    it('opens an old lock with a teaser past the kind reserve without a warning, and saves it', async () => {
+      const teaser = 'b'.repeat(1840);
+      expect(teaser.length).toBeLessThan(LOCK_TEASER_MAX_CHARACTER_LENGTH);
+      render(editLockPost(JSON.stringify({ lock_title: 'Holiday', teaser_description: teaser })));
+
+      expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: MAX_CHARACTERS_TOAST_TITLE }));
+      expect(screen.getByTestId('post-button')).toBeEnabled();
+
+      await save(1);
+
+      const [{ content }] = mocks.commitEdit.mock.calls[0];
+      expect(content).toBe(JSON.stringify({ lock_title: 'Holiday', teaser_description: teaser }));
+      expect(mocks.toast).not.toHaveBeenCalledWith(expect.objectContaining({ title: MAX_CHARACTERS_TOAST_TITLE }));
     });
   });
 });

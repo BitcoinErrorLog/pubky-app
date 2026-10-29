@@ -580,7 +580,7 @@ describe('usePostInput', () => {
       const editLock = {
         lockUrl: 'pubky://author/pub/app.locks/LOCK1.json',
         title: 'Private note',
-        contentKind: 'article' as const,
+        contentKind: 'long',
       };
 
       const { result } = renderHook(() => usePostInput({ variant: 'edit', editPostId: 'post-to-edit-id', editLock }));
@@ -590,7 +590,7 @@ describe('usePostInput', () => {
       });
 
       expect(mockEdit).toHaveBeenCalledWith(
-        expect.objectContaining({ isLockAnnouncement: true, lockContentKind: 'article' }),
+        expect.objectContaining({ isLockAnnouncement: true, lockContentKind: 'long' }),
       );
     });
 

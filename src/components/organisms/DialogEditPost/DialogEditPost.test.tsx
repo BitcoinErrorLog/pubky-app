@@ -321,6 +321,32 @@ describe('DialogEditPost', () => {
     );
   });
 
+  // An edit writes the stored kind back unchanged, so one this build does not know must reach the composer raw.
+  it('passes a stored content kind this build does not know through unchanged', () => {
+    const lockUrl = 'pubky://author/pub/app.locks/LOCK1.json';
+    vi.mocked(usePostDetails).mockReturnValue({
+      postDetails: {
+        id: 'test-lock-post-123',
+        content: JSON.stringify({
+          lock_title: 'Holiday',
+          teaser_description: 'Public teaser',
+          content_kind: 'podcast',
+        }),
+        kind: 'short',
+        attachments: postAttachments,
+        lock: lockUrl,
+      } as ReturnType<typeof usePostDetails>['postDetails'],
+      isLoading: false,
+    });
+
+    render(<DialogEditPost postId="test-lock-post-123" open onOpenChangeAction={vi.fn()} />);
+
+    expect(PostInput).toHaveBeenCalledWith(
+      expect.objectContaining({ editLock: { lockUrl, title: 'Holiday', contentKind: 'podcast' } }),
+      undefined,
+    );
+  });
+
   // A lock post always opens in teaser mode, with the fields the reader would show. When the body is
   // not a teaser envelope it is kept as the teaser text instead of being dropped: saving re-wraps the
   // editor's content into an envelope, so clearing the field here would delete the post's only text.

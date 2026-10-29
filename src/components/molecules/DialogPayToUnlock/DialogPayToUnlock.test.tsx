@@ -630,9 +630,10 @@ describe('DialogPayToUnlock', () => {
   // #2433: the header card uses the same mapping as LockedPostCard.
   it.each([
     ['image', 'Locked image', 'lucide-image'],
-    ['article', 'Locked article', 'lucide-newspaper'],
+    ['long', 'Locked article', 'lucide-newspaper'],
     ['video', 'Locked video', 'lucide-circle-play'],
-    ['file', 'Locked file', 'lucide-file-text'],
+    ['file', 'Locked file', 'lucide-download'],
+    ['link', 'Locked content', 'lucide-link'],
     [undefined, 'Locked content', 'lucide-sticky-note'],
   ] as const)('shows an untitled %s lock as "%s" with its icon', (contentKind, title, iconClass) => {
     renderDialog('waiting', { lockTitle: '', contentKind });

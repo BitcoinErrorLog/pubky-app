@@ -10,7 +10,7 @@ import { AuthErrorCode, ValidationErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorCategory, ErrorService } from '@/libs/error/error.types';
 import { IMAGE_UPLOAD_SIZE_LIMIT_KIND_CONTEXT_KEY } from '@/libs/image/imageUploadSizeLimit';
-import type { TLockTeaser } from '@/libs/post/lockTeaser';
+import { getLockTeaserMaxLength, type TLockTeaser } from '@/libs/post/lockTeaser';
 import type { TGuardedResource } from '@/services/locks/locks.types';
 import { useCreateLockContent } from './useCreateLockContent';
 
@@ -344,7 +344,7 @@ describe('useCreateLockContent', () => {
           withTeaser({
             lock_title: 'a'.repeat(LOCK_TITLE_MAX_CHARACTER_LENGTH),
             teaser_description: 'b'.repeat(POST_MAX_CHARACTER_LENGTH - LOCK_TITLE_MAX_CHARACTER_LENGTH - 41),
-            content_kind: 'note',
+            content_kind: 'short',
           }),
         ),
       );
@@ -361,8 +361,8 @@ describe('useCreateLockContent', () => {
         useCreateLockContent(
           withTeaser({
             lock_title: 'a'.repeat(LOCK_TITLE_MAX_CHARACTER_LENGTH),
-            teaser_description: 'b'.repeat(LOCK_TEASER_MAX_CHARACTER_LENGTH),
-            content_kind: 'article',
+            teaser_description: 'b'.repeat(getLockTeaserMaxLength('long')),
+            content_kind: 'long',
           }),
         ),
       );

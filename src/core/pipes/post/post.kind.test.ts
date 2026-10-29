@@ -299,8 +299,8 @@ describe('inferAnnouncementKind', () => {
 
 describe('toLockContentKind', () => {
   it.each([
-    [PubkyAppPostKind.Short, 'note'],
-    [PubkyAppPostKind.Long, 'article'],
+    [PubkyAppPostKind.Short, 'short'],
+    [PubkyAppPostKind.Long, 'long'],
     [PubkyAppPostKind.Image, 'image'],
     [PubkyAppPostKind.Video, 'video'],
     [PubkyAppPostKind.Link, 'link'],
@@ -311,6 +311,7 @@ describe('toLockContentKind', () => {
 
   it('saves nothing for a kind a create never infers', () => {
     expect(toLockContentKind(PubkyAppPostKind.Collection)).toBeUndefined();
+    expect(toLockContentKind(PubkyAppPostKind.Unknown)).toBeUndefined();
   });
 
   // The existing order decides a mixed draft: video over image over file, and audio is a file.
