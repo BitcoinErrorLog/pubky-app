@@ -1,3 +1,6 @@
+import { AuthErrorCode } from '@/libs/error/error.codes';
+import { Err } from '@/libs/error/error.factories';
+import { ErrorService } from '@/libs/error/error.types';
 import { ZustandGet } from '../stores.types';
 import { AuthState, AuthStore } from './auth.types';
 
@@ -31,7 +34,14 @@ export const createAuthSelectors = (get: ZustandGet<AuthStore>) => ({
   selectCurrentUserPubky: () => {
     const pubky = get().currentUserPubky;
     if (pubky === null) {
-      throw new Error('Current user pubky is not available. User may not be authenticated.');
+      throw Err.auth(
+        AuthErrorCode.UNAUTHORIZED,
+        'Current user pubky is not available. User may not be authenticated.',
+        {
+          service: ErrorService.Local,
+          operation: 'selectCurrentUserPubky',
+        },
+      );
     }
     return pubky;
   },
