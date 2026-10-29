@@ -1,11 +1,11 @@
 'use client';
 
 import { type MouseEvent, useEffect, useRef, useState } from 'react';
-import { LockOpen, Pencil, StickyNote, Wallet } from 'lucide-react';
+import { LockOpen, Pencil, Wallet } from 'lucide-react';
 import { Button, ButtonVariant } from '@/atoms/Button/Button';
 import { Image } from '@/atoms/Image/Image';
 import { Spinner } from '@/atoms/Spinner/Spinner';
-import { DEFAULT_LOCK_TITLE } from '@/libs/post/lockTeaser';
+import { getLockContentDisplay } from '@/libs/post/lockContentKind';
 import { formatLockPrice } from '@/libs/utils/lockPrice';
 import { cn } from '@/libs/utils/utils';
 import { useIsNestedPostPreview } from '@/molecules/PostPreviewCard/PostPreviewNestingContext';
@@ -14,6 +14,8 @@ import type { TLockPrice } from '@/services/locks/locks.types';
 interface LockedPostCardProps {
   /** Creator-typed lock title for the reader/preview view. Ignored when `editableTitle` is set. */
   title?: string;
+  /** The locked post's kind: picks the icon and the title shown when none was typed (#2433). */
+  contentKind?: string;
   /** The lock price shown beside Unlock. Nullish → the masked dots, unless `isLoading` shows the spinner instead. */
   price?: TLockPrice | null;
   onUnlock?: () => void;
@@ -51,6 +53,7 @@ export const SLIDE_MS = 200;
 
 /** The shared lock card. */
 export function LockedPostCard({
+  contentKind,
   title,
   price,
   onUnlock,
@@ -66,6 +69,7 @@ export function LockedPostCard({
   const isDimmed = !isLoading && (disabled ?? !onUnlock);
   const isDisabled = isLoading || isDimmed;
   const priceLabel = price ? formatLockPrice(price) : HIDDEN_REQUIREMENT_MASK;
+  const { title: defaultTitle, Icon: KindIcon } = getLockContentDisplay(contentKind);
   const priceContent = (
     <>
       <Wallet className="size-4 shrink-0" aria-hidden />
@@ -133,13 +137,13 @@ export function LockedPostCard({
         <div className={cn('flex items-center gap-2', editableTitle && 'group')}>
           {editableTitle ? (
             <>
-              <StickyNote className="size-6 shrink-0 text-foreground" aria-hidden />
+              <KindIcon className="size-6 shrink-0 text-foreground" aria-hidden />
               {/* The hidden copy sizes the box to the title so the pencil sits right after it. Safari lacks
                   `field-sizing: content`, and an input in the flow adds its own minimum width, so it overlays the box.
                   `grid`: a clipped grid item has no minimum width, so a long title cannot widen the card. */}
               <div className="relative grid min-w-0">
                 <span aria-hidden className="invisible overflow-hidden text-xl leading-7 font-bold whitespace-pre">
-                  {editableTitle.value || DEFAULT_LOCK_TITLE}
+                  {editableTitle.value || defaultTitle}
                 </span>
                 <input
                   ref={titleInputRef}
@@ -153,7 +157,7 @@ export function LockedPostCard({
                     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                     if (event.key === 'Enter' || event.key === 'Escape') event.currentTarget.blur();
                   }}
-                  placeholder={DEFAULT_LOCK_TITLE}
+                  placeholder={defaultTitle}
                   disabled={editableTitle.disabled}
                   maxLength={editableTitle.maxLength}
                   aria-label={'Lock title'}
@@ -180,9 +184,9 @@ export function LockedPostCard({
             </>
           ) : (
             <>
-              <StickyNote className="size-6 shrink-0 text-muted-foreground" aria-hidden />
+              <KindIcon className="size-6 shrink-0 text-muted-foreground" aria-hidden />
               <h4 className="line-clamp-2 min-w-0 flex-1 text-xl leading-7 font-bold wrap-anywhere text-foreground">
-                {title?.trim() || DEFAULT_LOCK_TITLE}
+                {title?.trim() || defaultTitle}
               </h4>
             </>
           )}

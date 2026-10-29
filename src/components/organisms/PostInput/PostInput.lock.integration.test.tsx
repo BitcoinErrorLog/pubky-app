@@ -9,6 +9,7 @@ import type { ComposerDraft } from '@/hooks/usePost/usePost.types';
 import { AuthErrorCode } from '@/libs/error/error.codes';
 import { Err } from '@/libs/error/error.factories';
 import { ErrorService } from '@/libs/error/error.types';
+import { getLockTeaserMaxLength } from '@/libs/post/lockTeaser';
 import { inferPostKindForCreate } from '@/pipes/post/post.kind';
 import type { TGuardedResource } from '@/services/locks/locks.types';
 import { PostInput } from './PostInput';
@@ -274,10 +275,10 @@ describe('PostInput lock flow (integration)', () => {
 
   // Full creator journey: write → switch on → sign in → price → teaser → Post.
   it.each([
-    ['short text', 'my secret note', [] as File[]],
-    ['a link', 'see https://pubky.app', [] as File[]],
-    ['an image', 'holiday pic', [new File(['x'], 'pic.png', { type: 'image/png' })]],
-  ])('locks %s and publishes the announcement', async (_name, body, files) => {
+    ['short text', 'my secret note', [] as File[], 'short', 'Locked content'],
+    ['a link', 'see https://pubky.app', [] as File[], 'link', 'Locked content'],
+    ['an image', 'holiday pic', [new File(['x'], 'pic.png', { type: 'image/png' })], 'image', 'Locked image'],
+  ])('locks %s and publishes the announcement', async (_name, body, files, contentKind, defaultTitle) => {
     const { onSuccess } = await renderComposer();
     act(() => mocks.composer.setContent(body));
     if (files.length > 0) act(() => mocks.composer.setAttachments(files));
@@ -294,14 +295,20 @@ describe('PostInput lock flow (integration)', () => {
     fireEvent.change(screen.getByPlaceholderText('Write a short announcement to tease your content.'), {
       target: { value: 'come see this' },
     });
-    fireEvent.change(screen.getByPlaceholderText('Locked content'), { target: { value: 'My title' } });
+    // The card's title is seeded with the default for what was locked (#2433).
+    expect(screen.getByRole('textbox', { name: 'Lock title' })).toHaveValue(defaultTitle);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Lock title' }), { target: { value: 'My title' } });
     fireEvent.click(postButton());
 
     await waitFor(() => expect(mocks.commitCreate).toHaveBeenCalledTimes(1));
     expect(mocks.commitCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         authorId: 'alice',
-        content: JSON.stringify({ lock_title: 'My title', teaser_description: 'come see this' }),
+        content: JSON.stringify({
+          lock_title: 'My title',
+          teaser_description: 'come see this',
+          content_kind: contentKind,
+        }),
         lock: 'pubky://bob/pub/app.locks/L1.json',
       }),
     );
@@ -499,22 +506,25 @@ describe('PostInput lock flow (integration)', () => {
       await configureLock();
 
       expect(screen.getByLabelText('Lock title')).toHaveAttribute('maxLength', String(LOCK_TITLE_MAX_CHARACTER_LENGTH));
+      // The draft is a short post, so the max gives up exactly its `content_kind` entry (#2433).
       expect(screen.getByPlaceholderText('Write a short announcement to tease your content.')).toHaveAttribute(
         'maxLength',
-        String(LOCK_TEASER_MAX_CHARACTER_LENGTH),
+        String(getLockTeaserMaxLength('short')),
       );
     });
 
     it('publishes when both fields are filled to their budgets', async () => {
       await renderComposer();
       await configureLock();
-      setTeaser('b'.repeat(LOCK_TEASER_MAX_CHARACTER_LENGTH));
+      setTeaser('b'.repeat(getLockTeaserMaxLength('short')));
       setTitle('a'.repeat(LOCK_TITLE_MAX_CHARACTER_LENGTH));
 
       fireEvent.click(postButton());
 
       await waitFor(() => expect(mocks.commitCreate).toHaveBeenCalledTimes(1));
       const [{ content }] = mocks.commitCreate.mock.calls[0];
+      // The max follows the `content_kind` actually written, so a full composer fills the post exactly (#2433).
+      expect(JSON.parse(content).content_kind).toBe('short');
       expect(content.length).toBe(POST_MAX_CHARACTER_LENGTH);
     });
 

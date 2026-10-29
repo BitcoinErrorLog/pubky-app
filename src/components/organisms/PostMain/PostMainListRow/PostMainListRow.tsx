@@ -16,7 +16,8 @@ import { useRelativeTime } from '@/hooks/useRelativeTime/useRelativeTime';
 import { useRepostInfo } from '@/hooks/useRepostInfo/useRepostInfo';
 import { useUserDetails } from '@/hooks/useUserDetails/useUserDetails';
 import { parseCollectionContent } from '@/libs/post/collectionContent';
-import { DEFAULT_LOCK_TITLE, parseLockTeaserContent } from '@/libs/post/lockTeaser';
+import { getLockContentDisplay } from '@/libs/post/lockContentKind';
+import { parseLockTeaserContent } from '@/libs/post/lockTeaser';
 import { cn, formatPublicKey, isPostDeleted, resolveUserDisplayName } from '@/libs/utils/utils';
 import { PostHeaderTimestamp } from '@/molecules/PostHeaderTimestamp/PostHeaderTimestamp';
 import { PostListMediaThumbnail } from '@/molecules/PostListMediaThumbnail/PostListMediaThumbnail';
@@ -49,7 +50,7 @@ function getListPostSnippet(content: string, kind: string, lock: string | null):
   if (lock) {
     const teaser = parseLockTeaserContent(trimmed);
     if (teaser) {
-      return teaser.lock_title.trim() || DEFAULT_LOCK_TITLE;
+      return teaser.lock_title.trim() || getLockContentDisplay(teaser.content_kind).title;
     }
   }
 
