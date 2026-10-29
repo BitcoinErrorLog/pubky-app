@@ -201,12 +201,21 @@ export function usePostInputLock({
   const handleLockApplied = (config: TLockConfig) => {
     setLockConfig(config);
     setIsLockDialogOpen(false);
-    // Only now swap the still-visible locked draft for the empty announcement composer.
-    clearComposer();
+    // Only the first Apply swaps the still-visible locked draft for the empty announcement composer. A
+    // price change keeps the announcement the creator is writing.
+    if (!isLockConfigured) clearComposer();
   };
 
-  // Dismissing the lock dialog without applying abandons the lock.
-  const closeLockDialog = () => revertToNormalPost();
+  const changeLockPrice = () => setIsLockDialogOpen(true);
+
+  // Dismissing the first lock dialog abandons the lock; dismissing a price change keeps the applied price.
+  const closeLockDialog = () => {
+    if (isLockConfigured) {
+      setIsLockDialogOpen(false);
+      return;
+    }
+    revertToNormalPost();
+  };
 
   // The session was rejected while publishing. Reopen sign-in, keeping the draft and the configured
   // price so the creator only has to sign in again, not redo the lock.
@@ -263,6 +272,7 @@ export function usePostInputLock({
     isLockDialogOpen,
     closeLockDialog,
     handleLockApplied,
+    changeLockPrice,
     lockTitle,
     setLockTitle,
     submitOrPublish,

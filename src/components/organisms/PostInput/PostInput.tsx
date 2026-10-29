@@ -268,6 +268,7 @@ export function PostInput({
     isLockDialogOpen,
     closeLockDialog,
     handleLockApplied,
+    changeLockPrice,
     lockTitle,
     setLockTitle,
     submitOrPublish,
@@ -792,6 +793,8 @@ export function PostInput({
                                 disabled: editSeed.lock ? isSubmitting : isPublishingLock,
                                 maxLength: LOCK_TITLE_MAX_CHARACTER_LENGTH,
                               }}
+                              // A published lock keeps its price; a new one can change it until Post.
+                              onChangePrice={editSeed.lock || isPublishingLock ? undefined : changeLockPrice}
                             />
                           ) : undefined
                         }
@@ -843,6 +846,7 @@ export function PostInput({
               open={isLockDialogOpen}
               onOpenChange={closeLockDialog}
               onApplied={handleLockApplied}
+              appliedPrice={lockConfig}
               focusAfterApplyRef={textareaRef}
             />
           </>

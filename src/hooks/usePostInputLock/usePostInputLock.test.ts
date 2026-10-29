@@ -472,6 +472,36 @@ describe('usePostInputLock', () => {
       expect(result.current.lockConfig).toEqual({ amount: '1234', asset: 'BTC' as const }); // and to the card
     });
 
+    it('keeps the lock and its price when a price change is dismissed', () => {
+      setUpLocks();
+      const { result, restoreComposer } = setup();
+
+      configureLock(result);
+      act(() => result.current.changeLockPrice());
+      expect(result.current.isLockDialogOpen).toBe(true);
+      act(() => result.current.closeLockDialog());
+
+      expect(result.current.isLockDialogOpen).toBe(false);
+      expect(result.current.isLockEnabled).toBe(true);
+      expect(result.current.lockConfig).toEqual({ amount: '1000', asset: 'BTC' });
+      expect(restoreComposer).not.toHaveBeenCalled();
+    });
+
+    it('applies a changed price without clearing the announcement', () => {
+      setUpLocks();
+      const { result, clearComposer } = setup();
+
+      configureLock(result);
+      clearComposer.mockClear(); // the first Apply already swapped the draft for the announcement composer
+      act(() => result.current.changeLockPrice());
+      act(() => result.current.handleLockApplied({ amount: '2000', asset: 'BTC' as const }));
+
+      expect(result.current.isLockDialogOpen).toBe(false);
+      expect(result.current.lockConfig).toEqual({ amount: '2000', asset: 'BTC' });
+      expect(mocks.lockContentOptions?.lockConfig).toEqual({ amount: '2000', asset: 'BTC' });
+      expect(clearComposer).not.toHaveBeenCalled();
+    });
+
     it('discards the price when the lock is abandoned', () => {
       setUpLocks();
       const { result } = setup();

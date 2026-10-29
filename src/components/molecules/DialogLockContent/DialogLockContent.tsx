@@ -29,12 +29,22 @@ const toSats = (value: string) =>
     .replace(/\D.*$/, '')
     .replace(/^0+(?=\d)/, '');
 
-export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApplyRef }: DialogLockContentProps) {
+export function DialogLockContent({
+  open,
+  onOpenChange,
+  onApplied,
+  appliedPrice = null,
+  focusAfterApplyRef,
+}: DialogLockContentProps) {
   // Set when Apply Lock closes the dialog, so the close can move focus on instead of restoring it.
   const appliedRef = useRef(false);
-  const { form, submit, reset, changeAsset } = useLockContentForm((config) => {
-    appliedRef.current = true;
-    onApplied(config);
+  const { form, submit, changeAsset } = useLockContentForm({
+    open,
+    price: appliedPrice,
+    onApplied: (config) => {
+      appliedRef.current = true;
+      onApplied(config);
+    },
   });
   const [amount, asset] = useWatch({
     control: form.control,
@@ -48,17 +58,8 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
   const { isValid, isSubmitting } = form.formState;
   const usdValue = asset === 'BTC' && btcRate && price ? Number(price.amount) * btcRate.satUsd : null;
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next) reset();
-    onOpenChange(next);
-  };
-
-  const handleApply = async () => {
-    if (await submit()) reset();
-  };
-
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         avoidKeyboard
         className="max-w-md rounded-xl border-x-0 border-y border-brand bg-card sm:max-w-xl"
@@ -159,7 +160,7 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
           <Button
             variant={ButtonVariant.OUTLINE}
             size="lg"
-            onClick={() => handleOpenChange(false)}
+            onClick={() => onOpenChange(false)}
             data-cy="lock-content-cancel"
           >
             {'Cancel'}
@@ -167,7 +168,7 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
           <Button
             variant={ButtonVariant.DEFAULT}
             size="lg"
-            onClick={handleApply}
+            onClick={() => void submit()}
             disabled={!isValid || isSubmitting}
             // The Button base sets disabled:pointer-events-none, which would swallow the hover and
             // leave the default arrow cursor. A disabled button still cannot fire a click.

@@ -15,13 +15,18 @@ vi.mock('@/hooks/useSatUsdRate/useSatUsdRate', () => ({
   },
 }));
 
-const setup = async (override?: Partial<React.ComponentProps<typeof DialogLockContent>>) => {
+type Props = React.ComponentProps<typeof DialogLockContent>;
+
+const setup = async (override?: Partial<Props>) => {
   const onOpenChange = vi.fn();
   const onApplied = vi.fn();
-  await act(async () => {
-    render(<DialogLockContent open onOpenChange={onOpenChange} onApplied={onApplied} {...override} />);
-  });
-  return { onOpenChange, onApplied };
+  const ui = (props?: Partial<Props>) => (
+    <DialogLockContent open onOpenChange={onOpenChange} onApplied={onApplied} {...override} {...props} />
+  );
+  const view = await act(async () => render(ui()));
+  /** Re-renders with the same handlers, as the composer does when it closes, reopens or changes the applied price. */
+  const rerender = (props: Partial<Props>) => act(async () => view.rerender(ui(props)));
+  return { onOpenChange, onApplied, rerender };
 };
 
 /** Types `sats` into the price field. */
@@ -251,8 +256,8 @@ describe('price denomination', () => {
     expect(screen.getByRole('button', { name: 'Apply Lock' })).toBeDisabled();
   });
 
-  it('resets currency and amount after applying', async () => {
-    await setup();
+  it('starts the next open from the applied price, and empty again once the lock is cleared', async () => {
+    const { onApplied, rerender } = await setup();
     await chooseCurrency('USD');
     await act(async () => {
       fireEvent.change(screen.getByLabelText('USD Amount', { selector: 'input' }), { target: { value: '5.25' } });
@@ -260,12 +265,44 @@ describe('price denomination', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Apply Lock' }));
     });
+    expect(onApplied).toHaveBeenCalledWith({ amount: '525', asset: 'USD' });
+
+    // The composer closes the dialog with the applied price; reopening it changes that price.
+    const applied = { amount: '525', asset: 'USD' } as const;
+    await rerender({ open: false, appliedPrice: applied });
+    await rerender({ open: true, appliedPrice: applied });
+    expect(screen.getByLabelText('USD Amount', { selector: 'input' })).toHaveValue('5.25');
+
+    // Published or abandoned: the next lock starts from nothing.
+    await rerender({ open: false, appliedPrice: null });
+    await rerender({ open: true, appliedPrice: null });
     expect(screen.getByLabelText('Bitcoin Amount', { selector: 'input' })).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Apply Lock' })).toBeDisabled();
   });
 
+  it('fills in the applied price when reopened to change it', async () => {
+    await setup({ appliedPrice: { amount: '1000', asset: 'BTC' } });
+
+    expect(screen.getByLabelText('Bitcoin Amount', { selector: 'input' })).toHaveValue('1,000');
+    expect(screen.getByRole('button', { name: 'Apply Lock' })).toBeEnabled();
+  });
+
+  it('keeps the applied price when a price change is dismissed', async () => {
+    const { onOpenChange, onApplied, rerender } = await setup({ appliedPrice: { amount: '1000', asset: 'BTC' } });
+    await enterPrice('2000');
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onApplied).not.toHaveBeenCalled();
+
+    await rerender({ open: false });
+    await rerender({ open: true });
+    expect(screen.getByLabelText('Bitcoin Amount', { selector: 'input' })).toHaveValue('1,000');
+  });
+
   it('discards the price when dismissed', async () => {
-    const { onOpenChange, onApplied } = await setup();
+    const { onOpenChange, onApplied, rerender } = await setup();
     await chooseCurrency('USD');
     await act(async () => {
       fireEvent.change(screen.getByLabelText('USD Amount', { selector: 'input' }), { target: { value: '5.25' } });
@@ -275,6 +312,9 @@ describe('price denomination', () => {
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onApplied).not.toHaveBeenCalled();
+
+    await rerender({ open: false });
+    await rerender({ open: true });
     expect(screen.getByLabelText('Bitcoin Amount', { selector: 'input' })).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Apply Lock' })).toBeDisabled();
   });

@@ -219,9 +219,11 @@ vi.mock('@/molecules/DialogLockContent/DialogLockContent', () => ({
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onApplied: (config: TLockConfig) => void;
+    appliedPrice?: TLockConfig | null;
   }) =>
     props.open ? (
       <div data-testid="lock-dialog">
+        <span data-testid="lock-dialog-applied-price">{props.appliedPrice?.amount ?? ''}</span>
         <button data-testid="apply-lock" onClick={() => props.onApplied({ amount: '1234', asset: 'BTC' as const })} />
         <button data-testid="cancel-lock" onClick={() => props.onOpenChange(false)} />
       </div>
@@ -236,10 +238,12 @@ vi.mock('@/molecules/LockedPostCard/LockedPostCard', () => ({
     title,
     price,
     editableTitle,
+    onChangePrice,
   }: {
     title?: string;
     price?: TLockPrice | null;
     editableTitle?: { value: string; onChange: (value: string) => void };
+    onChangePrice?: () => void;
   }) =>
     editableTitle ? (
       <>
@@ -249,6 +253,7 @@ vi.mock('@/molecules/LockedPostCard/LockedPostCard', () => ({
           onChange={(event) => editableTitle.onChange(event.target.value)}
         />
         <span data-testid="lock-card-price">{price?.amount ?? ''}</span>
+        {onChangePrice && <button aria-label="Change price" onClick={onChangePrice} />}
       </>
     ) : (
       <div data-testid="locked-post-card">{title}</div>
@@ -613,6 +618,19 @@ describe('PostInput lock wiring', () => {
     expect(screen.getByTestId('lock-card-price')).toHaveTextContent('1234');
   });
 
+  it('reopens the lock dialog with the applied price from the card, and keeps the lock on cancel', async () => {
+    renderComposer();
+    await configureLock();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change price' }));
+    expect(screen.getByTestId('lock-dialog-applied-price')).toHaveTextContent('1234');
+    fireEvent.click(screen.getByTestId('cancel-lock'));
+
+    expect(screen.queryByTestId('lock-dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lock-card-price')).toHaveTextContent('1234');
+    expect(screen.getByPlaceholderText('Write a short announcement to tease your content.')).toHaveValue('my teaser');
+  });
+
   it('shows an editable lock teaser, title, and read-only price in edit mode', () => {
     renderEditLock();
 
@@ -621,6 +639,7 @@ describe('PostInput lock wiring', () => {
       'Public teaser',
     );
     expect(screen.getByTestId('lock-card-price')).toHaveTextContent('4321');
+    expect(screen.queryByRole('button', { name: 'Change price' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('lock-switch')).not.toBeInTheDocument();
   });
 

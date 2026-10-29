@@ -89,6 +89,8 @@ export interface UsePostInputLockReturn {
   isLockDialogOpen: boolean;
   closeLockDialog: () => void;
   handleLockApplied: (config: TLockConfig) => void;
+  /** Reopens the lock dialog to change the applied price. Cancelling it keeps the applied price. */
+  changeLockPrice: () => void;
   /** Title of the locked content, shown on the composer's "Locked content" card. */
   lockTitle: string;
   setLockTitle: (title: string) => void;

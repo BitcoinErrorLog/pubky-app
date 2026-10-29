@@ -240,18 +240,18 @@ URL of slot `n`. A slot whose file is missing shows the placeholder. The preview
 image, like any article card, and reads none: it loads the cover's bytes alone, and the body media
 is read once the article opens in full (#2686).
 
-| File                                                           | Role                                                                                |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `components/organisms/PostContentBase/PostContentBase.tsx`     | detect lock by `!!postDetails.lock`                                                 |
-| `components/organisms/LockedPostContent/LockedPostContent.tsx` | teaser + lock card + unlock dialog; renders the content once unlocked               |
-| `components/organisms/PostBody/PostBody.tsx`                   | shared text + link-embed + attachment renderer (feed post body **and** lock teaser) |
-| `components/molecules/LockedPostCard/LockedPostCard.tsx`       | lock card: title, shield graphic, Unlock control (also used by the composer)        |
-| `components/molecules/DialogPayToUnlock/DialogPayToUnlock.tsx` | Pay to Unlock modal, one screen per stage (`TPayToUnlockStage`)                     |
-| `hooks/usePayToUnlock/usePayToUnlock.ts`                       | the payment state machine: bundle-id routing, submit, polling, stall/resume         |
-| `hooks/usePurchasedLocks/usePurchasedLocks.ts`                 | one listing of the reader's purchases, shared by every lock post                    |
-| `hooks/usePurchaseResume/usePurchaseResume.ts`                 | finishes a paid purchase whose content never landed, without interaction            |
-| `components/organisms/DialogEditPost/DialogEditPost.tsx`       | routes an announcement into teaser mode, or falls back to a plain post edit         |
-| `libs/post/lockTeaser.ts`                                      | the envelope: builder and length guard                                              |
+| File                                                           | Role                                                                                                                                                     |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/organisms/PostContentBase/PostContentBase.tsx`     | detect lock by `!!postDetails.lock`                                                                                                                      |
+| `components/organisms/LockedPostContent/LockedPostContent.tsx` | teaser + lock card + unlock dialog; renders the content once unlocked                                                                                    |
+| `components/organisms/PostBody/PostBody.tsx`                   | shared text + link-embed + attachment renderer (feed post body **and** lock teaser)                                                                      |
+| `components/molecules/LockedPostCard/LockedPostCard.tsx`       | lock card: title, shield graphic, Unlock control; in the composer the title is editable (pencil) and the price is a button that reopens the price dialog |
+| `components/molecules/DialogPayToUnlock/DialogPayToUnlock.tsx` | Pay to Unlock modal, one screen per stage (`TPayToUnlockStage`)                                                                                          |
+| `hooks/usePayToUnlock/usePayToUnlock.ts`                       | the payment state machine: bundle-id routing, submit, polling, stall/resume                                                                              |
+| `hooks/usePurchasedLocks/usePurchasedLocks.ts`                 | one listing of the reader's purchases, shared by every lock post                                                                                         |
+| `hooks/usePurchaseResume/usePurchaseResume.ts`                 | finishes a paid purchase whose content never landed, without interaction                                                                                 |
+| `components/organisms/DialogEditPost/DialogEditPost.tsx`       | routes an announcement into teaser mode, or falls back to a plain post edit                                                                              |
+| `libs/post/lockTeaser.ts`                                      | the envelope: builder and length guard                                                                                                                   |
 
 ## Reading a lock post
 
