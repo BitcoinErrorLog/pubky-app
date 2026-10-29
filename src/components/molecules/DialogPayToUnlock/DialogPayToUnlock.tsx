@@ -144,7 +144,9 @@ export function DialogPayToUnlock({
         onClick={(e) => e.stopPropagation()}
       >
         <DialogHeader>
-          <DialogTitle>{stage === 'paid' ? 'Unlocked' : 'Pay to Unlock'}</DialogTitle>
+          {/* The header tells the same story as the body (#2516): "Unlocked" only once the content is ready.
+              While it opens, or after it failed to, the payment is received but nothing is unlocked yet. */}
+          <DialogTitle>{stage === 'paid' ? 'Unlocked' : isPaid ? 'Payment received' : 'Pay to Unlock'}</DialogTitle>
         </DialogHeader>
 
         <Container overrideDefaults className="flex min-w-0 items-center gap-2 rounded-md bg-muted p-6">
