@@ -38,10 +38,16 @@ import { filterSuggestions, isTagAddFailure } from './useTagInput.utils';
  * ```
  */
 export function useTagInput({ onTagAdd, existingTags = [], allTags = [] }: UseTagInputOptions): UseTagInputReturn {
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValueState] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Mirrors `inputValue` for code that resumes after an await, where the state closure is stale.
+  const latestInputValue = useRef('');
+  const setInputValue = (value: string) => {
+    latestInputValue.current = value;
+    setInputValueState(value);
+  };
 
   const filteredSuggestions = filterSuggestions(allTags, inputValue);
 
@@ -52,11 +58,15 @@ export function useTagInput({ onTagAdd, existingTags = [], allTags = [] }: UseTa
 
   // Wait for completion before clearing - handles both sync and async onTagAdd
   const addTag = async (label: string) => {
+    // Only the draft this add started from is cleared: text typed while the write was pending is
+    // a new draft and stays.
+    const draft = latestInputValue.current;
     try {
       const result = await onTagAdd(label);
       // A failed write resolves `{ success: false }` (the caller already toasted): keep the typed
       // label so the user can retry, e.g. after signing in again (issue #2890).
       if (isTagAddFailure(result)) return;
+      if (latestInputValue.current !== draft) return;
       clearInput();
     } catch (error: unknown) {
       Logger.error('Failed to add tag:', error);
