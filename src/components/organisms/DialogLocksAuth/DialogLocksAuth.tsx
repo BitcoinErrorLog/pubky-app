@@ -371,7 +371,7 @@ export function DialogLocksAuth({ open, onOpenChange, onSuccess, asset = 'BTC' }
         )}
 
         {(isReconnectRequired || isSetupIncomplete) && (
-          <DialogFooter className="flex-row gap-4">
+          <DialogFooter className="flex-row flex-wrap gap-4">
             <Button variant={ButtonVariant.OUTLINE} size="lg" className="flex-1" onClick={close}>
               {'Cancel'}
             </Button>
@@ -389,7 +389,7 @@ export function DialogLocksAuth({ open, onOpenChange, onSuccess, asset = 'BTC' }
         )}
 
         {isError && (
-          <DialogFooter className="flex-row gap-4">
+          <DialogFooter className="flex-row flex-wrap gap-4">
             <Button variant={ButtonVariant.OUTLINE} size="lg" className="flex-1" onClick={close}>
               {'Cancel'}
             </Button>
