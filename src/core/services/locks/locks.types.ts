@@ -1,6 +1,6 @@
 import type { Session as LocksSdkSession } from '@synonymdev/locks-sdk';
 import { z } from 'zod';
-import { POST_KINDS } from '@/models/models.types';
+import { POST_KINDS, type PostKind } from '@/models/models.types';
 
 /** A price in the denomination's smallest unit: sats or USD cents. */
 export const lockPriceSchema = z.object({
@@ -210,15 +210,33 @@ export interface LockFile {
 }
 
 /**
+ * The locked post's kind, saved in the announcement as `content_kind` so the card and the unlock dialog can
+ * show what is locked before anyone unlocks it (#2433). The post kind strings a create can infer.
+ */
+export type TLockContentKind = Exclude<PostKind, 'collection' | 'unknown'>;
+const isInferableKind = (kind: PostKind): kind is TLockContentKind => kind !== 'collection' && kind !== 'unknown';
+export const LOCK_CONTENT_KINDS: readonly TLockContentKind[] = POST_KINDS.filter(isInferableKind);
+
+/** Narrows a stored `content_kind` to one this build can show. Anything else is carried raw and shown as generic. */
+export function isLockContentKind(kind: string | undefined): kind is TLockContentKind {
+  return (LOCK_CONTENT_KINDS as readonly string[]).includes(kind ?? '');
+}
+
+/**
  * Creator-authored teaser content stored (stringified) in a lock post's `content`
  * field. FE-owned — pubky-app-specs does not manage it yet, so we validate it at
  * runtime here (Zod).
  * - `lock_title`: title of the locked content (shown in the lock card).
  * - `teaser_description`: preview/announcement text shown above the lock card.
+ * - `content_kind` (optional): the locked post's kind, for the card's icon and default title.
  */
 export const lockPostContentSchema = z.object({
   lock_title: z.string().catch(''),
   teaser_description: z.string().catch(''),
+  // Any string is kept raw, so an edit writes a kind a newer app added back unchanged; only the display narrows
+  // it (`getLockContentDisplay`). A non-string reads as unset rather than failing: a failed parse would blank
+  // the whole lock post (`LockedPostContent` renders nothing for it).
+  content_kind: z.string().optional().catch(undefined),
 });
 
 export type LockPostContent = z.infer<typeof lockPostContentSchema>;
