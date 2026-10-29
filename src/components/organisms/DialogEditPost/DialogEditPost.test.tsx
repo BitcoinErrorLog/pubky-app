@@ -293,8 +293,30 @@ describe('DialogEditPost', () => {
     expect(PostInput).toHaveBeenCalledWith(
       expect.objectContaining({
         editContent: 'Public teaser',
-        editLock: { lockUrl, title: 'Private note' },
+        editLock: { lockUrl, title: 'Private note', contentKind: undefined },
       }),
+      undefined,
+    );
+  });
+
+  // #2433: the saved kind travels into the composer, so the save can write it back.
+  it('passes the stored content kind of a lock announcement into the edit composer', () => {
+    const lockUrl = 'pubky://author/pub/app.locks/LOCK1.json';
+    vi.mocked(usePostDetails).mockReturnValue({
+      postDetails: {
+        id: 'test-lock-post-123',
+        content: JSON.stringify({ lock_title: 'Holiday', teaser_description: 'Public teaser', content_kind: 'image' }),
+        kind: 'short',
+        attachments: postAttachments,
+        lock: lockUrl,
+      } as ReturnType<typeof usePostDetails>['postDetails'],
+      isLoading: false,
+    });
+
+    render(<DialogEditPost postId="test-lock-post-123" open onOpenChangeAction={vi.fn()} />);
+
+    expect(PostInput).toHaveBeenCalledWith(
+      expect.objectContaining({ editLock: { lockUrl, title: 'Holiday', contentKind: 'image' } }),
       undefined,
     );
   });

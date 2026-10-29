@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { ExistingAttachment } from '@/hooks/usePost/usePost.types';
 import type { TagsLayout } from '@/organisms/PostMain/PostMain.types';
+import type { TLockContentKind } from '@/services/locks/locks.types';
 import { POST_INPUT_VARIANT } from './PostInput.constants';
 
 export type PostInputVariant =
@@ -12,6 +13,8 @@ export type PostInputVariant =
 export type EditLock = {
   lockUrl: string;
   title: string;
+  /** The stored `content_kind`, carried through the edit so the save writes it back (#2433). */
+  contentKind?: TLockContentKind;
 };
 
 interface PostInputBaseProps {

@@ -9,10 +9,10 @@ import { usePaidUnlockAvailability } from '@/hooks/usePaidUnlockAvailability/use
 import { useSessionNeedsUpgrade } from '@/hooks/useSessionNeedsUpgrade/useSessionNeedsUpgrade';
 import { Logger } from '@/libs/logger/logger';
 import { buildArticleContent } from '@/libs/post/articleContent';
-import { DEFAULT_LOCK_TITLE } from '@/libs/post/lockTeaser';
+import { getLockContentDisplay } from '@/libs/post/lockContentKind';
 import { toast } from '@/molecules/Toaster/toast';
 import { useTimelineFeedContext } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeedContext';
-import { inferPostKindForCreate } from '@/pipes/post/post.kind';
+import { inferPostKindForCreate, toLockContentKind } from '@/pipes/post/post.kind';
 import { postKindBelongsToStream } from '@/stores/home/home.utils';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import { useLocksAuthStore } from '@/stores/locksAuth/locksAuth.store';
@@ -106,6 +106,14 @@ export function usePostInputLock({
     })();
   };
 
+  const lockedKind = inferPostKindForCreate({
+    content: lockDraft?.content ?? '',
+    attachments: lockDraft?.attachments,
+    isArticle: lockDraft?.isArticle,
+  });
+  // Saved in the announcement, so the card shows what is locked before anyone unlocks it (#2433).
+  const lockContentKind = lockDraft ? toLockContentKind(lockedKind) : undefined;
+
   // Once the switch is on the composer holds the announcement; the locked post is the captured draft,
   // whose kind is inferred exactly as a normal post would be (link / image / video / …).
   // An article draft is serialized the same way a normal publish would (`usePost`): title + body as
@@ -117,18 +125,14 @@ export function usePostInputLock({
       content: lockDraft?.isArticle
         ? buildArticleContent(lockDraft.articleTitle, lockDraft.serializedArticle.body)
         : (lockDraft?.content ?? ''),
-      kind: inferPostKindForCreate({
-        content: lockDraft?.content ?? '',
-        attachments: lockDraft?.attachments,
-        isArticle: lockDraft?.isArticle,
-      }),
+      kind: lockedKind,
       attachments: [
         ...(lockDraft?.attachments ?? []),
         ...(lockDraft?.isArticle ? lockDraft.serializedArticle.inlineFiles : []),
       ],
     },
     announcement: {
-      teaser: { lock_title: lockTitle, teaser_description: announcementContent },
+      teaser: { lock_title: lockTitle, teaser_description: announcementContent, content_kind: lockContentKind },
       attachments: announcementAttachments,
       tags: announcementTags,
     },
@@ -168,8 +172,14 @@ export function usePostInputLock({
     if (!draft) return;
     setLockDraft(draft);
     setLockEnabled(true);
-    // Seed the card's title with the default so it reads as real, editable text (not a placeholder).
-    setLockTitle(DEFAULT_LOCK_TITLE);
+    // Seed the card's title with the default for what is being locked, so it reads as real, editable text
+    // (not a placeholder). A title the creator edits is kept as typed (#2433).
+    const draftKind = inferPostKindForCreate({
+      content: draft.content,
+      attachments: draft.attachments,
+      isArticle: draft.isArticle,
+    });
+    setLockTitle(getLockContentDisplay(toLockContentKind(draftKind)).title);
 
     // Gate on Locks setup: fully set up → lock content dialog; otherwise the modal, which opens at
     // whichever step is still missing.
@@ -275,6 +285,7 @@ export function usePostInputLock({
     changeLockPrice,
     lockTitle,
     setLockTitle,
+    lockContentKind,
     submitOrPublish,
     isPublishing,
   };

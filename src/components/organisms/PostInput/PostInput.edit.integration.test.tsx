@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseLockTeaserContent } from '@/libs/post/lockTeaser';
 import { PostInput } from './PostInput';
 import { POST_INPUT_VARIANT } from './PostInput.constants';
 
@@ -303,5 +304,48 @@ describe('PostInput - editing while the post row changes under the dialog (integ
     // The retry reuses the upload of the refused save instead of sending the file again
     expect(mocks.commitCreateFile).toHaveBeenCalledTimes(1);
     expect(mocks.commitDeleteFile).not.toHaveBeenCalled();
+  });
+
+  // #2433: an edit rebuilds the announcement envelope. The stored content kind goes in through the same
+  // parse the edit dialog uses and must come back out of the save, or the card would lose its icon and title.
+  describe('lock announcement content kind', () => {
+    const LOCK_URL = `pubky://${AUTHOR}/pub/app.locks/LOCK1.json`;
+    const editLockPost = (stored: string) => {
+      const teaser = parseLockTeaserContent(stored);
+      if (!teaser) throw new Error('The stored announcement does not parse');
+      return (
+        <PostInput
+          variant={POST_INPUT_VARIANT.EDIT}
+          expanded
+          editPostId={POST_ID}
+          editContent={teaser.teaser_description}
+          editIsArticle={false}
+          editAttachments={[]}
+          editLock={{ lockUrl: LOCK_URL, title: teaser.lock_title, contentKind: teaser.content_kind }}
+        />
+      );
+    };
+
+    it('keeps the saved content kind through an edit of the teaser', async () => {
+      const stored = '{"lock_title":"Holiday","teaser_description":"Old teaser","content_kind":"image"}';
+      render(editLockPost(stored));
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New teaser' } });
+
+      await save(1);
+
+      const [{ content }] = mocks.commitEdit.mock.calls[0];
+      expect(content).toBe('{"lock_title":"Holiday","teaser_description":"New teaser","content_kind":"image"}');
+      expect(parseLockTeaserContent(content)?.content_kind).toBe('image');
+    });
+
+    it('writes no content kind back for a lock that never saved one', async () => {
+      render(editLockPost('{"lock_title":"Holiday","teaser_description":"Old teaser"}'));
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New teaser' } });
+
+      await save(1);
+
+      const [{ content }] = mocks.commitEdit.mock.calls[0];
+      expect(content).toBe('{"lock_title":"Holiday","teaser_description":"New teaser"}');
+    });
   });
 });

@@ -1,6 +1,6 @@
 import { POST_MAX_CHARACTER_LENGTH } from '@/config/posts';
 import { getCharacterCount } from '@/libs/utils/utils';
-import { lockPostContentSchema } from '@/services/locks/locks.types';
+import { lockPostContentSchema, type TLockContentKind } from '@/services/locks/locks.types';
 
 /** Title shown when the creator typed none; also what the composer seeds the field with. */
 export const DEFAULT_LOCK_TITLE = 'Locked content';
@@ -9,11 +9,13 @@ export const DEFAULT_LOCK_TITLE = 'Locked content';
 export type TLockTeaser = {
   lock_title: string;
   teaser_description: string;
+  /** The locked post's kind (#2433). Omitted from the JSON when unset, so an old lock re-serializes unchanged. */
+  content_kind?: TLockContentKind;
 };
 
-/** Picks the two fields by name, so a new field is never published before we count its length. */
-export function buildLockTeaserContent({ lock_title, teaser_description }: TLockTeaser): string {
-  return JSON.stringify({ lock_title, teaser_description });
+/** Picks the fields by name, so a new field is never published before we count its length. */
+export function buildLockTeaserContent({ lock_title, teaser_description, content_kind }: TLockTeaser): string {
+  return JSON.stringify({ lock_title, teaser_description, content_kind });
 }
 
 /**

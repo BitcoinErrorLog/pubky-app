@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   // Last options handed to useCreateLockContent — the locked post the hook would publish.
   lockContentOptions: null as {
     lockedPost: { content: string; kind: unknown; attachments: File[] };
+    announcement: { teaser: { lock_title: string; teaser_description: string; content_kind?: string } };
     lockConfig: unknown;
   } | null,
 }));
@@ -49,6 +50,7 @@ vi.mock('@/stores/locksAuth/locksAuth.store', () => ({
 vi.mock('@/hooks/useCreateLockContent/useCreateLockContent', () => ({
   useCreateLockContent: (options: {
     lockedPost: { content: string; kind: unknown; attachments: File[] };
+    announcement: { teaser: { lock_title: string; teaser_description: string; content_kind?: string } };
     lockConfig: unknown;
   }) => {
     mocks.lockContentOptions = options;
@@ -454,7 +456,7 @@ describe('usePostInputLock', () => {
     const { result } = setup();
 
     act(() => result.current.lockSwitch?.onCheckedChange(true));
-    expect(result.current.lockTitle).toBe('Locked content'); // seeded default
+    expect(result.current.lockTitle).toBe('Locked article'); // seeded default for the article draft
 
     act(() => result.current.setLockTitle('My most famous quote'));
     expect(result.current.lockTitle).toBe('My most famous quote');
@@ -655,6 +657,58 @@ describe('usePostInputLock', () => {
         variant: 'error',
         description: 'This GIF exceeds the 5MB upload limit.',
       });
+    });
+  });
+
+  // #2433: the default title and the saved kind follow what is being locked.
+  describe('content kind', () => {
+    const textDraft = (content: string, attachments: File[] = []): TLockDraft => ({
+      content,
+      attachments,
+      isArticle: false,
+      articleTitle: '',
+    });
+    const typed = (type: string) => new File(['x'], 'f', { type });
+
+    it.each([
+      ['an article', draft, 'Locked article', 'article'],
+      ['an image', textDraft('pic', [typed('image/png')]), 'Locked image', 'image'],
+      ['a video beside an image', textDraft('clip', [typed('video/mp4'), typed('image/png')]), 'Locked video', 'video'],
+      ['a pdf', textDraft('doc', [typed('application/pdf')]), 'Locked file', 'file'],
+      ['audio', textDraft('song', [typed('audio/mpeg')]), 'Locked file', 'file'],
+      ['a note', textDraft('my secret'), 'Locked content', 'note'],
+      ['a link', textDraft('see https://pubky.app'), 'Locked content', 'link'],
+    ] as const)('seeds the title for %s and saves its kind', (_name, lockDraft, title, kind) => {
+      setUpLocks();
+      const { result } = setup(true, true, lockDraft);
+
+      configureLock(result);
+
+      expect(result.current.lockTitle).toBe(title);
+      expect(result.current.lockContentKind).toBe(kind);
+      expect(mocks.lockContentOptions?.announcement.teaser.content_kind).toBe(kind);
+    });
+
+    it('keeps a title the creator typed, and still saves the kind', () => {
+      setUpLocks();
+      const { result } = setup(true, true, textDraft('pic', [typed('image/png')]));
+
+      configureLock(result);
+      act(() => result.current.setLockTitle('Sunset over the lake'));
+
+      expect(result.current.lockTitle).toBe('Sunset over the lake');
+      expect(mocks.lockContentOptions?.announcement.teaser).toEqual({
+        lock_title: 'Sunset over the lake',
+        teaser_description: 'teaser',
+        content_kind: 'image',
+      });
+    });
+
+    it('saves no kind before a draft is captured', () => {
+      setUpLocks();
+      setup();
+
+      expect(mocks.lockContentOptions?.announcement.teaser.content_kind).toBeUndefined();
     });
   });
 });

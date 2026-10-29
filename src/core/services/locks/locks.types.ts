@@ -210,15 +210,26 @@ export interface LockFile {
 }
 
 /**
+ * The locked post's kind, saved in the announcement as `content_kind` so the card and the unlock dialog can
+ * show what is locked before anyone unlocks it (#2433). v1 names of the post kinds a create can infer.
+ */
+export const LOCK_CONTENT_KINDS = ['note', 'article', 'image', 'video', 'link', 'file'] as const;
+export type TLockContentKind = (typeof LOCK_CONTENT_KINDS)[number];
+
+/**
  * Creator-authored teaser content stored (stringified) in a lock post's `content`
  * field. FE-owned — pubky-app-specs does not manage it yet, so we validate it at
  * runtime here (Zod).
  * - `lock_title`: title of the locked content (shown in the lock card).
  * - `teaser_description`: preview/announcement text shown above the lock card.
+ * - `content_kind` (optional): the locked post's kind, for the card's icon and default title.
  */
 export const lockPostContentSchema = z.object({
   lock_title: z.string().catch(''),
   teaser_description: z.string().catch(''),
+  // Lenient on purpose: a lock from before #2433, or a kind a newer app adds, reads as generic content.
+  // A failed parse would blank the whole lock post (`LockedPostContent` renders nothing for it).
+  content_kind: z.enum(LOCK_CONTENT_KINDS).optional().catch(undefined),
 });
 
 export type LockPostContent = z.infer<typeof lockPostContentSchema>;

@@ -271,6 +271,7 @@ export function PostInput({
     changeLockPrice,
     lockTitle,
     setLockTitle,
+    lockContentKind,
     submitOrPublish,
     isPublishing: isPublishingLock,
   } = usePostInputLock({
@@ -318,6 +319,7 @@ export function PostInput({
   const { price: editLockPrice } = useLockFile(editSeed.lock?.lockUrl);
   const isLockMode = isLockEnabled || editSeed.lock != null;
   const activeLockTitle = editSeed.lock ? editLockTitle : lockTitle;
+  const activeLockContentKind = editSeed.lock ? editSeed.lock.contentKind : lockContentKind;
 
   const isValid = () => {
     // `isPublishingLock` counts as submitting: the action-bar button only disables through this check,
@@ -336,7 +338,11 @@ export function PostInput({
       // empty one reads as set and would be written as an empty string.
       (!isLockMode ||
         (activeLockTitle.trim().length > 0 &&
-          isLockTeaserWithinLimit({ lock_title: activeLockTitle, teaser_description: content })))
+          isLockTeaserWithinLimit({
+            lock_title: activeLockTitle,
+            teaser_description: content,
+            content_kind: activeLockContentKind,
+          })))
     );
   };
 
@@ -787,6 +793,7 @@ export function PostInput({
                           isLockConfigured || editSeed.lock ? (
                             <LockedPostCard
                               price={editSeed.lock ? editLockPrice : lockConfig}
+                              contentKind={activeLockContentKind}
                               editableTitle={{
                                 value: activeLockTitle,
                                 onChange: editSeed.lock ? setEditLockTitle : setLockTitle,

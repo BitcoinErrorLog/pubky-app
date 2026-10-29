@@ -268,4 +268,37 @@ describe('LockedPostCard', () => {
     render(<LockedPostCard title="A long lock title" />);
     expect(screen.getByRole('heading', { level: 4 })).toHaveClass('line-clamp-2', 'wrap-anywhere');
   });
+
+  // #2433: one helper picks the icon and the untitled fallback from the saved kind.
+  describe('content kind', () => {
+    it.each([
+      ['image', 'Locked image', 'lucide-image'],
+      ['article', 'Locked article', 'lucide-newspaper'],
+      ['video', 'Locked video', 'lucide-circle-play'],
+      ['file', 'Locked file', 'lucide-file-text'],
+      ['note', 'Locked content', 'lucide-sticky-note'],
+      [undefined, 'Locked content', 'lucide-sticky-note'],
+    ] as const)('shows %s as "%s" with its icon when untitled', (contentKind, title, iconClass) => {
+      const { container } = render(<LockedPostCard title="" contentKind={contentKind} price={null} />);
+
+      expect(screen.getByRole('heading', { level: 4 })).toHaveTextContent(title);
+      expect(container.querySelector(`svg.${iconClass}`)).toBeInTheDocument();
+    });
+
+    it('keeps the creator title and only swaps the icon', () => {
+      const { container } = render(<LockedPostCard title="Sunset" contentKind="image" price={null} />);
+
+      expect(screen.getByRole('heading', { level: 4 })).toHaveTextContent('Sunset');
+      expect(container.querySelector('svg.lucide-image')).toBeInTheDocument();
+    });
+
+    it('uses the kind icon and placeholder in the composer card', () => {
+      const { container } = render(
+        <LockedPostCard contentKind="file" price={null} editableTitle={{ value: '', onChange: vi.fn() }} />,
+      );
+
+      expect(screen.getByRole('textbox', { name: 'Lock title' })).toHaveAttribute('placeholder', 'Locked file');
+      expect(container.querySelector('svg.lucide-file-text')).toBeInTheDocument();
+    });
+  });
 });
