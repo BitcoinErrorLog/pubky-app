@@ -6,8 +6,9 @@ import { handleApiError } from '@/libs/api/route-error-handler';
  * Whether the Paykit Server already holds a creator, for the browser.
  *
  * The Paykit Server sends no `Access-Control-Allow-Origin`, so a browser cannot read its answer
- * directly — this route asks server-side. The answer changes when a creator finishes a setup, so
- * it is never cached.
+ * directly — this route asks server-side. The answer changes when a creator finishes a setup, so no
+ * browser or CDN may keep it; the service behind it reuses an answer for seconds to spare Paykit's
+ * shared rate limit.
  */
 const NO_STORE_HEADERS = { headers: { 'Cache-Control': 'no-store' } };
 
