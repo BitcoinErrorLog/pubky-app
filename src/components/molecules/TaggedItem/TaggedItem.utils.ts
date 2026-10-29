@@ -1,7 +1,23 @@
 import { FileController } from '@/controllers/file/file';
+import { isAppError, requiresLogin } from '@/libs/error/error.utils';
 import type { Pubky } from '@/models/models.types';
+import { toast } from '@/molecules/Toaster/toast';
 import type { NexusTag } from '@/services/nexus/nexus.types';
 import type { TagWithAvatars } from './TaggedItem.types';
+
+/**
+ * Toast for a failed tag write from `usePostTags` / `useTagged`. A write the homeserver rejected
+ * as unauthenticated (`UNAUTHORIZED` or `SESSION_EXPIRED`) cannot succeed by retrying: the session
+ * has to be re-established first, so point at sign-in instead of the generic copy (issue #2890;
+ * mirrors `usePost`'s `showCommitErrorToast` from #2555). Nothing here signs the user out or
+ * retries the write.
+ */
+export function showTagWriteErrorToast(error: unknown, fallbackDescription: string): void {
+  toast({
+    variant: 'error',
+    description: isAppError(error) && requiresLogin(error) ? 'Session expired. Please sign in.' : fallbackDescription,
+  });
+}
 
 /**
  * Transform NexusTag to TagWithAvatars by resolving avatar URLs
