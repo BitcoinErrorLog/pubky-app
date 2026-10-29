@@ -18,6 +18,7 @@ Paykit Server's optional USDT configuration is absent.
 - Details
   - [Detecting a lock post](#detecting-a-lock-post)
   - [Editing an announcement](#editing-an-announcement)
+  - [Deleting an announcement](#deleting-an-announcement)
   - [Data shape](#data-shape)
   - [Render flow (shared by feed and detail)](#render-flow-shared-by-feed-and-detail)
   - [Reading a lock post](#reading-a-lock-post)
@@ -155,6 +156,30 @@ stored content would no longer parse, and the reader renders nothing for a lock 
 parse, so one edit would blank the post for everyone.
 
 The `lock` URL survives either way — `toEdit` reads it from the stored row, not from the content.
+
+## Deleting an announcement
+
+Deleting a lock announcement deletes the lock behind it as well. There is no option to keep one
+without the other: nothing in the app can reference a lock again once its announcement is gone, so
+a kept lock would only be orphaned content in the creator's `/priv`.
+
+`useDeletePost` reads the stored row and, when it carries a `lock` URL, calls
+`LocksController.deleteLockContent` **before** `PostController.commitDelete`. The order matters: a
+lock deletion that fails keeps the announcement (the optimistic removal is rolled back and the
+toast says so), instead of leaving a lock nobody can delete any more. A rejected or missing Locks
+session is cleared as on publish, and the toast asks the creator to sign in to the Lock Server. The
+reverse failure, a local post delete that fails after the Lock Server already accepted, leaves the
+announcement pointing at a tombstone; deleting it again is safe because the server answers a repeated
+delete with the job's status instead of a new job. A `lock` URL with no lock id in it (no `.json`
+file or no pubky host) is skipped, not an error: it addresses nothing on the server and must not make
+the announcement undeletable. A URL that does carry an id the server rejects still fails the delete.
+
+On the Lock Server the deletion is graceful and asynchronous (`DELETE /creator/content-locks/{lock_id}`,
+`202`): `lock.json` is replaced by a tombstone at once, new unlocks are refused, readers who already
+paid can still finish, then the guarded resources are removed. The app does not poll the job.
+Readers' replicas in their own `/priv/social/unlocked/` are never touched; only the creator's cached
+original is dropped from IndexedDB. A reader who still has the announcement cached sees the usual
+deleted-post fallback once Nexus drops it.
 
 ## Data shape
 

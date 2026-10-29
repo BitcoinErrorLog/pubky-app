@@ -3,6 +3,7 @@ import { postUriBuilder } from 'pubky-app-specs';
 import { LocksApplication } from '@/application/locks/locks';
 import type {
   TCreateLockContentParams,
+  TDeleteLockContentParams,
   TFetchOwnContentParams,
   TFetchReplicatedAttachmentsParams,
   TFetchReplicatedContentParams,
@@ -287,6 +288,31 @@ export class LocksController {
     } catch (error) {
       // A homeserver auth failure cannot be fixed by signing in to the Lock Server.
       if (isCurrent() && isAppError(error) && isAuthError(error) && error.service === ErrorService.Locks) {
+        this.clearSession();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Deletes the lock behind an announcement. Same session-owner rule as `createLockContent`: a
+   * rejected session is cleared only while this request still owns it.
+   */
+  static async deleteLockContent(params: TDeleteLockContentParams): Promise<void> {
+    const isCurrent = this.captureSessionOwner();
+    // With no session there is nothing to invalidate; clearing would also drop the stored secret a
+    // restore still in flight is about to use.
+    const hadSession = useLocksAuthStore.getState().selectLocksSession() !== null;
+    try {
+      await LocksApplication.deleteLockContent({ ...params, isCurrent: captureViewerSession() });
+    } catch (error) {
+      if (
+        hadSession &&
+        isCurrent() &&
+        isAppError(error) &&
+        isAuthError(error) &&
+        error.service === ErrorService.Locks
+      ) {
         this.clearSession();
       }
       throw error;

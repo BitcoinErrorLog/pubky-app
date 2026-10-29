@@ -41,6 +41,7 @@ import type {
 import { isRegionBlockedLookup, VerifierType } from '@/services/locks/locks.types';
 import type {
   TCreateLockContentParams,
+  TDeleteLockContentParams,
   TFetchOwnContentParams,
   TFetchReplicatedAttachmentsParams,
   TFetchReplicatedContentParams,
@@ -698,6 +699,21 @@ export class LocksApplication {
     // Publishing must not wait for a second homeserver read before the announcement can be posted.
     void this.fetchLockFile({ lockUrl, isCurrent }).catch(() => undefined);
     return result;
+  }
+
+  /**
+   * Deletes the creator's lock behind an announcement. Readers' replicas live on their own
+   * homeservers and are never touched; only the creator's cached original is dropped, and only once
+   * the Lock Server has accepted the deletion, so a failed call leaves the cache as it was.
+   */
+  static async deleteLockContent({ lockUrl, isCurrent }: TDeleteLockContentParams & TViewerScope): Promise<void> {
+    const lockId = LockContentParser.isValidLockUrl(lockUrl) ? LockContentParser.lockIdFromUrl(lockUrl) : null;
+    // A `lock` URL with no lock id in it addresses nothing on the Lock Server; throwing here would make the announcement undeletable.
+    if (!lockId) return;
+    // TODO:[Locks] #2283 — a != b: the Lock Server answers 200 for a lock id the session creator does not own,
+    // so the announcement author's delete leaves another creator's lock in place.
+    await LocksService.deleteContentLock(lockId);
+    if (isCurrent?.() !== false) await LocalLocksService.delete(lockId).catch(() => undefined);
   }
 
   private static async cacheGuardedOriginal({
