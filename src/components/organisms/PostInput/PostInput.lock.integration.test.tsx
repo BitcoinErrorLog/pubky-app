@@ -387,13 +387,13 @@ describe('PostInput lock flow (integration)', () => {
 
     // Each guarded file went up as bytes with its own content type, in order.
     const [{ attachments, buildPost }] = mocks.createLockContent.mock.calls[0];
-    expect(attachments.map((file: { contentType: string }) => file.contentType)).toEqual([
+    expect(attachments.map((file: File) => file.type)).toEqual([
       'image/png',
       'video/mp4',
       'application/pdf',
       'audio/mpeg',
     ]);
-    for (const file of attachments) expect(file.bytes).toBeInstanceOf(Uint8Array);
+    for (const file of attachments) expect(file).toBeInstanceOf(File);
 
     // The locked post itself is declared as an opaque blob and links all four files.
     const postFile = buildPost(
@@ -442,6 +442,13 @@ describe('PostInput lock flow (integration)', () => {
     expect(mocks.createLockContent).not.toHaveBeenCalled();
     expect(mocks.commitCreate).not.toHaveBeenCalled();
     expect(mocks.handleSubmit).not.toHaveBeenCalled(); // never leaks the to-be-locked body as a normal post
+  });
+
+  it('focuses the announcement field once the lock is applied (#2430)', async () => {
+    await renderComposer();
+    await configureLock();
+    const announcement = screen.getByPlaceholderText('Write a short announcement to tease your content.');
+    await waitFor(() => expect(announcement).toHaveFocus());
   });
 
   it('renders no lock switch when no Lock Server is configured', async () => {

@@ -68,6 +68,11 @@ export interface UsePostInputLockReturn {
     disabled: boolean;
     /** Paid unlocks are not offered where the creator is: the composer explains it beside the switch. Locking stays off. */
     regionNotice?: 'region' | 'unknown';
+    /**
+     * The switch is off and paid unlocks are offered: an info icon explains selling content. Hidden while the
+     * region is still being read and once the lock is on, where its "switch on the lock" copy would not fit.
+     */
+    showHelp: boolean;
   };
   /** The lock switch is on: this post must never be published as a normal, public post. */
   isLockEnabled: boolean;
