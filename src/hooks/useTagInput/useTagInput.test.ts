@@ -175,6 +175,82 @@ describe('useTagInput', () => {
       expect(mockOnTagAdd).toHaveBeenCalledWith('bitcoin');
       expect(result.current.inputValue).toBe('bit');
     });
+
+    it('keeps text typed while the add was pending and clears only the originating draft', async () => {
+      let resolveAdd!: (value: unknown) => void;
+      mockOnTagAdd.mockImplementationOnce(() => new Promise((resolve) => (resolveAdd = resolve)));
+      const { result } = renderHook(() => useTagInput({ onTagAdd: mockOnTagAdd }));
+
+      act(() => {
+        result.current.handleInputChange({ target: { value: 'bit' } } as React.ChangeEvent<HTMLInputElement>);
+      });
+      let pending!: Promise<void>;
+      act(() => {
+        pending = result.current.addTag('bitcoin');
+      });
+      act(() => {
+        result.current.handleInputChange({ target: { value: 'second-tag' } } as React.ChangeEvent<HTMLInputElement>);
+      });
+      await act(async () => {
+        resolveAdd({ success: true });
+        await pending;
+      });
+
+      expect(mockOnTagAdd).toHaveBeenCalledWith('bitcoin');
+      expect(result.current.inputValue).toBe('second-tag');
+      expect(result.current.showSuggestions).toBe(true);
+    });
+
+    it('keeps the same text retyped while the add was pending', async () => {
+      let resolveAdd!: (value: unknown) => void;
+      mockOnTagAdd.mockImplementationOnce(() => new Promise((resolve) => (resolveAdd = resolve)));
+      const { result } = renderHook(() => useTagInput({ onTagAdd: mockOnTagAdd }));
+
+      act(() => {
+        result.current.handleInputChange({ target: { value: 'bit' } } as React.ChangeEvent<HTMLInputElement>);
+      });
+      let pending!: Promise<void>;
+      act(() => {
+        pending = result.current.addTag('bitcoin');
+      });
+      // Cleared and retyped for another suggestion: the same string, but a new draft
+      act(() => {
+        result.current.handleInputChange({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>);
+      });
+      act(() => {
+        result.current.handleInputChange({ target: { value: 'bit' } } as React.ChangeEvent<HTMLInputElement>);
+      });
+      await act(async () => {
+        resolveAdd({ success: true });
+        await pending;
+      });
+
+      expect(result.current.inputValue).toBe('bit');
+    });
+  });
+
+  it('keeps text typed while a submit was pending', async () => {
+    let resolveAdd!: (value: unknown) => void;
+    mockOnTagAdd.mockImplementationOnce(() => new Promise((resolve) => (resolveAdd = resolve)));
+    const { result } = renderHook(() => useTagInput({ onTagAdd: mockOnTagAdd }));
+
+    act(() => {
+      result.current.handleInputChange({ target: { value: 'first-tag' } } as React.ChangeEvent<HTMLInputElement>);
+    });
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = result.current.handleTagSubmit();
+    });
+    act(() => {
+      result.current.handleInputChange({ target: { value: 'second-tag' } } as React.ChangeEvent<HTMLInputElement>);
+    });
+    await act(async () => {
+      resolveAdd(undefined);
+      await pending;
+    });
+
+    expect(mockOnTagAdd).toHaveBeenCalledWith('first-tag');
+    expect(result.current.inputValue).toBe('second-tag');
   });
 
   it('does not add duplicate tags (case-insensitive)', () => {

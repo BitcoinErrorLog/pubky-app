@@ -228,7 +228,7 @@ export function usePostInputLock({
       return;
     }
     if (result.status === 'failed') {
-      toast({ variant: 'error', description: 'Something went wrong. Try again.' });
+      toast({ variant: 'error', description: result.description ?? 'Something went wrong. Try again.' });
       return;
     }
 
@@ -250,6 +250,7 @@ export function usePostInputLock({
             // A lock already switched on stays operable, so a creator can always take it back off.
             disabled: !lockEnabled && (!canEnable || paidUnlocks.status !== 'available'),
             regionNotice: !lockEnabled && paidUnlocks.status === 'blocked' ? paidUnlocks.cause : undefined,
+            showHelp: !lockEnabled && paidUnlocks.status === 'available',
           }
         : undefined,
     isLockEnabled: lockEnabled,

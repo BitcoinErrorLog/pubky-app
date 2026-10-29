@@ -356,6 +356,67 @@ describe('TagInput - API Suggestions', () => {
     });
   });
 
+  it('keeps text typed while a clicked suggestion was still saving', async () => {
+    mockUseTagSuggestions.mockReturnValue({
+      suggestions: ['bitcoin'],
+      isLoading: false,
+    });
+    let resolveAdd!: (value: unknown) => void;
+    mockOnTagAdd.mockImplementationOnce(() => new Promise((resolve) => (resolveAdd = resolve)));
+
+    render(<TagInput onTagAdd={mockOnTagAdd} enableApiSuggestions={true} addOnSuggestionClick={true} />);
+
+    const input = screen.getByPlaceholderText('add tag') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'bit' } });
+    act(() => input.focus());
+
+    await waitFor(() => {
+      expect(screen.getByText('bitcoin')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('bitcoin'));
+    expect(mockOnTagAdd).toHaveBeenCalledWith('bitcoin');
+
+    // A new draft typed while the save is pending
+    fireEvent.change(input, { target: { value: 'second-tag' } });
+    await act(async () => {
+      resolveAdd({ success: true });
+    });
+
+    expect(input.value).toBe('second-tag');
+  });
+
+  it('keeps the same text retyped while a clicked suggestion was still saving', async () => {
+    mockUseTagSuggestions.mockReturnValue({
+      suggestions: ['bitcoin', 'bitconnect'],
+      isLoading: false,
+    });
+    let resolveAdd!: (value: unknown) => void;
+    mockOnTagAdd.mockImplementationOnce(() => new Promise((resolve) => (resolveAdd = resolve)));
+
+    render(<TagInput onTagAdd={mockOnTagAdd} enableApiSuggestions={true} addOnSuggestionClick={true} />);
+
+    const input = screen.getByPlaceholderText('add tag') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'bit' } });
+    act(() => input.focus());
+
+    await waitFor(() => {
+      expect(screen.getByText('bitcoin')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('bitcoin'));
+    expect(mockOnTagAdd).toHaveBeenCalledWith('bitcoin');
+
+    // Cleared and retyped for another suggestion while the first save is pending
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.change(input, { target: { value: 'bit' } });
+    await act(async () => {
+      resolveAdd({ success: true });
+    });
+
+    expect(input.value).toBe('bit');
+  });
+
   it('keeps the typed value when a clicked suggestion fails to add (#2890)', async () => {
     mockUseTagSuggestions.mockReturnValue({
       suggestions: ['bitcoin'],

@@ -11,11 +11,19 @@ import { AuthState, AuthStore } from './auth.types';
  */
 export const isAuthenticatedState = (state: Pick<AuthState, 'session'>): boolean => state.session !== null;
 
-/** Preserve account chrome during restoration; show guest UI once restoration has failed. Not an action guard. */
-export const selectDisplayUserPubky = (state: Pick<AuthState, 'currentUserPubky' | 'restoreStatus'>) =>
-  state.restoreStatus === 'reauth-required' || state.restoreStatus === 'temporary-error'
-    ? null
-    : state.currentUserPubky;
+/**
+ * Preserve account chrome during restoration; show guest UI once restoration has failed. Not an action guard.
+ *
+ * A pubky with no session and no session reference to restore is a guest too: the onboarding key step
+ * stores a generated pubky before sign-up, and `useAuthStatus` already treats that visitor as a guest.
+ */
+export const selectDisplayUserPubky = (
+  state: Pick<AuthState, 'currentUserPubky' | 'session' | 'sessionReference' | 'restoreStatus'>,
+) => {
+  if (state.restoreStatus === 'reauth-required' || state.restoreStatus === 'temporary-error') return null;
+  if (state.restoreStatus === 'idle' && state.session === null && state.sessionReference === null) return null;
+  return state.currentUserPubky;
+};
 
 // Selectors - State access functions with validation
 export const createAuthSelectors = (get: ZustandGet<AuthStore>) => ({
