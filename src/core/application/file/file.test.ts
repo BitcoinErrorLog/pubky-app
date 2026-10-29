@@ -263,11 +263,8 @@ describe('FileApplication', () => {
         expect(pdf).toBe(second);
       });
 
-      it.each([
-        { label: 'the same id as', repeatedId: FIRST_ID },
-        { label: 'an older id than', repeatedId: OLDER_ID },
-      ])('normalizes again when the next attachment is minted $label the last one', async ({ repeatedId }) => {
-        const [first, , retried] = mintIds(FIRST_ID, repeatedId, NEWER_ID);
+      it('normalizes again when the next attachment is minted the same id as the last one', async () => {
+        const [first, , retried] = mintIds(FIRST_ID, FIRST_ID, NEWER_ID);
 
         const image = await attach('a.jpg');
         const pdf = await attach('b.pdf');
@@ -277,6 +274,32 @@ describe('FileApplication', () => {
         expect(pdf).toBe(retried);
         expect(pdf.fileResult.meta.id).not.toBe(image.fileResult.meta.id);
         expect(pdf.fileResult.meta.url).not.toBe(image.fileResult.meta.url);
+      });
+
+      it('normalizes again when a clock that stepped back re-mints an id issued earlier', async () => {
+        // A at FIRST_ID, B at NEWER_ID, then the clock steps back and C is minted with A's id
+        const [first, second, , retried] = mintIds(FIRST_ID, NEWER_ID, FIRST_ID, OLDER_ID);
+
+        const a = await attach('a.jpg');
+        const b = await attach('b.pdf');
+        const c = await attach('c.pdf');
+
+        expect(FileNormalizer.toFileAttachment).toHaveBeenCalledTimes(4);
+        expect(a).toBe(first);
+        expect(b).toBe(second);
+        expect(c).toBe(retried);
+        expect(new Set([a, b, c].map((attachment) => attachment.fileResult.meta.url)).size).toBe(3);
+      });
+
+      it('accepts an older id that was never issued', async () => {
+        const [first, second] = mintIds(FIRST_ID, OLDER_ID);
+
+        const image = await attach('a.jpg');
+        const pdf = await attach('b.pdf');
+
+        expect(FileNormalizer.toFileAttachment).toHaveBeenCalledTimes(2);
+        expect(image).toBe(first);
+        expect(pdf).toBe(second);
       });
 
       it('gives concurrent attachments distinct ids', async () => {
@@ -303,34 +326,15 @@ describe('FileApplication', () => {
         await expect(attach('c.pdf')).resolves.toBe(retried);
       });
 
-      it('re-anchors instead of waiting out a clock that stepped back past the last issued id', async () => {
-        const { Logger } = await import('@/libs/logger/logger');
-        const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
-        const [first] = mintIds(FIRST_ID);
-        const stale = createMockFileAttachment(OLDER_ID);
-        vi.mocked(FileNormalizer.toFileAttachment).mockReturnValue(stale);
-
-        const image = await attach('a.jpg');
-        const pdf = await attach('b.pdf');
-
-        expect(image).toBe(first);
-        expect(pdf).toBe(stale);
-        // the first claim, then the retry budget before the stale id is accepted
-        expect(FileNormalizer.toFileAttachment).toHaveBeenCalledTimes(1 + 1 + 50);
-        expect(warnSpy).toHaveBeenCalledTimes(1);
-      });
-
-      it('never re-anchors onto the id it already issued', async () => {
+      it('keeps waiting while every mint repeats an issued id', async () => {
         vi.useFakeTimers();
         try {
-          const { Logger } = await import('@/libs/logger/logger');
-          const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => {});
           const [first] = mintIds(FIRST_ID);
           vi.mocked(FileNormalizer.toFileAttachment).mockReturnValue(createMockFileAttachment(FIRST_ID));
 
           const image = await attach('a.jpg');
           const pending = attach('b.pdf');
-          // the clock moves on only after the retry budget is spent
+          // the clock only moves on after many retries; the repeated id is never accepted
           await vi.advanceTimersByTimeAsync(60);
           const [retried] = mintIds(NEWER_ID);
           await vi.advanceTimersByTimeAsync(1);
@@ -339,7 +343,6 @@ describe('FileApplication', () => {
           expect(image).toBe(first);
           expect(pdf).toBe(retried);
           expect(FileNormalizer.toFileAttachment).toHaveBeenCalledTimes(1 + 1 + 60 + 1);
-          expect(warnSpy).not.toHaveBeenCalled();
         } finally {
           vi.useRealTimers();
         }

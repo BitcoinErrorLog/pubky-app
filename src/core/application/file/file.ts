@@ -26,17 +26,13 @@ import type { NexusFileDetails, NexusFileUrls } from '@/services/nexus/nexus.typ
  * File ids are millisecond timestamps (pubky-app-specs `createFile`), so two
  * attachments normalized within the same millisecond would share an id: both
  * records would PUT to one homeserver path (the second overwriting the first)
- * and the local insert would then throw on the duplicate key. The last id this
- * tab issued is remembered and an attachment whose id is not strictly newer is
- * normalized again once the clock has moved on.
+ * and the local insert would then throw on the duplicate key. Every id this
+ * tab has issued is remembered and an attachment minted with one of them is
+ * normalized again once the clock has moved on. Remembering all of them, not
+ * only the last, keeps a clock that stepped back into earlier ids from
+ * re-issuing one.
  */
 const FILE_ID_RETRY_DELAY_MS = 1;
-/**
- * A clock that stepped back further than this many retries cover is not
- * waited out: the guard re-anchors to the current clock instead (a duplicate
- * key is still rejected by the local insert).
- */
-const FILE_ID_RETRY_LIMIT = 50;
 
 /**
  * File Application
@@ -47,7 +43,7 @@ const FILE_ID_RETRY_LIMIT = 50;
 export class FileApplication {
   private constructor() {} // Prevent instantiation
 
-  private static lastIssuedFileId = '';
+  private static readonly issuedFileIds = new Set<string>();
 
   static async toFileAttachment({ file, pubky }: TUploadFileParams): Promise<TFileAttachmentResult> {
     let sanitizedFile: File;
@@ -74,18 +70,13 @@ export class FileApplication {
         cause: error,
       });
     }
-    // Normalizing, comparing and remembering run with no await in between, so
-    // concurrent callers can never both claim the same id. Ids are fixed-width
-    // Crockford base32 timestamps, so string order is time order.
-    for (let attempt = 0; ; attempt++) {
+    // Normalizing, checking and remembering run with no await in between, so
+    // concurrent callers can never both claim the same id.
+    for (;;) {
       const fileAttachment = FileNormalizer.toFileAttachment({ file: sanitizedFile, blobData, pubky });
       const fileId = fileAttachment.fileResult.meta.id;
-      const clockSteppedBack = attempt >= FILE_ID_RETRY_LIMIT && fileId < this.lastIssuedFileId;
-      if (fileId > this.lastIssuedFileId || clockSteppedBack) {
-        if (clockSteppedBack) {
-          Logger.warn('[FileApplication] Clock stepped back past the last issued file id; re-anchoring');
-        }
-        this.lastIssuedFileId = fileId;
+      if (!this.issuedFileIds.has(fileId)) {
+        this.issuedFileIds.add(fileId);
         return fileAttachment;
       }
       await sleep(FILE_ID_RETRY_DELAY_MS);
