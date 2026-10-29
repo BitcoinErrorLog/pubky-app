@@ -494,11 +494,34 @@ describe('LockedPostContent', () => {
 
     const { unmount } = render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
     expect(await screen.findByTestId('post-article')).toHaveAttribute('data-variant', 'preview');
+    // A preview reads only the cover, so the body media is read on the post page alone (#2686).
+    expect(LocksController.fetchReplicatedContent).toHaveBeenLastCalledWith(expect.objectContaining({ preview: true }));
     unmount();
 
     pathname.value = '/post/pubkycreator/POST1';
     render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
     expect(await screen.findByTestId('post-article')).toHaveAttribute('data-variant', 'full');
+    expect(LocksController.fetchReplicatedContent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ preview: false }),
+    );
+  });
+
+  it('keeps reading a preview while the feed stays mounted under the post modal', async () => {
+    // The intercepted post modal hides the feed without unmounting it, and the route then names this post.
+    mockLockData({ lockFile: asOpaque<LockFile>({ creator: 'pubkybob' }) });
+    vi.mocked(LocksController.fetchReplicatedContent).mockResolvedValue({
+      post: { content: JSON.stringify({ title: 'My Essay', body: 'the body' }), kind: 'long', attachments: null },
+      attachments: [],
+    });
+    const { rerender } = render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
+    await screen.findByTestId('post-article');
+
+    pathname.value = '/post/pubkycreator/POST1';
+    rerender(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkycreator:POST1" />);
+
+    expect(await screen.findByTestId('post-article')).toHaveAttribute('data-variant', 'full');
+    expect(LocksController.fetchReplicatedContent).toHaveBeenCalledOnce();
+    expect(LocksController.fetchReplicatedContent).toHaveBeenCalledWith(expect.objectContaining({ preview: true }));
   });
 
   it('keeps the focused post compact inside a preview, as the reply and repost dialogs render it', async () => {
@@ -608,6 +631,7 @@ describe('LockedPostContent', () => {
     expect(LocksController.fetchReplicatedContent).toHaveBeenCalledWith({
       lockUrl: LOCK_URL,
       readerPubky: 'pubkyreader',
+      preview: true,
     });
     expect(screen.queryByRole('button', { name: 'Unlock' })).not.toBeInTheDocument();
   });
@@ -623,7 +647,7 @@ describe('LockedPostContent', () => {
     render(<LockedPostContent content="{}" lock={LOCK_URL} postId="pubkyreader:POST1" />);
 
     await waitFor(() => expect(screen.getByText('my own locked content')).toBeInTheDocument());
-    expect(LocksController.fetchOwnContent).toHaveBeenCalledWith({ lockUrl: LOCK_URL, lockFile });
+    expect(LocksController.fetchOwnContent).toHaveBeenCalledWith({ lockUrl: LOCK_URL, lockFile, preview: true });
     expect(LocksController.fetchReplicatedContent).not.toHaveBeenCalled();
     // Own lock keeps the lock card (Unlock present but disabled) + a "My locked content" label.
     expect(screen.getByText('My locked content')).toBeInTheDocument();

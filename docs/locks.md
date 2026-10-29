@@ -237,7 +237,8 @@ parents through this component and those stay previews (#2401, absorbed into #24
 In full, the body images render from the reader's local copies: `PostArticle` hands its
 `localAttachments` to `PostText`, and `ArticleInlineImage` resolves `attachment:{n}` to the object
 URL of slot `n`. A slot whose file is missing shows the placeholder. The preview shows no body
-image, like any article card.
+image, like any article card, and reads none: it loads the cover's bytes alone, and the body media
+is read once the article opens in full (#2686).
 
 | File                                                           | Role                                                                                |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
