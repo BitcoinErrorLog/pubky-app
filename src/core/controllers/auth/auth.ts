@@ -581,7 +581,14 @@ export class AuthController {
     this.cancelActiveAuthFlow();
     const epoch = this.epoch;
     void this.retrySessionRetirement();
-    const result = await AuthApplication.signIn({ keypair });
+    let result: THomeserverSessionResult | undefined;
+    try {
+      result = await AuthApplication.signIn({ keypair, isCurrent: () => epoch === this.epoch });
+    } catch (error) {
+      // A newer flow owns sign-in: its outcome matters, not this one's last failure.
+      if (epoch !== this.epoch) throw createCanceledError();
+      throw error;
+    }
     if (epoch !== this.epoch) throw createCanceledError();
     if (!result) return false;
     await this.completeAuthenticatedSession(result, { epoch, expectedPubky });
