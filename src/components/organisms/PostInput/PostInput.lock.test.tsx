@@ -826,7 +826,7 @@ describe('PostInput lock wiring', () => {
     expect(mocks.commitCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         authorId: 'alice',
-        content: JSON.stringify({ lock_title: 'My title', teaser_description: 'my teaser', content_kind: 'short' }),
+        content: JSON.stringify({ lock_title: 'My title', teaser_description: 'my teaser', content_kind: 'note' }),
         lock: 'pubky://bob/pub/app.locks/L1.json',
       }),
     );
