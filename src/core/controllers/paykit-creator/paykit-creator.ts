@@ -9,7 +9,8 @@ export class PaykitCreatorController {
   private constructor() {}
 
   /**
-   * Asks Paykit (network only, no cache) whether it already holds `creator`.
+   * Asks Paykit over the network whether it already holds `creator`. The server-side service reuses a recent
+   * answer for the same creator and origin and shares one request between concurrent callers.
    *
    * @param params.creator - Raw `creator` query value (may be null)
    * @param params.returnTo - Raw `return_to` query value (may be null)
