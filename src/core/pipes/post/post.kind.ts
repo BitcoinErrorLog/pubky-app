@@ -71,28 +71,24 @@ export const inferPostKindForCreate = ({ content, attachments, isArticle }: TInf
 };
 
 /**
- * The v1 name a lock announcement saves for the kind of its locked post (#2433). An explicit mapping, so the
- * stored names stay fixed when the internal kinds are renamed. A create never infers a collection or an
- * unknown kind, so those save nothing and read as generic content.
+ * The pubky-app-specs v1.0.0-rc.1 name a lock announcement saves for the kind of its locked post (#2433). An
+ * explicit mapping, so the stored names stay fixed when the internal kinds are renamed. A `Record` over every
+ * `PubkyAppPostKind`, so a kind added by a specs upgrade fails to compile until it is mapped here. A create never
+ * infers a collection or an unknown kind, so those save nothing and read as generic content.
  */
-export const toLockContentKind = (kind: PubkyAppPostKind): TLockContentKind | undefined => {
-  switch (kind) {
-    case PubkyAppPostKind.Short:
-      return 'note';
-    case PubkyAppPostKind.Long:
-      return 'article';
-    case PubkyAppPostKind.Image:
-      return 'image';
-    case PubkyAppPostKind.Video:
-      return 'video';
-    case PubkyAppPostKind.Link:
-      return 'link';
-    case PubkyAppPostKind.File:
-      return 'file';
-    default:
-      return undefined;
-  }
+const LOCK_CONTENT_KIND_BY_POST_KIND: Record<PubkyAppPostKind, TLockContentKind | undefined> = {
+  [PubkyAppPostKind.Short]: 'note',
+  [PubkyAppPostKind.Long]: 'article',
+  [PubkyAppPostKind.Image]: 'image',
+  [PubkyAppPostKind.Video]: 'video',
+  [PubkyAppPostKind.Link]: 'link',
+  [PubkyAppPostKind.File]: 'file',
+  [PubkyAppPostKind.Collection]: undefined,
+  [PubkyAppPostKind.Unknown]: undefined,
 };
+
+export const toLockContentKind = (kind: PubkyAppPostKind): TLockContentKind | undefined =>
+  LOCK_CONTENT_KIND_BY_POST_KIND[kind];
 
 /**
  * Kind for an edited post whose attachment set changed. Articles and

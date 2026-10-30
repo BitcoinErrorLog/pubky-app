@@ -16,7 +16,7 @@ describe('getLockContentDisplay', () => {
     expect(getLockContentDisplay(kind)).toEqual({ title, Icon });
   });
 
-  // `short` and `long` are the internal kind strings, never stored: no aliases, they read as unknown.
+  // `short` and `long` are the internal kind strings. Only pre-v1 staging locks stored them: no aliases, they read as unknown.
   it.each([['note'], ['short'], ['long'], ['podcast'], ['collection'], [''], [undefined]] as const)(
     'reads %s as generic locked content',
     (kind) => {
@@ -27,7 +27,7 @@ describe('getLockContentDisplay', () => {
 });
 
 describe('isLockContentKind', () => {
-  it('accepts the pubky-app-specs v1 kind names, and nothing else', () => {
+  it('accepts the pubky-app-specs v1.0.0-rc.1 kind names, and nothing else', () => {
     expect(LOCK_CONTENT_KINDS).toEqual(['note', 'article', 'image', 'video', 'link', 'file']);
     for (const kind of LOCK_CONTENT_KINDS) expect(isLockContentKind(kind)).toBe(true);
     for (const kind of ['collection', 'unknown', 'short', 'long', 'podcast', '']) {
