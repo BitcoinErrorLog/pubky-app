@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { TLockConfig } from '@/application/locks/locks.types';
 import { getLockServer, getPaykitServerUrl } from '@/config/network';
+import { LocksController } from '@/controllers/locks/locks';
 import { PostController } from '@/controllers/post/post';
 import { useCreateLockContent } from '@/hooks/useCreateLockContent/useCreateLockContent';
 import { usePaidUnlockAvailability } from '@/hooks/usePaidUnlockAvailability/usePaidUnlockAvailability';
@@ -69,6 +70,16 @@ export function usePostInputLock({
   // The auth modal fires `onOpenChange(false)` on both cancel and the success "Continue"; this flag
   // lets the close handler tell them apart so success advances instead of reverting the switch.
   const advancingFromAuth = useRef(false);
+  // Bumped on every switch change, so a Paykit answer that lands after the creator switched off (or on
+  // again) opens nothing.
+  const setupCheck = useRef(0);
+  // The composer as it stands now, for a capture made after an await: the Paykit check below leaves the
+  // composer editable, so the draft is read when its answer lands, not from the render that started it.
+  // Written from an effect (not during render) so the React Compiler `refs` rule holds.
+  const latest = useRef({ captureComposer, canEnable });
+  useEffect(() => {
+    latest.current = { captureComposer, canEnable };
+  });
   const timelineFeed = useTimelineFeedContext();
 
   const lockServerPubky = getLockServer() ?? '';
@@ -86,6 +97,35 @@ export function usePostInputLock({
   const isLocksSetUp = () => {
     const store = useLocksAuthStore.getState();
     return store.selectIsLocksAuthenticated() && store.selectIsPaykitConnected() && !needsSessionUpgrade;
+  };
+
+  /**
+   * Signed in and on a session that reaches `/priv`, with only the Paykit answer unknown (after a reload or a
+   * new Locks session). The Lock Server is asked before any dialog opens, so a creator whose Bitkit payout
+   * account is already set up goes straight to the price (#2997). `setup_required`, `unavailable` or a failed
+   * read open the setup modal, which checks again and shows the reason, as before.
+   */
+  const openLockSetup = async (check: number) => {
+    let status: Awaited<ReturnType<typeof LocksController.fetchPaykitSetupStatus>> | null = null;
+    try {
+      status = await LocksController.fetchPaykitSetupStatus(lockConfig?.asset ?? 'BTC');
+    } catch {
+      // Already reported by the Err factory; the modal retries and explains.
+    }
+    if (check !== setupCheck.current) return;
+    // Capture only now: the creator could keep typing while the Lock Server answered (#2997).
+    const draft = latest.current.canEnable ? latest.current.captureComposer() : null;
+    if (!draft) {
+      resetLock();
+      return;
+    }
+    holdDraft(draft);
+    if (status === 'ready') {
+      LocksController.markPaykitConnected();
+      setIsLockDialogOpen(true);
+    } else {
+      setIsAuthDialogOpen(true);
+    }
   };
 
   // Optimistic commit of the just-published announcement, like a normal post: local blobs (so the
@@ -159,6 +199,15 @@ export function usePostInputLock({
     setLockTitle('');
   };
 
+  /** The composer holds the content to be locked: snapshot it, leaving it on screen behind the dialogs. */
+  const holdDraft = (draft: TLockDraft) => {
+    setLockDraft(draft);
+    setLockEnabled(true);
+    // Seed the card's title with the default for what is being locked, so it reads as real, editable text
+    // (not a placeholder). A title the creator edits is kept as typed (#2433).
+    setLockTitle(getLockContentDisplay(contentKindOf(draft)).title);
+  };
+
   /** The lock was abandoned: the captured content is a normal post again. */
   const revertToNormalPost = () => {
     if (lockDraft) restoreComposer(lockDraft);
@@ -166,6 +215,7 @@ export function usePostInputLock({
   };
 
   const onCheckedChange = (checked: boolean) => {
+    setupCheck.current += 1;
     if (!checked) {
       revertToNormalPost();
       return;
@@ -176,16 +226,21 @@ export function usePostInputLock({
     // Likewise while paid unlocks are held for the creator's region: the switch is disabled and says why.
     if (paidUnlocks.status !== 'available') return;
 
+    // Signed in with only the Bitkit answer unknown: the switch shows on while the Lock Server is asked,
+    // and the draft is captured when the answer lands (`openLockSetup`), so edits made meanwhile are kept.
+    const store = useLocksAuthStore.getState();
+    if (!isLocksSetUp() && store.selectIsLocksAuthenticated() && !needsSessionUpgrade) {
+      setLockEnabled(true);
+      void openLockSetup(setupCheck.current);
+      return;
+    }
+
     // The composer currently holds the content to be locked. Snapshot it, but leave it on screen so the
     // creator still sees their draft behind the auth/lock dialogs — it is only swapped for the
     // empty announcement composer once the lock is applied (see `handleLockApplied`).
     const draft = captureComposer();
     if (!draft) return;
-    setLockDraft(draft);
-    setLockEnabled(true);
-    // Seed the card's title with the default for what is being locked, so it reads as real, editable text
-    // (not a placeholder). A title the creator edits is kept as typed (#2433).
-    setLockTitle(getLockContentDisplay(contentKindOf(draft)).title);
+    holdDraft(draft);
 
     // Gate on Locks setup: fully set up → lock content dialog; otherwise the modal, which opens at
     // whichever step is still missing.
