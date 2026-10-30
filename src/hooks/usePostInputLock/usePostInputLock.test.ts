@@ -149,7 +149,7 @@ describe('usePostInputLock', () => {
 
   describe('locked post content', () => {
     it('serializes an article draft as title + body JSON, like a normal article publish', () => {
-      mocks.isAuthed = true;
+      setUpLocks();
       const { result } = setup();
 
       configureLock(result);
@@ -158,7 +158,7 @@ describe('usePostInputLock', () => {
     });
 
     it('passes a plain draft body through untouched', () => {
-      mocks.isAuthed = true;
+      setUpLocks();
       const { result } = setup(true, true, { ...draft, isArticle: false, articleTitle: '' });
 
       configureLock(result);
@@ -167,7 +167,7 @@ describe('usePostInputLock', () => {
     });
 
     it('locks the serialized article body, with its images after the cover', () => {
-      mocks.isAuthed = true;
+      setUpLocks();
       const inline = new File(['y'], 'shot.jpg', { type: 'image/jpeg' });
       const { result } = setup(true, true, {
         ...draft,
@@ -389,7 +389,7 @@ describe('usePostInputLock', () => {
         mocks.isAuthed = true;
         let answer: (status: string) => void = () => undefined;
         mocks.fetchPaykitSetupStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
-        const { result } = setup();
+        const { result, restoreComposer } = setup();
 
         act(() => result.current.lockSwitch?.onCheckedChange(true));
         act(() => result.current.lockSwitch?.onCheckedChange(false));
@@ -398,6 +398,43 @@ describe('usePostInputLock', () => {
         expect(result.current.isLockDialogOpen).toBe(false);
         expect(result.current.isAuthDialogOpen).toBe(false);
         expect(result.current.isLockEnabled).toBe(false);
+        // Nothing was cleared yet, so the composer already holds the draft and any edit made since.
+        expect(restoreComposer).not.toHaveBeenCalled();
+      });
+
+      // The composer stays editable while the Lock Server answers: what is locked is the draft as it
+      // stands when the answer lands, not the snapshot taken at the click.
+      it.each(['ready', 'setup_required'])('locks the edits made while the answer was %s', async (status) => {
+        mocks.isAuthed = true;
+        let answer: (status: string) => void = () => undefined;
+        mocks.fetchPaykitSetupStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+        const edited: TLockDraft = {
+          ...draft,
+          content: 'edited',
+          serializedArticle: { body: 'edited', inlineFiles: [] },
+        };
+        const { result, captureComposer } = setup();
+
+        act(() => result.current.lockSwitch?.onCheckedChange(true));
+        captureComposer.mockReturnValue(edited);
+        await act(async () => answer(status));
+
+        expect(mocks.lockContentOptions?.lockedPost.content).toBe(JSON.stringify({ title: 'Essay', body: 'edited' }));
+      });
+
+      it('turns the lock off when the draft can no longer be locked once the answer lands', async () => {
+        mocks.isAuthed = true;
+        let answer: (status: string) => void = () => undefined;
+        mocks.fetchPaykitSetupStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+        const { result, captureComposer, restoreComposer } = setup();
+
+        act(() => result.current.lockSwitch?.onCheckedChange(true));
+        captureComposer.mockReturnValue(null);
+        await act(async () => answer('ready'));
+
+        expect(result.current.isLockEnabled).toBe(false);
+        expect(result.current.isLockDialogOpen).toBe(false);
+        expect(restoreComposer).not.toHaveBeenCalled();
       });
 
       it('does not ask the Lock Server before sign-in', () => {

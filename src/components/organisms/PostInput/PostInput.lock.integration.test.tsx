@@ -295,6 +295,59 @@ describe('PostInput lock flow (integration)', () => {
     expect(screen.queryByLabelText('Bitcoin Amount', { selector: 'input' }) !== null).toBe(!modal);
   });
 
+  // The composer stays editable while the Lock Server answers. What the creator typed meanwhile is what
+  // gets locked, and switching off mid-check keeps it.
+  describe('typing while the Bitkit setup check is in flight (#2997)', () => {
+    let answer: (status: string) => void = () => undefined;
+    const switchOnAndEdit = async () => {
+      mocks.locksAuthed = true;
+      mocks.fetchPaykitSetupStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+      await renderComposer();
+      act(() => mocks.composer.setContent('my secret'));
+      await act(async () => {
+        fireEvent.click(lockSwitch());
+      });
+      act(() => mocks.composer.setContent('my secret, edited'));
+    };
+
+    it('locks the edited body', async () => {
+      await switchOnAndEdit();
+      await act(async () => answer('ready'));
+      await applyValidPrice();
+      fireEvent.change(screen.getByPlaceholderText('Write a short announcement to tease your content.'), {
+        target: { value: 'come see this' },
+      });
+      fireEvent.click(postButton());
+
+      await waitFor(() => expect(mocks.commitCreate).toHaveBeenCalledTimes(1));
+      const [{ buildPost }] = mocks.createLockContent.mock.calls[0];
+      buildPost([], 'pubkybob');
+      expect(mocks.post.mock.lastCall?.[0]).toBe('my secret, edited');
+    });
+
+    it('keeps the edited body when the creator switches off before the answer', async () => {
+      await switchOnAndEdit();
+      await act(async () => {
+        fireEvent.click(lockSwitch());
+      });
+      await act(async () => answer('ready'));
+
+      expect(mocks.composer.content).toBe('my secret, edited');
+      expect(screen.queryByLabelText('Bitcoin Amount', { selector: 'input' })).not.toBeInTheDocument();
+    });
+
+    it('turns the lock off when the creator emptied the composer before the answer', async () => {
+      await switchOnAndEdit();
+      act(() => mocks.composer.setContent(''));
+      await act(async () => answer('ready'));
+
+      // The lock is off, so the empty composer collapses and its switch goes with it.
+      expect(screen.queryByRole('switch', { name: 'Lock content', checked: true })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Bitcoin Amount', { selector: 'input' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('auth-dialog')).not.toBeInTheDocument();
+    });
+  });
+
   // Full creator journey: write → switch on → sign in → price → teaser → Post.
   it.each([
     ['short text', 'my secret note', [] as File[], 'short', 'Locked content'],
