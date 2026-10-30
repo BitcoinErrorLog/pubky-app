@@ -404,6 +404,22 @@ describe('DialogPayToUnlock', () => {
     expect(screen.queryByRole('button', { name: /Try again|I completed the steps/ })).not.toBeInTheDocument();
   });
 
+  // #2516: the header follows the body. Only a payment whose content is ready reads "Unlocked"; a received
+  // payment still opening, or one whose content failed to open, says so instead.
+  it.each([
+    ['checking', 'Pay to Unlock'],
+    ['waiting', 'Pay to Unlock'],
+    ['retry', 'Pay to Unlock'],
+    ['finishing', 'Payment received'],
+    ['unopened', 'Payment received'],
+    ['paid', 'Unlocked'],
+  ] as const)('titles the %s stage "%s"', (stage, title) => {
+    renderDialog(stage);
+
+    expect(screen.getByRole('dialog')).toHaveAccessibleName(title);
+    expect(screen.getByRole('heading', { level: 2, name: title })).toBeInTheDocument();
+  });
+
   it('blocked: explains the failed check and offers no way to pay', () => {
     renderDialog('blocked');
     expect(screen.getByText(/could not be checked/)).toBeInTheDocument();
