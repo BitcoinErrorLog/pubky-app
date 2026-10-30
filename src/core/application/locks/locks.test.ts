@@ -40,7 +40,9 @@ const mocks = vi.hoisted(() => ({
   cacheGet: vi.fn().mockResolvedValue(null),
   cacheDescriptor: vi.fn().mockResolvedValue(undefined),
   cachePost: vi.fn().mockResolvedValue(undefined),
+  cacheDelete: vi.fn().mockResolvedValue(undefined),
   cacheUnlockedList: vi.fn().mockResolvedValue([]),
+  deleteContentLock: vi.fn(),
 }));
 
 vi.mock('@/libs/image/stripImageMetadata', () => ({
@@ -52,6 +54,7 @@ vi.mock('@/services/local/locks/locks', () => ({
     get: mocks.cacheGet,
     upsertDescriptor: mocks.cacheDescriptor,
     upsertPost: mocks.cachePost,
+    delete: mocks.cacheDelete,
     getUnlockedList: mocks.cacheUnlockedList,
   },
 }));
@@ -73,6 +76,7 @@ vi.mock('@/services/locks/locks', async (importOriginal) => {
       registerGuardedResource: mocks.registerGuardedResource,
       // Publishing uses the production service and SDK builder; only creator transport is mocked.
       createContentLock: actual.LocksService.createContentLock,
+      deleteContentLock: mocks.deleteContentLock,
       generateBundleId: mocks.generateBundleId,
       submitProof: mocks.submitProof,
       lookupPaykitConnectionState: mocks.lookupPaykitConnectionState,
@@ -169,6 +173,64 @@ describe('LocksApplication (content)', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  describe('deleteLockContent', () => {
+    const lockUrl = `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/LOCK1.json`;
+
+    it('deletes the lock by the id parsed from the URL, then drops the cached original', async () => {
+      mocks.deleteContentLock.mockResolvedValue(undefined);
+
+      await expect(LocksApplication.deleteLockContent({ lockUrl })).resolves.toBeUndefined();
+
+      expect(mocks.deleteContentLock).toHaveBeenCalledWith('LOCK1');
+      expect(mocks.cacheDelete).toHaveBeenCalledWith('LOCK1');
+      expect(mocks.deleteContentLock.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.cacheDelete.mock.invocationCallOrder[0],
+      );
+    });
+
+    it.each([
+      'not-a-url',
+      'pubky://not-a-pubky/pub/app.locks/LOCK1.json',
+      `pubky://${MOCK_LOCK_AUTHOR_PUBKY}/pub/app.locks/`,
+    ])('skips %s so the announcement stays deletable, without calling the Lock Server', async (badUrl) => {
+      await expect(LocksApplication.deleteLockContent({ lockUrl: badUrl })).resolves.toBeUndefined();
+
+      expect(mocks.deleteContentLock).not.toHaveBeenCalled();
+      expect(mocks.cacheDelete).not.toHaveBeenCalled();
+    });
+
+    it('skips the cache delete when the viewer logged out while the Lock Server call was in flight (#2797)', async () => {
+      let current = true;
+      mocks.deleteContentLock.mockImplementationOnce(async () => {
+        current = false;
+      });
+
+      await LocksApplication.deleteLockContent({ lockUrl, isCurrent: () => current });
+
+      expect(mocks.deleteContentLock).toHaveBeenCalledWith('LOCK1');
+      expect(mocks.cacheDelete).not.toHaveBeenCalled();
+    });
+
+    it('keeps the cached original when the Lock Server refuses', async () => {
+      const refused = Err.server(ServerErrorCode.INTERNAL_ERROR, 'refused', {
+        service: ErrorService.Locks,
+        operation: 'test',
+      });
+      mocks.deleteContentLock.mockRejectedValueOnce(refused);
+
+      await expect(LocksApplication.deleteLockContent({ lockUrl })).rejects.toBe(refused);
+
+      expect(mocks.cacheDelete).not.toHaveBeenCalled();
+    });
+
+    it('resolves when only the cache delete fails: the server already accepted the deletion', async () => {
+      mocks.deleteContentLock.mockResolvedValue(undefined);
+      mocks.cacheDelete.mockRejectedValueOnce(new Error('IndexedDB closed'));
+
+      await expect(LocksApplication.deleteLockContent({ lockUrl })).resolves.toBeUndefined();
+    });
   });
 
   it('uploads the attachments first, then the post built from their paths', async () => {
@@ -1455,6 +1517,48 @@ describe('LocksApplication.fetchReplicatedAttachments', () => {
 
     await expect(LocksApplication.fetchReplicatedAttachments({ post: post(['image/png']) })).rejects.toThrow();
   });
+
+  describe('preview', () => {
+    const article = (body: string) => ({
+      ...post(['image/png', 'image/png', 'image/png']),
+      kind: 'long' as const,
+      content: JSON.stringify({ title: 'Title', body }),
+    });
+
+    it('reads only the cover of an article', async () => {
+      mocks.getBytes.mockResolvedValueOnce(new Uint8Array([1]));
+
+      const result = await LocksApplication.fetchReplicatedAttachments({
+        post: article('![a](attachment:1)\n\n![b](attachment:2)'),
+        preview: true,
+      });
+
+      expect(mocks.getBytes).toHaveBeenCalledOnce();
+      expect(mocks.getBytes).toHaveBeenCalledWith('pubky://reader/priv/social/unlocked/LOCK1/file0');
+      expect(result.map((attachment) => attachment.slot)).toEqual([0]);
+    });
+
+    it('reads nothing when the body uses slot 0 inline, as the article then has no cover', async () => {
+      const result = await LocksApplication.fetchReplicatedAttachments({
+        post: article('![a](attachment:0)'),
+        preview: true,
+      });
+
+      expect(result).toEqual([]);
+      expect(mocks.getBytes).not.toHaveBeenCalled();
+    });
+
+    it('reads every attachment of a post that is not an article', async () => {
+      mocks.getBytes.mockResolvedValue(new Uint8Array([1]));
+
+      const result = await LocksApplication.fetchReplicatedAttachments({
+        post: post(['image/png', 'image/png']),
+        preview: true,
+      });
+
+      expect(result).toHaveLength(2);
+    });
+  });
 });
 
 describe('LocksApplication.fetchReplicatedContent', () => {
@@ -1475,6 +1579,31 @@ describe('LocksApplication.fetchReplicatedContent', () => {
     expect(result?.post.content).toBe('secret');
     expect(mocks.readContentLock).not.toHaveBeenCalled();
     expect(mocks.cacheGet).not.toHaveBeenCalled();
+  });
+
+  it('reads only the cover of an article for a preview', async () => {
+    const file = (name: string) => `pubky://${READER}/priv/social/unlocked/LOCK1/${name}`;
+    mocks.getBytesIfExists.mockResolvedValueOnce(
+      marker({
+        content: JSON.stringify({ title: 'Title', body: '![b](attachment:1)' }),
+        kind: 'long',
+        attachments: [
+          { url: file('cover'), content_type: 'image/png' },
+          { url: file('body'), content_type: 'image/png' },
+        ],
+      }),
+    );
+    mocks.getBytes.mockResolvedValueOnce(new Uint8Array([1]));
+
+    const result = await LocksApplication.fetchReplicatedContent({
+      lockUrl: LOCK_URL,
+      readerPubky: READER,
+      preview: true,
+    });
+
+    expect(mocks.getBytes).toHaveBeenCalledOnce();
+    expect(mocks.getBytes).toHaveBeenCalledWith(file('cover'));
+    expect(result?.attachments.map((attachment) => attachment.slot)).toEqual([0]);
   });
 
   it('returns null (not unlocked) when the post.json marker is absent (404 → null, no error)', async () => {
@@ -1783,6 +1912,51 @@ describe('LocksApplication.fetchOwnContent', () => {
       expect.objectContaining({ lockId: 'lock1', post: expect.any(Object) }),
     );
     expect(mocks.cachePost.mock.calls[0]?.[0]).not.toHaveProperty('unlockedAt');
+  });
+
+  it('reads only the cover of an article for a preview', async () => {
+    const cover = 'pubky://owner/priv/app.locks/content/img1';
+    const lockFile = asOpaque<LockFile>({
+      ...ownLockFile,
+      secondary_resources: {
+        '/priv/app.locks/content/img1': { content_type: 'image/png', hash: 'h', size: 2 },
+        '/priv/app.locks/content/img2': { content_type: 'image/png', hash: 'h', size: 2 },
+      },
+    });
+    mocks.getBytes
+      .mockResolvedValueOnce(
+        encode({
+          content: JSON.stringify({ title: 'Title', body: '![a](attachment:1)' }),
+          kind: 'long',
+          attachments: [cover, 'pubky://owner/priv/app.locks/content/img2'],
+        }),
+      )
+      .mockResolvedValueOnce(new Uint8Array([5]));
+
+    const result = await LocksApplication.fetchOwnContent({ lockUrl: VALID_LOCK_URL, lockFile, preview: true });
+
+    expect(mocks.getBytes).toHaveBeenCalledTimes(2);
+    expect(mocks.getBytes).toHaveBeenLastCalledWith(cover);
+    expect(result.attachments.map((attachment) => attachment.slot)).toEqual([0]);
+  });
+
+  it('reads no attachment for a preview of an article whose slot 0 is inline', async () => {
+    mocks.getBytes.mockResolvedValueOnce(
+      encode({
+        content: JSON.stringify({ title: 'Title', body: '![a](attachment:0)' }),
+        kind: 'long',
+        attachments: ['pubky://owner/priv/app.locks/content/img1'],
+      }),
+    );
+
+    const result = await LocksApplication.fetchOwnContent({
+      lockUrl: VALID_LOCK_URL,
+      lockFile: ownLockFile,
+      preview: true,
+    });
+
+    expect(mocks.getBytes).toHaveBeenCalledOnce();
+    expect(result.attachments).toEqual([]);
   });
 
   it('returns a mismatched original without caching it when secondary resources are absent', async () => {

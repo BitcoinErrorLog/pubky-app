@@ -36,7 +36,13 @@ const dropsInput = (value: string) => /\D/.test(value.replace(/[,\s]/g, ''));
 
 const satsFormatter = new Intl.NumberFormat('en-US');
 
-export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApplyRef }: DialogLockContentProps) {
+export function DialogLockContent({
+  open,
+  onOpenChange,
+  onApplied,
+  appliedPrice = null,
+  focusAfterApplyRef,
+}: DialogLockContentProps) {
   // Set when Apply Lock closes the dialog, so the close can move focus on instead of restoring it.
   const appliedRef = useRef(false);
   // Grouping is applied only while the field is not focused: re-inserting a separator mid-edit moves
@@ -46,11 +52,14 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
   const {
     form,
     submit,
-    reset: resetForm,
     changeAsset: changeFormAsset,
-  } = useLockContentForm((config) => {
-    appliedRef.current = true;
-    onApplied(config);
+  } = useLockContentForm({
+    open,
+    price: appliedPrice,
+    onApplied: (config) => {
+      appliedRef.current = true;
+      onApplied(config);
+    },
   });
   const [amount, asset] = useWatch({
     control: form.control,
@@ -59,11 +68,6 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
   // The rate is only for pricing a lock, but every post composer mounts this dialog — fetching
   // before it opens would cost a `/api/btc-rate` call on the home feed, Locks users or not.
   const { rate: btcRate, status: rateStatus } = useBtcRate(open && asset === 'BTC');
-
-  const reset = () => {
-    setDroppedInput(false);
-    resetForm();
-  };
 
   const changeAsset = (next: string) => {
     setDroppedInput(false);
@@ -74,17 +78,8 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
   const { isValid, isSubmitting } = form.formState;
   const usdValue = asset === 'BTC' && btcRate && price ? Number(price.amount) * btcRate.satUsd : null;
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next) reset();
-    onOpenChange(next);
-  };
-
-  const handleApply = async () => {
-    if (await submit()) reset();
-  };
-
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         avoidKeyboard
         className="max-w-md rounded-xl border-x-0 border-y border-brand bg-card sm:max-w-xl"
@@ -92,6 +87,8 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
         // Radix restores focus to whatever had it before the dialog opened (the lock switch). After
         // Apply Lock the creator's next step is the announcement, so focus goes there instead.
         onCloseAutoFocus={(event) => {
+          // Every close drops what was typed (the form re-seeds while closed), so the note goes with it.
+          setDroppedInput(false);
           const target = appliedRef.current ? focusAfterApplyRef?.current : null;
           appliedRef.current = false;
           if (!target) return;
@@ -231,7 +228,7 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
           <Button
             variant={ButtonVariant.OUTLINE}
             size="lg"
-            onClick={() => handleOpenChange(false)}
+            onClick={() => onOpenChange(false)}
             data-cy="lock-content-cancel"
           >
             {'Cancel'}
@@ -239,7 +236,7 @@ export function DialogLockContent({ open, onOpenChange, onApplied, focusAfterApp
           <Button
             variant={ButtonVariant.DEFAULT}
             size="lg"
-            onClick={handleApply}
+            onClick={() => void submit()}
             disabled={!isValid || isSubmitting}
             // The Button base sets disabled:pointer-events-none, which would swallow the hover and
             // leave the default arrow cursor. A disabled button still cannot fire a click.

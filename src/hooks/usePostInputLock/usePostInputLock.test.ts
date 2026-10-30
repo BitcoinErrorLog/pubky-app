@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PaidUnlockAvailability } from '@/libs/region/paidUnlockAvailability';
 import { usePostInputLock } from './usePostInputLock';
@@ -13,10 +13,14 @@ const mocks = vi.hoisted(() => ({
   publish: vi.fn(),
   toast: vi.fn(),
   prependPosts: vi.fn(),
+  // The timeline the composer sits in; undefined outside a feed.
+  streamId: undefined as string | undefined,
+  getDetails: vi.fn(),
   setPostAttachments: vi.fn(),
   // Last options handed to useCreateLockContent — the locked post the hook would publish.
   lockContentOptions: null as {
     lockedPost: { content: string; kind: unknown; attachments: File[] };
+    announcement: { teaser: { lock_title: string; teaser_description: string; content_kind?: string } };
     lockConfig: unknown;
   } | null,
 }));
@@ -49,6 +53,7 @@ vi.mock('@/stores/locksAuth/locksAuth.store', () => ({
 vi.mock('@/hooks/useCreateLockContent/useCreateLockContent', () => ({
   useCreateLockContent: (options: {
     lockedPost: { content: string; kind: unknown; attachments: File[] };
+    announcement: { teaser: { lock_title: string; teaser_description: string; content_kind?: string } };
     lockConfig: unknown;
   }) => {
     mocks.lockContentOptions = options;
@@ -56,15 +61,16 @@ vi.mock('@/hooks/useCreateLockContent/useCreateLockContent', () => ({
   },
 }));
 vi.mock('@/molecules/Toaster/toast', () => ({ toast: (...args: unknown[]) => mocks.toast(...args) }));
-// The announcement's optimistic commit: no timeline provider in the hook test, so prepend is a no-op
-// path (`streamId` undefined). We only assert the local-blob registration here.
+// The announcement's optimistic commit: `streamId` is undefined (no feed) unless a test sets it.
 vi.mock('@/organisms/Timeline/Feed/TimelineFeed/TimelineFeedContext', () => ({
-  useTimelineFeedContext: () => ({ streamId: undefined, prependPosts: mocks.prependPosts }),
+  useTimelineFeedContext: () => ({ streamId: mocks.streamId, prependPosts: mocks.prependPosts }),
 }));
 vi.mock('@/stores/localFiles/localFiles.store', () => ({
   useLocalFilesStore: { getState: () => ({ setPostAttachments: mocks.setPostAttachments }) },
 }));
-vi.mock('@/controllers/post/post', () => ({ PostController: { getDetails: vi.fn() } }));
+vi.mock('@/controllers/post/post', () => ({
+  PostController: { getDetails: (...args: unknown[]) => mocks.getDetails(...args) },
+}));
 
 const file = new File(['x'], 'secret.png', { type: 'image/png' });
 const draft: TLockDraft = {
@@ -126,6 +132,8 @@ describe('usePostInputLock', () => {
     mocks.toast.mockReset();
     mocks.prependPosts.mockReset();
     mocks.setPostAttachments.mockReset();
+    mocks.streamId = undefined;
+    mocks.getDetails.mockReset();
     mocks.lockContentOptions = null;
   });
 
@@ -454,7 +462,7 @@ describe('usePostInputLock', () => {
     const { result } = setup();
 
     act(() => result.current.lockSwitch?.onCheckedChange(true));
-    expect(result.current.lockTitle).toBe('Locked content'); // seeded default
+    expect(result.current.lockTitle).toBe('Locked article'); // seeded default for the article draft
 
     act(() => result.current.setLockTitle('My most famous quote'));
     expect(result.current.lockTitle).toBe('My most famous quote');
@@ -470,6 +478,36 @@ describe('usePostInputLock', () => {
 
       expect(mocks.lockContentOptions?.lockConfig).toEqual({ amount: '1234', asset: 'BTC' as const });
       expect(result.current.lockConfig).toEqual({ amount: '1234', asset: 'BTC' as const }); // and to the card
+    });
+
+    it('keeps the lock and its price when a price change is dismissed', () => {
+      setUpLocks();
+      const { result, restoreComposer } = setup();
+
+      configureLock(result);
+      act(() => result.current.changeLockPrice());
+      expect(result.current.isLockDialogOpen).toBe(true);
+      act(() => result.current.closeLockDialog());
+
+      expect(result.current.isLockDialogOpen).toBe(false);
+      expect(result.current.isLockEnabled).toBe(true);
+      expect(result.current.lockConfig).toEqual({ amount: '1000', asset: 'BTC' });
+      expect(restoreComposer).not.toHaveBeenCalled();
+    });
+
+    it('applies a changed price without clearing the announcement', () => {
+      setUpLocks();
+      const { result, clearComposer } = setup();
+
+      configureLock(result);
+      clearComposer.mockClear(); // the first Apply already swapped the draft for the announcement composer
+      act(() => result.current.changeLockPrice());
+      act(() => result.current.handleLockApplied({ amount: '2000', asset: 'BTC' as const }));
+
+      expect(result.current.isLockDialogOpen).toBe(false);
+      expect(result.current.lockConfig).toEqual({ amount: '2000', asset: 'BTC' });
+      expect(mocks.lockContentOptions?.lockConfig).toEqual({ amount: '2000', asset: 'BTC' });
+      expect(clearComposer).not.toHaveBeenCalled();
     });
 
     it('discards the price when the lock is abandoned', () => {
@@ -598,6 +636,38 @@ describe('usePostInputLock', () => {
       expect(result.current.lockSwitch?.checked).toBe(false);
     });
 
+    // WoT feeds never hold the viewer's own posts, so a prepended announcement would flash and vanish
+    // on the next stream reset; the normal publish path skips them the same way (#2714, #2308).
+    it.each([
+      ['My network', 'timeline:wot:all'],
+      ['Tagged as', 'timeline:wot_domain:2:all:bitcoin'],
+    ])('does not prepend the announcement to a %s feed', async (_label, streamId) => {
+      setUpLocks();
+      mocks.streamId = streamId;
+      mocks.getDetails.mockResolvedValue({ kind: 'short' });
+      mocks.publish.mockResolvedValue({ status: 'published', postId: 'alice:POST1' });
+      const { result, onPublished } = setup();
+
+      configureLock(result);
+      await act(async () => result.current.submitOrPublish());
+
+      expect(onPublished).toHaveBeenCalledWith('alice:POST1'); // published normally
+      expect(mocks.prependPosts).not.toHaveBeenCalled();
+    });
+
+    it('still prepends the announcement to a non-WoT feed whose kind matches', async () => {
+      setUpLocks();
+      mocks.streamId = 'timeline:all:all';
+      mocks.getDetails.mockResolvedValue({ kind: 'short' });
+      mocks.publish.mockResolvedValue({ status: 'published', postId: 'alice:POST1' });
+      const { result } = setup();
+
+      configureLock(result);
+      await act(async () => result.current.submitOrPublish());
+
+      await waitFor(() => expect(mocks.prependPosts).toHaveBeenCalledWith('alice:POST1'));
+    });
+
     it('toasts and keeps the composer on a failed publish', async () => {
       setUpLocks();
       mocks.publish.mockResolvedValue({ status: 'failed' });
@@ -625,6 +695,58 @@ describe('usePostInputLock', () => {
         variant: 'error',
         description: 'This GIF exceeds the 5MB upload limit.',
       });
+    });
+  });
+
+  // #2433: the default title and the saved kind follow what is being locked.
+  describe('content kind', () => {
+    const textDraft = (content: string, attachments: File[] = []): TLockDraft => ({
+      content,
+      attachments,
+      isArticle: false,
+      articleTitle: '',
+    });
+    const typed = (type: string) => new File(['x'], 'f', { type });
+
+    it.each([
+      ['an article', draft, 'Locked article', 'long'],
+      ['an image', textDraft('pic', [typed('image/png')]), 'Locked image', 'image'],
+      ['a video beside an image', textDraft('clip', [typed('video/mp4'), typed('image/png')]), 'Locked video', 'video'],
+      ['a pdf', textDraft('doc', [typed('application/pdf')]), 'Locked file', 'file'],
+      ['audio', textDraft('song', [typed('audio/mpeg')]), 'Locked file', 'file'],
+      ['a note', textDraft('my secret'), 'Locked content', 'short'],
+      ['a link', textDraft('see https://pubky.app'), 'Locked content', 'link'],
+    ] as const)('seeds the title for %s and saves its kind', (_name, lockDraft, title, kind) => {
+      setUpLocks();
+      const { result } = setup(true, true, lockDraft);
+
+      configureLock(result);
+
+      expect(result.current.lockTitle).toBe(title);
+      expect(result.current.lockContentKind).toBe(kind);
+      expect(mocks.lockContentOptions?.announcement.teaser.content_kind).toBe(kind);
+    });
+
+    it('keeps a title the creator typed, and still saves the kind', () => {
+      setUpLocks();
+      const { result } = setup(true, true, textDraft('pic', [typed('image/png')]));
+
+      configureLock(result);
+      act(() => result.current.setLockTitle('Sunset over the lake'));
+
+      expect(result.current.lockTitle).toBe('Sunset over the lake');
+      expect(mocks.lockContentOptions?.announcement.teaser).toEqual({
+        lock_title: 'Sunset over the lake',
+        teaser_description: 'teaser',
+        content_kind: 'image',
+      });
+    });
+
+    it('saves no kind before a draft is captured', () => {
+      setUpLocks();
+      setup();
+
+      expect(mocks.lockContentOptions?.announcement.teaser.content_kind).toBeUndefined();
     });
   });
 });
