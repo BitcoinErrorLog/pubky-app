@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   streamId: undefined as string | undefined,
   getDetails: vi.fn(),
   setPostAttachments: vi.fn(),
+  fetchPaykitSetupStatus: vi.fn(),
+  markPaykitConnected: vi.fn(),
   // Last options handed to useCreateLockContent — the locked post the hook would publish.
   lockContentOptions: null as {
     lockedPost: { content: string; kind: unknown; attachments: File[] };
@@ -48,6 +50,12 @@ vi.mock('@/stores/locksAuth/locksAuth.store', () => ({
       selectIsLocksAuthenticated: () => mocks.isAuthed,
       selectIsPaykitConnected: () => mocks.isPaykitConnected,
     }),
+  },
+}));
+vi.mock('@/controllers/locks/locks', () => ({
+  LocksController: {
+    fetchPaykitSetupStatus: (...args: unknown[]) => mocks.fetchPaykitSetupStatus(...args),
+    markPaykitConnected: () => mocks.markPaykitConnected(),
   },
 }));
 vi.mock('@/hooks/useCreateLockContent/useCreateLockContent', () => ({
@@ -135,6 +143,8 @@ describe('usePostInputLock', () => {
     mocks.streamId = undefined;
     mocks.getDetails.mockReset();
     mocks.lockContentOptions = null;
+    mocks.fetchPaykitSetupStatus.mockReset();
+    mocks.markPaykitConnected.mockReset();
   });
 
   describe('locked post content', () => {
@@ -342,17 +352,65 @@ describe('usePostInputLock', () => {
       expect(result.current.lockSwitch?.checked).toBe(true);
     });
 
-    it('opens the modal when Bitkit is not connected, even with a Locks session', () => {
-      mocks.isAuthed = true;
-      const { result } = setup();
+    // #2997: the Paykit answer is in memory only, so after a reload a creator who finished setup is
+    // signed in with it unknown. The Lock Server is asked first, and only a missing setup opens the modal.
+    describe('signed in, Bitkit answer not known yet (#2997)', () => {
+      it('opens the price dialog directly when the Bitkit setup is already done', async () => {
+        mocks.isAuthed = true;
+        mocks.fetchPaykitSetupStatus.mockResolvedValue('ready');
+        const { result } = setup();
 
-      act(() => result.current.lockSwitch?.onCheckedChange(true));
+        act(() => result.current.lockSwitch?.onCheckedChange(true));
 
-      expect(result.current.isAuthDialogOpen).toBe(true);
-      expect(result.current.isLockDialogOpen).toBe(false);
+        await waitFor(() => expect(result.current.isLockDialogOpen).toBe(true));
+        expect(result.current.isAuthDialogOpen).toBe(false);
+        expect(mocks.fetchPaykitSetupStatus).toHaveBeenCalledWith('BTC');
+        // Remembered for the rest of the session, as the modal's own check does.
+        expect(mocks.markPaykitConnected).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ['setup is still required', () => mocks.fetchPaykitSetupStatus.mockResolvedValue('setup_required')],
+        ['Paykit is unavailable', () => mocks.fetchPaykitSetupStatus.mockResolvedValue('unavailable')],
+        ['the check fails', () => mocks.fetchPaykitSetupStatus.mockRejectedValue(new Error('down'))],
+      ])('opens the setup modal when %s', async (_name, answer) => {
+        mocks.isAuthed = true;
+        answer();
+        const { result } = setup();
+
+        act(() => result.current.lockSwitch?.onCheckedChange(true));
+
+        await waitFor(() => expect(result.current.isAuthDialogOpen).toBe(true));
+        expect(result.current.isLockDialogOpen).toBe(false);
+        expect(mocks.markPaykitConnected).not.toHaveBeenCalled();
+      });
+
+      it('opens nothing for an answer that lands after the creator switched off', async () => {
+        mocks.isAuthed = true;
+        let answer: (status: string) => void = () => undefined;
+        mocks.fetchPaykitSetupStatus.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+        const { result } = setup();
+
+        act(() => result.current.lockSwitch?.onCheckedChange(true));
+        act(() => result.current.lockSwitch?.onCheckedChange(false));
+        await act(async () => answer('ready'));
+
+        expect(result.current.isLockDialogOpen).toBe(false);
+        expect(result.current.isAuthDialogOpen).toBe(false);
+        expect(result.current.isLockEnabled).toBe(false);
+      });
+
+      it('does not ask the Lock Server before sign-in', () => {
+        const { result } = setup();
+
+        act(() => result.current.lockSwitch?.onCheckedChange(true));
+
+        expect(mocks.fetchPaykitSetupStatus).not.toHaveBeenCalled();
+        expect(result.current.isAuthDialogOpen).toBe(true);
+      });
     });
 
-    it('goes straight to the lock dialog once Bitkit is connected', () => {
+    it('goes straight to the lock dialog once Bitkit is connected, without asking again', () => {
       mocks.isAuthed = true;
       mocks.isPaykitConnected = true;
       const { result } = setup();
@@ -361,6 +419,7 @@ describe('usePostInputLock', () => {
 
       expect(result.current.isLockDialogOpen).toBe(true);
       expect(result.current.isAuthDialogOpen).toBe(false);
+      expect(mocks.fetchPaykitSetupStatus).not.toHaveBeenCalled();
     });
 
     it('opens the auth modal for the session step when the homeserver session predates /priv', () => {

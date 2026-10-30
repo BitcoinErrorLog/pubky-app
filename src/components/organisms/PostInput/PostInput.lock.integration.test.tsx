@@ -47,6 +47,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/controllers/locks/locks', () => ({
   LocksController: {
     fetchPaykitSetupStatus: mocks.fetchPaykitSetupStatus,
+    markPaykitConnected: () => {
+      mocks.paykitConnected = true;
+    },
     createLockContent: mocks.createLockContent,
     clearSession: mocks.clearSession,
   },
@@ -271,6 +274,25 @@ describe('PostInput lock flow (integration)', () => {
       creator: 'pubkybob',
     });
     mocks.commitCreate.mockResolvedValue('alice:POST1');
+  });
+
+  // #2997: after a reload the creator is still signed in but the Bitkit answer is gone. A finished setup
+  // goes straight to the price dialog; only a missing one opens the setup modal.
+  it.each([
+    ['ready', 'the price dialog', false],
+    ['setup_required', 'the setup modal', true],
+  ] as const)('signed in after a reload with Paykit %s, the switch opens %s', async (status, _what, modal) => {
+    mocks.locksAuthed = true;
+    mocks.fetchPaykitSetupStatus.mockResolvedValue(status);
+    await renderComposer();
+    act(() => mocks.composer.setContent('my secret note'));
+
+    await act(async () => {
+      fireEvent.click(lockSwitch());
+    });
+
+    expect(screen.queryByTestId('auth-dialog') !== null).toBe(modal);
+    expect(screen.queryByLabelText('Bitcoin Amount', { selector: 'input' }) !== null).toBe(!modal);
   });
 
   // Full creator journey: write → switch on → sign in → price → teaser → Post.

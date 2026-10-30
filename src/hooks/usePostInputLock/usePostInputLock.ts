@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import type { TLockConfig } from '@/application/locks/locks.types';
 import { getLockServer, getPaykitServerUrl } from '@/config/network';
+import { LocksController } from '@/controllers/locks/locks';
 import { PostController } from '@/controllers/post/post';
 import { useCreateLockContent } from '@/hooks/useCreateLockContent/useCreateLockContent';
 import { usePaidUnlockAvailability } from '@/hooks/usePaidUnlockAvailability/usePaidUnlockAvailability';
@@ -69,6 +70,9 @@ export function usePostInputLock({
   // The auth modal fires `onOpenChange(false)` on both cancel and the success "Continue"; this flag
   // lets the close handler tell them apart so success advances instead of reverting the switch.
   const advancingFromAuth = useRef(false);
+  // Bumped on every switch change, so a Paykit answer that lands after the creator switched off (or on
+  // again) opens nothing.
+  const setupCheck = useRef(0);
   const timelineFeed = useTimelineFeedContext();
 
   const lockServerPubky = getLockServer() ?? '';
@@ -86,6 +90,28 @@ export function usePostInputLock({
   const isLocksSetUp = () => {
     const store = useLocksAuthStore.getState();
     return store.selectIsLocksAuthenticated() && store.selectIsPaykitConnected() && !needsSessionUpgrade;
+  };
+
+  /**
+   * Signed in and on a session that reaches `/priv`, with only the Paykit answer unknown (after a reload or a
+   * new Locks session). The Lock Server is asked before any dialog opens, so a creator whose Bitkit payout
+   * account is already set up goes straight to the price (#2997). `setup_required`, `unavailable` or a failed
+   * read open the setup modal, which checks again and shows the reason, as before.
+   */
+  const openLockSetup = async (check: number) => {
+    let status: Awaited<ReturnType<typeof LocksController.fetchPaykitSetupStatus>> | null = null;
+    try {
+      status = await LocksController.fetchPaykitSetupStatus(lockConfig?.asset ?? 'BTC');
+    } catch {
+      // Already reported by the Err factory; the modal retries and explains.
+    }
+    if (check !== setupCheck.current) return;
+    if (status === 'ready') {
+      LocksController.markPaykitConnected();
+      setIsLockDialogOpen(true);
+    } else {
+      setIsAuthDialogOpen(true);
+    }
   };
 
   // Optimistic commit of the just-published announcement, like a normal post: local blobs (so the
@@ -166,6 +192,7 @@ export function usePostInputLock({
   };
 
   const onCheckedChange = (checked: boolean) => {
+    setupCheck.current += 1;
     if (!checked) {
       revertToNormalPost();
       return;
@@ -189,8 +216,11 @@ export function usePostInputLock({
 
     // Gate on Locks setup: fully set up → lock content dialog; otherwise the modal, which opens at
     // whichever step is still missing.
+    const store = useLocksAuthStore.getState();
     if (isLocksSetUp()) {
       setIsLockDialogOpen(true);
+    } else if (store.selectIsLocksAuthenticated() && !needsSessionUpgrade) {
+      void openLockSetup(setupCheck.current);
     } else {
       setIsAuthDialogOpen(true);
     }
