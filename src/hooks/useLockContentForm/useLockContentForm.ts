@@ -39,10 +39,16 @@ export function useLockContentForm({
   };
 
   // Applying only records the price. The composer's Post button publishes the lock.
-  const submit = form.handleSubmit(({ amount, asset }) => {
-    const config = parseLockPrice(amount, asset);
-    if (config) onApplied(config);
-  });
+  const submit = async (): Promise<boolean> => {
+    let applied = false;
+    await form.handleSubmit(({ amount, asset }) => {
+      const config = parseLockPrice(amount, asset);
+      if (!config) return;
+      onApplied(config);
+      applied = true;
+    })();
+    return applied;
+  };
 
   return { form, submit, changeAsset };
 }
