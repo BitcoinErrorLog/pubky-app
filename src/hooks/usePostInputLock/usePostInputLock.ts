@@ -9,15 +9,21 @@ import { usePaidUnlockAvailability } from '@/hooks/usePaidUnlockAvailability/use
 import { useSessionNeedsUpgrade } from '@/hooks/useSessionNeedsUpgrade/useSessionNeedsUpgrade';
 import { Logger } from '@/libs/logger/logger';
 import { buildArticleContent } from '@/libs/post/articleContent';
-import { DEFAULT_LOCK_TITLE } from '@/libs/post/lockTeaser';
+import { getLockContentDisplay } from '@/libs/post/lockContentKind';
 import { isViewerExcludedWotStream } from '@/models/stream/post/postStream.types';
 import { toast } from '@/molecules/Toaster/toast';
 import { useTimelineFeedContext } from '@/organisms/Timeline/Feed/TimelineFeed/TimelineFeedContext';
-import { inferPostKindForCreate } from '@/pipes/post/post.kind';
+import { inferPostKindForCreate, toLockContentKind } from '@/pipes/post/post.kind';
 import { postKindBelongsToStream } from '@/stores/home/home.utils';
 import { useLocalFilesStore } from '@/stores/localFiles/localFiles.store';
 import { useLocksAuthStore } from '@/stores/locksAuth/locksAuth.store';
-import type { UsePostInputLockOptions, UsePostInputLockReturn } from './usePostInputLock.types';
+import type { TLockDraft, UsePostInputLockOptions, UsePostInputLockReturn } from './usePostInputLock.types';
+
+/** The kind a lock announcement saves for a captured draft, inferred as a normal post's would be (#2433). */
+const contentKindOf = (draft: TLockDraft) =>
+  toLockContentKind(
+    inferPostKindForCreate({ content: draft.content, attachments: draft.attachments, isArticle: draft.isArticle }),
+  );
 
 /** Turns raw files into the local-blob attachment shape shown before the remote copies are ready. */
 const filesToLocalAttachments = (files: File[]) =>
@@ -111,6 +117,14 @@ export function usePostInputLock({
     })();
   };
 
+  const lockedKind = inferPostKindForCreate({
+    content: lockDraft?.content ?? '',
+    attachments: lockDraft?.attachments,
+    isArticle: lockDraft?.isArticle,
+  });
+  // Saved in the announcement, so the card shows what is locked before anyone unlocks it (#2433).
+  const lockContentKind = lockDraft ? contentKindOf(lockDraft) : undefined;
+
   // Once the switch is on the composer holds the announcement; the locked post is the captured draft,
   // whose kind is inferred exactly as a normal post would be (link / image / video / …).
   // An article draft is serialized the same way a normal publish would (`usePost`): title + body as
@@ -122,18 +136,14 @@ export function usePostInputLock({
       content: lockDraft?.isArticle
         ? buildArticleContent(lockDraft.articleTitle, lockDraft.serializedArticle.body)
         : (lockDraft?.content ?? ''),
-      kind: inferPostKindForCreate({
-        content: lockDraft?.content ?? '',
-        attachments: lockDraft?.attachments,
-        isArticle: lockDraft?.isArticle,
-      }),
+      kind: lockedKind,
       attachments: [
         ...(lockDraft?.attachments ?? []),
         ...(lockDraft?.isArticle ? lockDraft.serializedArticle.inlineFiles : []),
       ],
     },
     announcement: {
-      teaser: { lock_title: lockTitle, teaser_description: announcementContent },
+      teaser: { lock_title: lockTitle, teaser_description: announcementContent, content_kind: lockContentKind },
       attachments: announcementAttachments,
       tags: announcementTags,
     },
@@ -173,8 +183,9 @@ export function usePostInputLock({
     if (!draft) return;
     setLockDraft(draft);
     setLockEnabled(true);
-    // Seed the card's title with the default so it reads as real, editable text (not a placeholder).
-    setLockTitle(DEFAULT_LOCK_TITLE);
+    // Seed the card's title with the default for what is being locked, so it reads as real, editable text
+    // (not a placeholder). A title the creator edits is kept as typed (#2433).
+    setLockTitle(getLockContentDisplay(contentKindOf(draft)).title);
 
     // Gate on Locks setup: fully set up → lock content dialog; otherwise the modal, which opens at
     // whichever step is still missing.
@@ -206,12 +217,21 @@ export function usePostInputLock({
   const handleLockApplied = (config: TLockConfig) => {
     setLockConfig(config);
     setIsLockDialogOpen(false);
-    // Only now swap the still-visible locked draft for the empty announcement composer.
-    clearComposer();
+    // Only the first Apply swaps the still-visible locked draft for the empty announcement composer. A
+    // price change keeps the announcement the creator is writing.
+    if (!isLockConfigured) clearComposer();
   };
 
-  // Dismissing the lock dialog without applying abandons the lock.
-  const closeLockDialog = () => revertToNormalPost();
+  const changeLockPrice = () => setIsLockDialogOpen(true);
+
+  // Dismissing the first lock dialog abandons the lock; dismissing a price change keeps the applied price.
+  const closeLockDialog = () => {
+    if (isLockConfigured) {
+      setIsLockDialogOpen(false);
+      return;
+    }
+    revertToNormalPost();
+  };
 
   // The session was rejected while publishing. Reopen sign-in, keeping the draft and the configured
   // price so the creator only has to sign in again, not redo the lock.
@@ -268,8 +288,10 @@ export function usePostInputLock({
     isLockDialogOpen,
     closeLockDialog,
     handleLockApplied,
+    changeLockPrice,
     lockTitle,
     setLockTitle,
+    lockContentKind,
     submitOrPublish,
     isPublishing,
   };
