@@ -19,6 +19,14 @@ const routeState = vi.hoisted(() => ({
   loading: false,
 }));
 
+// Shop's own column inside the frame: centred at 1200px with `px-6 xl:px-0`, measured against the frame's width.
+const shopColumnDocument = vi.hoisted(
+  () => (content: string) => `<!doctype html><html><head><style>
+      main{box-sizing:border-box;max-width:1200px;margin:0 auto;padding:24px}
+      @media (min-width:1280px){main{padding:24px 0}}
+    </style></head><body style="margin:0;background:transparent;color:white;font:16px sans-serif"><main>${content}</main></body></html>`,
+);
+
 const SHOP_CHROME_IMAGE_URLS = [
   '/pubky-logo.svg',
   '/images/synonym-white-logo.svg',
@@ -245,8 +253,7 @@ vi.mock('@/hooks/useShopEmbed/useShopEmbed', () => ({
     // A real iframe with deterministic local content: no Shop server, auth, signer or payment dependency.
     initialSrc: routeState.loading
       ? null
-      : // Like Shop, the fixture centres its content in the App's 1200px column.
-        `data:text/html,${encodeURIComponent('<!doctype html><html><body style="margin:0;background:transparent;color:white;font:16px sans-serif"><main style="box-sizing:border-box;max-width:1200px;margin:0 auto;padding:24px"><h1>Shop fixture</h1><p>Marketplace content</p></main></body></html>')}`,
+      : `data:text/html,${encodeURIComponent(shopColumnDocument('<h1>Shop fixture</h1><p>Marketplace content</p>'))}`,
     unavailable: routeState.unavailable,
     upgradeOpen: routeState.upgradeOpen,
     closeUpgrade: () => {},
@@ -425,6 +432,22 @@ describe('embedded Shop shell — visual regression', () => {
         expect(frame.contentDocument).toBe(childDocument);
         expect(frame.contentDocument!.querySelector<HTMLInputElement>('#draft')!.value).toBe('Retain this draft');
       }
+    });
+  });
+  it.each([
+    { name: 'lg', viewport: { width: 1024, height: 720 } },
+    { name: 'xl', viewport: VRT_VIEWPORT_DESKTOP },
+  ])('lines Shop content up with the App header column at $name', async ({ viewport }) => {
+    const screen = await renderShop(viewport);
+    const root = screen.getByTestId(VRT_ROOT_TESTID).element();
+    const frame = screen.getByTitle('Pubky Shop').element() as HTMLIFrameElement;
+    await withUnclippedDocument(root, async () => {
+      frame.srcdoc = shopColumnDocument('<h1 id="shop-heading">Market</h1>');
+      await expect.poll(() => Boolean(frame.contentDocument?.getElementById('shop-heading'))).toBe(true);
+      const nav = root.querySelector('header nav')!;
+      const navContentLeft = nav.getBoundingClientRect().left + parseFloat(getComputedStyle(nav).paddingLeft);
+      const heading = frame.contentDocument!.getElementById('shop-heading')!;
+      expect(frame.getBoundingClientRect().left + heading.getBoundingClientRect().left).toBeCloseTo(navContentLeft, 0);
     });
   });
   it('renders the unavailable Shop in the desktop App shell', async () => {
