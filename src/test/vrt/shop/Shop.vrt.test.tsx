@@ -245,7 +245,8 @@ vi.mock('@/hooks/useShopEmbed/useShopEmbed', () => ({
     // A real iframe with deterministic local content: no Shop server, auth, signer or payment dependency.
     initialSrc: routeState.loading
       ? null
-      : `data:text/html,${encodeURIComponent('<!doctype html><html><body style="margin:0;padding:24px;background:transparent;color:white;font:16px sans-serif"><h1>Shop fixture</h1><p>Marketplace content</p></body></html>')}`,
+      : // Like Shop, the fixture centres its content in the App's 1200px column.
+        `data:text/html,${encodeURIComponent('<!doctype html><html><body style="margin:0;background:transparent;color:white;font:16px sans-serif"><main style="box-sizing:border-box;max-width:1200px;margin:0 auto;padding:24px"><h1>Shop fixture</h1><p>Marketplace content</p></main></body></html>')}`,
     unavailable: routeState.unavailable,
     upgradeOpen: routeState.upgradeOpen,
     closeUpgrade: () => {},
@@ -306,15 +307,13 @@ function expectShopViewport(root: HTMLElement | SVGElement, content: HTMLElement
   expect(bounds.top).toBeCloseTo(header.getBoundingClientRect().bottom, 0);
   expect(bounds.bottom).toBeCloseTo(bottom, 0);
   expect(bounds.height).toBeGreaterThan(0);
-  if (desktop) {
-    expect(bounds.left).toBeGreaterThan(0);
-    expect(bounds.width).toBeLessThanOrEqual(1200);
-    expect(window.innerWidth - bounds.right).toBeCloseTo(bounds.left, 0);
-  } else {
-    expect(bounds.left).toBeCloseTo(0, 0);
-    expect(bounds.width).toBeCloseTo(window.innerWidth, 0);
-    expect(footer.getBoundingClientRect().bottom).toBeCloseTo(window.innerHeight, 0);
-  }
+  expect(bounds.left).toBeCloseTo(0, 0);
+  expect(bounds.width).toBeCloseTo(window.innerWidth, 0);
+  // The wheel scrolls whatever is under the pointer: beside a centred column it must still be Shop.
+  const middle = bounds.top + bounds.height / 2;
+  expect(document.elementFromPoint(4, middle)).toBe(content);
+  expect(document.elementFromPoint(window.innerWidth - 4, middle)).toBe(content);
+  if (!desktop) expect(footer.getBoundingClientRect().bottom).toBeCloseTo(window.innerHeight, 0);
   expect(shell.getBoundingClientRect().bottom).toBeCloseTo(window.innerHeight, 0);
   expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(window.innerHeight + 1);
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
