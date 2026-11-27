@@ -191,7 +191,7 @@ describe('PubchiSettings', () => {
       {
         execution: 'synonym-hosted',
         provider_id: 'moonshot',
-        model_id: 'kimi-k3',
+        model_id: 'kimi-k3.1-pro',
         endpoint: null,
       },
       null,
@@ -199,7 +199,7 @@ describe('PubchiSettings', () => {
     );
 
     expect(saveConfig).toHaveBeenCalledWith({
-      brain: expect.objectContaining({ send_public_web_context: false }),
+      brain: expect.objectContaining({ model_id: 'kimi-k3.1-pro', send_public_web_context: false }),
     });
   });
 

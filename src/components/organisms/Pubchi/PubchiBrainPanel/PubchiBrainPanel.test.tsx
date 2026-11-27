@@ -5,7 +5,7 @@ import { PUBCHI_BRAIN_PANEL_SURFACE, PubchiBrainPanel } from './PubchiBrainPanel
 const hosted = {
   execution: 'synonym-hosted' as const,
   provider_id: 'moonshot' as const,
-  model_id: 'kimi-k3' as const,
+  model_id: 'kimi-k3.1-pro' as const,
   endpoint: null,
 };
 

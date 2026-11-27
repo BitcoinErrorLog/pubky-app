@@ -340,7 +340,14 @@ function PubchiDeviceSigners({
 }
 
 function toBrainChoice(brain: PubchiConfigV1['brain'] | undefined): PubchiBrainChoice {
-  if (!brain || brain.execution === 'synonym-hosted') return PUBCHI_HOSTED_BRAIN;
+  if (!brain || brain.execution === 'synonym-hosted') {
+    return {
+      execution: 'synonym-hosted',
+      provider_id: 'moonshot',
+      model_id: brain?.model_id === 'kimi-k3' ? 'kimi-k3' : 'kimi-k3.1-pro',
+      endpoint: null,
+    };
+  }
   return {
     execution: 'self-hosted',
     provider_id: brain.provider_id === 'ollama' ? 'ollama' : 'openai-compatible',
@@ -372,7 +379,12 @@ export async function saveBrain(
         adapter: 'vercel-ai',
         execution: brain.execution,
         provider_id: brain.execution === 'synonym-hosted' ? 'moonshot' : brain.provider_id,
-        model_id: brain.execution === 'synonym-hosted' ? 'kimi-k3' : brain.model_id,
+        model_id:
+          brain.execution === 'synonym-hosted'
+            ? brain.model_id === 'kimi-k3'
+              ? 'kimi-k3'
+              : 'kimi-k3.1-pro'
+            : brain.model_id,
         endpoint: brain.execution === 'synonym-hosted' ? null : brain.endpoint,
         send_public_graph_context: config?.brain.send_public_graph_context ?? true,
         send_public_web_context: config?.brain.send_public_web_context ?? DEFAULT_SEND_PUBLIC_WEB_CONTEXT,

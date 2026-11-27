@@ -15,7 +15,7 @@ export const PHASE0_BRAIN = {
   adapter: 'vercel-ai',
   execution: 'synonym-hosted',
   provider_id: 'moonshot',
-  model_id: 'kimi-k3',
+  model_id: 'kimi-k3.1-pro',
   endpoint: null,
 } as const;
 
@@ -37,7 +37,7 @@ const BrainRefV1Schema = z
     adapter: z.literal(PHASE0_BRAIN.adapter),
     execution: z.literal(PHASE0_BRAIN.execution),
     provider_id: z.literal(PHASE0_BRAIN.provider_id),
-    model_id: z.literal(PHASE0_BRAIN.model_id),
+    model_id: z.enum([PHASE0_BRAIN.model_id, 'kimi-k3']),
     endpoint: z.literal(null),
   })
   .strict();
