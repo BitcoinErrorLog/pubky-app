@@ -6,11 +6,11 @@ Date: 2026-09-06 04:33 WEST. In-browser **Build feed → Apply** on the App work
 
 | Item | Value |
 | --- | --- |
-| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
+| App worktree | `<workspace>/pubky-app-wt-pubchi` |
 | App branch | `pubchi/phase0-app` |
 | App HEAD | `45c1616ac936aec22134f02f7fac46559e89fcb4` (`test(pubchi): pin request canonical form to service`) |
 | App origin | `http://localhost:3001` — page `__PUBKY_CONFIG__`: `pubchiEnabled=true`, `pubchiApiUrl=http://127.0.0.1:8790` |
-| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
+| Pubchi service worktree | `<workspace>/pubky-ai-bot-w3` |
 | Pubchi service HEAD | `c7fe34b` (`docs(pubchi): record K1b re-audit`; `dist/` rebuilt after HEAD, 550 `*.js` newer than worktree HEAD) |
 | Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
 | Pubchi wrapper / child | `21540` (`railway run --service jeb` from linked `pubky-ai-bot-curate` cwd) / `21587` (`node …/pubky-ai-bot-w3/dist/main.js --role pubchi`) |
@@ -173,10 +173,10 @@ Date: 2026-09-06 00:47 WEST. In-browser item 4 on the **fixed** App (`pubky-app-
 
 | Item | Value |
 | --- | --- |
-| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi-fix` |
+| App worktree | `<workspace>/pubky-app-wt-pubchi-fix` |
 | App branch | `pubchi/phase0-app-feedfix` |
 | App HEAD | `55f3d7b882e20ee73582fb933baecafd1632a73c` (`fix(pubchi): route build-feed requests to /v1/feed`) |
-| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
+| Pubchi service worktree | `<workspace>/pubky-ai-bot-w3` |
 | Pubchi service HEAD | `61581d5` |
 | App origin | `http://localhost:3002` (ignore `:3001`) |
 | Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
@@ -281,11 +281,11 @@ Round 3 (Node-signed POSTs; panel blocked by CORS) is kept below as history.
 
 | Item | Value |
 | --- | --- |
-| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
+| App worktree | `<workspace>/pubky-app-wt-pubchi` |
 | App branch | `pubchi/phase0-app` |
 | App HEAD at proof start | `5d45b6e54825920004598715dbf6db7c0d9faa51` (`docs(pubchi): replace phase0 proof with live run`) |
 | App HEAD at proof close | this commit (`docs(pubchi): record in-browser phase0 proof`) |
-| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
+| Pubchi service worktree | `<workspace>/pubky-ai-bot-w3` |
 | Pubchi service HEAD | `61581d5` (CORS allowlist for `http://localhost:3001`, live Scout schema refresh, level-40 log of every non-2xx) |
 | App origin | `http://localhost:3001` — `/settings/pubchi` HTTP 200; session already U |
 | Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
@@ -445,11 +445,11 @@ Date: 2026-09-05. Live integrator round 3. Rounds 1–2 failed on process lifeti
 
 | Item | Value |
 | --- | --- |
-| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
+| App worktree | `<workspace>/pubky-app-wt-pubchi` |
 | App branch | `pubchi/phase0-app` |
 | App HEAD at proof start | `6ebfd5c08cc5650d1ec48eb5d63dceb6d615687f` (`docs(pubchi): record live env names after service return`) |
 | App HEAD at proof close | this commit (`docs(pubchi): replace phase0 proof with live run`) |
-| Jeb / Pubchi worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-jeb` |
+| Jeb / Pubchi worktree | `<workspace>/pubky-ai-bot-jeb` |
 | Jeb HEAD | `d3794cb5a29ad9b92060e41d63a38572a9d5350c` (`Add Phase 0 read-only Pubchi service.`) |
 | App origin | `http://localhost:3001` — `/settings/pubchi` HTTP 200 throughout |
 | Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` throughout |

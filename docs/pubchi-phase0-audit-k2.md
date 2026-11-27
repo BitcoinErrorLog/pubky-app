@@ -2,7 +2,7 @@
 
 **Audit:** OpenCode Kimi, transcript `/tmp/pubchi-stage/kimi-K2.log`  
 **Audit HEAD:** `8010d4ec` (findings also apply at `55f3d7b8`)  
-**Fix worktree:** `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi`  
+**Fix worktree:** `<workspace>/pubky-app-wt-pubchi`  
 **Branch:** `pubchi/phase0-app`  
 **Verdict (Kimi): FIX-FIRST**  
 **This wave:** all P1/P2/P3/P4 items below are FIXED. No waivers.
@@ -76,7 +76,7 @@ Live browser / staging Pubchi (`:3001` / `:8790`) was not re-proven in this wave
 **Audit:** OpenCode Kimi, transcript `/tmp/pubchi-stage/kimi-K2b.log`  
 **Audit HEAD:** `5ac4e5b4`  
 **Fix HEAD:** `30bba522` (`fix(pubchi): close K2b hygiene findings`)  
-**Worktree:** `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi`  
+**Worktree:** `<workspace>/pubky-app-wt-pubchi`  
 **Branch:** `pubchi/phase0-app`  
 **Verdict (Kimi): SHIP** — all P1/P3 items verified fixed; the one PARTIAL (P2 IndexedDB gate) plus four new P4s were hygiene-level. Those four P4s and the PARTIAL are FIXED in `30bba522`.
 
@@ -118,11 +118,11 @@ Playwright browsers **were present** (chromium, firefox, and webkit all launched
 ```
 Error: Failed to import test file .../src/test-utils/vrt.setup.ts
 Caused by: TypeError: Failed to fetch dynamically imported module:
-  http://localhost:63315/@fs/Users/johncarvalho/.cache/pubchi-app-nm/@fontsource-variable/inter-tight/files/inter-tight-latin-wght-normal.woff2?import&url
+  http://localhost:63315/@fs<cache-dir>/pubchi-app-nm/@fontsource-variable/inter-tight/files/inter-tight-latin-wght-normal.woff2?import&url
 webkit: 'font/woff2' is not a valid JavaScript MIME type for module script
 ```
 
-`node_modules` is a symlink to `/Users/johncarvalho/.cache/pubchi-app-nm`. The `?url` woff2 import in `vrt.setup.ts` is served as a JS module from `@fs`. Per brief: did not install browsers, did not hand-edit PNGs. **Baselines not regenerated.**
+`node_modules` is a symlink to `<cache-dir>/pubchi-app-nm`. The `?url` woff2 import in `vrt.setup.ts` is served as a JS module from `@fs`. Per brief: did not install browsers, did not hand-edit PNGs. **Baselines not regenerated.**
 
 Committed PNG md5s (unchanged):
 

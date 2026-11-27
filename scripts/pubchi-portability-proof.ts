@@ -14,8 +14,9 @@ import { Client, Keypair, PublicKey, Pubky, type Session } from '@synonymdev/pub
 
 const STAGING_HS = 'ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy';
 const TESTNET_HS = '8pinxxgqs41n4aididenw5apqp1urfmzdztr8jt4abrkdn435ewo';
-const EVIDENCE = '/Volumes/t7/Pubchi/evidence/w2/w2b';
-const GENERATE = `${homedir()}/.cursor/skills/pubky-staging-invite/scripts/generate.sh`;
+const EVIDENCE = process.env.PUBCHI_EVIDENCE_DIR || './tmp/pubchi-portability-evidence';
+const GENERATE =
+  process.env.PUBKY_STAGING_INVITE_SCRIPT || `${homedir()}/.cursor/skills/pubky-staging-invite/scripts/generate.sh`;
 const PKARR_RELAYS = ['https://pkarr.pubky.app', 'https://pkarr.pubky.org'];
 const BUILDERS_PATH = '/pub/app.pubchi/v1/feeds/builders.json';
 const EXPECTED_FEED = {
