@@ -77,6 +77,7 @@ const mocks = vi.hoisted(() => ({
   loadPubchiCursor: vi.fn(),
   savePubchiCursor: vi.fn(),
   sessionCapabilities: [] as string[],
+  currentUserPubky: 'a'.repeat(52),
 }));
 
 vi.mock('@/libs/pubchi/flags', () => ({
@@ -99,10 +100,10 @@ vi.mock('@/molecules/Toaster/toast', () => ({
 
 vi.mock('@/stores/auth/auth.store', () => ({
   useAuthStore: Object.assign(
-    (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: 'a'.repeat(52) }),
+    (selector: (state: { currentUserPubky: string }) => unknown) => selector({ currentUserPubky: mocks.currentUserPubky }),
     {
       getState: () => ({
-        currentUserPubky: 'a'.repeat(52),
+        currentUserPubky: mocks.currentUserPubky,
         selectSession: () => ({ info: { capabilities: mocks.sessionCapabilities } }),
       }),
     },
@@ -111,6 +112,7 @@ vi.mock('@/stores/auth/auth.store', () => ({
 
 describe('usePubchiQuery', () => {
   beforeEach(() => {
+    mocks.currentUserPubky = 'a'.repeat(52);
     usePubchiStore.getState().clear();
     mocks.fetchPubchiQuery.mockReset();
     mocks.toast.mockReset();
@@ -401,5 +403,50 @@ describe('usePubchiQuery', () => {
     expect(mocks.fetchPubchiQuery).toHaveBeenCalledOnce();
     expect(result.current.errorCode).toBeUndefined();
     expect(result.current.signingAvailable).toBe(true);
+  });
+
+  it('aborts stale setup and does not dispatch under a switched owner', async () => {
+    let resolveOwnerA!: (ready: boolean) => void;
+    let resolveOwnerB!: (ready: boolean) => void;
+    mocks.ensureDeviceReady
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveOwnerA = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveOwnerB = resolve;
+          }),
+      );
+
+    const { result, rerender } = renderHook(() => usePubchiQuery());
+    result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'owner A question');
+    let submitOwnerAPromise!: Promise<boolean>;
+    act(() => {
+      submitOwnerAPromise = result.current.submit('who-tagged-me');
+    });
+    await waitFor(() => expect(mocks.ensureDeviceReady).toHaveBeenCalledTimes(1));
+
+    // Switch authenticated owner before Owner A setup finishes
+    mocks.currentUserPubky = 'b'.repeat(52);
+    rerender();
+    await waitFor(() => expect(mocks.ensureDeviceReady).toHaveBeenCalledTimes(2));
+
+    // Stale Owner A setup resolves true: must NOT dispatch under Owner B or mark Owner B ready
+    await act(async () => {
+      resolveOwnerA(true);
+      await expect(submitOwnerAPromise).resolves.toBe(false);
+    });
+    expect(mocks.fetchPubchiQuery).not.toHaveBeenCalled();
+    expect(result.current.signingAvailable).toBe(false);
+
+    // Owner B setup finishes cleanly
+    await act(async () => {
+      resolveOwnerB(true);
+    });
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
   });
 });

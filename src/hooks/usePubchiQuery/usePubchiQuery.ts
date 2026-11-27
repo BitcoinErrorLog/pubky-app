@@ -34,6 +34,9 @@ export function usePubchiQuery() {
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRequestIdRef = useRef(0);
   const requestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+  const ownerGenerationRef = useRef(0);
+  const activeOwnerRef = useRef<string | null | undefined>(owner);
   const setupPromiseRef = useRef<Promise<boolean> | null>(null);
   const setupAttemptedRef = useRef(false);
   const signingAvailableRef = useRef(false);
@@ -51,12 +54,23 @@ export function usePubchiQuery() {
     defaultValues: pubchiQueryFormDefaults,
   });
 
+  const isSameOwnerGeneration = (gen: number, expectedOwner: string | null | undefined): boolean =>
+    mountedRef.current &&
+    ownerGenerationRef.current === gen &&
+    activeOwnerRef.current === expectedOwner &&
+    useAuthStore.getState().currentUserPubky === expectedOwner;
+
   const setupDevice = async (): Promise<boolean> => {
     if (setupPromiseRef.current) return setupPromiseRef.current;
-    const run = (async () => {
+    const gen = ownerGenerationRef.current;
+    const expectedOwner = activeOwnerRef.current;
+    let run: Promise<boolean> | null = null;
+    run = (async () => {
+      if (!isSameOwnerGeneration(gen, expectedOwner)) return false;
       setSetupLoading(true);
       try {
         const pubchi = await PubchiController.loadPubchi();
+        if (!isSameOwnerGeneration(gen, expectedOwner)) return false;
         const available = Boolean(pubchi?.verified);
         setPubchiAvailable(available);
         if (!available) {
@@ -65,17 +79,23 @@ export function usePubchiQuery() {
           return false;
         }
         const ready = await PubchiController.ensureDeviceReady();
+        if (!isSameOwnerGeneration(gen, expectedOwner)) return false;
         signingAvailableRef.current = ready;
         setSigningAvailable(ready);
         return ready;
       } catch {
+        if (!isSameOwnerGeneration(gen, expectedOwner)) return false;
         signingAvailableRef.current = false;
         setSigningAvailable(false);
         return false;
       } finally {
-        setupAttemptedRef.current = true;
-        setupPromiseRef.current = null;
-        setSetupLoading(false);
+        if (setupPromiseRef.current === run) {
+          setupPromiseRef.current = null;
+        }
+        if (isSameOwnerGeneration(gen, expectedOwner)) {
+          setupAttemptedRef.current = true;
+          setSetupLoading(false);
+        }
       }
     })();
     setupPromiseRef.current = run;
@@ -83,10 +103,27 @@ export function usePubchiQuery() {
   };
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      ownerGenerationRef.current += 1;
+      setupPromiseRef.current = null;
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    ownerGenerationRef.current += 1;
+    activeOwnerRef.current = owner;
+    abortRef.current?.abort();
+    inFlightRequestIdRef.current = 0;
     setupPromiseRef.current = null;
     setupAttemptedRef.current = false;
     signingAvailableRef.current = false;
     setSigningAvailable(false);
+    setPubchiAvailable(undefined);
+    setSetupLoading(false);
+    setLoading(false);
     if (!owner) return;
     void setupDevice();
   }, [owner]);
@@ -122,12 +159,17 @@ export function usePubchiQuery() {
       toast({ variant: 'error', title: 'PUBCHI_DISABLED', dismissButton: true });
       return false;
     }
+    const submitGen = ownerGenerationRef.current;
+    const submitOwner = activeOwnerRef.current;
     let ready = signingAvailableRef.current;
     if (!ready) {
       if (setupPromiseRef.current) {
         ready = await setupPromiseRef.current;
-      } else if (!setupAttemptedRef.current && owner) {
+      } else if (!setupAttemptedRef.current && submitOwner) {
         ready = await setupDevice();
+      }
+      if (!isSameOwnerGeneration(submitGen, submitOwner)) {
+        return false;
       }
     }
     if (!ready) {
@@ -137,6 +179,7 @@ export function usePubchiQuery() {
     let ok = false;
     await form.handleSubmit(
       async (values) => {
+        if (!isSameOwnerGeneration(submitGen, submitOwner)) return;
         abortRef.current?.abort();
         const controller = new AbortController();
         abortRef.current = controller;
@@ -145,6 +188,7 @@ export function usePubchiQuery() {
         const requestGeneration = usePubchiStore.getState().conversationGeneration;
         const isCurrent = () =>
           !controller.signal.aborted &&
+          isSameOwnerGeneration(submitGen, submitOwner) &&
           inFlightRequestIdRef.current === requestId &&
           usePubchiStore.getState().conversationGeneration === requestGeneration;
         setLoading(true);
