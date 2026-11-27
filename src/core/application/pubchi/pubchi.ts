@@ -2810,7 +2810,7 @@ function defaultPubchiConfig(owner: string, bot: string, now: number): PubchiCon
       adapter: 'vercel-ai',
       execution: 'synonym-hosted',
       provider_id: 'moonshot',
-      model_id: 'kimi-k3',
+      model_id: 'kimi-k3.1-pro',
       endpoint: null,
       send_public_graph_context: true,
       send_public_web_context: DEFAULT_SEND_PUBLIC_WEB_CONTEXT,

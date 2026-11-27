@@ -372,7 +372,7 @@ export async function saveBrain(
         adapter: 'vercel-ai',
         execution: brain.execution,
         provider_id: brain.execution === 'synonym-hosted' ? 'moonshot' : brain.provider_id,
-        model_id: brain.execution === 'synonym-hosted' ? 'kimi-k3' : brain.model_id,
+        model_id: brain.execution === 'synonym-hosted' ? 'kimi-k3.1-pro' : brain.model_id,
         endpoint: brain.execution === 'synonym-hosted' ? null : brain.endpoint,
         send_public_graph_context: config?.brain.send_public_graph_context ?? true,
         send_public_web_context: config?.brain.send_public_web_context ?? DEFAULT_SEND_PUBLIC_WEB_CONTEXT,

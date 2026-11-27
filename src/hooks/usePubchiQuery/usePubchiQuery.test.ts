@@ -371,4 +371,35 @@ describe('usePubchiQuery', () => {
     await waitFor(() => expect(result.current.result).toEqual(answerB));
     expect(usePubchiStore.getState().conversation.turns.map((turn) => turn.text)).toEqual([questionB, 'Summary B']);
   });
+
+  it('awaits in-flight setupDevice on reload before failing with SIGNING_UNAVAILABLE', async () => {
+    let resolveDevice!: (ready: boolean) => void;
+    mocks.ensureDeviceReady.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveDevice = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => usePubchiQuery());
+    expect(result.current.signingAvailable).toBe(false);
+
+    result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'who tagged me?');
+    let submitPromise!: Promise<boolean>;
+    act(() => {
+      submitPromise = result.current.submit('who-tagged-me');
+    });
+
+    await waitFor(() => expect(mocks.ensureDeviceReady).toHaveBeenCalledOnce());
+    expect(mocks.fetchPubchiQuery).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveDevice(true);
+      await expect(submitPromise).resolves.toBe(true);
+    });
+
+    expect(mocks.fetchPubchiQuery).toHaveBeenCalledOnce();
+    expect(result.current.errorCode).toBeUndefined();
+    expect(result.current.signingAvailable).toBe(true);
+  });
 });

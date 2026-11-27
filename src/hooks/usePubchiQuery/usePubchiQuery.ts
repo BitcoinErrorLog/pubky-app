@@ -34,6 +34,9 @@ export function usePubchiQuery() {
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRequestIdRef = useRef(0);
   const requestIdRef = useRef(0);
+  const setupPromiseRef = useRef<Promise<boolean> | null>(null);
+  const setupAttemptedRef = useRef(false);
+  const signingAvailableRef = useRef(false);
   const [signingAvailable, setSigningAvailable] = useState(false);
   const [pubchiAvailable, setPubchiAvailable] = useState<boolean | undefined>(undefined);
   const [setupLoading, setSetupLoading] = useState(false);
@@ -49,27 +52,41 @@ export function usePubchiQuery() {
   });
 
   const setupDevice = async (): Promise<boolean> => {
-    setSetupLoading(true);
-    try {
-      const pubchi = await PubchiController.loadPubchi();
-      const available = Boolean(pubchi?.verified);
-      setPubchiAvailable(available);
-      if (!available) {
+    if (setupPromiseRef.current) return setupPromiseRef.current;
+    const run = (async () => {
+      setSetupLoading(true);
+      try {
+        const pubchi = await PubchiController.loadPubchi();
+        const available = Boolean(pubchi?.verified);
+        setPubchiAvailable(available);
+        if (!available) {
+          signingAvailableRef.current = false;
+          setSigningAvailable(false);
+          return false;
+        }
+        const ready = await PubchiController.ensureDeviceReady();
+        signingAvailableRef.current = ready;
+        setSigningAvailable(ready);
+        return ready;
+      } catch {
+        signingAvailableRef.current = false;
         setSigningAvailable(false);
         return false;
+      } finally {
+        setupAttemptedRef.current = true;
+        setupPromiseRef.current = null;
+        setSetupLoading(false);
       }
-      const ready = await PubchiController.ensureDeviceReady();
-      setSigningAvailable(ready);
-      return ready;
-    } catch {
-      setSigningAvailable(false);
-      return false;
-    } finally {
-      setSetupLoading(false);
-    }
+    })();
+    setupPromiseRef.current = run;
+    return run;
   };
 
   useEffect(() => {
+    setupPromiseRef.current = null;
+    setupAttemptedRef.current = false;
+    signingAvailableRef.current = false;
+    setSigningAvailable(false);
     if (!owner) return;
     void setupDevice();
   }, [owner]);
@@ -80,7 +97,7 @@ export function usePubchiQuery() {
       return;
     }
     const startedAt = Date.now();
-    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 50);
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
     return () => window.clearInterval(timer);
   }, [loading]);
 
@@ -105,7 +122,15 @@ export function usePubchiQuery() {
       toast({ variant: 'error', title: 'PUBCHI_DISABLED', dismissButton: true });
       return false;
     }
-    if (!signingAvailable) {
+    let ready = signingAvailableRef.current;
+    if (!ready) {
+      if (setupPromiseRef.current) {
+        ready = await setupPromiseRef.current;
+      } else if (!setupAttemptedRef.current && owner) {
+        ready = await setupDevice();
+      }
+    }
+    if (!ready) {
       setErrorCode(SIGNING_UNAVAILABLE);
       return false;
     }

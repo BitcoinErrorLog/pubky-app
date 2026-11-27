@@ -17,12 +17,12 @@ export const PUBCHI_BRAIN_PANEL_SURFACE = 'pubchi-brain-panel';
 export const PUBCHI_HOSTED_BRAIN: PubchiBrainChoice = {
   execution: 'synonym-hosted',
   provider_id: 'moonshot',
-  model_id: 'kimi-k3',
+  model_id: 'kimi-k3.1-pro',
   endpoint: null,
 };
 
 export type PubchiBrainChoice =
-  | { execution: 'synonym-hosted'; provider_id: 'moonshot'; model_id: 'kimi-k3'; endpoint: null }
+  | { execution: 'synonym-hosted'; provider_id: 'moonshot'; model_id: 'kimi-k3.1-pro' | 'kimi-k3'; endpoint: null }
   | { execution: 'self-hosted'; provider_id: 'openai-compatible' | 'ollama'; model_id: string; endpoint: string };
 
 export type PubchiBrainPanelProps = {
