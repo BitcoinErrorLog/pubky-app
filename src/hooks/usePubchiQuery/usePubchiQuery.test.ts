@@ -449,4 +449,44 @@ describe('usePubchiQuery', () => {
     });
     await waitFor(() => expect(result.current.signingAvailable).toBe(true));
   });
+
+  it('clears result, errorCode, and cursorSource when switching owner mid-cursor-save', async () => {
+    mocks.sessionCapabilities = ['/priv/app.pubchi/v1/:rw'];
+    mocks.fetchPubchiQuery.mockResolvedValue(answer({ owner: 'a'.repeat(52) }));
+    let rejectCursorSave!: (err: Error) => void;
+    mocks.savePubchiCursor.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectCursorSave = reject;
+        }),
+    );
+
+    const { result, rerender } = renderHook(() => usePubchiQuery());
+    await waitFor(() => expect(result.current.signingAvailable).toBe(true));
+
+    result.current.form.setValue(QUERY_FORM_FIELDS.QUESTION, 'What did I miss?');
+    let submitPromise!: Promise<boolean>;
+    act(() => {
+      submitPromise = result.current.submit('ask');
+    });
+
+    await waitFor(() => expect(mocks.savePubchiCursor).toHaveBeenCalledOnce());
+    expect(result.current.result).toBeDefined();
+
+    // Switch to owner B while savePubchiCursor is still pending
+    mocks.currentUserPubky = 'b'.repeat(52);
+    rerender();
+
+    expect(result.current.result).toBeUndefined();
+    expect(result.current.errorCode).toBeUndefined();
+    expect(result.current.cursorSource).toBe('none');
+
+    // Late cursor save rejection for Owner A must not toast for Owner B
+    await act(async () => {
+      rejectCursorSave(new Error('late save failed'));
+      await submitPromise;
+    });
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(result.current.result).toBeUndefined();
+  });
 });

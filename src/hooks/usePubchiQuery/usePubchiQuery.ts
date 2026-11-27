@@ -124,6 +124,9 @@ export function usePubchiQuery() {
     setPubchiAvailable(undefined);
     setSetupLoading(false);
     setLoading(false);
+    setResult(undefined);
+    setErrorCode(undefined);
+    setCursorSource('none');
     if (!owner) return;
     void setupDevice();
   }, [owner]);
@@ -232,6 +235,7 @@ export function usePubchiQuery() {
               if (remoteCursorAvailable) await PubchiController.savePubchiCursor(requestOwner, nextUntil!);
               else writeLocalCursor(requestOwner, nextUntil!);
             } catch (error) {
+              if (!isCurrent()) return;
               Logger.warn('Failed to save Pubchi catch-up position', { error });
               toast({
                 variant: 'warning',
