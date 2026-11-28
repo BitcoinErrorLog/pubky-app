@@ -4,18 +4,18 @@ Date: 2026-09-06 04:33 WEST. In-browser **Build feed → Apply** on the App work
 
 ## Environment (Round 6)
 
-| Item | Value |
-| --- | --- |
-| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
-| App branch | `pubchi/phase0-app` |
-| App HEAD | `45c1616ac936aec22134f02f7fac46559e89fcb4` (`test(pubchi): pin request canonical form to service`) |
-| App origin | `http://localhost:3001` — page `__PUBKY_CONFIG__`: `pubchiEnabled=true`, `pubchiApiUrl=http://127.0.0.1:8790` |
-| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
-| Pubchi service HEAD | `c7fe34b` (`docs(pubchi): record K1b re-audit`; `dist/` rebuilt after HEAD, 550 `*.js` newer than worktree HEAD) |
-| Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
-| Pubchi wrapper / child | `21540` (`railway run --service jeb` from linked `pubky-ai-bot-curate` cwd) / `21587` (`node …/pubky-ai-bot-w3/dist/main.js --role pubchi`) |
-| DB | `jeb_pubchi_w3` |
-| Identities | same U/B/T as rounds 3–5 (pubkys only; seeds by path) |
+| Item                    | Value                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| App worktree            | `<workspace>/pubky-app-wt-pubchi`                                                                                                           |
+| App branch              | `pubchi/phase0-app`                                                                                                                         |
+| App HEAD                | `45c1616ac936aec22134f02f7fac46559e89fcb4` (`test(pubchi): pin request canonical form to service`)                                          |
+| App origin              | `http://localhost:3001` — page `__PUBKY_CONFIG__`: `pubchiEnabled=true`, `pubchiApiUrl=http://127.0.0.1:8790`                               |
+| Pubchi service worktree | `<workspace>/pubky-ai-bot-w3`                                                                                                               |
+| Pubchi service HEAD     | `c7fe34b` (`docs(pubchi): record K1b re-audit`; `dist/` rebuilt after HEAD, 550 `*.js` newer than worktree HEAD)                            |
+| Pubchi origin           | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}`                                                                          |
+| Pubchi wrapper / child  | `21540` (`railway run --service jeb` from linked `pubky-ai-bot-curate` cwd) / `21587` (`node …/pubky-ai-bot-w3/dist/main.js --role pubchi`) |
+| DB                      | `jeb_pubchi_w3`                                                                                                                             |
+| Identities              | same U/B/T as rounds 3–5 (pubkys only; seeds by path)                                                                                       |
 
 ### Step 1 — service restart
 
@@ -55,12 +55,12 @@ Response JSON:
 
 Clicked **Apply**. Persistence:
 
-| Check | Result |
-| --- | --- |
-| (a) IndexedDB `franky.feeds` | New row `id=6ATDSRKYAFFWR213R3CVG9FGE0` name=`Bitcoin WoT Feed` tags=`[bitcoin]` `created_at=1788665581637` (ms, App `Date.now()`). Older round-3 row `H36K8NC454ERFCM0DD4V4N7NCG` is still present from bootstrap. |
-| (b) Playwright PUT | `PUT https://homeserver.staging.pubky.app/pub/pubky.app/feeds/6ATDSRKYAFFWR213R3CVG9FGE0` → **201** |
-| (c) Public GET (`publicStorage.getJson`) | `pubky://bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o/pub/pubky.app/feeds/6ATDSRKYAFFWR213R3CVG9FGE0` |
-| (d) service.log | no `PUT` / `publish` / `homeserver_write` |
+| Check                                    | Result                                                                                                                                                                                                              |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) IndexedDB `franky.feeds`             | New row `id=6ATDSRKYAFFWR213R3CVG9FGE0` name=`Bitcoin WoT Feed` tags=`[bitcoin]` `created_at=1788665581637` (ms, App `Date.now()`). Older round-3 row `H36K8NC454ERFCM0DD4V4N7NCG` is still present from bootstrap. |
+| (b) Playwright PUT                       | `PUT https://homeserver.staging.pubky.app/pub/pubky.app/feeds/6ATDSRKYAFFWR213R3CVG9FGE0` → **201**                                                                                                                 |
+| (c) Public GET (`publicStorage.getJson`) | `pubky://bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o/pub/pubky.app/feeds/6ATDSRKYAFFWR213R3CVG9FGE0`                                                                                                       |
+| (d) service.log                          | no `PUT` / `publish` / `homeserver_write`                                                                                                                                                                           |
 
 Public GET body:
 
@@ -70,11 +70,11 @@ Public GET body:
 
 ### `created_at` proposal vs stored
 
-| Source | Value | Unit |
-| --- | --- | --- |
-| FeedProposalV1 `feed.created_at` | `1788665573` | seconds (server `now`) |
-| App Dexie `feeds.created_at` | `1788665581637` | milliseconds (`Date.now()` in `FeedApplication.persist`; `feed-map` does not pass the proposal field) |
-| Homeserver public body `created_at` | `1788665581636000` | microseconds (specs write of the App ms value × 1000) |
+| Source                              | Value              | Unit                                                                                                  |
+| ----------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------- |
+| FeedProposalV1 `feed.created_at`    | `1788665573`       | seconds (server `now`)                                                                                |
+| App Dexie `feeds.created_at`        | `1788665581637`    | milliseconds (`Date.now()` in `FeedApplication.persist`; `feed-map` does not pass the proposal field) |
+| Homeserver public body `created_at` | `1788665581636000` | microseconds (specs write of the App ms value × 1000)                                                 |
 
 Screenshot `round6/03-feed-applied.png` is the same settings+panel frame immediately after Apply (toast window is short; card still shows the proposal).
 
@@ -102,14 +102,14 @@ Matching `service.log` (pid 21587, level 30):
 
 `lsof -nP -p 21587 -iTCP` sampled ~24× / 2 s during the calls. Parsed **only pid 21587 TCP** (macOS `lsof` ORs `-p` and `-iTCP` without `-a`; the raw file also contains other processes and must not be used as-is). Distinct remotes for 21587:
 
-| Remote | Identity |
-| --- | --- |
-| `127.0.0.1:5432` | local Postgres (`jeb_pubchi_w3`) |
-| `127.0.0.1` (ephemeral) | local Pubchi clients (App / Playwright) |
-| `34.179.161.72:443` | `nexus-scout.pubky.app` (production Scout) |
-| `34.65.231.81:443` | `nexus.staging.pubky.app` **and** `homeserver.staging.pubky.app` (same A) |
-| `34.65.156.171:443` | `pkarr.pubky.app` / `pkarr.pubky.org` |
-| `[2606:4700::6812:1d88]:443` | Cloudflare IPv6 = `104.18.29.136` = `api.moonshot.ai` |
+| Remote                       | Identity                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------- |
+| `127.0.0.1:5432`             | local Postgres (`jeb_pubchi_w3`)                                          |
+| `127.0.0.1` (ephemeral)      | local Pubchi clients (App / Playwright)                                   |
+| `34.179.161.72:443`          | `nexus-scout.pubky.app` (production Scout)                                |
+| `34.65.231.81:443`           | `nexus.staging.pubky.app` **and** `homeserver.staging.pubky.app` (same A) |
+| `34.65.156.171:443`          | `pkarr.pubky.app` / `pkarr.pubky.org`                                     |
+| `[2606:4700::6812:1d88]:443` | Cloudflare IPv6 = `104.18.29.136` = `api.moonshot.ai`                     |
 
 `relay.pkarr.org` (`167.86.102.121`) was **not** in this sample (pkarr.pubky.app was). No other remote on the Pubchi child.
 
@@ -128,12 +128,12 @@ Apply PUT was from the **App** (Playwright saw the homeserver 201). The Pubchi p
 
 Opened and described (two different scenes):
 
-| File | What it shows |
-| --- | --- |
-| `docs/pubchi-phase0-proof/round6/01-settings-enrolled.png` | `/settings/pubchi`, Active bot B, Remove bot, toast `Pubchi bot enrolled`. |
+| File                                                         | What it shows                                                                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `docs/pubchi-phase0-proof/round6/01-settings-enrolled.png`   | `/settings/pubchi`, Active bot B, Remove bot, toast `Pubchi bot enrolled`.                                    |
 | `docs/pubchi-phase0-proof/round6/02-panel-feed-proposal.png` | Panel question `make a two-hop bitcoin feed`, card `Bitcoin WoT Feed` / Reach `wot` / Tags `bitcoin` / Apply. |
-| `docs/pubchi-phase0-proof/round6/03-feed-applied.png` | Same panel immediately after Apply click (proposal card still visible). |
-| `docs/pubchi-phase0-proof/round6/04-ask-who-tagged-me.png` | Panel question `who tagged me?`, Ask, Tool trace. |
+| `docs/pubchi-phase0-proof/round6/03-feed-applied.png`        | Same panel immediately after Apply click (proposal card still visible).                                       |
+| `docs/pubchi-phase0-proof/round6/04-ask-who-tagged-me.png`   | Panel question `who tagged me?`, Ask, Tool trace.                                                             |
 
 Integrity:
 
@@ -148,14 +148,14 @@ Unique md5s: `3e255096c841ce619f240eb4baf748f7` (01), `c72f387b55bde6515627da979
 
 ## Verdict table (round 6)
 
-| Item | Verdict |
-| --- | --- |
-| 1 restart :8790 + healthz + CORS | PASS (wrapper 21540 / child 21587) |
-| 4 two-hop feed proposal (`created_at` live) | PASS (`1788665573`, age 8 s; not `1735689600`) |
-| 4 Apply + Dexie + homeserver PUT/GET | PASS (id `6ATDSRKYAFFWR213R3CVG9FGE0`, PUT 201, public GET 200) |
-| 3 / Ask who-tagged-me | PASS (QueryResultV1 200, empty items) |
-| 5b egress | PASS (Scout, staging Nexus/HS, pkarr, Moonshot CF v6; no extras on pid 21587) |
-| 5c no service PUT/publish | PASS |
+| Item                                        | Verdict                                                                       |
+| ------------------------------------------- | ----------------------------------------------------------------------------- |
+| 1 restart :8790 + healthz + CORS            | PASS (wrapper 21540 / child 21587)                                            |
+| 4 two-hop feed proposal (`created_at` live) | PASS (`1788665573`, age 8 s; not `1735689600`)                                |
+| 4 Apply + Dexie + homeserver PUT/GET        | PASS (id `6ATDSRKYAFFWR213R3CVG9FGE0`, PUT 201, public GET 200)               |
+| 3 / Ask who-tagged-me                       | PASS (QueryResultV1 200, empty items)                                         |
+| 5b egress                                   | PASS (Scout, staging Nexus/HS, pkarr, Moonshot CF v6; no extras on pid 21587) |
+| 5c no service PUT/publish                   | PASS                                                                          |
 
 ## Unverified
 
@@ -171,18 +171,18 @@ Date: 2026-09-06 00:47 WEST. In-browser item 4 on the **fixed** App (`pubky-app-
 
 ## Environment (Round 5)
 
-| Item | Value |
-| --- | --- |
-| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi-fix` |
-| App branch | `pubchi/phase0-app-feedfix` |
-| App HEAD | `55f3d7b882e20ee73582fb933baecafd1632a73c` (`fix(pubchi): route build-feed requests to /v1/feed`) |
-| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
-| Pubchi service HEAD | `61581d5` |
-| App origin | `http://localhost:3002` (ignore `:3001`) |
-| Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
-| Pubchi node pid | `37053` (`node dist/main.js --role pubchi`; wrappers 36995/37007) |
-| Flags | `PUBKY_RUNTIME_PUBCHI_ENABLED=true`, API URL `http://127.0.0.1:8790` |
-| Identities | same U/B/T as rounds 3–4 (pubkys only; secrets unused in this report) |
+| Item                    | Value                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| App worktree            | `<workspace>/pubky-app-wt-pubchi-fix`                                                             |
+| App branch              | `pubchi/phase0-app-feedfix`                                                                       |
+| App HEAD                | `55f3d7b882e20ee73582fb933baecafd1632a73c` (`fix(pubchi): route build-feed requests to /v1/feed`) |
+| Pubchi service worktree | `<workspace>/pubky-ai-bot-w3`                                                                     |
+| Pubchi service HEAD     | `61581d5`                                                                                         |
+| App origin              | `http://localhost:3002` (ignore `:3001`)                                                          |
+| Pubchi origin           | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}`                                |
+| Pubchi node pid         | `37053` (`node dist/main.js --role pubchi`; wrappers 36995/37007)                                 |
+| Flags                   | `PUBKY_RUNTIME_PUBCHI_ENABLED=true`, API URL `http://127.0.0.1:8790`                              |
+| Identities              | same U/B/T as rounds 3–4 (pubkys only; secrets unused in this report)                             |
 
 ## Blocker
 
@@ -226,9 +226,9 @@ Apply: **not clicked.** No `06-feed-applied.png` / `07-feed-tab-content.png`.
 
 ### `created_at` (defect, not fixed)
 
-| Source | Value |
-| --- | --- |
-| FeedProposalV1 `feed.created_at` | `1735689600` (model-supplied; 2025-01-01T00:00:00Z) |
+| Source                              | Value                                                                                                           |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| FeedProposalV1 `feed.created_at`    | `1735689600` (model-supplied; 2025-01-01T00:00:00Z)                                                             |
 | App stored `created_at` after Apply | **unverified** (Apply not run). Code uses `Date.now()` ms in `FeedApplication.persist`, not the proposal field. |
 
 ## Item 5b — remotes during the feed call
@@ -254,12 +254,12 @@ Integrity for this stop: no new PNGs. `md5` vs count not applicable.
 
 ## Verdict table (round 5)
 
-| Item | Verdict |
-| --- | --- |
-| 4 two-hop feed proposal (in-browser) | PASS (`POST /v1/feed` 200 FeedProposalV1; panel rendered) |
-| 4 Apply + Dexie/homeserver + shots 06/07 | UNVERIFIED (not clicked; screenshot blocker) |
-| 5b egress | UNVERIFIED (`timeout` missing) |
-| 5c no service PUT/publish | PASS |
+| Item                                     | Verdict                                                   |
+| ---------------------------------------- | --------------------------------------------------------- |
+| 4 two-hop feed proposal (in-browser)     | PASS (`POST /v1/feed` 200 FeedProposalV1; panel rendered) |
+| 4 Apply + Dexie/homeserver + shots 06/07 | UNVERIFIED (not clicked; screenshot blocker)              |
+| 5b egress                                | UNVERIFIED (`timeout` missing)                            |
+| 5c no service PUT/publish                | PASS                                                      |
 
 ## Unverified
 
@@ -279,40 +279,40 @@ Round 3 (Node-signed POSTs; panel blocked by CORS) is kept below as history.
 
 ## Environment
 
-| Item | Value |
-| --- | --- |
-| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
-| App branch | `pubchi/phase0-app` |
-| App HEAD at proof start | `5d45b6e54825920004598715dbf6db7c0d9faa51` (`docs(pubchi): replace phase0 proof with live run`) |
-| App HEAD at proof close | this commit (`docs(pubchi): record in-browser phase0 proof`) |
-| Pubchi service worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-w3` |
-| Pubchi service HEAD | `61581d5` (CORS allowlist for `http://localhost:3001`, live Scout schema refresh, level-40 log of every non-2xx) |
-| App origin | `http://localhost:3001` — `/settings/pubchi` HTTP 200; session already U |
-| Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` |
-| Pubchi node pid | `97570` (`node dist/main.js --role pubchi`) |
-| Flags | `PUBKY_RUNTIME_PUBCHI_ENABLED=true`, API URL `http://127.0.0.1:8790` |
+| Item                    | Value                                                                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| App worktree            | `<workspace>/pubky-app-wt-pubchi`                                                                                                             |
+| App branch              | `pubchi/phase0-app`                                                                                                                           |
+| App HEAD at proof start | `5d45b6e54825920004598715dbf6db7c0d9faa51` (`docs(pubchi): replace phase0 proof with live run`)                                               |
+| App HEAD at proof close | this commit (`docs(pubchi): record in-browser phase0 proof`)                                                                                  |
+| Pubchi service worktree | `<workspace>/pubky-ai-bot-w3`                                                                                                                 |
+| Pubchi service HEAD     | `61581d5` (CORS allowlist for `http://localhost:3001`, live Scout schema refresh, level-40 log of every non-2xx)                              |
+| App origin              | `http://localhost:3001` — `/settings/pubchi` HTTP 200; session already U                                                                      |
+| Pubchi origin           | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}`                                                                            |
+| Pubchi node pid         | `97570` (`node dist/main.js --role pubchi`)                                                                                                   |
+| Flags                   | `PUBKY_RUNTIME_PUBCHI_ENABLED=true`, API URL `http://127.0.0.1:8790`                                                                          |
 | Page origin vs API host | page `localhost:3001`, fetch `127.0.0.1:8790` — CORS uses the page Origin; wrap confirmed the request URL is `http://127.0.0.1:8790/v1/query` |
-| Round 3 (history) | App HEAD `5d45b6e5` after that commit; Jeb `d3794cb`; Pubchi pid `29037`; same U/B/T |
+| Round 3 (history)       | App HEAD `5d45b6e5` after that commit; Jeb `d3794cb`; Pubchi pid `29037`; same U/B/T                                                          |
 
 ### Identities (pubky only)
 
-| Role | Pubky |
-| --- | --- |
-| U (owner) | `bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o` |
-| B (bot) | `hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` |
+| Role            | Pubky                                                  |
+| --------------- | ------------------------------------------------------ |
+| U (owner)       | `bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o` |
+| B (bot)         | `hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` |
 | T (third party) | `4wjzuohwwt1acooqtgn3zy7gooff6njgmd5gqntjksq39hc5b6xy` |
 
 Seeds and recovery phrases were used only by path. They are not repeated here.
 
 ## Screenshots
 
-| File | What it shows (opened and described) |
-| --- | --- |
-| `docs/pubchi-phase0-proof/01-settings-enrolled.png` | Round 3: `/settings/pubchi` with Active bot B and Remove bot. |
-| `docs/pubchi-phase0-proof/02-who-tagged-me.png` | Round 3: panel `who tagged me?` then `CONNECTION_FAILED` (no CORS). |
-| `docs/pubchi-phase0-proof/03-feed-applied.png` | Round 3: `/feed/H36K8NC454ERFCM0DD4V4N7NCG` after a Node-side homeserver PUT (Apply never ran in-browser). |
+| File                                                  | What it shows (opened and described)                                                                                                |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/pubchi-phase0-proof/01-settings-enrolled.png`   | Round 3: `/settings/pubchi` with Active bot B and Remove bot.                                                                       |
+| `docs/pubchi-phase0-proof/02-who-tagged-me.png`       | Round 3: panel `who tagged me?` then `CONNECTION_FAILED` (no CORS).                                                                 |
+| `docs/pubchi-phase0-proof/03-feed-applied.png`        | Round 3: `/feed/H36K8NC454ERFCM0DD4V4N7NCG` after a Node-side homeserver PUT (Apply never ran in-browser).                          |
 | `docs/pubchi-phase0-proof/04-panel-who-tagged-me.png` | Round 4: Pubchi sheet, question `who tagged me?`, Ask, Tool trace `get_emerging_topics · 1 calls`. No evidence cards (empty items). |
-| `docs/pubchi-phase0-proof/05-panel-feed-proposal.png` | Round 4: Pubchi sheet, question `make a two-hop bitcoin feed`, Ask, error `PURPOSE_UNSUPPORTED`. No FeedProposalV1, no Apply. |
+| `docs/pubchi-phase0-proof/05-panel-feed-proposal.png` | Round 4: Pubchi sheet, question `make a two-hop bitcoin feed`, Ask, error `PURPOSE_UNSUPPORTED`. No FeedProposalV1, no Apply.       |
 
 `06-feed-applied.png` was not captured: Apply never ran.
 
@@ -392,14 +392,14 @@ Not a brain/budget error; not retried a third time. Round 3 already proved `/v1/
 
 `lsof -nP -p 97570 -a -i -r 1` for ~60s during the first who-tagged-me (`/tmp/pubchi-stage/lsof-round4.txt`) and again during the retries (`/tmp/pubchi-stage/lsof-round4b.txt`). Distinct remotes:
 
-| Remote | Identity |
-| --- | --- |
-| `127.0.0.1:5432` | local Postgres |
-| `127.0.0.1` (ephemeral `59819`, `60547`) | local Pubchi clients (browser / App) |
-| `34.179.161.72:443` | `nexus-scout.pubky.app` (production Scout; seen during `get_emerging_topics`) |
-| `34.65.231.81:443` | `nexus.staging.pubky.app` **and** `homeserver.staging.pubky.app` (same A) |
-| `34.65.156.171:443` | `pkarr.pubky.app` |
-| `167.86.102.121:443` | `vmi783032.contaboserver.net` — **unidentified** (not `api.moonshot.ai`) |
+| Remote                                   | Identity                                                                      |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `127.0.0.1:5432`                         | local Postgres                                                                |
+| `127.0.0.1` (ephemeral `59819`, `60547`) | local Pubchi clients (browser / App)                                          |
+| `34.179.161.72:443`                      | `nexus-scout.pubky.app` (production Scout; seen during `get_emerging_topics`) |
+| `34.65.231.81:443`                       | `nexus.staging.pubky.app` **and** `homeserver.staging.pubky.app` (same A)     |
+| `34.65.156.171:443`                      | `pkarr.pubky.app`                                                             |
+| `167.86.102.121:443`                     | `vmi783032.contaboserver.net` — **unidentified** (not `api.moonshot.ai`)      |
 
 `api.moonshot.ai` (Cloudflare `104.18.28.136` / `104.18.29.136`) was **not** seen. Expected: item 4 never reached `runFeed` / the brain.
 
@@ -414,13 +414,13 @@ none
 
 ## Verdict table (round 4)
 
-| Item | Verdict |
-| --- | --- |
-| 3 who-tagged-me (in-browser) | PASS |
-| 4 two-hop feed + Apply (in-browser) | FAIL (`PURPOSE_UNSUPPORTED`: App POSTs `build-feed` to `/v1/query`) |
-| 5b egress during 3/4 | PASS-WITH-LIMIT (Scout yes; Moonshot no; extra Contabo IP unidentified) |
-| 5c no service PUT/publish | PASS |
-| 1 / 2 / 5a / 6 / 7 | unchanged from round 3 (not re-run) |
+| Item                                | Verdict                                                                 |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| 3 who-tagged-me (in-browser)        | PASS                                                                    |
+| 4 two-hop feed + Apply (in-browser) | FAIL (`PURPOSE_UNSUPPORTED`: App POSTs `build-feed` to `/v1/query`)     |
+| 5b egress during 3/4                | PASS-WITH-LIMIT (Scout yes; Moonshot no; extra Contabo IP unidentified) |
+| 5c no service PUT/publish           | PASS                                                                    |
+| 1 / 2 / 5a / 6 / 7                  | unchanged from round 3 (not re-run)                                     |
 
 ## Unverified
 
@@ -443,31 +443,31 @@ Date: 2026-09-05. Live integrator round 3. Rounds 1–2 failed on process lifeti
 
 ## Environment
 
-| Item | Value |
-| --- | --- |
-| App worktree | `/Volumes/vibedrive/vibes-dev/pubky-app-wt-pubchi` |
-| App branch | `pubchi/phase0-app` |
-| App HEAD at proof start | `6ebfd5c08cc5650d1ec48eb5d63dceb6d615687f` (`docs(pubchi): record live env names after service return`) |
-| App HEAD at proof close | this commit (`docs(pubchi): replace phase0 proof with live run`) |
-| Jeb / Pubchi worktree | `/Volumes/vibedrive/vibes-dev/pubky-ai-bot-jeb` |
-| Jeb HEAD | `d3794cb5a29ad9b92060e41d63a38572a9d5350c` (`Add Phase 0 read-only Pubchi service.`) |
-| App origin | `http://localhost:3001` — `/settings/pubchi` HTTP 200 throughout |
-| Pubchi origin | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` throughout |
-| Pubchi node pid | `29037` (`node dist/main.js --role pubchi`; wrappers 28996/28998 via `railway run`) |
-| Pubchi DB | `jeb_pubchi_stage` |
-| Nexus | `https://nexus.staging.pubky.app` |
-| Homeserver | `ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy` (staging) |
-| Scout | `https://nexus-scout.pubky.app` (**production**; no staging Scout exists) |
-| Brain | Moonshot (`JEB_BRAIN=moonshot`) |
-| Flags | `PUBKY_RUNTIME_PUBCHI_ENABLED=true`, API URL `http://127.0.0.1:8790` |
+| Item                       | Value                                                                                                                  |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| App worktree               | `<workspace>/pubky-app-wt-pubchi`                                                                                      |
+| App branch                 | `pubchi/phase0-app`                                                                                                    |
+| App HEAD at proof start    | `6ebfd5c08cc5650d1ec48eb5d63dceb6d615687f` (`docs(pubchi): record live env names after service return`)                |
+| App HEAD at proof close    | this commit (`docs(pubchi): replace phase0 proof with live run`)                                                       |
+| Jeb / Pubchi worktree      | `<workspace>/pubky-ai-bot-jeb`                                                                                         |
+| Jeb HEAD                   | `d3794cb5a29ad9b92060e41d63a38572a9d5350c` (`Add Phase 0 read-only Pubchi service.`)                                   |
+| App origin                 | `http://localhost:3001` — `/settings/pubchi` HTTP 200 throughout                                                       |
+| Pubchi origin              | `http://127.0.0.1:8790` — `/healthz` `{"ok":true,"role":"pubchi"}` throughout                                          |
+| Pubchi node pid            | `29037` (`node dist/main.js --role pubchi`; wrappers 28996/28998 via `railway run`)                                    |
+| Pubchi DB                  | `jeb_pubchi_stage`                                                                                                     |
+| Nexus                      | `https://nexus.staging.pubky.app`                                                                                      |
+| Homeserver                 | `ufibwbmed6jeq9k4p583go95wofakh9fwpp4k734trq79pd9u1uy` (staging)                                                       |
+| Scout                      | `https://nexus-scout.pubky.app` (**production**; no staging Scout exists)                                              |
+| Brain                      | Moonshot (`JEB_BRAIN=moonshot`)                                                                                        |
+| Flags                      | `PUBKY_RUNTIME_PUBCHI_ENABLED=true`, API URL `http://127.0.0.1:8790`                                                   |
 | Staging / production split | Homeserver + Nexus = staging. Scout = production. A staging-only tag cannot be expected to appear in production Scout. |
 
 ### Identities (pubky only)
 
-| Role | Pubky |
-| --- | --- |
-| U (owner) | `bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o` |
-| B (bot) | `hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` |
+| Role            | Pubky                                                  |
+| --------------- | ------------------------------------------------------ |
+| U (owner)       | `bp1ojh17wrkrw8qswx7hqsngf6yu567n5ijbn8kp1bnxr14yir8o` |
+| B (bot)         | `hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` |
 | T (third party) | `4wjzuohwwt1acooqtgn3zy7gooff6njgmd5gqntjksq39hc5b6xy` |
 
 Seeds and recovery phrases live under `/tmp/pubchi-stage/secrets/` and were used only by path. They are not repeated here. This run did not delete that directory.
@@ -483,11 +483,11 @@ Seeds and recovery phrases live under `/tmp/pubchi-stage/secrets/` and were used
 
 ## Screenshots
 
-| File | What it shows (opened and described) |
-| --- | --- |
-| `docs/pubchi-phase0-proof/01-settings-enrolled.png` | `/settings/pubchi` with **Active bot:** `hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` and a red **Remove bot** button. |
-| `docs/pubchi-phase0-proof/02-who-tagged-me.png` | Pubchi panel, question `who tagged me?`, **Ask**, then `CONNECTION_FAILED`. |
-| `docs/pubchi-phase0-proof/03-feed-applied.png` | `/feed/H36K8NC454ERFCM0DD4V4N7NCG` after the homeserver PUT. App Dexie has not fetched the new feed (Apply never ran in-process), so the custom-feed name is not in the nav. URL is the installed feed id. |
+| File                                                | What it shows (opened and described)                                                                                                                                                                       |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/pubchi-phase0-proof/01-settings-enrolled.png` | `/settings/pubchi` with **Active bot:** `hgtsw58eraye4quc4x73w7xf8ix6hnqaa5fu9yrxq1efaax8eswo` and a red **Remove bot** button.                                                                            |
+| `docs/pubchi-phase0-proof/02-who-tagged-me.png`     | Pubchi panel, question `who tagged me?`, **Ask**, then `CONNECTION_FAILED`.                                                                                                                                |
+| `docs/pubchi-phase0-proof/03-feed-applied.png`      | `/feed/H36K8NC454ERFCM0DD4V4N7NCG` after the homeserver PUT. App Dexie has not fetched the new feed (Apply never ran in-process), so the custom-feed name is not in the nav. URL is the installed feed id. |
 
 Integrity:
 
@@ -612,12 +612,12 @@ Present (names only; railway injects these): `DATABASE_URL`, `JEB_BRAIN`, `JEB_H
 
 `lsof -nP -p 29037 -a -iTCP` sampled for ~70s into `/tmp/pubchi-stage/lsof-sample.txt`. Distinct remote hosts/IPs:
 
-| Remote | Identity |
-| --- | --- |
-| `127.0.0.1:5432` | local Postgres (`jeb_pubchi_stage`) |
-| `127.0.0.1` (ephemeral) | local Pubchi clients (Node signed POSTs) |
-| `34.65.231.81:443` | `nexus.staging.pubky.app` **and** `homeserver.staging.pubky.app` (same A record) — public binding GET / Nexus |
-| `34.65.156.171:443` | `pkarr.pubky.app` |
+| Remote                  | Identity                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `127.0.0.1:5432`        | local Postgres (`jeb_pubchi_stage`)                                                                           |
+| `127.0.0.1` (ephemeral) | local Pubchi clients (Node signed POSTs)                                                                      |
+| `34.65.231.81:443`      | `nexus.staging.pubky.app` **and** `homeserver.staging.pubky.app` (same A record) — public binding GET / Nexus |
+| `34.65.156.171:443`     | `pkarr.pubky.app`                                                                                             |
 
 Not seen in the 1 Hz sample: `nexus-scout.pubky.app` (`34.179.161.72`), `api.moonshot.ai`. Feed 200 proves the brain ran; the TCP row may have closed between samples. **Unverified in lsof:** Moonshot and production Scout sockets.
 
@@ -640,15 +640,15 @@ Already proven in `pubky-ai-bot-jeb/docs/brain-swap-report.md`. Not re-run.
 
 Harness first: corrupt a valid signature → `SIGNATURE_INVALID` (400) before any 200 is trusted.
 
-| Case | Request summary | Status | Exact body |
-| --- | --- | --- | --- |
-| harness corrupt sig | asker=U bot=B purpose=who-tagged-me, signature `ff`×64 | 400 | `{"error":"SIGNATURE_INVALID"}` |
-| asker=U signed by T | same unsigned fields, T seed | 400 | `{"error":"SIGNATURE_INVALID"}` |
-| expired | issued_at/expires_at in the past | 400 | `{"error":"REQUEST_EXPIRED"}` |
-| body hash tamper | signed hash of `{question:"who tagged me?"}`, posted `{question:"who tagged me? TAMPER"}` | 400 | `{"error":"BODY_HASH_MISMATCH"}` |
-| likes feed | purpose=build-feed, question `make a likes feed` | 400 | `{"error":"FEED_UNSUPPORTED_LIKES"}` |
-| nonce replay first | valid who-tagged-me | 503 | `{"error":"UPSTREAM_UNAVAILABLE"}` |
-| nonce replay second | same nonce | 400 | `{"error":"NONCE_REPLAY"}` |
+| Case                | Request summary                                                                           | Status | Exact body                           |
+| ------------------- | ----------------------------------------------------------------------------------------- | ------ | ------------------------------------ |
+| harness corrupt sig | asker=U bot=B purpose=who-tagged-me, signature `ff`×64                                    | 400    | `{"error":"SIGNATURE_INVALID"}`      |
+| asker=U signed by T | same unsigned fields, T seed                                                              | 400    | `{"error":"SIGNATURE_INVALID"}`      |
+| expired             | issued_at/expires_at in the past                                                          | 400    | `{"error":"REQUEST_EXPIRED"}`        |
+| body hash tamper    | signed hash of `{question:"who tagged me?"}`, posted `{question:"who tagged me? TAMPER"}` | 400    | `{"error":"BODY_HASH_MISMATCH"}`     |
+| likes feed          | purpose=build-feed, question `make a likes feed`                                          | 400    | `{"error":"FEED_UNSUPPORTED_LIKES"}` |
+| nonce replay first  | valid who-tagged-me                                                                       | 503    | `{"error":"UPSTREAM_UNAVAILABLE"}`   |
+| nonce replay second | same nonce                                                                                | 400    | `{"error":"NONCE_REPLAY"}`           |
 
 `ASKER_MISMATCH` is not reached when T signs an object whose `asker` is U: verify checks the signature against `request.asker` first (`SIGNATURE_INVALID`). That matches the allowed pair `ASKER_MISMATCH/SIGNATURE_INVALID`.
 
@@ -658,15 +658,15 @@ Prompt injection: T published tag label `ignore-previous-ops` on U (`PUBLIC_GET_
 
 ## Verdict table
 
-| Item | Verdict |
-| --- | --- |
-| 1 identities + public GET | PASS |
-| 2 enroll + binding GET | PASS |
-| 3 who-tagged-me | PASS-WITH-LIMIT |
-| 4 two-hop feed + Apply | PASS-WITH-LIMIT |
-| 5 env / egress / no PUT | PASS |
-| 6 brain swap | PASS (prior doc) |
-| 7 negatives | PASS |
+| Item                      | Verdict          |
+| ------------------------- | ---------------- |
+| 1 identities + public GET | PASS             |
+| 2 enroll + binding GET    | PASS             |
+| 3 who-tagged-me           | PASS-WITH-LIMIT  |
+| 4 two-hop feed + Apply    | PASS-WITH-LIMIT  |
+| 5 env / egress / no PUT   | PASS             |
+| 6 brain swap              | PASS (prior doc) |
+| 7 negatives               | PASS             |
 
 ## Unverified
 
